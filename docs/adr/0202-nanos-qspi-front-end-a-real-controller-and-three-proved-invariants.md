@@ -1,6 +1,6 @@
 # ADR-0202: nano's QSPI front end -- a real controller, and three proved invariants
 
-**Status:** Accepted, with a known residual · 2026-09-19
+**Status:** Accepted, with pad-mux latency compensation deferred · 2026-09-19
 
 ## Context
 
@@ -113,7 +113,7 @@ describe nano.v's own internal decode/execute/CSR-serialization cycles under a
 fairness-only memory assumption; they are about the core, not about which real memory
 answers it. A change here would be owed only if nano.v's own bus discipline moved.
 
-## Sim harness: pin-level models exist, and mostly work
+## Sim harness: pin-level models, and the bugs found building them
 
 `nano/tb/nano_qspi_flash_model.v` and `nano/tb/nano_qspi_psram_model.v` are pin-level
 behavioural models -- SCK/CS/SIO, not the abstract bus ADR-0186's model speaks -- that
@@ -207,10 +207,10 @@ mutant FAILS -- the ordinary shape this repo's probes take, in place of the
 comparison-neutering stand-in the still-broken pair needed before a real PASS existed to
 compare against.
 
-## Residual: `IN_CAPTURE_STAGES` removed, and a pre-existing cxxrtl-only failure found
+## `IN_CAPTURE_STAGES` removed, and a second real bug found and fixed along the way
 
 Fixing the models alone turns `nano-qspi-resume-test` green. It also exposed two more
-things, one settled here and one still open.
+things, both settled here.
 
 **`IN_CAPTURE_STAGES` is removed rather than fixed.** It existed to model pad-mux
 latency at 64 MHz (`nano/tb/nano_testbench.v`'s and `nano/area_top.v`'s instantiations
@@ -231,50 +231,77 @@ parameter gone (`components_qspi`'s three invariants re-proved unaffected, since
 `nano/qspi.v`'s only change here is deleting dead capture logic, not touching a
 completion decision).
 
-**A pre-existing, cxxrtl-only failure in the pin-level harness, independent of
-everything above.** `nano-qspi-pins-test` runs the nano/asm suite on two simulator legs
-and requires them to agree. The iverilog leg is clean: 4 of 6 programs pass, and the 2
-failures (`divide.S`, `mul.S`, both `TRAP`) match `nano/asm/EXPECTED_FAIL` exactly --
-the chained-resume fix holds through the real suite, on the leg this repo calls its
-microscope. The cxxrtl leg (`nano-qspi-pins-sim`) traps on every program at retire 1,
-`pc=0x00000000 instr=0x00000000`. This is not a regression from anything in this ADR:
-built against the original, pre-fix `nano/qspi.v` and models, the same cxxrtl leg
-already trapped (`pc=0xfffff2c6`, retire 8, a different cycle and PC but the same shape
-of failure), so the divergence between the two legs predates this session's fix and was
-never exercised to completion before it -- the toolchain to build the suite and the
-chained-resume bug both blocked reaching this point earlier. Root-causing it is owed,
-separately: `nano-qspi-pins-test` stays off `make test`'s required path, and no
-Dhrystone or CoreMark figure is taken through the pin-level harness, until it is.
+**A cxxrtl-only failure was found, and the first read of it was also wrong: it is not
+pre-existing, and it arrived with this ADR's own first fix, not with the controller.**
+`nano-qspi-pins-test` runs the nano/asm suite on two simulator legs and requires them to
+agree. Against the real-edge-reaction models the earlier "mechanism" section describes,
+the cxxrtl leg traps on every program at retire 1, `pc=0x00000000 instr=0x00000000` --
+while the iverilog leg is clean, 4 of 6 programs passing and the 2 failures (`divide.S`,
+`mul.S`, both `TRAP`) matching `nano/asm/EXPECTED_FAIL` exactly. A rebuild of the
+original, single-clock, pre-fix models fails on BOTH legs instead (iverilog: "X reached a
+retiring instruction's RVFI fields at cycle 99") -- that failure is the chained-resume
+bug itself, visible everywhere, not a simulator divergence. The divergence is new, and it
+is `@(posedge sck)`/`@(negedge sck)`'s own doing: `sck` is a design-internal derived
+clock, combinational off the controller's `sio_phase`, and cxxrtl latches its edge-
+detection flags at the top of `eval()` but does not recompute the `sck` node itself until
+far later in the same pass, with exactly one `eval()` per commit -- so those edges are
+identically false for the whole run. Every register this module clocked off `sck` sat
+frozen at its reset value, the flash never left `PH_CMD`, never asserted its own output
+enable, `nano_testbench.v`'s shared-pin mux fell through to the controller's own
+outgoing nibbles, and the core fetched `0x0000` and trapped at pc 0 -- silently, since
+iverilog runs the identical `@(posedge sck)` correctly and never saw it.
 
-## MIPS: the abstract model's own machinery, re-run at this controller's real costs
+**Fixed by making both pin-level models single-clock, keeping the fix above.** Every
+register is now written from exactly one `always_ff @(posedge clk)` block per module
+(`phase` was written from three clock domains before, `dummy_left` from two, neither
+synthesisable); reading `sck`'s and `cs_n`'s current values inside that block already
+reads one clk cycle behind their own visible change, the same lag any register read
+gets, which is what lands the reaction on the controller's own edge with no separate
+delay register. `nano-qspi-pins-test` now passes end to end, both legs agreeing program
+by program and retire for retire, and moves onto `make test`'s required path.
+`nano/tb/nano_qspi_derived_clock_probe.sh` is its forced-red probe: it reintroduces a
+design-internal derived clock (`@(posedge sck)` in place of the current-value read) and
+requires the two legs to disagree, so nothing lets `@(posedge sck)` return to these
+models unnoticed. **No design-internal signal drives an `always_ff` sensitivity list
+anywhere in this tree's test models now, and that is a standing rule for any future
+one, not a fact true only of this fix.**
 
-Since the pin-level path isn't yet trustworthy end to end, the timing figure below
-reuses ADR-0186's already-graded abstract model (`nano-qspi-sim`, not the pin-level
-build) with its parameters set to what this controller actually measures rather than
-what the brief guessed: `PREAMBLE_CYCLES=24` (matches exactly), `PSRAM_LOAD_CYCLES=41`
-and `PSRAM_STORE_CYCLES=33` (this controller's own real bit-serial cost: command(2
-nibbles)+address(6)+dummy(4)+data(8) = 20 nibbles = 40 core clocks, +1 handshake, for a
-read; 16 nibbles = 32 clocks +1 for a write), `PREFETCH_DEPTH=2`, no loop buffer (v1
-scope, per the brief). This is a legitimate cross-check, not a substitute for a real
-pin-level run: it answers "does this controller's own measured per-transaction cost,
-dropped into the already-validated cycle-accounting model, land where the earlier
-abstract sweep predicted" -- and it does, closely.
+## MIPS: measured through the real pin-level harness, beside the modelled figure
+
+`make nano-qspi-pins-dhrystone` and `make nano-qspi-pins-coremark` run the real
+benchmarks through `nano.v -> nano_qspi_ctrl -> {flash model, psram model}` -- the same
+build `nano-qspi-pins-test` grades, bit-serial protocol included, not the abstract
+timing model. The default cycle budgets (`NANO_DHRY_CYCLES`, `NANO_COREMARK_CYCLES`)
+were sized against ADR-0186's abstract model and are too small for the real bit-serial
+cost, so both figures below were taken at a reduced run/iteration count with the budget
+raised to cover it (`NANO_DHRY_RUNS=5 NANO_DHRY_CYCLES=100000000`,
+`NANO_COREMARK_ITERATIONS=1 NANO_COREMARK_CYCLES=40000000`); the per-run and
+per-iteration figures they report do not depend on that count.
+
+Alongside it, the abstract model (`nano-qspi-sim`, ADR-0186's own machinery) re-run with
+this controller's measured parameters rather than the brief's guesses:
+`PREAMBLE_CYCLES=24` (matches exactly), `PSRAM_LOAD_CYCLES=41` and
+`PSRAM_STORE_CYCLES=33` (command(2 nibbles)+address(6)+dummy(4)+data(8) = 20 nibbles =
+40 core clocks, +1 handshake, for a read; 16 nibbles = 32 clocks +1 for a write),
+`PREFETCH_DEPTH=2`, no loop buffer (v1 scope, per the brief) -- a cross-check of the
+same cycle-accounting machinery, not a substitute for the real row now that one exists.
 
 | | Dhrystone cycles/run | DMIPS/MHz | MIPS@64MHz | CoreMark cycles/iter | CoreMark/MHz | MIPS@64MHz |
 |---|---|---|---|---|---|---|
-| This controller (depth 2, no loop buffer) | 19,985.5 | 0.028 | 1.70 | 19,232,290.4 | 0.052 | 2.54 |
+| **Real pin-level harness** | **25,507.6** | **0.022** | **1.41** | **25,263,609.0** | **0.040** | **2.56** |
+| Abstract, this controller's measured costs | 19,985.5 | 0.028 | 1.70 | 19,232,290.4 | 0.052 | 2.54 |
 | ADR-0186's FIFO depth 2 (abstract) | 20,300.5 | 0.028 | 1.67 | 9,917,092.4 | 0.101 | 1.92 |
 
-Dhrystone lands within 1.6% of ADR-0186's own FIFO-depth-2 row, which is the expected
-outcome given nearly-identical parameters (this controller's measured 41/33-cycle PSRAM
-cost against the abstract model's assumed 44/33). CoreMark's retire-rate MIPS (2.54)
-diverges more from the abstract model's own CoreMark cycle count, which the brief's own
-"CoreMark is simulated at 16 KB of ROM" caveat and the two benchmarks' different
-code-size/branch-density profiles both bear on -- the two numbers are not required to
-match, since the abstract model's PSRAM/preamble parameters, not its CoreMark trace,
-are what this cross-check is re-using. **The brief's ~2 MIPS estimate is reached**:
-1.70-2.54 MIPS depending on benchmark, consistent with ADR-0186's own finding that
-~2 MIPS needs FIFO overlap but not necessarily a loop buffer.
+The real harness costs 28% more cycles than the abstract cross-check on Dhrystone and
+31% more on CoreMark -- consistent in size and direction, which is what the abstract
+model's own cost parameters (measured from this same controller) predict missing:
+per-nibble launch/capture handshaking and the exact redirect/resume state-machine
+timing that a FIFO-depth cost model approximates rather than executes. **The brief's ~2
+MIPS estimate is reached on the real harness too**: 1.41-2.56 MIPS depending on
+benchmark, CoreMark landing almost exactly on the abstract cross-check's own figure
+(2.56 against 2.54) while Dhrystone reads lower (1.41 against 1.70) -- the same
+divergence direction the abstract-vs-abstract row already showed between the two
+benchmarks, now confirmed against the real protocol rather than assumed from it.
 
 ## Area: measured, and well over the brief's guess
 
@@ -301,8 +328,6 @@ already resolved before this ticket landed.
 
 Out of scope, per the ticket: FPGA bring-up on the iCESugar-Pro with the real Pmod (no
 board bought yet). `nano/formal/checks.cfg`'s `#insn-check rvfi_insn_check.sv` line and
-the RV32E oracle patch it names are untouched. Deferred, not closed: wiring
-`nano-qspi-pins-test` onto `make test`'s path and taking a real Dhrystone/CoreMark
-figure through the pin-level harness, both blocked on the residual below; properly
-compensating for pad-mux latency at 64 MHz, now that the false option is removed;
-FPGA bring-up to measure that latency against.
+the RV32E oracle patch it names are untouched. Deferred, not closed: properly
+compensating for pad-mux latency at 64 MHz, now that the false option is removed, and
+the FPGA bring-up to measure that latency against.
