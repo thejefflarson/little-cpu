@@ -673,11 +673,20 @@ re-run on the shipping tree — `predict_found` live on every lane, `pop2` resto
 at the pin inside this worktree, with yosys's own log read to confirm every `rtl/` path it opened
 was this tree's. Nothing was edited to pass; the one red result is recorded as red.
 
+**G is 8, not the 10 the previous pass declared, and the difference is `pop2`.** That sweep ran on
+the tree whose `rtl/fetcher.v` still had `pop2` tied low, so a straddling instruction left its
+second word in the queue and the worst gap between two retires stretched by two cycles; the
+first retire, F, was 10 either way, because a first-word guess still waits for its target pair.
+With the double pop restored the sweep reads F = 10, G = 8 at trigger 15 and at trigger 20, and a
+second run against the corrected declaration reproduces it. `formal/checks.cfg` follows: `insn`,
+`fault` and `ill` at F+2G = 26, `reg` at start+G = 23, and `dmemcheck`'s depth 22 keeps a two-cycle
+margin over the new floor of 20.
+
 | gate | result |
 |---|---|
-| `make -C formal remeasure-fg` | PENDING_FG |
+| `make -C formal remeasure-fg` | **F = 10, G = 8**, both triggers, twice — see below |
 | `make -C formal all` | PENDING_FORMAL |
-| `make test` | PENDING_TEST |
+| `make test` | exit 0: 81 programs, 43,575 cycles, `unattributed` 0, every `*-test` target and `probe-gates` green; the Zkt walk reports `reg_rs1`/`reg_rs2`/`executor_out.rd_data` reaching `region_stall` alone on the elaborated netlist with the guess live |
 | `make cosim-suite` | 75/81 agree; the six divergences match `test/COSIM_EXPECTED_FAIL` exactly; all six `pred*.S` agree with Sail |
 | `make mutation-check` | PENDING_MUTATION |
 | `make dhrystone` | PASS, self-check PASS: 1,640,029 cycles for 2000 runs, **820 cycles/Dhrystone, 0.694 DMIPS/MHz**; `kill=109240`, `guess=134731`, `mispredict=4081` (3.0%) |
