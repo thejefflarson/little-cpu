@@ -17,5 +17,5 @@ for f in "$@"; do
   srcs="$srcs \"$f\""
 done
 
-printf 'read_verilog -sv%s%s; hierarchy -auto-top; synth; dfflibmap -liberty "%s"; techmap -map "%s"; abc -liberty "%s" -script +strash;dch,-f;map,-B,0.2;topo;stime,-c; tee -o "%s" stat -liberty "%s" -json\n' \
+printf 'read_verilog -sv%s%s; hierarchy -auto-top; flatten -noscopeinfo; synth; dfflibmap -liberty "%s"; techmap -map "%s"; abc -liberty "%s" -script +strash;dch,-f;map,-B,0.2;topo;stime,-c; tee -o "%s" stat -liberty "%s" -json\n' \
   "$defines" "$srcs" "$liberty" "$latchmap" "$liberty" "$stat_json" "$liberty"
