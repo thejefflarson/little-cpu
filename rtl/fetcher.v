@@ -22,7 +22,7 @@ module fetcher(
   assign windowed_instr = fetch_pair[31:0];
   logic straddles;
   assign straddles = pc[1] && windowed_instr[1:0] == 2'b11;
-  assign pop2 = 1'b0;
+  assign pop2 = pop && straddles && next_pc[31:2] != pc[31:2] + 30'd1;
 
   logic [31:0] next_word;
   assign next_word = (windowed_instr[1:0] == 2'b11) ? fetch_pair[63:32]
