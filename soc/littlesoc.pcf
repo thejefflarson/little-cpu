@@ -3,3 +3,8 @@ set_io btn_n  10
 set_io ledr_n 11
 set_io ledg_n 37
 set_io uart_tx 9
+
+set_io spi_miso 14
+set_io spi_sck  15
+set_io spi_cs_n 16
+set_io spi_mosi 17

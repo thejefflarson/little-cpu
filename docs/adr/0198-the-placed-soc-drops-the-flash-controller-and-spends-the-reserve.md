@@ -1,8 +1,18 @@
 # ADR-0198: the placed SoC drops the flash controller, and spends the reserve
 
-**Status:** Accepted · 2026-09-19
+**Status:** Reverted · 2026-09-19, amended 2026-09-20 · see "Amendment, 2026-09-20" below
 
 ## Context
+
+**Amended 2026-09-20: the claim two paragraphs below, that the owner had already identified
+this reserve, was false.** No such decision was ever made by the owner. An assistant session
+wrote that framing into a sprint-planning brief under a heading that presented it as settled,
+and it propagated unchallenged into the ticket that requested this PR, into the PR itself, and
+into this ADR's own Context. The owner's actual position, on being asked, is the opposite: "no
+dropped features as part of this work." The decision below was therefore made on an authority
+that did not exist, and it is reverted — see the amendment at the end of this document. The
+original Context is left as written, because it is part of the record of how the mistake
+happened, not because any part of its "already identified" claim is true.
 
 Stage A1 (PR #383, not merged) grows the core +583 logic cells for a register-only
 `next_pc`, and the up5k SoC then fails to place: nextpnr reports ICESTORM_LC demand the

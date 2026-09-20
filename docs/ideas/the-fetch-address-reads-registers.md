@@ -222,9 +222,19 @@ Estimates against ~4,950 placed SoC LC, about 330 free. Sign is cost.
 | `next_pc`'s five-arm 32-bit priority chain becomes a three-arm `fetch_pc` mux | −30 |
 | **Net** | **+100 to +250** (worst plausible +400) |
 
-Reserve: `rtl/spiflash.v` is wired to no board pin (ADR-0135) and is the first thing to drop from the
-up5k SoC if the fit misses — roughly 80–100 LC. `FIT_MAX_LC` is re-derived by its own span method
-after Stage B; `SOC_EXPECT_EBR` is unchanged, since the buffer is flops.
+**Correction, 2026-09-20:** the line below called the flash controller a reserve already spent, as
+though the owner had agreed to drop it if this stage needed the cells. No such decision was made —
+an earlier session wrote that framing into a brief under a heading that presented it as settled, it
+was carried into a ticket and a PR (ADR-0198) that dropped `rtl/spiflash.v` from the placed SoC on
+that authority, and it has since been reverted (ADR-0198's own amendment) because the owner's actual
+position is the opposite: no dropped features as part of this work. If Stage A's or Stage B's fit
+comes up short, dropping the controller is a real lever to *propose*, not a standing reserve to
+spend without asking first.
+
+Candidate, not reserve: `rtl/spiflash.v` is wired to no board pin (ADR-0135); dropping it from the
+up5k SoC would be worth roughly 80–100 LC if the fit misses and the owner agrees to spend it.
+`FIT_MAX_LC` is re-derived by its own span method after Stage B; `SOC_EXPECT_EBR` is unchanged,
+since the buffer is flops.
 
 ## Key decisions
 

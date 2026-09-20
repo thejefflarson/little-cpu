@@ -11,6 +11,7 @@ module icesugar_pro_top (
   localparam integer PAD_HZ  = 25_000_000;
   localparam integer CORE_HZ = 30_000_000;
 
+  logic spi_sck, spi_mosi, spi_cs_n;
   logic clk_core, pll_locked;
 
   icesugar_pro_pll pll (
@@ -24,7 +25,11 @@ module icesugar_pro_top (
     .btn_n(pll_locked),
     .ledr_n(led_r_n),
     .ledg_n(led_g_n),
-    .uart_tx(uart_tx)
+    .uart_tx(uart_tx),
+    .spi_sck(spi_sck),
+    .spi_mosi(spi_mosi),
+    .spi_miso(1'b0),
+    .spi_cs_n(spi_cs_n)
   );
 endmodule
 `default_nettype wire

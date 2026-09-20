@@ -87,6 +87,7 @@ a ROM/RAM geometry change is checked the same generic way as CFLAGS
 a SHRUNK suite is caught when the missing program is the C one
 a SHRUNK suite: the manifest names a program the tree does not have
 a Sail install back inside the checkout is red
+a SoC with no SPI controller at all does not pass by silence
 a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
 a VCO outside the range the part locks over is red
@@ -247,7 +248,6 @@ a harness directory with no checks.cfg is named, not measured as empty
 a harness directory with no checks.cfg is named, not measured as empty
 a harness that is red at rest makes the two mutations meaningless
 a harness that is red at rest makes the two mutations meaningless
-a harness with no SPI controller at all does not pass by silence
 a harness with no data RAM at all does not pass by silence
 a harness with no line in the baseline is red
 a harness with no line in the baseline is red
