@@ -60,8 +60,18 @@ references still resolve.
   test, because nothing flushed has been decoded, issued, or committed — a bubble undoes nothing a
   stalled cycle does not already undo. Decode itself is unchanged: it still owns issue, still
   reads register values and resolves branches same-cycle, and a stalled cycle still re-presents
-  the same word. No predictor exists yet — every redirect still pays a full queue refill, and the
-  next two stages spend that cost. **`kill` names the discard for accounting, but changes no
+  the same word. **A static guess now spends part of that refill** (ADR-0201): `rtl/fetchctrl.v`
+  reads the fetched pair for a `jal` or backward branch, compressed or not, at any lane, and
+  points `fetch_pc` at its target from registers and instruction bits alone — one guess in
+  flight, committed off one gate that also sets the retry address, a first-word candidate
+  queuing its word alone and a straddling one popping both its words. Decode resolves it against
+  the record and redirects only when the resolution differs, so a correct guess costs nothing
+  and a wrong one costs the redirect it always cost; `jalr`, forward branches, traps and a second
+  candidate while one is outstanding still pay the full refill. A text store owes a `fence.i`,
+  whose redirect flushes the queue and the record, exactly as sequential prefetch always did.
+  Six `test/asm/pred*.S` programs each go red under one predictor mutation, and
+  `formal/imemcheck.sv` — an oracle over the ROM port alone, so a predicted address is just an
+  address to it — passes at full depth with the guess live. **`kill` names the discard for accounting, but changes no
   control signal** (ADR-0199): `rtl/decoder.v`'s `kill` output attributes the cycles this flush
   already paid to their own column instead of the generic `buffer_empty` stall reason, so the
   redirect's cost is visible rather than miscounted as a resource wait; the discard mechanism

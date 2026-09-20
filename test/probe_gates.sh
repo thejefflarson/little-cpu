@@ -3278,7 +3278,7 @@ d=$(fq_fixture "")
 probe "control: the shipping fetchqueue passes its own bench" 0 \
   "PASSED: fetchqueue" "fq_run $d"
 
-d=$(fq_fixture "s/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd2 : 3'd0);/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd1 : 3'd0);/")
+d=$(fq_fixture "s/assign pushed = !req_valid ? 3'd0 : req_half ? 3'd1 : 3'd2;/assign pushed = !req_valid ? 3'd0 : 3'd1;/")
 probe "a push landing only one word instead of two is red across every occupancy" 1 \
   "the first request's pair landed" "fq_run $d"
 

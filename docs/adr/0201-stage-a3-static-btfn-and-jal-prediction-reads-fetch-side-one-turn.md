@@ -1,26 +1,15 @@
-# 0201 — Stage A3: the mispredict definition lands; the guess itself still does not ship
+# 0201 — Stage A3: the mispredict definition lands, and the guess ships from every lane
 
-Status: Partial, as originally recorded — but for a different, better-understood reason than the
-first pass left it at. The `redirect`/`mispredict`/`kill` semantics this ticket asks for are built
-and proved, live, with a real guess forming and resolving during the work described below; that
-part is done and not revisited. `predict_found` in `rtl/fetchctrl.v` ships tied to `1'b0`, as it was
-at the start of this update, because two independent, real problems were found after jal-only
-prediction was believed shippable, either one alone sufficient to decline it: a sixth bug, a
-genuine, formally-proven architectural gap (a guess lets fetch race ahead of decode by an
-address-space distance bounded only by *time*, not by the small, fixed queue depth sequential fetch
-is bounded by, and nothing invalidates an already-queued speculative fetch when a later store
-targets the same text address before decode retires past it — `formal/imemcheck.sv` catches exactly
-this), and a seventh, unrelated finding — CoreMark, which never writes its own text and so cannot be
-exercising the sixth bug, also corrupts under jal-only prediction, confirmed attributable to the
-predictor by a same-tree control run that passes clean with `predict_found` back to `1'b0`. Neither
-is fixed here; both are recorded as scoped future work. The fourth, fifth and sixth bugs below, and
-the fixes for the fourth and fifth, are structural and worth keeping regardless: a future session
-that spends the time budget this one did not have inherits three fewer bugs to rediscover, not
-zero — but the seventh finding says that budget must also cover a correctness gap this session did
-not diagnose, not only the sixth bug's known one. An eighth bug is fixed below (`predict_commit`
-missed half of `flush`'s own two-cycle window) and a ninth, distinct `imemcheck` counterexample was
-found after fixing it, not self-modifying code and not root-caused; `predict_found` stays `1'b0`.
-2026-09-19, updated four times the same day.
+Status: Accepted, superseding the Partial status the five earlier passes below left it at. The
+final update at the end of this file is the record that matters now: `predict_found` is live in
+`rtl/fetchctrl.v` for both candidate classes — a `jal` or backward branch, compressed or not, at
+any lane of the fetched pair, straddling ones included — after five more real defects (the ninth
+through the thirteenth) were root-caused and fixed, each with a regression program that goes red
+under exactly its own mutation, and `make -C formal imemcheck` passes at its full depth with the
+guess live. Dhrystone reads **820 cycles/Dhrystone, 0.694 DMIPS/MHz**, against 1001/0.568 with the
+guess off and about 788/0.722 on `main`. The earlier passes are kept below as written, because
+their bug numbering, their counterexamples and their measurements are what the final update is
+read against. 2026-09-19, updated five times; the final update is 2026-09-20.
 
 ## Update: the fourth and fifth bugs, found by a retire-stream differential
 
@@ -517,3 +506,153 @@ configuration that clears `imemcheck` outright.
 - **Items 2 (CoreMark's own corruption) and 3 (the branch/candidate-B livelock) are untouched** —
   reproducing either needs a live configuration this session could not certify safe to run to
   completion against the one check built to catch exactly this class of defect.
+
+## Update: the oracle is sound, five more defects, and the guess ships from every lane
+
+**The question the escalation asked first — is `formal/imemcheck.sv` still describing the
+interface the design has? — has a definite answer: yes.** Its assume is the ROM's own contract,
+restated: `imem_data`/`imem_data2` answer the word-aligned address presented on `imem_addr_next`
+one cycle earlier (`past_imem_addr_next`), skipped on the one cycle `fetch_stall` says the port was
+stolen, which is exactly the cycle `rtl/fetchctrl.v`'s own `req_valid` skips. Nothing in it names
+decode's pc, the queue or the guess; a predicted `fetch_pc` is just another address on that port.
+Its assertion is gated on `!shadow_stored`, so it never compares a retire against a watched
+halfword that has been written — which is why the sixth-bug story ("a text write with no
+invalidation path") could never have been what it was catching, and why every counterexample it
+produced had `mem_wstrb` at zero. The check is a coherence oracle over an unwritten ROM: whatever
+word fetch was handed for an address, decode must retire at that address. Under a predictor that is
+precisely the property that matters. So the ninth counterexample was a real defect, and reading it
+cycle by cycle (`imemcheck/engine_0/trace.vcd`, reproduced in twelve seconds at
+`shadow_addr = 0x30010`, step 12, `imemcheck.sv:90`) found it in one pass:
+
+```
+t2  fetch_pc=0x000008  req_valid  predict_commit      guess: src 0x4 -> 0xffffa
+t3  fetch_pc=0x0ffffa  decode issues the jal at 0x0 unpredicted: redirect to 0x3000a
+t4  redirect_apply     fetch_pc=0x100002 (the guess's successor)   predicted_active cleared
+t5  redirect_apply_d1  fetch_pc=0x03000a  the abandoned pair ROM[0x100002] is on imem_data
+                       with a jal in its second word: predict_trusted=1, predict_commit=0,
+                       and fetch_pc <= predict_tgt = 0x130012 instead of 0x30012
+t6  ROM[0x3000a] pushed;  t7 ROM[0x130012] pushed as if it were 0x30012's pair
+t11 the retire at 0x3000e straddles into 0x30010 and reports 0x130010's upper half
+```
+
+**Ninth bug: the fetch address took the guess off `predict_trusted` while the record took it off
+`predict_commit`.** The eighth bug's fix widened `predict_commit` to exclude `redirect_apply_d1`
+but left `fetch_pc`'s own mux reading `predict_trusted`, so a candidate in the pair a redirect was
+discarding still steered fetch, with no record that it had. One gate now drives both: `fetch_pc`,
+`stolen_pc`, `waiting` and the record all key on `predict_commit`. Regression: `test/asm/predstale.S`
+— a taken branch whose abandoned pairs each end in a `jal` to a block that stores a failure code
+through an absolute address (the words execute at a pc they were not linked for, so nothing in
+them may be pc-relative); `FAIL 2` with the mux back on `predict_trusted`, `PASS` fixed.
+
+**Tenth bug: a steal on the commit cycle retried the abandoned successor.** `stolen_pc` records the
+address a stolen ROM read must re-present; on a commit cycle that address is the successor the
+guess abandons, so a text load or store landing on that cycle sent fetch back to it, and the
+successor's pair was queued behind the candidate with the record still pointing at the target.
+This is what CoreMark's `TRAP TO ZERO` at retire 2481 was: it reads its own `.rodata` out of ROM,
+and a load from text steals the fetch port exactly as a store does. Fixed: the commit arm writes
+`stolen_pc <= predict_tgt` too. Regression: `test/asm/predsteal.S` — seventeen sixteen-word blocks
+that slide a text load (from deep inside the window, so it issues with no region wait and its bus
+cycle can meet a pair's arrival) across a `jal` at the twelfth word; the abandoned word is a store
+of `TESTNUM` to `tohost`. Two of the seventeen blocks meet the commit cycle exactly; `FAIL 8` with
+the arm reverted, `PASS` fixed. CoreMark passes with its self-check and the 2K validation run.
+
+**Eleventh bug: a second candidate overwrote an outstanding record, and this is the branch
+livelock.** `predict_commit` never read `predicted_active`, so a candidate in the target's own pair
+— which arrives before decode reaches the guessing branch — replaced `predicted_src_pc`. The first
+branch then resolved as unpredicted: taken, it redirected and merely wasted the guess; **not
+taken, it fell through into the target pair's words as if they were its own successor**, which for
+a loop's exit branch is a loop that re-enters its body from the fall-through and never exits —
+5.45 M retires of forward progress with `mispredict = 0`, because no record ever matched. Fixed:
+`predict_commit` requires `!predicted_active`; one guess in flight is now a gate, not a hope.
+Regression: `test/asm/predtwice.S` — a backward `bne` held on a load hazard so the target pair's
+`jal` arrives first, with `entry` laid out so a `jal` executed at the wrong pc lands sixteen bytes
+past `poison`, on the failure store; `FAIL 2` with the gate dropped, `PASS` fixed.
+
+**Twelfth bug: the same-pair exclusion compared eight-byte blocks, and pairs are four-aligned.**
+After any redirect to a `4 mod 8` target every pair base is `4 mod 8`, so `target[31:3] ==
+pair_base[31:3]` neither excluded a target in the candidate's own word nor kept one in the pair's
+first word. A target inside the candidate's own word is the real hazard: `pop` fires when the pc
+leaves a word, so a guess there queues the word a second time and the loop's exit reads the copy.
+A target in the pair's first word is fine — `pop` moves to the target pair, which begins with that
+word. Fixed: exclude a target inside a word the candidate occupies, read off the immediate.
+Regression: `test/asm/predword.S` — `c.addi; c.bnez` in one word behind a `4 mod 8` entry, two
+passes; `FAIL 2` (the counter reads −1) with the block compare back, `PASS` fixed.
+
+**Thirteenth: the text-write clear is removed, not fixed.** Clearing `predicted_active` while the
+guessed detour is still queued is the eleventh bug by another route: a cleared record makes a
+not-taken resolution fall into the target's words. It was built for the sixth bug, whose
+counterexample the eighth-bug pass had already shown contains no store. The architectural
+guarantee is `fence.i`, which serializes, redirects and so flushes the queue and clears the record
+— the same path a sequential prefetch always relied on, since a store to a word already queued was
+stale before any predictor existed. `test/asm/selfmod.S` still passes; `text_write` and
+`mem_text_write` are gone from `rtl/fetchctrl.v`, `rtl/littlecpu.v` and `formal/pcloop.sv`.
+
+With those five in, `imemcheck` passed at depth 15 with both candidate shapes live, and the suite,
+Dhrystone and CoreMark all passed — at **1005 cycles/Dhrystone**, four cycles *worse* than the guess
+off: 18,057 guesses resolved against roughly 157,000 redirects, a third of them wrong. The
+predictor as designed could not pay for Stage A. The rest of this update is what it took to make
+it pay, each step measured on the same `DHRY_RUNS=2000` run:
+
+| configuration | cycles/Dhrystone | DMIPS/MHz | `kill` | guesses | mispredicts |
+|---|---|---|---|---|---|
+| guess off (A2/A3 as shipped) | 1001 | 0.568 | 488,703 | 0 | 0 |
+| A and B as designed, five fixes | 1005 | 0.572 | 470,643 | 18,057 | 6,018 |
+| + compressed at lane 2, quadrant 01 only | 897 | 0.634 | 278,268 | 74,182 | 2,019 |
+| + every lane, half push | 880 | 0.646 | 229,790 | 90,506 | 2,061 |
+| + straddling 32-bit, double pop (ships) | **820** | **0.694** | 109,240 | 134,731 | 4,081 |
+| `main` (ADR-0190) | ~788 | 0.722 | — | — | — |
+
+- **Quadrant 01 only.** Candidate B read `funct3` alone, and `c.sw`/`c.swsp` share the branch
+  codes: a store at lane 3 with bit 12 set was a "backward branch", guessed, and always wrong. That
+  was two thirds of the mispredicts.
+- **Lane 2.** A compressed jump or branch at lane 2 leaves lane 3 stranded, and that is harmless:
+  `pop` leaves the word once the guess is taken. The ticket's own restriction to candidates ending
+  flush with the pair was one word too strict, and this step alone is 108 cycles/Dhrystone.
+- **Every lane, half push.** A candidate in the pair's first word needs the target's pair queued
+  right behind that word, so `rtl/fetchqueue.v` takes `req_half` and queues the low word alone
+  (`test/fetchqueue_tb.v` vectors it). The first taken candidate in program order wins; one
+  immediate mux and one adder serve every position. The price is a bubble when decode was waiting
+  on that very pair — `q_valid` needs two words, so the lone word waits for the target pair —
+  which is the `fetch` column rising 21,476 → 35,679; the gain is the redirect it replaces.
+  Regression: `test/asm/predhalf.S` (`FAIL 1` with `req_half` tied low).
+- **Straddling 32-bit branches, double pop.** After the step above, 42,327 of Dhrystone's 48,412
+  remaining 32-bit branch redirects were at `2 mod 4` addresses — a hot loop's back-edge sitting
+  across two words. Lanes 1-2 are one word's worth of decode; lane 3 into the next pair's lane 0
+  keeps lane 3 in `prev_lane3` and forms the candidate when the next pair arrives, with a half
+  push of that pair. Either way the instruction leaves both its words behind, which is
+  `rtl/fetcher.v`'s new `pop2`, restated in `formal/pcloop.sv`'s Property 2. Regression:
+  `test/asm/predstraddle.S` (`FAIL 3` with `pop2` tied low).
+
+**What stays unpredicted, and why.** `jalr`, `c.jr` and `c.jalr` — a return needs a stack, and
+Dhrystone's 20,057 of them are now the largest remaining class; forward branches, which BTFN
+guesses not taken and which pay the redirect they always paid when taken (6,045 compressed on
+Dhrystone, 2,036 of them backward: the mispredicts and the refusals); traps, `mret` and `fence.i`;
+a second candidate while one record is outstanding (4,004 refusals on Dhrystone) and a candidate
+in a pair a redirect is discarding (8,209); and a target inside a word the candidate occupies.
+Remaining `kill` on Dhrystone is 109,240 cycles, about 36,000 redirects.
+
+**Costs, from the same run.** A correctly guessed branch or `jal` in the second word costs zero
+cycles — decode issues the target's first instruction the cycle after the guessing one, as a
+plain instruction would. A correctly guessed first-word candidate costs zero when decode is behind
+fetch and up to two when it was waiting on that pair. A mispredict costs the three cycles a
+redirect always costs (ROM latency plus the two-cycle `flush` window), never more for a
+second-word guess; a first-word one that was also waited on can reach five. On Dhrystone 4,081
+mispredicts against 134,731 guesses is 3.0%; on CoreMark 6.9%.
+
+**Against the owner's +3% ceiling over `main`: 820 against 788 is +4.1% of cycles, missed.** The
+whole remaining gap to `main` is Stage A's own fetch queue on redirects the static guess cannot
+reach — returns above all — and a return-address guess is the next lever, not another static form.
+CoreMark: **1.906 CoreMark/MHz** at the every-lane step (52,494,453 cycles, 2,385,101 guesses),
+against 1.712 with the guess off and 2.155 on `main`; the straddling step's figure is in the PR.
+
+**Verification, on the shipping configuration.** `imemcheck` at depth 15 (its cover and forced-red
+stalled-bus probe unchanged); `components_pcloop` by k-induction, with `rtl/fetchctrl.v`'s `FORMAL`
+block now asserting that the cycle after a commit both `fetch_pc` and `stolen_pc` hold the target
+with the record active — the ninth and tenth bugs' tripwire; `make -C formal remeasure-fg` and
+`make -C formal all`; the suite at 81 programs (the six regressions added to `test/OBSERVED_FLOOR`,
+each shown red under its own mutation and green under every other's); `make test`, `make lint`,
+`make elaborate-strict`, `make cosim-suite`, `make mutation-check`, `make dual-smoke`, `make fit`,
+`make ecp5-timing`. The Zkt walk is unchanged: every new register is in `rtl/fetchctrl.v`, outside
+the netlist it traces, and `predict_resolved` reaches `predict_commit` only through
+`predicted_active`, a register. `test/cxxrtl.cc`'s `STALLS` line gains `guess=`, the count of
+resolved guesses, beside `mispredict=`.
