@@ -1,10 +1,8 @@
 #include "riscv_test.h"
 #include "test_macros.h"
 
-// A 32-bit backward branch straddling two words -- lanes 1-2 of a pair, then lane 3 into
-// the next pair's lane 0 -- is guessed taken, and leaving it must pop both of its words so
-// the target's pair is next. Then the lanes-1-2 shape not taken, whose fall-through sits in
-// the second word the guess abandoned. Pairs stay 8-aligned because every target is.
+// A 32-bit backward branch straddling two words, guessed taken, must pop both its words;
+// then the lanes-1-2 shape not taken, whose fall-through the guess abandoned.
 
 RVTEST_RV64U
 RVTEST_CODE_BEGIN

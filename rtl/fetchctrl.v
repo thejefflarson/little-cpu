@@ -28,14 +28,12 @@ module fetchctrl (
   logic [31:0] redirect_target_reg;
   logic waiting, launch, room, q_valid, flush, req_valid;
   logic [2:0] queue_count;
-  // The retry address: held across a steal so a second one in a row does not drift.
   logic [31:0] stolen_pc;
   logic        fetch_stall_d1;
   logic        fetch_odd;
-  // Lane 3 of the last accepted pair, and whether a 32-bit instruction started there.
   logic [15:0] prev_lane3;
   logic        straddle_in;
-  // One cycle behind fetch_pc always, unlike stolen_pc (whose redirect_apply arm jumps early).
+  // One cycle behind fetch_pc always; stolen_pc's redirect_apply arm jumps early.
   logic [31:0] fetch_addr_d1;
   logic        predict_commit_d1;
 
@@ -60,8 +58,8 @@ module fetchctrl (
   logic [31:0] pair_base;
   assign pair_base = {fetch_addr_d1[31:2], 2'b00};
 
-  // A compressed jump, or a compressed branch pointing backward, at each lane; quadrant 01
-  // only, since c.sw and c.swsp share the funct3 codes.
+  // A compressed jump or backward branch at each lane; quadrant 01 only, since c.sw and c.swsp
+  // share the funct3 codes.
   logic lane0_c, lane1_c, lane2_c, lane3_c;
   assign lane0_c = lane0[1:0] == 2'b01 && (lane0[15:13] == 3'b101 || lane0[15:13] == 3'b001 ||
                    ((lane0[15:13] == 3'b110 || lane0[15:13] == 3'b111) && lane0[12]));
@@ -71,8 +69,6 @@ module fetchctrl (
                    ((lane2[15:13] == 3'b110 || lane2[15:13] == 3'b111) && lane2[12]));
   assign lane3_c = lane3[1:0] == 2'b01 && (lane3[15:13] == 3'b101 || lane3[15:13] == 3'b001 ||
                    ((lane3[15:13] == 3'b110 || lane3[15:13] == 3'b111) && lane3[12]));
-  // The same for a whole word: a jal, or a branch pointing backward. Two of the four words
-  // straddle: lanes 1-2, and the previous pair's lane 3 with this pair's lane 0.
   logic [31:0] word_s0, word_s1;
   assign word_s0 = {lane0, prev_lane3};
   assign word_s1 = {lane2, lane1};
@@ -82,10 +78,8 @@ module fetchctrl (
   assign word_s0_j = word_s0[6:0]    == 7'b1101111 || (word_s0[6:0]    == 7'b1100011 && word_s0[31]);
   assign word_s1_j = word_s1[6:0]    == 7'b1101111 || (word_s1[6:0]    == 7'b1100011 && word_s1[31]);
 
-  // The first taken candidate in program order wins; everything after it is never reached
-  // on the guessed path. One ending in the first word is a half push: only that word is
-  // queued, so the target's pair follows it. A straddling one leaves both its words behind,
-  // which is fetcher's pop2.
+  // The first taken candidate in program order wins. One ending in the first word queues that
+  // word alone, so the target's pair follows it; a straddling one is left by fetcher's pop2.
   logic sel_s0, sel_l0, sel_w0, sel_l1, sel_s1, sel_l2, sel_w1, sel_l3, sel_first, sel_early;
   assign sel_s0 = straddle_in && word_s0_j;
   assign sel_l0 = boundary0 && !lane0_wide && lane0_c;
@@ -108,7 +102,6 @@ module fetchctrl (
   assign cand_wide = cand_straddle || sel_w0 || sel_w1;
   assign cand_jal  = cand_w[6:0] == 7'b1101111;
   assign cand_cj   = cand_c[15:13] == 3'b101 || cand_c[15:13] == 3'b001;
-  // Halfwords from pair_base, and -1 for the straddler that began in the previous pair.
   assign cand_off  = sel_s0 ? 3'b111 : (sel_l0 || sel_w0) ? 3'd0 : (sel_l1 || sel_s1) ? 3'd1 :
                      (sel_l2 || sel_w1) ? 3'd2 : 3'd3;
 
@@ -128,8 +121,7 @@ module fetchctrl (
     endcase
   end
 
-  // A target inside a word the candidate itself occupies would leave pop with nothing to
-  // advance over; read off the immediate, since the source is two-byte aligned in its word.
+  // A target inside a word the candidate occupies would leave pop nothing to advance over.
   logic cand_same_word;
   assign cand_same_word = cand_imm == 32'd0 ||
                           (cand_imm == 32'd2 && !cand_off[0]) ||
@@ -151,8 +143,8 @@ module fetchctrl (
 
   logic predict_trusted, predict_commit;
   assign predict_trusted = req_valid && predict_found;
-  // One guess in flight, never off the pair a redirect is discarding: that pair's data
-  // arrives the cycle after redirect_apply drops, so both cycles are excluded.
+  // One guess in flight, never off the pair a redirect is discarding, whose data arrives the
+  // cycle after redirect_apply drops.
   assign predict_commit  = predict_trusted && !predicted_active &&
                            !redirect_apply && !redirect_apply_d1;
 
@@ -184,7 +176,6 @@ module fetchctrl (
       waiting            <= 1'b0;
       fetch_stall_d1     <= 1'b0;
       redirect_recovering <= 1'b0;
-      // Undriven otherwise, a steal on the first post-reset cycle retries a garbage address.
       stolen_pc          <= 32'b0;
       redirect_target_reg <= 32'b0;
       predicted_active    <= 1'b0;
@@ -204,7 +195,6 @@ module fetchctrl (
       // !predict_commit drops the pair's own naive successor, already in flight.
       waiting        <= fetch_stall ? 1'b1 : (launch && !predict_commit);
       fetch_stall_d1 <= fetch_stall;
-      // Cleared off buffer_empty, not q_valid, which reads true one cycle too long.
       if (redirect) redirect_recovering <= 1'b1;
       else if (!buffer_empty) redirect_recovering <= 1'b0;
       if (redirect_apply || predict_resolved) predicted_active <= 1'b0;
@@ -213,7 +203,6 @@ module fetchctrl (
         predicted_src_pc <= predict_src;
         predicted_target <= predict_tgt;
       end
-      // fetch_pc already holds the jump target by the cycle its pair's data arrives.
       if (redirect_apply_d1 || predict_commit_d1) begin
         fetch_odd   <= fetch_pc[1];
         straddle_in <= 1'b0;
@@ -228,8 +217,7 @@ module fetchctrl (
       end else if (fetch_stall) begin
         fetch_pc <= stolen_pc;
       end else if (predict_commit) begin
-        // The retry address too: a steal this cycle must re-present the target, never the
-        // successor the guess abandons.
+        // The retry address too, or a steal this cycle re-presents the abandoned successor.
         fetch_pc  <= predict_tgt;
         stolen_pc <= predict_tgt;
       end else begin
@@ -248,7 +236,6 @@ module fetchctrl (
 
   logic past_predict_commit;
   always_ff @(posedge clk) past_predict_commit <= !reset && predict_commit;
-  // The cycle after a commit both the fetch address and the retry address are the target.
   always_comb if (clocked && past_predict_commit)
     assert(predicted_active && fetch_pc == predicted_target && stolen_pc == predicted_target);
  `endif

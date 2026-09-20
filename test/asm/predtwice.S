@@ -1,10 +1,9 @@
 #include "riscv_test.h"
 #include "test_macros.h"
 
-// One guess in flight. A backward branch is guessed taken; the pair at its target ends in
-// a jal, which arrives while the first guess is still unresolved. If that jal replaced the
-// record, the branch -- held on a load hazard, then not taken -- would resolve as
-// unpredicted and fall into the target pair's words as if they were its own successor.
+// One guess in flight: the pair at a guessed branch's target ends in a jal that arrives
+// before the branch resolves. Had it replaced the record, the not-taken branch would fall
+// into the target pair's words as its own successor.
 
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
@@ -26,8 +25,6 @@ back1:
   nop
   jal x0, poison
 
-  // entry sits right after back1's pair, so a jal executed from bne+8 with back1+4's
-  // immediate lands 16 bytes past poison.
 entry:
   lw a0, 0(t1)
   bne a0, x0, back1
@@ -36,7 +33,6 @@ entry:
   bne a1, t0, fail
   li TESTNUM, 3
 
-  // The taken direction, resolved against the same record.
 back2:
   nop
   jal x0, joined

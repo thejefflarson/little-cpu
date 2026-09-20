@@ -1,11 +1,9 @@
 #include "riscv_test.h"
 #include "test_macros.h"
 
-// A taken branch abandons the pairs fetch already asked for. Each of those pairs ends in a
-// jal to `poison`, so a guess formed off a discarded pair would steer fetch there while
-// decode believes it is reading the second pair after `target`. Alignment is counted by
-// hand under norvc (every instruction four bytes after the c.nop), because .balign
-// leaves its padding to a linker pass.
+// A taken branch abandons the pairs fetch already asked for; each ends in a jal to `poison`.
+// A guess formed off a discarded pair would steer fetch there while decode reads it as the
+// second pair after `target`. Alignment is counted by hand under norvc, not .balign.
 
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
@@ -52,7 +50,6 @@ target:
   li t0, 6
   bne a5, t0, fail
 
-  // The same shape with the branch in a pair's second word.
 pair2:
   li TESTNUM, 3
   beq x0, x0, target2
@@ -90,8 +87,6 @@ target2:
   bne a5, t0, fail
   j done
 
-  // Reached only through a stale guess; reports the failure without a pc-relative address,
-  // because whoever runs these words is not at the pc they were linked for.
 poison:
   sll  TESTNUM, TESTNUM, 1
   or   TESTNUM, TESTNUM, 1

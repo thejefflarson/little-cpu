@@ -1,9 +1,8 @@
 #include "riscv_test.h"
 #include "test_macros.h"
 
-// A compressed loop that fits in one word, reached through a target that is 4 mod 8 so the
-// pair holding it is not 8-aligned. Guessing its own word as a target would queue that word
-// twice: the second copy is what decode reads after the loop's not-taken exit.
+// A one-word compressed loop reached through a 4 mod 8 target: guessing its own word would
+// queue that word twice, and the exit reads the second copy.
 
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
@@ -27,7 +26,6 @@ entry:
   .option pop
   bne a0, x0, fail
 
-  // The same loop with three passes, so a guess that is right once still meets the exit.
   li TESTNUM, 3
   j entry2
   nop

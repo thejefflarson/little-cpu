@@ -1,13 +1,9 @@
 #include "riscv_test.h"
 #include "test_macros.h"
 
-// A load from text steals the fetch port for a cycle. When that cycle is the one a guess
-// commits on, the retry must re-present the guessed target, not the successor the guess
-// abandoned: that successor here is a pair that reports failure if it ever executes. Each
-// block is sixteen words with the load at a different word, so the steal sweeps across the
-// commit; the jal is always the twelfth word, the end of a pair. The address is deep inside
-// the text window, so the load takes the fast region arm and its bus cycle can land on a
-// pair's arrival rather than after a wait that lets the queue fill first.
+// A load from text steals the fetch port; on a commit cycle the retry must re-present the
+// target, not the abandoned successor, which here reports failure. The load sweeps
+// across sixteen-word blocks; the jal is always the twelfth word.
 
 #define N0
 #define N1 nop;
