@@ -118,6 +118,52 @@ module nano_testbench(
     .reason_psram_wait(reason_psram_wait),
     .stream_fault(stream_fault)
   );
+`elsif NANO_QSPI_PINS
+  logic sck, flash_cs_n, psram_cs_n, spare_cs_n;
+  logic [3:0] sio_ctrl_out, sio_flash_out, sio_psram_out;
+  logic       sio_ctrl_oe, sio_flash_oe, sio_psram_oe;
+  logic [3:0] sio_bus;
+  // The shared pin: whichever device's own chip select grants it drives, else the controller.
+  assign sio_bus = sio_flash_oe ? sio_flash_out : (sio_psram_oe ? sio_psram_out : sio_ctrl_out);
+
+  nano_qspi_ctrl ctrl (
+    .clk(clk),
+    .reset(reset),
+    .mem_valid(mem_valid),
+    .mem_instr(mem_instr),
+    .mem_ready(mem_ready),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(mem_rdata),
+    .sck(sck),
+    .flash_cs_n(flash_cs_n),
+    .psram_cs_n(psram_cs_n),
+    .spare_cs_n(spare_cs_n),
+    .sio_out(sio_ctrl_out),
+    .sio_oe(sio_ctrl_oe),
+    .sio_in(sio_bus)
+  );
+
+  nano_qspi_flash_model #(.WORDS(MEM_WORDS)) flash (
+    .clk(clk),
+    .reset(reset),
+    .sck(sck),
+    .cs_n(flash_cs_n),
+    .sio_in(sio_bus),
+    .sio_out(sio_flash_out),
+    .sio_oe(sio_flash_oe)
+  );
+
+  nano_qspi_psram_model #(.WORDS(MEM_WORDS)) psram (
+    .clk(clk),
+    .reset(reset),
+    .sck(sck),
+    .cs_n(psram_cs_n),
+    .sio_in(sio_bus),
+    .sio_out(sio_psram_out),
+    .sio_oe(sio_psram_oe)
+  );
 `else
   nano_memory #(.WORDS(MEM_WORDS), .WAIT_STATES(`NANO_WAIT_STATES)) mem (
     .clk(clk),
@@ -254,9 +300,19 @@ module nano_testbench(
   endtask
 
   initial begin
+`ifdef NANO_QSPI_PINS
+    // Two physical devices, not one flat array, matching the ROM/RAM split nano.lds states.
+    for (int unsigned i = 0; i < MEM_WORDS; i = i + 1) begin
+      flash.mem[i] = 32'b0;
+      psram.mem[i] = 32'b0;
+    end
+    if ($value$plusargs("ROM=%s", icarus_rom_path)) $readmemh(icarus_rom_path, flash.mem);
+    if ($value$plusargs("RAM=%s", icarus_ram_path)) $readmemh(icarus_ram_path, psram.mem);
+`else
     for (int unsigned i = 0; i < MEM_WORDS; i = i + 1) mem.mem[i] = 32'b0;
     if ($value$plusargs("ROM=%s", icarus_rom_path)) $readmemh(icarus_rom_path, mem.mem);
     if ($value$plusargs("RAM=%s", icarus_ram_path)) $readmemh(icarus_ram_path, mem.mem);
+`endif
     if (!$value$plusargs("CYCLES=%d", icarus_cycle_limit)) icarus_cycle_limit = 5000;
 
     $dumpfile("nano_testbench.vcd");
@@ -286,6 +342,15 @@ module nano_testbench(
       if (trap_latched) begin
         finish_run($sformatf("trap taken at cycle %0d", icarus_cycle));
       end
+`ifdef NANO_QSPI_PINS
+      if (psram.mem[TOHOST_INDEX] != 32'b0) begin
+        if (psram.mem[TOHOST_INDEX] == 32'b1) begin
+          finish_run("PASS");
+        end else begin
+          finish_run($sformatf("FAIL %0d", psram.mem[TOHOST_INDEX] >> 1));
+        end
+      end
+`else
       if (mem.mem[TOHOST_INDEX] != 32'b0) begin
         if (mem.mem[TOHOST_INDEX] == 32'b1) begin
           finish_run("PASS");
@@ -293,6 +358,7 @@ module nano_testbench(
           finish_run($sformatf("FAIL %0d", mem.mem[TOHOST_INDEX] >> 1));
         end
       end
+`endif
     end
     finish_run("TIMEOUT");
   end

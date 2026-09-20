@@ -1,0 +1,12 @@
+[options]
+mode prove
+
+[engines]
+abc pdr
+
+[script]
+read -sv -formal qspi.v
+prep -top nano_qspi_ctrl
+
+[files]
+../qspi.v

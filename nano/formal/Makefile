@@ -72,6 +72,15 @@ imemcheck-cover-probe: ../../formal/memcheck-cover-probe.py imemcheck.sv imemche
 ill-e-probe: ill-e-probe.py ill_e.sv ill_e.sby ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
 
+.PHONY: qspi-probe
+qspi-probe: qspi-probe.py qspi.sby ../qspi.v
+	python3 $<
+
+.PHONY: components_qspi
+components_qspi: qspi.sby ../qspi.v qspi-probe
+	rm -rf qspi
+	sby -f qspi.sby
+
 .PHONY: check-rvfi-insn-check
 check-rvfi-insn-check: $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_check.sv \
                        check-rvfi-insn-check.py | $(RISCV_FORMAL_DIR)
@@ -86,7 +95,8 @@ clean:
 	rm -rf checks complete complete_cover dmemcheck imemcheck fg-probe fg-probe.cfg
 	rm -rf complete-cover-probe ill_e ill_e_cover ill-e-probe
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
+	rm -rf qspi qspi-probe
 
 .PHONY: all clean
 all: check dmemcheck imemcheck dmemcheck_cover imemcheck_cover complete complete_cover \
-     ill_e ill_e_cover check-rvfi-insn-check
+     ill_e ill_e_cover check-rvfi-insn-check components_qspi
