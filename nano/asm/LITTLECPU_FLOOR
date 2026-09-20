@@ -47,6 +47,12 @@ mulhsu.S       EXCLUDED M extension
 mulhu.S        EXCLUDED M extension
 or.S           452
 ori.S          169
+predhalf.S      31
+predstale.S     48
+predsteal.S    251
+predstraddle.S  34
+predtwice.S     25
+predword.S      25
 rem.S          EXCLUDED M extension
 remu.S         EXCLUDED M extension
 rvc.S          184

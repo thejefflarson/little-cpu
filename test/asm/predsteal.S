@@ -40,7 +40,7 @@ RVTEST_CODE_BEGIN
   addi t1, t1, 0
   li a0, 0
 #define L1 lw t2, 0(t1);
-#define L2 lw t2, 0(t1); lw t3, 4(t1);
+#define L2 lw t2, 0(t1); lw a1, 4(t1);
 
 blocks:
   BLOCK(3,  N0, L1, N8)
