@@ -32,8 +32,10 @@ def _load_sibling(name):
 genchecks_audit = _load_sibling("genchecks-audit")
 
 # The two trigger depths G is measured at, so a flip point is bracketed rather than
-# sampled once.
-TRIGS = (10, 15)
+# sampled once. Ten was one of them until the fetch-side guess went live: its worst gap
+# needs a queue filled, a first-word guess committed and then mispredicted, which ten
+# cycles of preamble cannot construct, so ten read one short of fifteen and twenty.
+TRIGS = (15, 20)
 
 # How far either side of the declared figure to sweep, wide enough to bracket a flip
 # point that has moved by more than one or two cycles.
