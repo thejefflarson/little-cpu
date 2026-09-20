@@ -1,10 +1,10 @@
 [options]
-# depth clears F+G+2 (check-memcheck-depth.py) at today's F=6/G=6 (floor 14) and at the
-# F=8/G=8 the pipeline-restructure brief targets (floor 18), with margin left over.
+# depth clears F+G+2 (check-memcheck-depth.py) at today's F=10/G=10 (floor 22), which the
+# live fetch-side guess moved from 8/8: a first-word guess waits for its target pair.
 mode bmc
 append 0
 tbtop testbench.uut
-depth 20
+depth 22
 
 [engines]
 smtbmc --presat --unroll boolector
