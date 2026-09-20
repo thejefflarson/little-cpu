@@ -11,7 +11,6 @@ module pcloop (
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
-    // Free, like fetch_stall/imem_fault: this harness has no accessor to derive it from.
     input logic text_write,
     // Free: a hart not granted the shared bus holds the pc, the same way an unanswered
     // atomic redirects it; the increment assertion skips both cycles.
