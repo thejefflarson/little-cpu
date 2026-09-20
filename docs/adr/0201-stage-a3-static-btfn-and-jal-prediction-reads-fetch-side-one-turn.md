@@ -1,10 +1,161 @@
-# 0201 — Stage A3: the mispredict definition lands; the guess itself does not yet ship
+# 0201 — Stage A3: the mispredict definition lands; the guess itself still does not ship
 
-Status: Partial. The `redirect`/`mispredict`/`kill` semantics this ticket asks for are built,
-proved not to regress anything with the guess held off, and shipped. The static BTFN/jal guess
-itself is fully implemented but disabled at the one gate that spends it (`predict_found` tied to
-`1'b0` in `rtl/fetchctrl.v`) after a real, reproducible Dhrystone-scale corruption survived three
-found-and-fixed bugs and a fourth was not found inside this stage's own time budget. 2026-09-19.
+Status: Partial, as originally recorded — but for a different, better-understood reason than the
+first pass left it at. The `redirect`/`mispredict`/`kill` semantics this ticket asks for are built
+and proved, live, with a real guess forming and resolving during the work described below; that
+part is done and not revisited. `predict_found` in `rtl/fetchctrl.v` ships tied to `1'b0`, as it was
+at the start of this update, because two independent, real problems were found after jal-only
+prediction was believed shippable, either one alone sufficient to decline it: a sixth bug, a
+genuine, formally-proven architectural gap (a guess lets fetch race ahead of decode by an
+address-space distance bounded only by *time*, not by the small, fixed queue depth sequential fetch
+is bounded by, and nothing invalidates an already-queued speculative fetch when a later store
+targets the same text address before decode retires past it — `formal/imemcheck.sv` catches exactly
+this), and a seventh, unrelated finding — CoreMark, which never writes its own text and so cannot be
+exercising the sixth bug, also corrupts under jal-only prediction, confirmed attributable to the
+predictor by a same-tree control run that passes clean with `predict_found` back to `1'b0`. Neither
+is fixed here; both are recorded as scoped future work. The fourth, fifth and sixth bugs below, and
+the fixes for the fourth and fifth, are structural and worth keeping regardless: a future session
+that spends the time budget this one did not have inherits three fewer bugs to rediscover, not
+zero — but the seventh finding says that budget must also cover a correctness gap this session did
+not diagnose, not only the sixth bug's known one. 2026-09-19, updated three times the same day.
+
+## Update: the fourth and fifth bugs, found by a retire-stream differential
+
+The original session's own bisection (below, in "Why the guess is not spent") found three bugs and
+then declined the whole mechanism after a fourth, undiagnosed corruption survived all three fixes.
+A follow-up session found it by building the exact tool the ADR recommended: `test/cxxrtl.cc` grew
+`--retire-trace N`, a bounded ring of the last N retires (cycle, pc, insn) and N cycles of
+fetch-side control state (`pc`, `next_pc`, `fetch_pc`, `redirect`, `kill`, `mispredict`,
+`predicted_active`, `predicted_src_pc`, `predicted_target`, `buffer_empty`, the fetched `instr`,
+`instr_illegal`, `trap_cause`), dumped on any fatal exit. Diffing a jal-only-predicted Dhrystone run
+against the predictor-off baseline at the same cycle window found the first divergence immediately:
+a real `jal` correctly predicted and taken with no flush, followed one cycle later by decode reading
+a wrong word at the jump target.
+
+**Fourth bug: `pair_base` and `fetch_odd` read a cycle earlier than `imem_data`/`imem_data2` catch
+up.** `stolen_pc`, reused as `pair_base`'s source, is not a fetch address one cycle behind
+`fetch_pc` — its `redirect_apply` arm sets it to the *new* `fetch_pc` immediately, a full cycle
+before that address's own ROM response has arrived. For one cycle after any redirect (a real one, or
+a guess committing, which is the same kind of discontinuity), candidate detection reads bits that
+belong to a different, unrelated pair than the one `pair_base` claims — reproduced live as
+`predicted_target` latching `0xfffffaca` out of nothing. Separately, once a guess *is* correctly
+detected, its own pair's naive successor (the address `fetch_pc` would have advanced to sequentially)
+is already in flight by construction: `fetch_pc[T]` is committed to the ROM one cycle before the
+candidate in `fetch_pc[T-1]`'s own pair is even evaluated, so the moment a guess commits, that
+in-flight response would otherwise still reach the queue behind the guessed target's own words.
+Fixed with three changes in `rtl/fetchctrl.v`:
+- `fetch_addr_d1`, an unconditional one-cycle copy of `fetch_pc` with no redirect or retry
+  exception, feeds `pair_base` instead of `stolen_pc` (which keeps its original retry-address role
+  unchanged).
+- `predict_trusted = req_valid && predict_found` and `predict_commit = predict_trusted && room &&
+  !redirect_apply && !fetch_stall` gate every consumer that used to read `predict_found` alone:
+  the `fetch_pc` mux, `fetch_odd`'s update, and `predicted_active`'s own latch (below). `waiting`
+  additionally clears on `predict_commit` (`launch && !predict_commit`), which is what drops the
+  abandoned in-flight response rather than pushing it into the queue.
+- `fetch_odd`'s redirect/guess-driven update moves from `redirect_apply` to `redirect_apply_d1` (and
+  the new `predict_commit_d1`), so it settles on the same cycle `fetch_addr_d1` does; by then
+  `fetch_pc` already holds the settled target, so both paths can simply read `fetch_pc[1]`.
+
+**Fifth bug, found the same way against `test/asm/rvc.S`'s own jal-over-embedded-data pattern (a
+`j` skipping 8 KB of literal test data placed right after it, landing on a real instruction at a
+non-word-aligned half of a 4-byte word): `predicted_active` latched on `predict_trusted` alone, not
+`predict_commit`.** `room` can be false on the exact cycle a candidate is confirmed, which blocks
+`fetch_pc` from actually taking the guessed jump (it falls back to the sequential `+8` instead) —
+but the bookkeeping latched anyway, recording a guess that was never speculatively fetched. When
+decode later reached the real `jal`, `predicted_src_pc` still matched, and its own independently
+computed `next_pc` happened to equal `predicted_target` (the same real jump, correctly decoded) —
+so `mispredict` and `redirect` both read false, and decode used the already-queued words from the
+sequential path that never actually detoured, instead of flushing and fetching the real target.
+Fixed by gating the `predicted_active`/`predicted_src_pc`/`predicted_target` latch on `predict_commit`
+rather than `predict_trusted`, so the bookkeeping only ever claims a guess is active when `fetch_pc`
+genuinely took it.
+
+With both fixes, `test/asm/rvc.S` — already a standing, un-excepted member of the suite, whose
+`test/OBSERVED_FLOOR` line (`rvc.S 184 184`) is unchanged — is the regression: it reproducibly
+`TRAP-TO-ZERO`s under jal-only prediction with either bug present, and passes, retiring exactly its
+recorded floor, with both fixed. That is the red-then-green proof for the fourth and fifth bugs; no
+new program was added, because a real one already exists and already exercises the class of bug.
+With jal-only prediction *live* (`predict_found = cand_a_jal && !cand_a_same_pair`), `make test`'s
+own full run (75/75 `.S`/`.c` programs, every repo-scanning check) was green, and Dhrystone
+`PASS`ed at 993 cycles/Dhrystone, 0.573 DMIPS/MHz. That configuration is not what ships — see the
+sixth bug, found only after both of the above, which is why `predict_found` is back to `1'b0` below.
+
+## Branches and candidate B: a bug that made jal-only look closer to shippable than it was
+
+Setting `predict_found` to `cand_a_taken` (branches too) or `cand_a_taken || cand_b_taken`
+reproduces a different failure from jal-only's own: Dhrystone never reaches a `PASS` verdict,
+instead retiring far more instructions than the workload needs (5.45M retired against a
+10,000,000-cycle budget, where the whole benchmark needs under 2,000,000) with `mispredict=0` for
+the entire run. This is a livelock, not the corruption the fourth and fifth bugs were — the machine
+keeps making forward progress, just never the progress that reaches Dhrystone's own completion
+check. It was not root-caused in this session's own time budget: the leading candidate is that a
+*mispredicted* backward branch (the one case a static BTFN guess is wrong about, and the one case
+candidate A's own jal-only gate never exercises, since `jal` has no operand and is trivially always
+correctly guessed) drives some loop's exit condition into a state neither the guess-correct nor the
+guess-wrong path recovers from cleanly. This is recorded as a real, distinct, still-open finding —
+widening `predict_found` to branches needs it root-caused first, on top of the sixth bug below,
+which blocks jal alone in the meantime anyway.
+
+## The sixth bug: a guess is a text read with no invalidation path, and self-modifying code needs one
+
+Both the fourth and fifth bugs, and the jal-only figures above, were found and measured believing
+jal-only prediction was ready to ship. `make -C formal all`, run once with jal-only prediction live
+end to end (not merely the targeted checks the fourth and fifth bugs' own fixes were verified
+against), found a sixth problem, one `formal/imemcheck.sv` already exists to catch: a `shadow_addr`
+memory-coherence check, which watches one arbitrary text half-word, assumes the ROM's own output
+always reflects the most recent write to whatever address it is reading, and asserts that whatever
+`rvfi_insn` a later retire reports at that address matches. It failed at step 12 with jal-only
+prediction live; it does not fail — this check predates this stage — with `predict_found` tied to
+`1'b0`.
+
+**The property this check states, restated in prose: any word already sitting in the fetch queue
+must not be retired if a text write has since landed on its own address, because the queued content
+is now stale.** Sequential-only fetch (the design as shipped before this ticket) is bounded to
+looking two pairs (8 words) ahead of decode by the fetch queue's own four-word depth — a small,
+fixed window a write would need to land inside, and inside a window that short before this stage
+apparently never happens in a way the check's own bounded depth can construct. A guess breaks that
+bound: the moment a candidate's own pair is fetched, fetch can jump to the guessed target and start
+queuing its words immediately, *independent of how many instructions decode still has to retire
+before it reaches the guessing instruction itself* — in the `rvc.S` trace this ADR's own
+"cycle-by-cycle breakdown" section quotes, the guess formed at cycle 4 and decode did not retire the
+guessing `jal` until cycle 8, a four-cycle window with no bound tying it to queue depth at all. A
+text write landing on the guessed target's own address inside that window is invisible to the
+guess: nothing in `rtl/fetchctrl.v` snoops `mem_addr`/`mem_wstrb`, so nothing invalidates
+`predicted_active` or the queue's own already-buffered words, and decode retires stale bytes.
+
+This is not a corruption `test/asm/rvc.S`, `make cosim-suite`, or Dhrystone can reach — none of them
+write to a jal's own target address in the handful of cycles between a guess forming and that jal
+retiring — which is exactly why a targeted `.S` regression did not catch it and a formal check,
+built to search adversarially rather than run one fixed program, did. **No fix is shipped for it.**
+A real one needs `rtl/fetchctrl.v` to observe the data bus's own write address and strobe (plumbed
+in from `rtl/littlecpu.v`, where `mem_addr`/`mem_wstrb` already exist) and invalidate
+`predicted_active` — which, as the fifth bug's own fix already established, is sufficient on its
+own to force a real flush-and-refetch through the existing redirect path — whenever a text write's
+address falls within whatever the guess has already queued. That is real, scoped design work, not
+a one-line gate change, and is why `predict_found` ships tied to `1'b0` rather than at this
+half-finished state.
+
+## A seventh, independent finding: CoreMark corrupts under jal-only prediction too
+
+CoreMark does not write to its own text, so it cannot be exercising the sixth bug above — and it
+still corrupts. With `predict_found = cand_a_jal && !cand_a_same_pair` (the same jal-only
+configuration the fourth and fifth bugs' fixes were verified against, on the exact tree those fixes
+landed on), `make coremark` reports `TRAP TO ZERO` after `RETIRES 2481` of the run's eventual
+tens of millions, `mispredict=0` throughout — the same signature as the original session's own
+undiagnosed Dhrystone corruption at cycle 26,407 (a trap taken with no guess ever resolved wrong),
+but on a different program and, since the fourth and fifth bugs are fixed, evidently a different
+cause. **The control confirms the attribution**: reverting `predict_found` to `1'b0` on the
+identical tree — no other change — runs the same CoreMark image to its own `PASS`, self-check
+`PASS`, `2K validation configuration: PASS`, 1.712 CoreMark/MHz, `mispredict=0` (nothing is guessed,
+so the field reads its own idle value). Whatever this is, it is jal prediction's, not CoreMark's,
+and it is a *third* correctness gap distinct from both the fourth/fifth bugs (fixed) and the sixth
+(self-modifying code, above) — this repo's own `make coremark` and `make dhrystone` share no
+`.S`-suite-style baselining, so nothing short of running the actual workload would have caught it.
+**Not root-caused, on purpose**: with two independent, already-proven reasons jal-only cannot ship
+(the sixth bug's formal counterexample and this one), spending further session time isolating a
+third would not change the shipping decision, so `predict_found` returns to `1'b0` immediately
+after this control run and this finding is left for whoever next reopens `rtl/fetchctrl.v`,
+alongside the sixth bug and the branch livelock below.
 
 ## What this is
 
@@ -110,9 +261,11 @@ carries, independent of whether `rtl/fetchctrl.v` currently forms a guess.
 `formal/pcloop.sv`'s Property 1 gains a fourth arm: `fetch_pc` may land on `predicted_target` the
 cycle `predicted_active` rises 0→1 with `fetch_pc == predicted_target` in the same edge (both set
 in `rtl/fetchctrl.v`'s one `always_ff`, a one-cycle relationship, unlike the redirect arm's
-two-cycle one). This arm is unreachable with `predict_found` tied low — the property is still
-sound (an unreachable disjunct weakens nothing) and documents the machinery for whoever re-enables
-it. "A killed word never issues" (Property 3) is unchanged and still load-bearing.
+two-cycle one). This arm was reachable and proved, by `components_pcloop`, over the fixed
+`predict_commit`-gated logic during the session's jal-only-live investigation; with `predict_found`
+back to `1'b0` for the reason below, it returns to being a sound but unreachable disjunct, same as
+the original pass left it — the difference is that it is now proved *correct when reachable*, not
+merely unreachable. "A killed word never issues" (Property 3) is unchanged and still load-bearing.
 
 `formal/traps.sv` gained the minimal additive free-input/unread-output wiring `rtl/decoder.v`'s
 new ports force (`predicted_active`/`predicted_src_pc`/`predicted_target` free,
@@ -126,92 +279,144 @@ already carry there. No change was needed to `STALL_TARGETS`, `formal/decoder-zk
 `rtl/decoder.v`'s own Zkt assertions: `redirect`/`kill`/`mispredict` all sit outside `stall`'s own
 composition exactly as `redirect`/`kill` already did before this ticket, and `redirect` already
 depended on register-resolved branch/`jalr` targets pre-A3 — this ticket adds no new path from a
-tainted register into a timing-visible signal, only a new comparison against untainted data.
+tainted register into a timing-visible signal, only a new comparison against untainted data. This
+was re-run against the elaborated netlist with jal prediction live (not merely declared sound
+against dead logic): `test/zkt_isolation_test.py` reported the decoder reaching `region_stall`
+only, and `formal/decoder-zkt-probe.py`'s own forced-red prerequisite still required a mutation at
+`region_stall`'s gate or `ls_access`'s membership specifically — the predictor's own new registers
+(`fetch_addr_d1`, `predict_commit_d1`, `predicted_active` and friends) are all in
+`rtl/fetchctrl.v`, entirely outside the netlist this walk traces from `reg_rs1`/`reg_rs2`/
+`executor_out.rd_data`, so neither the taint graph nor the probe's own mutation site needed to
+change. With `predict_found` back to `1'b0`, `make test`'s own run of this check (below) is what is
+authoritative for the shipped netlist.
 
-`make -C formal remeasure-fg`: **F = 8, G = 8, both reproduce exactly** — no new stage, no new
-stall reason, and with the guess un-spent the composed proof's own timing is bit-for-bit A2's.
+`make -C formal remeasure-fg`, re-run against jal prediction live: **F = 8, G = 8, both reproduce
+exactly** against the declared values — no new stage, no new stall reason. `predict_commit`'s own
+`room` gate means a guess never lengthens the pipeline by a cycle beyond what a plain redirect
+already costs; it only sometimes avoids paying that cost at all. Re-run again with `predict_found`
+back to `1'b0` (the shipped configuration): unchanged, F = 8, G = 8.
 
-**`.S` suite**: 75/75, matching `test/EXPECTED_FAIL` (empty) exactly; `test/OBSERVED_FLOOR`
-unchanged.
+**`.S` suite**: 75/75 with `predict_found` at `1'b0` (shipped), matching `test/EXPECTED_FAIL`
+(empty) exactly; `test/OBSERVED_FLOOR` unchanged. It was also 75/75 with jal-only prediction live —
+`rvc.S`'s own floor (`184 184`) is the regression the fourth and fifth bugs were graded against,
+described above, and stayed green through the session's own configuration changes.
 
-**Dhrystone**, `make dhrystone` (`DHRY_RUNS=2000`): **1001 cycles/Dhrystone, 0.568 DMIPS/MHz,
-identical to A2's own figure to the cycle.** `RETIRES 946440`, `cycles=2054635`,
-`issue=946442`, `kill=488703` (A2: `488313`; both are `--stalls`-instrumented builds, not the
-shipped binary, and the small residual difference is the mispredict/predict-resolved wiring now
-present but always false, not a behaviour change — no control signal reads it). `mispredict=0`.
-This is the control for "the redefinition changes nothing when nothing is guessed," and it holds.
-
-**The mispredict rate this ticket asks to report is 0%, on purpose**: no guess is ever formed, so
-`kill` still counts every redirect, same as A2. ADR-0188's own BTFN prototype measured 6.26% of
-Dhrystone's issues as mispredicts and 3.00 cycles/redirect is A2's own already-measured kill cost;
-neither figure moves here because the mechanism that would spend them is switched off.
+**Dhrystone, jal-only prediction live** (not shipped; measured before the sixth and seventh
+findings, and reconfirmed bit-for-bit on this session's own final tree before `predict_found`
+went back to `1'b0`): `make
+dhrystone` (`DHRY_RUNS=2000`) read **993 cycles/Dhrystone, 0.573 DMIPS/MHz, PASS.** `RETIRES
+940450`, `SPEC-CHECKED 940445`, `cycles=2038643`, `issue=940452`, `kill=484697`, `mispredict=0`.
+Against the shipped, no-predictor configuration (1001 cycles/Dhrystone, 0.568 DMIPS/MHz,
+`kill=488703`, identical to this ADR's own original figures): **−0.8% cycles**, from `kill` falling
+by 4,006 cycles — every one of them a `jal` whose guess avoided a flush entirely, at zero cost when
+right (jal has no operand, so a `jal`'s own guess is trivially always correct: `mispredict=0` is not
+a control, it is what predicting a register-independent jump always reads). Against **main** (0.722
+DMIPS/MHz, ADR-0190, about 788 cycles/Dhrystone): jal-only would have read **+26% cycles, missing
+the owner's own +3% ceiling by a wide margin** even before the sixth bug is counted. Reported
+honestly rather than chased: jal alone is a small fraction of Dhrystone's own redirects (`kill` fell
+0.8%, not the double-digit percentage closing the gap to main would need), and the branch half that
+would close most of the remaining gap is the one this session could not ship (see "Branches and
+candidate B" above) — so jal-only was never going to meet the ceiling even had the sixth bug not
+existed. **The shipped configuration's own Dhrystone figures are unchanged from this ADR's
+original pass**: 1001 cycles/Dhrystone, 0.568 DMIPS/MHz, `mispredict=0` because nothing is guessed.
 
 `make lint`: clean, both passes. `make elaborate-strict`: clean.
 
-`make -C formal all`: **100 PASS, 0 FAIL** — the generated set (86 checks, `[depth]` floors F=8/G=8,
-all 86 at or above theirs, `EXPECTED_CHECKS` matches exactly), `complete`/`complete_cover`,
-`imemcheck`/`dmemcheck`, and all six component proofs by k-induction (`components_decoder` with
-its two Zkt probes, `components_executor`, `components_accessor`, `components_pcloop`,
-`components_traps` with both its region and tval probes, `components_busarbiter`).
+`make -C formal all`, jal-only prediction live: 88 of the 86-generated-check-plus set passed with
+**no failures until `imemcheck`**, which failed — the sixth bug, described above, with a
+counterexample at step 12 (`shadow_addr = 0xffff0000`) — stopping the run there. Every other
+generated check (`insn_*`, `csrw_mcycle`, and the rest of the 86) passed with jal prediction live;
+`imemcheck` is the one this ADR's own sixth-bug section is about. Re-run with `predict_found` back
+to `1'b0` (the shipped configuration): **`imemcheck` alone confirmed PASS first**, then the full
+`make -C formal all` — the generated set (86 checks, `[depth]` floors F=8/G=8, all 86 at or above
+theirs, `EXPECTED_CHECKS` matches exactly), `complete`/`complete_cover`, `imemcheck`/`dmemcheck`,
+and all six component proofs by k-induction (`components_decoder` with its two Zkt probes,
+`components_executor`, `components_accessor`, `components_pcloop`, `components_traps` with both its
+region and tval probes, `components_busarbiter`) — see the final tally below.
 
-`make cosim-suite`: 69/75 agree; the divergence list matches `test/COSIM_EXPECTED_FAIL` exactly —
-unchanged from A2, since nothing about what co-sim can and cannot see moved.
+`make cosim-suite`, `make mutation-check`, `make dual-smoke`, `make fit`, `make ecp5-timing`,
+`make coremark`, against the shipped (`predict_found = 1'b0`) configuration, run sequentially after
+the formal re-run above finished (never concurrently with a formal pass — resource contention reads
+as a tool failure, not a design one, and already cost this session one wasted `remeasure-fg`
+attempt): **all clean.** `make cosim-suite` matches `test/COSIM_EXPECTED_FAIL` exactly (69/75
+agree, the same six divergences the baseline already names). `make mutation-check`: 11 mutations,
+each caught by exactly its paired detector. `make dual-smoke`: `OK — two harts counted 32, one hart
+counted 16`. `make fit`: 4654 of the 4802-cell budget (the ~50-cell churn band, no ratchet trip).
+`make ecp5-timing`: all three mapping censuses gate clean (`DP16KD` 36, `TRELLIS_DPR16X4` 32,
+`MULT18X18D` 4, all "as declared"), no block-RAM reset driven by logic, Fmax 41.76 MHz (publishes,
+no ratchet). `make coremark`: `PASS`, self-check `PASS`, **1.712 CoreMark/MHz**, `mispredict=0`
+(nothing is guessed). This is also where the seventh finding above was found: the same CoreMark
+image, same tree, with jal-only prediction live instead, does not reach `PASS`.
 
-`make mutation-check`: 11 mutations, every one caught by exactly its paired detectors; `rtl/`
-restored cleanly afterward (`git status` clean).
-
-`make dual-smoke`: OK — two harts counted 32, one hart (held in reset) counted 16.
-
-`make fit`: **4732 of 5280 `ICESTORM_LC`** (89%), +52 against the 4680 the Makefile's own comment
-cites (inside the churn band), ratchet `FIT_MAX_LC` 4802 not tripped. This is not a pure null: the
-alignment-tracking machinery (`fetch_odd`, the four-lane boundary walk) runs on every accepted
-pair regardless of `predict_found`, since `fetch_odd`'s own next state depends on it unconditionally
-— only the candidate-to-`fetch_pc` mux is dead code with `predict_found` tied low, not the walk that
-would feed it. `make ecp5-timing`/`make soc-timing`: not separately re-taken here; A2's own SoC
-does not place on the up5k for a reason this ticket does not touch, and Stage A's own placement
-question is still Stage B's to answer.
-
-**CoreMark**, `make coremark`: **1.712 CoreMark/MHz**, `Total ticks 58399413`, `Iterations 100`,
-self-check PASS, 2K validation configuration PASS. Not compared against a prior Stage-A figure —
-neither ADR-0196 nor ADR-0198 measured CoreMark — but consistent with the Dhrystone control: since
-`predict_found` is tied low, this is what A1/A2's own CoreMark figure already is.
-
-**The cycle-by-cycle mispredict breakdown the ticket asks for has no live guess to trace**: with
-`predict_found` tied to `1'b0`, `predicted_active` never rises, so no waveform of the shipped
-binary shows one. The closest available evidence is `test/decoder_tb.v`'s three hand-driven
-vectors, which exercise `rtl/decoder.v`'s own mispredict logic directly: cycle N presents the
-guessed instruction with `predicted_active`/`predicted_src_pc`/`predicted_target` already set;
-`next_pc`, `redirect`, `mispredict` and `predict_resolved` are combinational off that same cycle,
-so a correct guess resolves with `redirect=0`/`mispredict=0` and a wrong one with both `1`, on the
-identical cycle decode issues the branch — there is no separate "kill" cycle to trace in decode
-itself, since `kill` is `rtl/fetchctrl.v`'s own accounting for the cycles *after* that redirect
-while the queue refills (`buffer_empty && redirect_recovering`), which A2's own 3.00
-cycles/redirect figure already measured. A real trace of a live mispredict needs the predictor
-re-enabled, which this ADR declines to do for a diagnostic screenshot given the unfound fourth bug.
+**The cycle-by-cycle breakdown of one correctly predicted jal**, from the jal-only-live
+configuration this ADR does not ship, read off `--retire-trace`'s own capture of `test/asm/rvc.S`
+(columns: cycle, `pc`, `next_pc`, `fetch_pc`, `predicted_active`, `predicted_src_pc`,
+`predicted_target`, `redirect`). This is the same `jal` and the same four-cycle gap the sixth bug's
+own section cites as the exposure window a text write could land in undetected:
+```
+4  pc=0x0000004 next_pc=0x0000008 fetch_pc=0x0000010                 pred_active=1 src=0x0c tgt=0x1ffe
+8  pc=0x000000c next_pc=0x0001ffe fetch_pc=0x0000018 redirect=0      pred_active=1 src=0x0c tgt=0x1ffe
+9  pc=0x0001ffe next_pc=0x0000000 fetch_pc=0x0000020 redirect=0(trap elsewhere, unrelated)
+```
+The guess forms at cycle 4, well before decode reaches the jal at cycle 8 — fetch is racing ahead
+of decode by several pairs, exactly as intended. At cycle 8 decode issues the real `jal`,
+`predicted_this` matches (`fetcher_pc == predicted_src_pc`), `next_pc` computed independently of
+the guess equals `predicted_target`, `redirect=0`: **no flush.** At cycle 9 decode is already
+issuing the real instruction at the jump target — one cycle later, the same as a plain
+non-branching instruction would cost. **Zero cycles, not three**: the 3.00 cycles/redirect figure
+(ADR-0198) is what an *unpredicted* redirect pays (resolve → `redirect_apply` registers the target
+→ the target's own pair is requested → its response is pushed into the queue → decode can finally
+issue), and remains exactly that cost, unchanged, for anything jal-only prediction does not cover
+(every branch, every `jalr`, every trap). That three-cycle structure is a property of the ROM's own
+one-cycle latency plus the two-cycle `flush` window (`redirect_apply || redirect_apply_d1`); this
+ticket touches none of it. A live *mispredicted* guess has no trace to show, since jal-only
+prediction cannot mispredict by construction (above) and branches are not shipped.
 
 ## Consequences
 
-- **The redirect/mispredict semantic the ticket asks for is real, proved, and load-bearing the
-  moment a follow-up re-enables `predict_found`** — nothing about `rtl/decoder.v`'s own logic
-  needs to change again; only `rtl/fetchctrl.v`'s fourth bug needs finding.
-- **Three real bugs are fixed and worth keeping fixed**: the word-aligned pair base, the guessed
-  target's own half-word parity feeding `fetch_odd`, and the same-pair exclusion. A follow-up that
-  re-derives the predictor from scratch should not have to rediscover any of the three.
-- **The fourth bug is the open item**, and it is specifically NOT the same-pair short-loop shape
-  (that is excluded structurally) and NOT primarily about branch mispredicts (`jal`-only alone
-  reproduced it with `mispredict=1`). The next session's fastest path is probably a waveform trace
-  of the specific Dhrystone retire that first diverges, not another round of `.S`-suite bisection,
-  since the `.S` suite is now proven unable to catch it.
-- **Stage A3's own measurement section (Dhrystone before/after, the cycle-by-cycle mispredict
-  breakdown, kill cycles against a real mispredict rate) is not answerable from this state**,
-  because nothing is predicted. The owner's own ceiling ("Dhrystone no worse than +3% over main")
-  is trivially met (0%, since nothing changed), which is not the same claim as "the predictor is
-  fast" — it is not evidence either way about the predictor once it is re-enabled.
-- **A pre-existing comment-density gap, not caused by this ticket**, was found on `formal/pcloop.sv`,
-  `formal/traps.sv`, `rtl/decoder.v`, `rtl/littlecpu.v` and `formal/components.sby` — each was
-  already over `docs/comment-budget.md`'s 5% on A2's own branch, before this ticket touched them.
-  This ticket condenses (never deletes the substance of) the comments in the four it touches —
-  `formal/pcloop.sv`, `formal/traps.sv`, `rtl/decoder.v`, `rtl/littlecpu.v` — to bring each under
-  budget, alongside keeping every file it added net comment lines to under budget
-  (`rtl/fetchctrl.v`, `test/cxxrtl.cc`, `test/decoder_tb.v`, `test/zkt_isolation_test.py`).
-  `formal/components.sby`, untouched by this ticket, is left as found.
+- **The guess still does not ship, and the reason moved from "one unknown" to "two known, real
+  problems, plus a third not yet diagnosed"**: `predict_found` is `1'b0` in the shipped tree, same
+  as the original pass, but this session traded three unknowns (a fourth bug, a fifth bug, and "is
+  jal-only shippable at all") for two scoped, formally-or-empirically-demonstrated real problems
+  (the sixth bug's missing text-write invalidation, and CoreMark's own corruption, confirmed
+  attributable to the predictor but not root-caused) — a guess needs to invalidate itself against a
+  text write to whatever it has already speculatively queued, and something distinct from that,
+  reachable by CoreMark alone among everything this session ran, also needs finding and fixing.
+- **Five real bugs are now fixed** (word-aligned pair base, guessed-target half-word parity, the
+  same-pair exclusion — the original session's three — plus the fourth and fifth this update
+  found: `pair_base`/`fetch_odd` reading a cycle before `imem_data`/`imem_data2` catch up after any
+  discontinuity, and `predicted_active` latching on `predict_trusted` instead of the room-gated
+  `predict_commit`), all inert but present in the shipped tree (`predict_found`'s own `1'b0` gates
+  every consumer of the mechanism they fix). A follow-up that re-derives the predictor from scratch
+  should not have to rediscover any of the five, and does not need to reach `rtl/fetchctrl.v` at
+  all to un-ship them — flipping `predict_found` back to `cand_a_jal && !cand_a_same_pair` is
+  sufficient to reach the jal-only-live state this ADR measured, once the sixth bug has a fix.
+- **A retire-stream differential, not another round of `.S`-suite bisection, is what found the
+  fourth and fifth bugs; the full formal suite, run against the live guess rather than only the
+  targeted checks the fourth and fifth bugs' own fixes were verified against, is what found the
+  sixth.** `test/cxxrtl.cc --retire-trace N` is now a standing tool, not a one-off script, for
+  exactly the reason the original session's own bisection stalled — a corruption the hand suite
+  cannot reach needs the specific retire and the cycles before it, not a pass/fail table. The sixth
+  bug's own lesson is sharper: **a mechanism is not verified until the full formal suite has run
+  against it live** — every targeted check (`test/decoder_tb.v`, `pcloop`'s new arm, Zkt, F/G) can
+  pass while a check nobody thought to re-target (`imemcheck`, unrelated on its face to a static
+  branch guess) finds a real, adversarially-constructible violation.
+- **Branches and candidate B are a separate, still-open livelock**, found and left unexplained
+  before the sixth bug was found; widening `predict_found` past jal needs both this and the sixth
+  bug resolved, and neither is a "flip a gate" change.
+- **A third, independent correctness gap — CoreMark's own corruption under jal-only prediction — is
+  also open**, confirmed real (a same-tree control run with `predict_found` back to `1'b0` passes
+  clean) but not root-caused, deliberately: the shipping decision (disable) was already forced by
+  the sixth bug alone, so this session did not spend further time isolating a third cause it did
+  not need to isolate to reach that decision. A future session re-enabling jal-only owes finding
+  this one too, not only the sixth bug's fix.
+- **The owner's own +3% ceiling was never going to be met by jal alone even had the sixth bug not
+  existed**: jal-only prediction, live, read 993 cycles/Dhrystone against main's ~788, +26%. That
+  number is not shipped and is recorded for whoever picks up the sixth bug next, so the next
+  session knows what ceiling jal alone reaches even once corrected, and that branches (blocked on
+  their own livelock) are what closing the real gap needs.
+- **A pre-existing comment-density gap, not caused by this ticket**, was found on `formal/pcloop.sv`
+  and `rtl/decoder.v` after the Stage A1 merge picked up both sides' own prose on the same ports and
+  properties, pushing files A3's own first pass had already brought under budget back over it.
+  Condensed again here, alongside `rtl/fetchctrl.v`'s own comments for the fourth and fifth bugs'
+  fix, without losing the mechanism each states.

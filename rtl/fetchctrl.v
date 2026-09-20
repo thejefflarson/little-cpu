@@ -90,8 +90,8 @@ module fetchctrl (
 
   logic predict_found, fetch_odd_next;
   logic [31:0] predict_src, predict_tgt;
-  // jal only; branches livelock Dhrystone instead (ADR).
-  assign predict_found = cand_a_jal && !cand_a_same_pair;
+  // Held false: a self-modifying store can retire a stale predicted word (see the ADR).
+  assign predict_found = 1'b0;
   assign predict_src   = cand_a_taken ? (pair_base + 32'd4) : (pair_base + 32'd6);
   assign predict_tgt   = cand_a_taken ? cand_a_target : cand_b_target;
   assign fetch_odd_next = !boundary4;
