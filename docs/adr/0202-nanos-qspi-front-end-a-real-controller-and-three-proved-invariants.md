@@ -1,4 +1,4 @@
-# ADR-0200: nano's QSPI front end -- a real controller, and three proved invariants
+# ADR-0202: nano's QSPI front end -- a real controller, and three proved invariants
 
 **Status:** Accepted, with a known residual · 2026-09-19
 
