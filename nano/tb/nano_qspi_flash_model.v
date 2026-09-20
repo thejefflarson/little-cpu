@@ -1,7 +1,13 @@
 `timescale 1 ns / 1 ps
 // A pin-level behavioural model of the flash half of nano_qspi_ctrl's Pmod (sck/cs_n/sio),
-// reacting to the real sck edges directly -- a clk-registered copy launches an output one
-// clk late, invisible while sck free-runs and wrong once a pause freezes it.
+// single-clock throughout: cxxrtl never re-evaluates a design-internal derived clock like
+// sck after its first eval per commit, so `@(posedge sck)` never fires there (silently --
+// iverilog runs it fine, which is what let this pass unnoticed). sck toggles every real
+// clk cycle while running, so its CURRENT (pre-this-edge) value already predicts the
+// transition about to become visible: `!sck` means the coming edge is a rise, `sck` means
+// the coming edge is a fall, and reacting on that prediction -- not on a registered
+// sck/sck_d comparison, which would read one clk cycle behind -- lands the reaction on the
+// same edge the controller itself samples.
 module nano_qspi_flash_model #(
   parameter int WORDS = 20480,
   parameter int DUMMY_SCK = 4
@@ -49,57 +55,60 @@ module nano_qspi_flash_model #(
       cont_mode <= 1'b0;
       phase     <= PH_IGNORE;
     end else if (cs_n) begin
+      // Deasserted: the next assertion starts fresh, at a command byte unless latched.
       phase        <= cont_mode ? PH_ADDR : PH_CMD;
       nibbles_done <= 0;
+    end else begin
+      // Reading cs_n here, not a registered copy, already reads one clk cycle behind its
+      // own visible change -- the same lag every register read gets -- so the cycle CS
+      // first shows low still takes the branch above, and this one starts exactly when
+      // real mid-session activity does, with no separate delay register needed.
+      if (!sck) begin
+        case (phase)
+          PH_CMD: begin
+            cmd_byte <= {cmd_byte[3:0], sio_in};
+            if (nibbles_done == 1) begin
+              phase <= ({cmd_byte[3:0], sio_in} == CMD_FAST_READ_QIO) ? PH_ADDR : PH_IGNORE;
+              nibbles_done <= 0;
+            end else nibbles_done <= nibbles_done + 1;
+          end
+          PH_ADDR: begin
+            addr_byte <= {addr_byte[19:0], sio_in};
+            if (nibbles_done == 5) begin
+              phase        <= PH_MODE;
+              nibbles_done <= 0;
+            end else nibbles_done <= nibbles_done + 1;
+          end
+          PH_MODE: begin
+            mode_byte <= {mode_byte[3:0], sio_in};
+            if (nibbles_done == 1) begin
+              cont_mode    <= mode_byte[3:2] == 2'b10;
+              parcel_addr  <= addr_byte[23:1];
+              // +1: the coming fall is this same rise's own mode byte, not a dummy one.
+              dummy_left   <= DUMMY_SCK + 1;
+              phase        <= PH_DUMMY;
+              nibbles_done <= 0;
+            end else nibbles_done <= nibbles_done + 1;
+          end
+          default: ;
+        endcase
+      end else begin
+        case (phase)
+          PH_DUMMY: begin
+            if (dummy_left == 1) begin
+              phase      <= PH_STREAM;
+              nibble_idx <= 2'd0;
+            end else dummy_left <= dummy_left - 1;
+          end
+          PH_STREAM: begin
+            if (nibble_idx == 2'd3) begin
+              nibble_idx  <= 2'd0;
+              parcel_addr <= parcel_addr + 31'd1;
+            end else nibble_idx <= nibble_idx + 2'd1;
+          end
+          default: ;
+        endcase
+      end
     end
-  end
-
-  always @(posedge sck) if (!cs_n) begin
-    case (phase)
-      PH_CMD: begin
-        cmd_byte <= {cmd_byte[3:0], sio_in};
-        if (nibbles_done == 1) begin
-          phase <= ({cmd_byte[3:0], sio_in} == CMD_FAST_READ_QIO) ? PH_ADDR : PH_IGNORE;
-          nibbles_done <= 0;
-        end else nibbles_done <= nibbles_done + 1;
-      end
-      PH_ADDR: begin
-        addr_byte <= {addr_byte[19:0], sio_in};
-        if (nibbles_done == 5) begin
-          phase        <= PH_MODE;
-          nibbles_done <= 0;
-        end else nibbles_done <= nibbles_done + 1;
-      end
-      PH_MODE: begin
-        mode_byte <= {mode_byte[3:0], sio_in};
-        if (nibbles_done == 1) begin
-          cont_mode    <= mode_byte[3:2] == 2'b10;
-          parcel_addr  <= addr_byte[23:1];
-          // +1: this rising edge's own falling half is the mode byte's, not a dummy one.
-          dummy_left   <= DUMMY_SCK + 1;
-          phase        <= PH_DUMMY;
-          nibbles_done <= 0;
-        end else nibbles_done <= nibbles_done + 1;
-      end
-      default: ;
-    endcase
-  end
-
-  always @(negedge sck) if (!cs_n) begin
-    case (phase)
-      PH_DUMMY: begin
-        if (dummy_left == 1) begin
-          phase      <= PH_STREAM;
-          nibble_idx <= 2'd0;
-        end else dummy_left <= dummy_left - 1;
-      end
-      PH_STREAM: begin
-        if (nibble_idx == 2'd3) begin
-          nibble_idx  <= 2'd0;
-          parcel_addr <= parcel_addr + 31'd1;
-        end else nibble_idx <= nibble_idx + 2'd1;
-      end
-      default: ;
-    endcase
   end
 endmodule
