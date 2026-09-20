@@ -116,12 +116,14 @@ build) and `nano/tb/nano_icarus_qspi_pins.vvp` (the iverilog leg) alongside it.
 `"mem mem"` debug item is absent, so the same driver serves both shapes with no
 duplicated `main`.
 
-A hand-written protocol-level test (ten scenarios: sequential fetch, a redirect, a
-resumed fetch after the redirect, a plain PSRAM load, a full-word PSRAM store and
+A hand-written protocol-level scratch test (ten scenarios: sequential fetch, a redirect,
+a resumed fetch after the redirect, a plain PSRAM load, a full-word PSRAM store and
 readback, a partial-word store's read-modify-write and readback, and a fetch that
-resumes correctly after a PSRAM interruption) passes end to end through
-`nano_qspi_ctrl` and both pin-level models. Five real bugs surfaced and were fixed
-while building this: a units error in the flash model's byte-to-parcel address
+resumes correctly after a PSRAM interruption) passed end to end through
+`nano_qspi_ctrl` and both pin-level models during development, but was not committed --
+its most exposing gap, the two chained resumes below, is now covered instead by the
+committed `nano_qspi_resume_tb.v`. Five real bugs surfaced and were fixed while building
+it: a units error in the flash model's byte-to-parcel address
 conversion (multiply-then-divide-by-two that canceled itself out, so a redirect always
 targeted the byte address instead of the parcel address); `mem_rdata` computed
 combinationally from live queue state that a hit's own retire had already moved by the
