@@ -9,7 +9,7 @@ project:
   top_module:  "tt_um_thejefflarson_nanocpu"
   source_files:
     - "tt_um_thejefflarson_nanocpu.v"
-    - "../nano/nano.v"
+    - "../../nano.v"
 
 pinout:
   ui[0]: "observed byte select, bit 0"
