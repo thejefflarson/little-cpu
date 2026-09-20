@@ -143,9 +143,8 @@ nano-qspi-loop-probe: rvfi_macros.vh test/monitor.sim.v
 nano-qspi-loop-test: nano-qspi-loop-probe
 	@./nano/bench/run_qspi_loop_buffer_test.sh '$(NANO_CFLAGS)'
 
-# nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio rather
-# than the abstract bus nano_qspi_memory.v times. Not on `make test`'s path: a chained-resume
-# bug, root-caused and reproduced standalone by nano-qspi-resume-test below.
+# nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio
+# rather than the abstract bus nano_qspi_memory.v times. On `make test`'s path.
 NANO_QSPI_PINS_RTL_SRCS := nano/nano.v nano/qspi.v nano/tb/nano_qspi_flash_model.v \
                            nano/tb/nano_qspi_psram_model.v soc/compare/dhry_monitor.v
 
@@ -163,8 +162,14 @@ nano/tb/nano_icarus_qspi_pins.vvp: rvfi_macros.vh $(NANO_QSPI_PINS_RTL_SRCS) $(N
 nano-qspi-pins-probe: rvfi_macros.vh test/monitor.sim.v
 	@./nano/tb/nano_qspi_pins_probe.sh '$(NANO_CFLAGS)' '$(NANO_QSPI_PINS_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
 
+# Proves the two-leg agreement check below actually catches a structurally blind cxxrtl leg.
+.PHONY: nano-qspi-derived-clock-probe
+nano-qspi-derived-clock-probe: rvfi_macros.vh test/monitor.sim.v
+	@./nano/tb/nano_qspi_derived_clock_probe.sh '$(NANO_CFLAGS)' '$(NANO_QSPI_PINS_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
+
 .PHONY: nano-qspi-pins-test
-nano-qspi-pins-test: nano-qspi-pins-sim nano/tb/nano_icarus_qspi_pins.vvp nano-qspi-pins-probe
+nano-qspi-pins-test: nano-qspi-pins-sim nano/tb/nano_icarus_qspi_pins.vvp nano-qspi-pins-probe \
+                      nano-qspi-derived-clock-probe
 	@NANO_VVP_IMAGE="$(CURDIR)/nano/tb/nano_icarus_qspi_pins.vvp" \
 	  ./nano/tb/nano_dual_leg_test.sh ./nano-qspi-pins-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
 	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
@@ -177,7 +182,7 @@ nano-qspi-pins-dhrystone: nano-qspi-pins-sim
 nano-qspi-pins-coremark: nano-qspi-pins-sim
 	@./nano/bench/run_coremark.sh ./nano-qspi-pins-sim $(NANO_COREMARK_ITERATIONS) $(NANO_COREMARK_CYCLES) '$(NANO_CFLAGS)'
 
-# The minimal reproduction, no nano.v; expected to FAIL until the fix lands.
+# The minimal reproduction, no nano.v; the models' own grader.
 NANO_QSPI_RESUME_SRCS := nano/qspi.v nano/tb/nano_qspi_flash_model.v \
                           nano/tb/nano_qspi_psram_model.v nano/tb/nano_qspi_resume_tb.v
 

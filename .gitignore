@@ -145,6 +145,7 @@ nano/tb/nano_qspi_pins_rtl.cc
 nano/tb/nano-qspi-pins-probe/
 nano/tb/nano_qspi_resume.vvp
 nano/tb/nano-qspi-resume-probe/
+nano/tb/nano-qspi-derived-clock-probe/
 tools/
 test/a.out.dSYM/
 .claude/worktrees/

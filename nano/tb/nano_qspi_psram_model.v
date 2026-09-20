@@ -1,8 +1,7 @@
 `timescale 1 ns / 1 ps
 // A pin-level behavioural model of the PSRAM half of nano_qspi_ctrl's Pmod: Fast Read
-// (0Bh) and Page Program (02h), word-addressed to match nano_qspi_ctrl's fixed 32-bit
-// transfer. Single-clock, the same fix and the same reasoning as
-// nano_qspi_flash_model.v; this side has no pause to expose the defect it fixes.
+// (0Bh) and Page Program (02h), word-addressed to match nano_qspi_ctrl's fixed transfer.
+// Single-clock, the same fix as nano_qspi_flash_model.v; no pause exposes it here.
 module nano_qspi_psram_model #(
   parameter int WORDS = 20480,
   parameter int DUMMY_SCK = 4
@@ -45,9 +44,7 @@ module nano_qspi_psram_model #(
       phase        <= PH_CMD;
       nibbles_done <= 0;
     end else begin
-      // See nano_qspi_flash_model.v: reading cs_n and sck here, not registered copies,
-      // already reads one clk cycle behind their own visible change, which is what lands
-      // the reaction on the same edge the controller samples.
+      // See nano_qspi_flash_model.v: cs_n and sck read here already lag one clk cycle.
       if (!sck) begin
         case (phase)
           PH_CMD: begin
@@ -71,8 +68,7 @@ module nano_qspi_psram_model #(
                 nibbles_done <= 0;
               end else begin
                 read_data   <= mem[({addr_byte[19:0], sio_in} >> 2)];
-                // +1: the coming fall is this same rise's own address, not a dummy one.
-                dummy_left  <= DUMMY_SCK + 1;
+                dummy_left  <= DUMMY_SCK + 1;  // +1: the coming fall is this rise's own.
                 phase       <= PH_DUMMY;
               end
             end else nibbles_done <= nibbles_done + 1;

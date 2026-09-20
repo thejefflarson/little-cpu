@@ -1,13 +1,7 @@
 `timescale 1 ns / 1 ps
 // A pin-level behavioural model of the flash half of nano_qspi_ctrl's Pmod (sck/cs_n/sio),
-// single-clock throughout: cxxrtl never re-evaluates a design-internal derived clock like
-// sck after its first eval per commit, so `@(posedge sck)` never fires there (silently --
-// iverilog runs it fine, which is what let this pass unnoticed). sck toggles every real
-// clk cycle while running, so its CURRENT (pre-this-edge) value already predicts the
-// transition about to become visible: `!sck` means the coming edge is a rise, `sck` means
-// the coming edge is a fall, and reacting on that prediction -- not on a registered
-// sck/sck_d comparison, which would read one clk cycle behind -- lands the reaction on the
-// same edge the controller itself samples.
+// single-clock: cxxrtl silently never fires `@(posedge sck)`, a derived clock, so sck's
+// CURRENT value predicts the coming edge instead -- `!sck` a rise, `sck` a fall.
 module nano_qspi_flash_model #(
   parameter int WORDS = 20480,
   parameter int DUMMY_SCK = 4
@@ -55,14 +49,10 @@ module nano_qspi_flash_model #(
       cont_mode <= 1'b0;
       phase     <= PH_IGNORE;
     end else if (cs_n) begin
-      // Deasserted: the next assertion starts fresh, at a command byte unless latched.
       phase        <= cont_mode ? PH_ADDR : PH_CMD;
       nibbles_done <= 0;
     end else begin
-      // Reading cs_n here, not a registered copy, already reads one clk cycle behind its
-      // own visible change -- the same lag every register read gets -- so the cycle CS
-      // first shows low still takes the branch above, and this one starts exactly when
-      // real mid-session activity does, with no separate delay register needed.
+      // cs_n read here already lags its own change by one clk cycle, skipping CS's first.
       if (!sck) begin
         case (phase)
           PH_CMD: begin
@@ -84,8 +74,7 @@ module nano_qspi_flash_model #(
             if (nibbles_done == 1) begin
               cont_mode    <= mode_byte[3:2] == 2'b10;
               parcel_addr  <= addr_byte[23:1];
-              // +1: the coming fall is this same rise's own mode byte, not a dummy one.
-              dummy_left   <= DUMMY_SCK + 1;
+              dummy_left   <= DUMMY_SCK + 1;  // +1: the coming fall is this rise's own, not a dummy's.
               phase        <= PH_DUMMY;
               nibbles_done <= 0;
             end else nibbles_done <= nibbles_done + 1;
