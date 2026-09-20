@@ -685,10 +685,10 @@ margin over the new floor of 20.
 | gate | result |
 |---|---|
 | `make -C formal remeasure-fg` | **F = 10, G = 8**, both triggers, twice — see below |
-| `make -C formal all` | PENDING_FORMAL |
+| `make -C formal all` | **PARTIAL**: `imemcheck` and `dmemcheck` with both covers, `complete` and `complete_cover`, and all six `components_*` k-inductions with their forced-red probes PASS; of the 86 generated checks, 12 PASS (`hang`, `liveness_ch0`, `unique_ch0`, `reg_ch0`, `pc_fwd_ch0`, `pc_bwd_ch0`, `causal_ch0`, `causal_mem_ch0`, `ill_ch0`, the two `csrc_upcnt_*` and `csrc_any_mscratch_ch0`) and four did not terminate — see below |
 | `make test` | exit 0: 81 programs, 43,575 cycles, `unattributed` 0, every `*-test` target and `probe-gates` green; the Zkt walk reports `reg_rs1`/`reg_rs2`/`executor_out.rd_data` reaching `region_stall` alone on the elaborated netlist with the guess live |
 | `make cosim-suite` | 75/81 agree; the six divergences match `test/COSIM_EXPECTED_FAIL` exactly; all six `pred*.S` agree with Sail |
-| `make mutation-check` | PENDING_MUTATION |
+| `make mutation-check` | 11 mutations, each caught by exactly the detectors it is paired with |
 | `make dhrystone` | PASS, self-check PASS: 1,640,029 cycles for 2000 runs, **820 cycles/Dhrystone, 0.694 DMIPS/MHz**; `kill=109240`, `guess=134731`, `mispredict=4081` (3.0%) |
 | `make coremark` | PASS, self-check PASS, 2K validation PASS: **1.955 CoreMark/MHz** (51,135,805 cycles); `kill=3692663`, `guess=2960656`, `mispredict=232061` (7.8%) |
 | `make lint` | clean, both passes |
@@ -697,6 +697,24 @@ margin over the new floor of 20.
 | `make ecp5-timing` | `DP16KD` 36, `TRELLIS_DPR16X4` 32, `MULT18X18D` 4, all as declared; no block-RAM reset driven by logic; **39.49 MHz** at one placement (41.76 with the guess off, above; publishes, no ratchet) |
 | `make fit` | **RED: 5274 `ICESTORM_LC` against the 4802 budget**, see below |
 | `make soc-timing` | not placed, as A1 left it: the up5k does not hold Stage A until Stage B |
+
+**Four generated checks did not terminate with the guess live, and the reason is a single
+property in each, not the depth.** `csrw_mcycle_ch0`, `csrw_minstret_ch0` and `csrw_mscratch_ch0`
+at their declared depth 30, and `fault_ch0` at its floor 26, each solve their first properties in
+about a second at the final bound and then sit on one — the fourth of `csrw`'s fifteen, the
+seventh of `fault`'s fourteen, in yosys's post-flatten numbering — for 84 minutes under `btormc`
+before the run was stopped, and a copy of `csrw_mcycle_ch0` under `smtbmc bitwuzla` had no answer
+after 35 minutes either. Twelve other generated checks at the same depths, `reg_ch0` at 23 among
+them, finish in seconds to minutes, and every one of these four passed on the guess-off tree at
+depth 30 and 24 (the previous updates). The 70 checks behind them in the queue, the `insn_*`
+family at 26, never started. Both figures were taken on a shared machine whose load sat between 10
+and 110 across the run, so neither is a CI number; CI's `formal-checks-shard` runs sixteen shards
+of about five checks at `JOBS=4` under a twenty-minute wall, and that job is the instrument for
+whether these four clear it. **Nothing was trimmed or re-engined to make them pass**: `formal/checks.cfg`
+declares the same depths the floors derive, and a check that does not answer is recorded as not
+answering, not as green. What the property is, and why the guess makes it hard for a bounded
+model checker while `imemcheck` — which walks the same guess at depth 15 — is not, is the open
+question this ticket hands on.
 
 **The guess costs about 580 logic cells on the up5k, and the ratchet is left tripped rather than
 raised.** `make fit` reads 5274 of the part's 5280 `ICESTORM_LC` — +577 against A2's 4697, +594
