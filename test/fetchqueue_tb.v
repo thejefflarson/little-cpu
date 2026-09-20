@@ -6,7 +6,7 @@ module fetchqueue_tb;
   logic clk = 0;
   always #5 clk = ~clk;
 
-  logic         reset, flush, req_valid, imem_fault, pop;
+  logic         reset, flush, req_valid, req_half, imem_fault, pop;
   logic [31:0]  imem_data, imem_data2;
   logic [31:0]  q0, q1;
   logic         q0_fault, q1_fault, q_valid, room;
@@ -17,6 +17,7 @@ module fetchqueue_tb;
     .reset(reset),
     .flush(flush),
     .req_valid(req_valid),
+    .req_half(req_half),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .imem_fault(imem_fault),
@@ -92,6 +93,7 @@ module fetchqueue_tb;
     reset      = 1'b1;
     flush      = 1'b0;
     req_valid  = 1'b0;
+    req_half   = 1'b0;
     imem_data  = 32'b0;
     imem_data2 = 32'b0;
     imem_fault = 1'b0;
@@ -197,6 +199,25 @@ module fetchqueue_tb;
 
     cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b0);
     check_count("settling on the second target: still nothing stale queued", count, 3'd0);
+
+    // --- A half push queues the low word alone; the next pair lands right behind it. ---
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b0);
+    check_count("drained before the half-push scenario", count, 3'd0);
+    req_half = 1'b1;
+    cycle(32'h1111_0000, 32'h1111_0004, 1'b0, 1'b1, 1'b0, 1'b0);
+    req_half = 1'b0;
+    check_count("a half push lands one word", count, 3'd1);
+    check_bit("q_valid stays low on a lone word", q_valid, 1'b0);
+    cycle(32'h2222_0000, 32'h2222_0004, 1'b0, 1'b1, 1'b0, 1'b0);
+    check_count("the target's pair lands behind the half word", count, 3'd3);
+    check_hex("q0 is the half-pushed word", q0, 32'h1111_0000);
+    check_hex("q1 is the target pair's low word, not the dropped high word", q1, 32'h2222_0000);
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b1);
+    check_hex("after one pop q0 is the target pair's low word", q0, 32'h2222_0000);
+    check_hex("and q1 its high word", q1, 32'h2222_0004);
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b1);
+    cycle(32'h0, 32'h0, 1'b0, 1'b0, 1'b0, 1'b1);
+    check_count("drained after the half-push scenario", count, 3'd0);
 
     cycle(32'hC0FF_0000, 32'hC0FF_0004, 1'b0, 1'b1, 1'b0, 1'b0);
     check_count("the second target's own request lands", count, 3'd2);

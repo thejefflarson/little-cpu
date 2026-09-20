@@ -56,61 +56,74 @@ module fetchctrl (
   logic [31:0] pair_base;
   assign pair_base = {fetch_addr_d1[31:2], 2'b00};
 
-  logic cand_a_eligible, cand_b_eligible;
-  assign cand_a_eligible = boundary2 && lane2_wide;
-  assign cand_b_eligible = boundary3 && !lane3_wide;
+  // A compressed jump, or a compressed branch pointing backward, at each lane; quadrant 01
+  // only, since c.sw and c.swsp share the funct3 codes.
+  logic lane0_c, lane1_c, lane2_c, lane3_c;
+  assign lane0_c = lane0[1:0] == 2'b01 && (lane0[15:13] == 3'b101 || lane0[15:13] == 3'b001 ||
+                   ((lane0[15:13] == 3'b110 || lane0[15:13] == 3'b111) && lane0[12]));
+  assign lane1_c = lane1[1:0] == 2'b01 && (lane1[15:13] == 3'b101 || lane1[15:13] == 3'b001 ||
+                   ((lane1[15:13] == 3'b110 || lane1[15:13] == 3'b111) && lane1[12]));
+  assign lane2_c = lane2[1:0] == 2'b01 && (lane2[15:13] == 3'b101 || lane2[15:13] == 3'b001 ||
+                   ((lane2[15:13] == 3'b110 || lane2[15:13] == 3'b111) && lane2[12]));
+  assign lane3_c = lane3[1:0] == 2'b01 && (lane3[15:13] == 3'b101 || lane3[15:13] == 3'b001 ||
+                   ((lane3[15:13] == 3'b110 || lane3[15:13] == 3'b111) && lane3[12]));
+  // The same for a whole word: a jal, or a branch pointing backward.
+  logic word0_j, word1_j;
+  assign word0_j = imem_data[6:0]  == 7'b1101111 || (imem_data[6:0]  == 7'b1100011 && imem_data[31]);
+  assign word1_j = imem_data2[6:0] == 7'b1101111 || (imem_data2[6:0] == 7'b1100011 && imem_data2[31]);
 
-  logic cand_a_jal, cand_a_branch, cand_a_taken;
-  logic [31:0] cand_a_imm, cand_a_target;
-  assign cand_a_jal    = cand_a_eligible && imem_data2[6:0] == 7'b1101111;
-  assign cand_a_branch = cand_a_eligible && imem_data2[6:0] == 7'b1100011;
-  assign cand_a_imm = cand_a_jal
-    ? {{12{imem_data2[31]}}, imem_data2[19:12], imem_data2[20], imem_data2[30:21], 1'b0}
-    : {{20{imem_data2[31]}}, imem_data2[7], imem_data2[30:25], imem_data2[11:8], 1'b0};
-  assign cand_a_target = pair_base + 32'd4 + cand_a_imm;
-  // A target inside the candidate's own word would leave pop with nothing to advance over.
-  logic [29:0] cand_word;
-  assign cand_word = pair_base[31:2] + 30'd1;
-  logic cand_a_same_word;
-  assign cand_a_same_word = cand_a_target[31:2] == cand_word;
-  assign cand_a_taken  = !cand_a_same_word &&
-    (cand_a_jal || (cand_a_branch && imem_data2[31]));
+  // The first taken candidate in program order wins; everything after it is never reached
+  // on the guessed path. One in the first word is a half push: only that word is queued, so
+  // the target's pair follows it. A 32-bit instruction straddling the pair is never one.
+  logic sel_l0, sel_w0, sel_l1, sel_l2, sel_w1, sel_l3, sel_first;
+  assign sel_l0 = boundary0 && !lane0_wide && lane0_c;
+  assign sel_w0 = boundary0 &&  lane0_wide && word0_j;
+  assign sel_l1 = boundary1 && !lane1_wide && lane1_c && !sel_l0;
+  assign sel_first = sel_l0 || sel_w0 || sel_l1;
+  assign sel_l2 = boundary2 && !lane2_wide && lane2_c && !sel_first;
+  assign sel_w1 = boundary2 &&  lane2_wide && word1_j && !sel_first;
+  assign sel_l3 = boundary3 && !lane3_wide && lane3_c && !sel_first && !sel_l2;
 
-  // A compressed jump or branch in the second word: at lane 2 (whatever lane 3 holds, since
-  // pop leaves the word once the guess is taken) or at lane 3. Quadrant 01 only; c.sw and
-  // c.swsp share the funct3 codes.
-  logic [15:0] cand_c_lane;
-  logic        cand_c_at2, cand_c_eligible;
-  assign cand_c_at2      = boundary2 && !lane2_wide && lane2[1:0] == 2'b01 &&
-                           (lane2[15:13] == 3'b101 || lane2[15:13] == 3'b001 ||
-                            ((lane2[15:13] == 3'b110 || lane2[15:13] == 3'b111) && lane2[12]));
-  assign cand_c_lane     = cand_c_at2 ? lane2 : lane3;
-  assign cand_c_eligible = cand_c_at2 || (cand_b_eligible && lane3[1:0] == 2'b01);
-  logic cand_c_cj, cand_c_cjal, cand_c_cbeqz, cand_c_cbnez;
-  logic [31:0] cand_c_imm, cand_c_target;
-  assign cand_c_cj     = cand_c_eligible && cand_c_lane[15:13] == 3'b101;
-  assign cand_c_cjal   = cand_c_eligible && cand_c_lane[15:13] == 3'b001;
-  assign cand_c_cbeqz  = cand_c_eligible && cand_c_lane[15:13] == 3'b110;
-  assign cand_c_cbnez  = cand_c_eligible && cand_c_lane[15:13] == 3'b111;
-  assign cand_c_imm = (cand_c_cj || cand_c_cjal)
-    ? {{20{cand_c_lane[12]}}, cand_c_lane[12], cand_c_lane[8], cand_c_lane[10],
-       cand_c_lane[9], cand_c_lane[6], cand_c_lane[7], cand_c_lane[2], cand_c_lane[11],
-       cand_c_lane[5], cand_c_lane[4], cand_c_lane[3], 1'b0}
-    : {{23{cand_c_lane[12]}}, cand_c_lane[12], cand_c_lane[6:5], cand_c_lane[2],
-       cand_c_lane[11:10], cand_c_lane[4:3], 1'b0};
-  logic [31:0] cand_c_src;
-  assign cand_c_src    = pair_base + (cand_c_at2 ? 32'd4 : 32'd6);
-  assign cand_c_target = cand_c_src + cand_c_imm;
-  logic cand_c_same_word, cand_c_taken;
-  assign cand_c_same_word = cand_c_target[31:2] == cand_word;
-  assign cand_c_taken  = !cand_c_same_word && (cand_c_cj || cand_c_cjal ||
-                          ((cand_c_cbeqz || cand_c_cbnez) && cand_c_lane[12]));
+  logic [15:0] cand_c;
+  logic [31:0] cand_w;
+  logic        cand_wide, cand_jal, cand_cj;
+  logic [1:0]  cand_off;
+  assign cand_c    = sel_l0 ? lane0 : sel_l1 ? lane1 : sel_l2 ? lane2 : lane3;
+  assign cand_w    = sel_w0 ? imem_data : imem_data2;
+  assign cand_wide = sel_w0 || sel_w1;
+  assign cand_jal  = cand_w[6:0] == 7'b1101111;
+  assign cand_cj   = cand_c[15:13] == 3'b101 || cand_c[15:13] == 3'b001;
+  assign cand_off  = (sel_l0 || sel_w0) ? 2'd0 : sel_l1 ? 2'd1 : (sel_l2 || sel_w1) ? 2'd2 : 2'd3;
 
-  logic predict_found, fetch_odd_next;
+  logic [31:0] cand_imm;
+  always_comb begin
+    case (1'b1)
+      cand_wide && cand_jal:
+        cand_imm = {{12{cand_w[31]}}, cand_w[19:12], cand_w[20], cand_w[30:21], 1'b0};
+      cand_wide:
+        cand_imm = {{20{cand_w[31]}}, cand_w[7], cand_w[30:25], cand_w[11:8], 1'b0};
+      cand_cj:
+        cand_imm = {{20{cand_c[12]}}, cand_c[12], cand_c[8], cand_c[10], cand_c[9], cand_c[6],
+                    cand_c[7], cand_c[2], cand_c[11], cand_c[5], cand_c[4], cand_c[3], 1'b0};
+      default:
+        cand_imm = {{23{cand_c[12]}}, cand_c[12], cand_c[6:5], cand_c[2], cand_c[11:10],
+                    cand_c[4:3], 1'b0};
+    endcase
+  end
+
+  // A target inside the candidate's own word would leave pop with nothing to advance over;
+  // read off the immediate, since the source is two-byte aligned within a word.
+  logic cand_same_word;
+  assign cand_same_word = cand_imm == 32'd0 ||
+                          (cand_imm == 32'd2 && !cand_off[0]) ||
+                          (cand_imm == 32'hffff_fffe && cand_off[0]);
+
+  logic predict_found, predict_half, fetch_odd_next;
   logic [31:0] predict_src, predict_tgt;
-  assign predict_found = cand_a_taken || cand_c_taken;
-  assign predict_src   = cand_a_taken ? (pair_base + 32'd4) : cand_c_src;
-  assign predict_tgt   = cand_a_taken ? cand_a_target : cand_c_target;
+  assign predict_found = (sel_first || sel_l2 || sel_w1 || sel_l3) && !cand_same_word;
+  assign predict_half  = sel_first;
+  assign predict_src   = pair_base + {29'b0, cand_off, 1'b0};
+  assign predict_tgt   = predict_src + cand_imm;
   assign fetch_odd_next = !boundary4;
 
   assign req_valid = waiting && !fetch_stall && !fetch_stall_d1;
@@ -130,6 +143,7 @@ module fetchctrl (
     .reset(reset),
     .flush(flush),
     .req_valid(req_valid),
+    .req_half(predict_commit && predict_half),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .imem_fault(imem_fault),

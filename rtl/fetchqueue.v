@@ -1,11 +1,12 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// A 4-word FIFO of individually fetched words: q0/q1 are the pair at the issuing pc; req_valid marks a genuine due response, never a stolen-cycle retry.
+// A 4-word FIFO of individually fetched words: q0/q1 are the pair at the issuing pc; req_valid marks a genuine due response, never a stolen-cycle retry, and req_half queues its low word alone.
 module fetchqueue (
   input  logic         clk,
   input  logic         reset,
   input  logic         flush,
   input  logic         req_valid,
+  input  logic         req_half,
   input  logic [31:0]  imem_data,
   input  logic [31:0]  imem_data2,
   input  logic         imem_fault,
@@ -27,6 +28,8 @@ module fetchqueue (
 
   logic do_pop;
   assign do_pop = pop && (cnt != 3'd0);
+  logic [2:0] pushed;
+  assign pushed = !req_valid ? 3'd0 : req_half ? 3'd1 : 3'd2;
 
   always_ff @(posedge clk) begin
     if (reset || flush) begin
@@ -38,11 +41,13 @@ module fetchqueue (
       if (req_valid) begin
         mem[tail]              <= imem_data;
         fault_mem[tail]        <= imem_fault;
-        mem[tail + 2'd1]       <= imem_data2;
-        fault_mem[tail + 2'd1] <= imem_fault;
-        tail <= tail + 2'd2;
+        if (!req_half) begin
+          mem[tail + 2'd1]       <= imem_data2;
+          fault_mem[tail + 2'd1] <= imem_fault;
+        end
+        tail <= tail + (req_half ? 2'd1 : 2'd2);
       end
-      cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd2 : 3'd0);
+      cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + pushed;
     end
   end
 
