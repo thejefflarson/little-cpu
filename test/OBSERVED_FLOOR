@@ -47,7 +47,7 @@ mulhu.S             422    422
 or.S                452    452
 ori.S               169    169
 predstale.S          48     48
-predsteal.S         139    139
+predsteal.S         251    251
 predtwice.S          25     25
 predword.S           25     25
 rem.S                60     60

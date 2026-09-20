@@ -5,7 +5,9 @@
 // commits on, the retry must re-present the guessed target, not the successor the guess
 // abandoned: that successor here is a pair that reports failure if it ever executes. Each
 // block is sixteen words with the load at a different word, so the steal sweeps across the
-// commit; the jal is always the twelfth word, the end of a pair.
+// commit; the jal is always the twelfth word, the end of a pair. The address is deep inside
+// the text window, so the load takes the fast region arm and its bus cycle can land on a
+// pair's arrival rather than after a wait that lets the queue fill first.
 
 #define N0
 #define N1 nop;
@@ -17,10 +19,10 @@
 #define N7 nop; nop; nop; nop; nop; nop; nop;
 #define N8 nop; nop; nop; nop; nop; nop; nop; nop;
 
-#define BLOCK(n, pre, post)                                                  \
+#define BLOCK(n, pre, load, post)                                            \
   li TESTNUM, n;                                                            \
   pre                                                                       \
-  lw t2, 0(t1);                                                             \
+  load                                                                      \
   post                                                                      \
   nop;                                                                      \
   jal x0, 1f;                                                               \
@@ -38,24 +40,35 @@ RVTEST_CODE_BEGIN
   c.nop
   .option norvc
 
-  lui  t1, %hi(_start)
-  addi t1, t1, %lo(_start)
+  lui  t1, 0x1
+  addi t1, t1, 0
   li a0, 0
+#define L1 lw t2, 0(t1);
+#define L2 lw t2, 0(t1); lw t3, 4(t1);
+
 blocks:
-  BLOCK(3,  N0, N8)
-  BLOCK(5,  N1, N7)
-  BLOCK(7,  N2, N6)
-  BLOCK(9,  N3, N5)
-  BLOCK(11, N4, N4)
-  BLOCK(13, N5, N3)
-  BLOCK(15, N6, N2)
-  BLOCK(17, N7, N1)
-  BLOCK(19, N8, N0)
+  BLOCK(3,  N0, L1, N8)
+  BLOCK(5,  N1, L1, N7)
+  BLOCK(7,  N2, L1, N6)
+  BLOCK(9,  N3, L1, N5)
+  BLOCK(11, N4, L1, N4)
+  BLOCK(13, N5, L1, N3)
+  BLOCK(15, N6, L1, N2)
+  BLOCK(17, N7, L1, N1)
+  BLOCK(19, N8, L1, N0)
+  BLOCK(21, N0, L2, N7)
+  BLOCK(23, N1, L2, N6)
+  BLOCK(25, N2, L2, N5)
+  BLOCK(27, N3, L2, N4)
+  BLOCK(29, N4, L2, N3)
+  BLOCK(31, N5, L2, N2)
+  BLOCK(33, N6, L2, N1)
+  BLOCK(35, N7, L2, N0)
 blocks_end:
 
 
   li TESTNUM, 2
-  li t0, 9
+  li t0, 17
   bne a0, t0, fail
 
   .option pop

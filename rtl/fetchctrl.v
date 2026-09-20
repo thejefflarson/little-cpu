@@ -76,27 +76,41 @@ module fetchctrl (
   assign cand_a_taken  = !cand_a_same_word &&
     (cand_a_jal || (cand_a_branch && imem_data2[31]));
 
-  logic cand_b_cj, cand_b_cjal, cand_b_cbeqz, cand_b_cbnez;
-  logic [31:0] cand_b_imm, cand_b_target;
-  assign cand_b_cj     = cand_b_eligible && lane3[15:13] == 3'b101;
-  assign cand_b_cjal   = cand_b_eligible && lane3[15:13] == 3'b001;
-  assign cand_b_cbeqz  = cand_b_eligible && lane3[15:13] == 3'b110;
-  assign cand_b_cbnez  = cand_b_eligible && lane3[15:13] == 3'b111;
-  assign cand_b_imm = (cand_b_cj || cand_b_cjal)
-    ? {{20{lane3[12]}}, lane3[12], lane3[8], lane3[10], lane3[9], lane3[6], lane3[7],
-       lane3[2], lane3[11], lane3[5], lane3[4], lane3[3], 1'b0}
-    : {{23{lane3[12]}}, lane3[12], lane3[6:5], lane3[2], lane3[11:10], lane3[4:3], 1'b0};
-  assign cand_b_target = pair_base + 32'd6 + cand_b_imm;
-  logic cand_b_same_word, cand_b_taken;
-  assign cand_b_same_word = cand_b_target[31:2] == cand_word;
-  assign cand_b_taken  = !cand_b_same_word && (cand_b_cj || cand_b_cjal ||
-                          ((cand_b_cbeqz || cand_b_cbnez) && lane3[12]));
+  // A compressed jump or branch in the second word: at lane 2 (whatever lane 3 holds, since
+  // pop leaves the word once the guess is taken) or at lane 3. Quadrant 01 only; c.sw and
+  // c.swsp share the funct3 codes.
+  logic [15:0] cand_c_lane;
+  logic        cand_c_at2, cand_c_eligible;
+  assign cand_c_at2      = boundary2 && !lane2_wide && lane2[1:0] == 2'b01 &&
+                           (lane2[15:13] == 3'b101 || lane2[15:13] == 3'b001 ||
+                            ((lane2[15:13] == 3'b110 || lane2[15:13] == 3'b111) && lane2[12]));
+  assign cand_c_lane     = cand_c_at2 ? lane2 : lane3;
+  assign cand_c_eligible = cand_c_at2 || (cand_b_eligible && lane3[1:0] == 2'b01);
+  logic cand_c_cj, cand_c_cjal, cand_c_cbeqz, cand_c_cbnez;
+  logic [31:0] cand_c_imm, cand_c_target;
+  assign cand_c_cj     = cand_c_eligible && cand_c_lane[15:13] == 3'b101;
+  assign cand_c_cjal   = cand_c_eligible && cand_c_lane[15:13] == 3'b001;
+  assign cand_c_cbeqz  = cand_c_eligible && cand_c_lane[15:13] == 3'b110;
+  assign cand_c_cbnez  = cand_c_eligible && cand_c_lane[15:13] == 3'b111;
+  assign cand_c_imm = (cand_c_cj || cand_c_cjal)
+    ? {{20{cand_c_lane[12]}}, cand_c_lane[12], cand_c_lane[8], cand_c_lane[10],
+       cand_c_lane[9], cand_c_lane[6], cand_c_lane[7], cand_c_lane[2], cand_c_lane[11],
+       cand_c_lane[5], cand_c_lane[4], cand_c_lane[3], 1'b0}
+    : {{23{cand_c_lane[12]}}, cand_c_lane[12], cand_c_lane[6:5], cand_c_lane[2],
+       cand_c_lane[11:10], cand_c_lane[4:3], 1'b0};
+  logic [31:0] cand_c_src;
+  assign cand_c_src    = pair_base + (cand_c_at2 ? 32'd4 : 32'd6);
+  assign cand_c_target = cand_c_src + cand_c_imm;
+  logic cand_c_same_word, cand_c_taken;
+  assign cand_c_same_word = cand_c_target[31:2] == cand_word;
+  assign cand_c_taken  = !cand_c_same_word && (cand_c_cj || cand_c_cjal ||
+                          ((cand_c_cbeqz || cand_c_cbnez) && cand_c_lane[12]));
 
   logic predict_found, fetch_odd_next;
   logic [31:0] predict_src, predict_tgt;
-  assign predict_found = cand_a_taken || cand_b_taken;
-  assign predict_src   = cand_a_taken ? (pair_base + 32'd4) : (pair_base + 32'd6);
-  assign predict_tgt   = cand_a_taken ? cand_a_target : cand_b_target;
+  assign predict_found = cand_a_taken || cand_c_taken;
+  assign predict_src   = cand_a_taken ? (pair_base + 32'd4) : cand_c_src;
+  assign predict_tgt   = cand_a_taken ? cand_a_target : cand_c_target;
   assign fetch_odd_next = !boundary4;
 
   assign req_valid = waiting && !fetch_stall && !fetch_stall_d1;
