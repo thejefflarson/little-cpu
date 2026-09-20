@@ -11,7 +11,6 @@ module fetchctrl (
   input  logic [31:0]  imem_data2,
   input  logic         imem_fault,
   input  logic         fetch_stall,
-  input  logic         text_write,
   input  logic         pop,
   output logic [31:0]  q0,
   output logic         q0_fault,
@@ -61,7 +60,7 @@ module fetchctrl (
   assign cand_a_eligible = boundary2 && lane2_wide;
   assign cand_b_eligible = boundary3 && !lane3_wide;
 
-  logic cand_a_jal, cand_a_branch, cand_a_same_pair, cand_a_taken;
+  logic cand_a_jal, cand_a_branch, cand_a_taken;
   logic [31:0] cand_a_imm, cand_a_target;
   assign cand_a_jal    = cand_a_eligible && imem_data2[6:0] == 7'b1101111;
   assign cand_a_branch = cand_a_eligible && imem_data2[6:0] == 7'b1100011;
@@ -69,8 +68,12 @@ module fetchctrl (
     ? {{12{imem_data2[31]}}, imem_data2[19:12], imem_data2[20], imem_data2[30:21], 1'b0}
     : {{20{imem_data2[31]}}, imem_data2[7], imem_data2[30:25], imem_data2[11:8], 1'b0};
   assign cand_a_target = pair_base + 32'd4 + cand_a_imm;
-  assign cand_a_same_pair = cand_a_target[31:3] == pair_base[31:3];
-  assign cand_a_taken  = !cand_a_same_pair &&
+  // A target inside the candidate's own word would leave pop with nothing to advance over.
+  logic [29:0] cand_word;
+  assign cand_word = pair_base[31:2] + 30'd1;
+  logic cand_a_same_word;
+  assign cand_a_same_word = cand_a_target[31:2] == cand_word;
+  assign cand_a_taken  = !cand_a_same_word &&
     (cand_a_jal || (cand_a_branch && imem_data2[31]));
 
   logic cand_b_cj, cand_b_cjal, cand_b_cbeqz, cand_b_cbnez;
@@ -84,15 +87,14 @@ module fetchctrl (
        lane3[2], lane3[11], lane3[5], lane3[4], lane3[3], 1'b0}
     : {{23{lane3[12]}}, lane3[12], lane3[6:5], lane3[2], lane3[11:10], lane3[4:3], 1'b0};
   assign cand_b_target = pair_base + 32'd6 + cand_b_imm;
-  logic cand_b_same_pair, cand_b_taken;
-  assign cand_b_same_pair = cand_b_target[31:3] == pair_base[31:3];
-  assign cand_b_taken  = !cand_b_same_pair && (cand_b_cj || cand_b_cjal ||
+  logic cand_b_same_word, cand_b_taken;
+  assign cand_b_same_word = cand_b_target[31:2] == cand_word;
+  assign cand_b_taken  = !cand_b_same_word && (cand_b_cj || cand_b_cjal ||
                           ((cand_b_cbeqz || cand_b_cbnez) && lane3[12]));
 
   logic predict_found, fetch_odd_next;
   logic [31:0] predict_src, predict_tgt;
-  // Held false: imemcheck still finds a counterexample with prediction live (see the ADR).
-  assign predict_found = 1'b0;
+  assign predict_found = cand_a_taken || cand_b_taken;
   assign predict_src   = cand_a_taken ? (pair_base + 32'd4) : (pair_base + 32'd6);
   assign predict_tgt   = cand_a_taken ? cand_a_target : cand_b_target;
   assign fetch_odd_next = !boundary4;
@@ -104,9 +106,10 @@ module fetchctrl (
 
   logic predict_trusted, predict_commit;
   assign predict_trusted = req_valid && predict_found;
-  // Excluded for redirect_apply_d1 too: the abandoned pair's data arrives one cycle late.
-  assign predict_commit  = !redirect_apply && !redirect_apply_d1 && !fetch_stall && room &&
-                            predict_trusted;
+  // One guess in flight, never off the pair a redirect is discarding: that pair's data
+  // arrives the cycle after redirect_apply drops, so both cycles are excluded.
+  assign predict_commit  = predict_trusted && !predicted_active &&
+                           !redirect_apply && !redirect_apply_d1;
 
   fetchqueue fq (
     .clk(clk),
@@ -155,9 +158,7 @@ module fetchctrl (
       // Cleared off buffer_empty, not q_valid, which reads true one cycle too long.
       if (redirect) redirect_recovering <= 1'b1;
       else if (!buffer_empty) redirect_recovering <= 1'b0;
-      if (redirect_apply) predicted_active <= 1'b0;
-      else if (predict_resolved) predicted_active <= 1'b0;
-      else if (text_write) predicted_active <= 1'b0;
+      if (redirect_apply || predict_resolved) predicted_active <= 1'b0;
       else if (predict_commit) begin
         predicted_active <= 1'b1;
         predicted_src_pc <= predict_src;
@@ -171,9 +172,14 @@ module fetchctrl (
         stolen_pc <= redirect_target_reg;
       end else if (fetch_stall) begin
         fetch_pc <= stolen_pc;
+      end else if (predict_commit) begin
+        // The retry address too: a steal this cycle must re-present the target, never the
+        // successor the guess abandons.
+        fetch_pc  <= predict_tgt;
+        stolen_pc <= predict_tgt;
       end else begin
         stolen_pc <= fetch_pc;
-        if (room) fetch_pc <= predict_trusted ? predict_tgt : fetch_pc + 32'd8;
+        if (room) fetch_pc <= fetch_pc + 32'd8;
       end
     end
   end
@@ -185,14 +191,10 @@ module fetchctrl (
 
   always_comb if (clocked) assert(!req_valid || queue_count <= 3'd2);
 
-  logic past_text_write, past_redirect_apply, past_predict_resolved;
-  always_ff @(posedge clk) begin
-    past_text_write     <= text_write;
-    past_redirect_apply <= redirect_apply;
-    past_predict_resolved <= predict_resolved;
-  end
-  always_comb if (clocked && past_text_write && !past_redirect_apply &&
-                   !past_predict_resolved)
-    assert(!predicted_active);
+  logic past_predict_commit;
+  always_ff @(posedge clk) past_predict_commit <= !reset && predict_commit;
+  // The cycle after a commit both the fetch address and the retry address are the target.
+  always_comb if (clocked && past_predict_commit)
+    assert(predicted_active && fetch_pc == predicted_target && stolen_pc == predicted_target);
  `endif
 endmodule

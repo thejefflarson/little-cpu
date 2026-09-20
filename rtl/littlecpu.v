@@ -157,10 +157,6 @@ module littlecpu #(
   assign imem_addr2 = imem_addr + 32'd4;
   assign imem_addr_next = fetch_pc;
 
-  // A store into the fetch window, for a guess that has outrun the queue's own bound.
-  logic mem_text_write;
-  assign mem_text_write = |mem_wstrb && (mem_addr[31:LS_TEXT_ADDR_BITS+2] == '0);
-
   fetchctrl fetchctrl(
     .clk(clk),
     .reset(reset),
@@ -171,7 +167,6 @@ module littlecpu #(
     .imem_data2(imem_data2),
     .imem_fault(imem_fault),
     .fetch_stall(fetch_stall),
-    .text_write(mem_text_write),
     .pop(fetcher_pop),
     .q0(queue_q0),
     .q0_fault(queue_q0_fault),

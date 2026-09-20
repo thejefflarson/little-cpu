@@ -11,7 +11,6 @@ module pcloop (
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
-    input logic text_write,
     // Free: a hart not granted the shared bus holds the pc, the same way an unanswered
     // atomic redirects it; the increment assertion skips both cycles.
     input logic bus_wait,
@@ -71,7 +70,6 @@ module pcloop (
     .imem_data2(imem_data2),
     .imem_fault(imem_fault),
     .fetch_stall(fetch_stall),
-    .text_write(text_write),
     .pop(fetcher_pop),
     .q0(queue_q0),
     .q0_fault(queue_q0_fault),
