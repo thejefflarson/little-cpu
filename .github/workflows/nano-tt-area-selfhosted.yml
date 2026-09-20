@@ -97,11 +97,9 @@ jobs:
             librelane-env "$tool" --version 2>&1 | head -1
           done
 
-      # LibreLane resolves a "dir::" config value relative to the directory
-      # holding config_merged.json (nano/tt/src), and create_user_config()
-      # points FP_DEF_TEMPLATE at "dir::../tt/tech/...". Checking tt-support-tools
-      # out one level below nano/tt, not at the repo root, keeps that resolving
-      # to a real directory.
+      # LibreLane resolves a "dir::" config value against the directory holding
+      # config_merged.json, and FP_DEF_TEMPLATE reads "dir::../tt/tech/...", so the
+      # checkout sits one level below nano/tt rather than at the repo root.
       - name: Checkout tt-support-tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
