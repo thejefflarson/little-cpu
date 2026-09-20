@@ -41,9 +41,12 @@ ADR-0186 already assumed.
 - **Reset**: a mode-byte-exit pulse (four bytes of `FFh`) runs once before any real
   fetch, driven low regardless of whether the flash happened to power up already inside
   continuous read.
-- **Pad-mux capture**: `IN_CAPTURE_STAGES` (default 1) registers `sio_in` before the
-  serializer reads it, the same registered-input answer TinyQV gives to the same
-  unknown mux latency; 0-3 stages are legal, matching TinyQV's own range.
+- **Pad-mux capture is unhandled, on purpose, not silently.** An `IN_CAPTURE_STAGES`
+  parameter once registered `sio_in` before the serializer read it, TinyQV's own answer
+  to unknown pad-mux latency at 64 MHz. It is removed (Residual, below): the capture
+  fires at a fixed phase regardless of the stage count, so every stage past zero shifted
+  the sampled window earlier instead of compensating for it, and a silent option to
+  sample a tri-stated bus is worse than no option. `sio_in` is read directly.
 
 ## The three invariants, each proved and each with a forced-red probe
 
@@ -89,9 +92,16 @@ pass first.
   exits continuous read regardless of the flash's power-on state; `nano/tb/
   nano_qspi_flash_model.v`'s own `cont_mode` tracking is what makes this checkable in
   simulation (Context section, below).
-- **Pad-mux latency at 64 MHz.** `IN_CAPTURE_STAGES` is the registered, configurable
-  answer; no board exists yet to measure the real mux delay against it, so the default
-  of 1 stage is a documented choice, not a measurement.
+- **Pad-mux latency at 64 MHz is unhandled.** `IN_CAPTURE_STAGES` was a registered,
+  configurable answer, but the capture logic it fed samples at a fixed phase regardless
+  of the stage count: measured against an edge-correct model, stages=0 passes the
+  chained-resume reproduction and stages=1 fails it with four mismatches, the first
+  nibble a tri-stated `z`. A parameter that can silently sample a tri-stated bus is worse
+  than no parameter, so it is removed rather than shipped as a false option (Residual,
+  below); compensating properly would mean the capture phase itself tracking the stage
+  count, which touches the same completion-decision neighbourhood a reverted fix attempt
+  already regressed in once, and is left as owed follow-up work rather than risked here
+  with no board yet to measure the real mux delay against.
 
 ## F and G: re-measured, unchanged
 
@@ -197,8 +207,44 @@ mutant FAILS -- the ordinary shape this repo's probes take, in place of the
 comparison-neutering stand-in the still-broken pair needed before a real PASS existed to
 compare against.
 
-**Fixing the models alone turns `nano-qspi-resume-test` green and `nano-qspi-pins-test`
-red**, and that residual is its own section below.
+## Residual: `IN_CAPTURE_STAGES` removed, and a pre-existing cxxrtl-only failure found
+
+Fixing the models alone turns `nano-qspi-resume-test` green. It also exposed two more
+things, one settled here and one still open.
+
+**`IN_CAPTURE_STAGES` is removed rather than fixed.** It existed to model pad-mux
+latency at 64 MHz (`nano/tb/nano_testbench.v`'s and `nano/area_top.v`'s instantiations
+both took its default of 1), registering `sio_in` before the capture read it. The
+capture itself fires at a fixed phase (`if (!sio_phase)`) regardless of the stage count,
+so each stage shifted the sampled window earlier instead of compensating for it: against
+the fixed models, `IN_CAPTURE_STAGES=0` passes the chained-resume reproduction and
+`IN_CAPTURE_STAGES=1` fails it with four mismatches, the first nibble a tri-stated `z`
+read back as data. An option that can silently sample a tri-stated bus is worse than no
+option, so the parameter, its generate block and its range check are deleted; `sio_in`
+is read directly, `IN_CAPTURE_STAGES=0`'s own behavior made unconditional. The honest
+fix -- the capture phase itself tracking the stage count -- would touch the same
+completion-decision neighbourhood (`qspi.v`'s push into `slot0`/`slot1`) the earlier,
+reverted fix attempt regressed in, for a property (pad-mux latency at 64 MHz) nothing in
+this tree can measure without a board. That restructuring is owed follow-up work, not
+attempted here; `make nano-area`'s ratchet reads 61,157.4 of 63,000.0 um2 with the
+parameter gone (`components_qspi`'s three invariants re-proved unaffected, since
+`nano/qspi.v`'s only change here is deleting dead capture logic, not touching a
+completion decision).
+
+**A pre-existing, cxxrtl-only failure in the pin-level harness, independent of
+everything above.** `nano-qspi-pins-test` runs the nano/asm suite on two simulator legs
+and requires them to agree. The iverilog leg is clean: 4 of 6 programs pass, and the 2
+failures (`divide.S`, `mul.S`, both `TRAP`) match `nano/asm/EXPECTED_FAIL` exactly --
+the chained-resume fix holds through the real suite, on the leg this repo calls its
+microscope. The cxxrtl leg (`nano-qspi-pins-sim`) traps on every program at retire 1,
+`pc=0x00000000 instr=0x00000000`. This is not a regression from anything in this ADR:
+built against the original, pre-fix `nano/qspi.v` and models, the same cxxrtl leg
+already trapped (`pc=0xfffff2c6`, retire 8, a different cycle and PC but the same shape
+of failure), so the divergence between the two legs predates this session's fix and was
+never exercised to completion before it -- the toolchain to build the suite and the
+chained-resume bug both blocked reaching this point earlier. Root-causing it is owed,
+separately: `nano-qspi-pins-test` stays off `make test`'s required path, and no
+Dhrystone or CoreMark figure is taken through the pin-level harness, until it is.
 
 ## MIPS: the abstract model's own machinery, re-run at this controller's real costs
 
@@ -246,15 +292,17 @@ the real bit-serial engine, its two-slot prefetch tags with per-slot address
 comparators, and the read-modify-write merge measure **roughly 2.8x that** (15,146.9 um2
 attributable to the controller once yosys shares some logic across the two modules'
 boundary, against the sum-of-separate-syntheses estimate of 15,931.5). `NANO_MAX_UM2`
-moves 61,412 -> 63,000, the same order of headroom the prior ceiling carried. The area
-this ticket produces is not what decides nanocpu's freeze line -- that decision is
-JEF-1011's, already resolved before this ticket landed.
+moves 61,412 -> 63,000 for that measurement and 61,157.4 once `IN_CAPTURE_STAGES` comes
+back out (Residual, below), the same order of headroom the prior ceiling carried. The
+area this ticket produces is not what decides nanocpu's freeze line -- that decision was
+already resolved before this ticket landed.
 
 ## Scope
 
 Out of scope, per the ticket: FPGA bring-up on the iCESugar-Pro with the real Pmod (no
 board bought yet). `nano/formal/checks.cfg`'s `#insn-check rvfi_insn_check.sv` line and
-the RV32E oracle patch it names are untouched. Deferred, not closed: root-causing the
-chained-resume bug above and wiring `nano-qspi-pins-test` onto `make test`'s path;
-taking a real Dhrystone/CoreMark figure through the pin-level harness once it is fixed;
-FPGA-measuring the pad-mux latency `IN_CAPTURE_STAGES` guesses at.
+the RV32E oracle patch it names are untouched. Deferred, not closed: wiring
+`nano-qspi-pins-test` onto `make test`'s path and taking a real Dhrystone/CoreMark
+figure through the pin-level harness, both blocked on the residual below; properly
+compensating for pad-mux latency at 64 MHz, now that the false option is removed;
+FPGA bring-up to measure that latency against.

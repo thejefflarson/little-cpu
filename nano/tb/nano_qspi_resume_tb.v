@@ -18,7 +18,7 @@ module nano_qspi_resume_tb;
 
   assign sio_d2c = flash_oe ? flash_out : (psram_oe ? psram_out : 4'bz);
 
-  nano_qspi_ctrl #(.FLASH_DUMMY_SCK(4), .PSRAM_DUMMY_SCK(4), .IN_CAPTURE_STAGES(0)) dut (
+  nano_qspi_ctrl #(.FLASH_DUMMY_SCK(4), .PSRAM_DUMMY_SCK(4)) dut (
     .clk(clk), .reset(reset),
     .mem_valid(mem_valid), .mem_instr(mem_instr), .mem_ready(mem_ready),
     .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_wstrb(mem_wstrb), .mem_rdata(mem_rdata),

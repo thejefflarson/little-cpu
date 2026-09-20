@@ -5,8 +5,6 @@
 module nano_qspi_ctrl #(
   parameter int FLASH_DUMMY_SCK = 4,
   parameter int PSRAM_DUMMY_SCK = 4,
-  // Pad-mux registered input capture, 0-3 stages -- TinyQV's own answer to the same risk.
-  parameter int IN_CAPTURE_STAGES = 1,
   // Proved, not conventional: no PSRAM transaction may hold psram_cs_n low longer than this.
   parameter int PSRAM_CS_LOW_LIMIT = 512
 ) (
@@ -32,8 +30,6 @@ module nano_qspi_ctrl #(
   initial begin
     if (FLASH_DUMMY_SCK < 1) $fatal(1, "FLASH_DUMMY_SCK must be at least 1");
     if (PSRAM_DUMMY_SCK < 1) $fatal(1, "PSRAM_DUMMY_SCK must be at least 1");
-    if (IN_CAPTURE_STAGES < 0 || IN_CAPTURE_STAGES > 3)
-      $fatal(1, "IN_CAPTURE_STAGES must be 0-3, TinyQV's own registered-capture range");
   end
 
   // Flash stays in Fast Read Quad I/O via the mode byte's continuation pattern (M[7:6]==2'b10).
@@ -81,20 +77,6 @@ module nano_qspi_ctrl #(
   logic [31:0] psram_byte_mask;
   assign psram_byte_mask = {{8{psram_wstrb_pending[3]}}, {8{psram_wstrb_pending[2]}},
                             {8{psram_wstrb_pending[1]}}, {8{psram_wstrb_pending[0]}}};
-
-  logic [3:0] sio_captured;
-  generate
-    if (IN_CAPTURE_STAGES == 0) begin : g_capture_comb
-      assign sio_captured = sio_in;
-    end else begin : g_capture_reg
-      logic [3:0] stages[0:IN_CAPTURE_STAGES-1];
-      always_ff @(posedge clk) begin
-        stages[0] <= sio_in;
-        for (int i = 1; i < IN_CAPTURE_STAGES; i++) stages[i] <= stages[i-1];
-      end
-      assign sio_captured = stages[IN_CAPTURE_STAGES-1];
-    end
-  endgenerate
 
   logic [1:0] active_dev;
   localparam logic [1:0] DEV_NONE  = 2'b00;
@@ -274,7 +256,7 @@ module nano_qspi_ctrl #(
 
         ST_FLASH_STREAM: begin
           if (!sio_phase) begin
-            rx_shift[15:0] <= {rx_shift[11:0], sio_captured};
+            rx_shift[15:0] <= {rx_shift[11:0], sio_in};
           end else begin
             if (nibbles_left == 4'd1) begin
               // A parcel arrived: push it, then keep streaming or pause -- CS stays asserted.
@@ -343,7 +325,7 @@ module nano_qspi_ctrl #(
 
         ST_PSRAM_READ: begin
           if (!sio_phase) begin
-            rx_shift <= {rx_shift[27:0], sio_captured};
+            rx_shift <= {rx_shift[27:0], sio_in};
           end else begin
             if (nibbles_left == 4'd1) begin
               sck_run    <= 1'b0;
