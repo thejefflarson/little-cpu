@@ -1,6 +1,10 @@
 `timescale 1ns/1ps
 // The root-caused chained-resume nibble drift, reproduced against nano_qspi_ctrl and the
 // pin-level flash model directly: two "fetch_hit0 && !queue_full" resumes back to back.
+// QSPI_RESUME_TB_DELAY_CYCLES delays sio's return half that many clocks, for a pad-mux round trip.
+`ifndef QSPI_RESUME_TB_DELAY_CYCLES
+`define QSPI_RESUME_TB_DELAY_CYCLES 0
+`endif
 module nano_qspi_resume_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -11,19 +15,32 @@ module nano_qspi_resume_tb;
   logic [3:0] mem_wstrb;
 
   logic sck, flash_cs_n, psram_cs_n, spare_cs_n;
-  logic [3:0] sio_c2d, sio_d2c;
+  logic [3:0] sio_c2d, sio_d2c, sio_d2c_delayed;
   logic sio_oe_ctrl;
   logic [3:0] flash_out, psram_out;
   logic flash_oe, psram_oe;
 
   assign sio_d2c = flash_oe ? flash_out : (psram_oe ? psram_out : 4'bz);
 
+  generate
+    if (`QSPI_RESUME_TB_DELAY_CYCLES == 0) begin : g_no_delay
+      assign sio_d2c_delayed = sio_d2c;
+    end else begin : g_delay
+      logic [3:0] stages[0:`QSPI_RESUME_TB_DELAY_CYCLES-1];
+      always_ff @(posedge clk) begin
+        stages[0] <= sio_d2c;
+        for (int i = 1; i < `QSPI_RESUME_TB_DELAY_CYCLES; i++) stages[i] <= stages[i-1];
+      end
+      assign sio_d2c_delayed = stages[`QSPI_RESUME_TB_DELAY_CYCLES-1];
+    end
+  endgenerate
+
   nano_qspi_ctrl #(.FLASH_DUMMY_SCK(4), .PSRAM_DUMMY_SCK(4)) dut (
     .clk(clk), .reset(reset),
     .mem_valid(mem_valid), .mem_instr(mem_instr), .mem_ready(mem_ready),
     .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_wstrb(mem_wstrb), .mem_rdata(mem_rdata),
     .sck(sck), .flash_cs_n(flash_cs_n), .psram_cs_n(psram_cs_n), .spare_cs_n(spare_cs_n),
-    .sio_out(sio_c2d), .sio_oe(sio_oe_ctrl), .sio_in(sio_d2c)
+    .sio_out(sio_c2d), .sio_oe(sio_oe_ctrl), .sio_in(sio_d2c_delayed)
   );
 
   nano_qspi_flash_model #(.WORDS(1024), .DUMMY_SCK(4)) flash (

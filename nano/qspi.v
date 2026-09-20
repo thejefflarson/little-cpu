@@ -53,7 +53,7 @@ module nano_qspi_ctrl #(
 
   logic [3:0] state;
 
-  // sio_phase == 0 captures before SCK's rise; sio_phase == 1 launches and moves the counter.
+  // A read nibble captures on SCK's falling edge, not the rising edge, for more round-trip margin.
   logic sio_phase;
   logic sck_run;
   assign sck = sck_run && sio_phase;
@@ -255,20 +255,19 @@ module nano_qspi_ctrl #(
         end
 
         ST_FLASH_STREAM: begin
-          if (!sio_phase) begin
+          if (sio_phase) begin
             rx_shift[15:0] <= {rx_shift[11:0], sio_in};
-          end else begin
             if (nibbles_left == 4'd1) begin
               // A parcel arrived: push it, then keep streaming or pause -- CS stays asserted.
               stream_next_addr <= stream_next_addr + 31'd1;
               if (!slot0_valid) begin
                 slot0_valid  <= 1'b1;
-                slot0_data   <= rx_shift[15:0];
+                slot0_data   <= {rx_shift[11:0], sio_in};
                 slot0_addr   <= stream_next_addr;
                 nibbles_left <= 4'd4;
               end else begin
                 slot1_valid <= 1'b1;
-                slot1_data  <= rx_shift[15:0];
+                slot1_data  <= {rx_shift[11:0], sio_in};
                 slot1_addr  <= stream_next_addr;
                 sck_run     <= 1'b0;
                 state       <= ST_IDLE;
@@ -324,22 +323,21 @@ module nano_qspi_ctrl #(
         end
 
         ST_PSRAM_READ: begin
-          if (!sio_phase) begin
+          if (sio_phase) begin
             rx_shift <= {rx_shift[27:0], sio_in};
-          end else begin
             if (nibbles_left == 4'd1) begin
               sck_run    <= 1'b0;
               active_dev <= DEV_NONE;
               if (psram_rmw_pending) begin
                 // Merge the read word with the store's bytes, then issue a full-word write.
                 psram_wdata_pending <= (psram_wdata_pending & psram_byte_mask) |
-                                        (rx_shift & ~psram_byte_mask);
+                                        ({rx_shift[27:0], sio_in} & ~psram_byte_mask);
                 psram_rmw_pending <= 1'b0;
                 psram_is_write    <= 1'b1;
                 state             <= ST_PSRAM_REOPEN;
               end else begin
                 mem_ready <= 1'b1;
-                mem_rdata <= rx_shift;
+                mem_rdata <= {rx_shift[27:0], sio_in};
                 state     <= ST_IDLE;
               end
             end else begin
