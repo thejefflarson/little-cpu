@@ -21,6 +21,9 @@ module decoder_tb;
   logic buffer_empty = 1'b0;
   // fetchctrl's view of the buffer above, driven by hand since this bench has no fetchctrl.
   logic redirect_recovering = 1'b0;
+  logic predicted_active = 1'b0;
+  logic [31:0] predicted_src_pc = 32'b0;
+  logic [31:0] predicted_target = 32'b0;
   // The platform has not granted this core the shared bus.
   logic bus_wait = 1'b0;
   // The instruction memory had nothing at `pc`.
@@ -53,6 +56,9 @@ module decoder_tb;
     .divider_stall(divider_stall),
     .buffer_empty(buffer_empty),
     .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
     .bus_wait(bus_wait),
     .imem_fault(imem_fault),
     .atomic_addr(atomic_addr),
@@ -443,8 +449,7 @@ module decoder_tb;
     check_bit("...nor with a non-zero rs1 field", dut.instr_ecall, 1'b0);
     check_bit("...which is illegal as well", dut.instr_valid, 1'b0);
 
-    // Both arms of the next-pc chain that add to the fetched pc.
-    in.pc = 32'h0000_00a0;
+    in.pc = 32'h0000_00a0;  // both arms of the next-pc chain that add to the fetched pc
     present_and_fetch(32'h0000_0013);  // addi x0, x0, 0
     check_hex("an uncompressed instruction steps four", next_pc, 32'h0000_00a4);
     present_and_fetch(32'h0000_0001);  // c.nop
@@ -457,6 +462,51 @@ module decoder_tb;
     #1;
     check_hex("an untaken one steps four", next_pc, 32'h0000_00a4);
     reg_rs1 = 32'b0;
+
+    in.instr = 32'h0000_0013;   // addi x0, x0, 0
+    predicted_active = 1'b0;
+    @(posedge clk);
+    #1;
+    in.instr = 32'h0000_0463;   // beq x0, x0, 8 -- taken, guessed correctly
+    predicted_active = 1'b1;
+    predicted_src_pc = 32'h0000_00a0;
+    predicted_target = 32'h0000_00a8;
+    #1;
+    operand_fetch_cycle();
+    check_hex("a correctly guessed taken branch still resolves its own target",
+              next_pc, 32'h0000_00a8);
+    check_bit("...and needs no redirect", dut.redirect, 1'b0);
+    check_bit("...nor counts as a mispredict", dut.mispredict, 1'b0);
+    check_bit("...but the guess is resolved", dut.predict_resolved, 1'b1);
+
+    in.instr = 32'h0000_0013;
+    predicted_active = 1'b0;
+    @(posedge clk);
+    #1;
+    in.instr = 32'h0000_0463;   // beq x0, x0, 8 -- taken, guessed the wrong target
+    predicted_active = 1'b1;
+    predicted_src_pc = 32'h0000_00a0;
+    predicted_target = 32'h0000_0200;
+    #1;
+    operand_fetch_cycle();
+    check_hex("a wrongly guessed branch still resolves its real target",
+              next_pc, 32'h0000_00a8);
+    check_bit("...and does redirect", dut.redirect, 1'b1);
+    check_bit("...counted as a mispredict", dut.mispredict, 1'b1);
+    check_bit("...with the guess resolved either way", dut.predict_resolved, 1'b1);
+
+    in.instr = 32'h0000_0013;
+    predicted_active = 1'b0;
+    @(posedge clk);
+    #1;
+    in.instr = 32'h0000_0463;
+    #1;
+    operand_fetch_cycle();
+    check_bit("an unpredicted taken branch still redirects", dut.redirect, 1'b1);
+    check_bit("...but is not a mispredict, since fetch never guessed",
+              dut.mispredict, 1'b0);
+    predicted_src_pc = 32'b0;
+    predicted_target = 32'b0;
 
     // Read off the decode flag, not `out.is_ebreak`: a trapping issue suppresses every
     // execution flag, so the registered flag is 0 for all three of these and the vector

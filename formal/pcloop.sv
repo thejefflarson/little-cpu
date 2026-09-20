@@ -1,4 +1,4 @@
-// The fetch queue, its controller, the fetcher and the decoder, wired the way rtl/littlecpu.v wires them.
+// The fetch queue, its controller, the fetcher and the decoder, wired as rtl/littlecpu.v.
 `default_nettype none
 
 module pcloop (
@@ -11,7 +11,8 @@ module pcloop (
     input executor_output executor_out,
     input logic divider_stall,
     input logic fetch_stall,
-    // Free: an ungranted bus holds the pc, so the increment assertion skips that cycle too.
+    // Free: a hart not granted the shared bus holds the pc, the same way an unanswered
+    // atomic redirects it; the increment assertion skips both cycles.
     input logic bus_wait,
     input logic imem_fault,
     input logic atomic_supported,
@@ -41,7 +42,12 @@ module pcloop (
   logic        buffer_empty;
   logic        redirect_recovering;
   logic        kill;
+  logic        mispredict;
   logic        fetcher_pop;
+  logic        predicted_active;
+  logic [31:0] predicted_src_pc;
+  logic [31:0] predicted_target;
+  logic        predict_resolved;
 
   fetcher fetcher (
     .clk(clk),
@@ -70,7 +76,11 @@ module pcloop (
     .q1(queue_q1),
     .q1_fault(queue_q1_fault),
     .buffer_empty(buffer_empty),
-    .redirect_recovering(redirect_recovering)
+    .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
+    .predict_resolved(predict_resolved)
   );
 
   decoder decoder (
@@ -83,6 +93,11 @@ module pcloop (
     .divider_stall(divider_stall),
     .buffer_empty(buffer_empty),
     .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
+    .predict_resolved(predict_resolved),
+    .mispredict(mispredict),
     .kill(kill),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
@@ -235,10 +250,12 @@ module pcloop (
   always_ff @(posedge clk)
     if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
 
-  // Property 1: fetch_pc advances, holds, retries, or takes a redirect target two cycles after decode computed it -- never the word arriving this cycle.
+  // Property 1: fetch_pc advances by one word pair, holds, retries, takes a guessed target a
+  // cycle after fetchctrl forms it, or a redirect target two cycles after decode computes it.
   logic [31:0] past_fetch_pc, past2_fetch_pc;
   logic [31:0] past_next_pc_r, past2_next_pc_r;
   logic        past_redirect_r, past2_redirect_r;
+  logic        past_predicted_active;
   always_ff @(posedge clk) begin
     past_fetch_pc    <= fetch_pc;
     past2_fetch_pc   <= past_fetch_pc;
@@ -246,13 +263,17 @@ module pcloop (
     past2_next_pc_r  <= past_next_pc_r;
     past_redirect_r  <= redirect;
     past2_redirect_r <= past_redirect_r;
+    past_predicted_active <= predicted_active;
   end
 
-  logic f_fetch_pc_advanced, f_fetch_pc_held, f_fetch_pc_retried, f_fetch_pc_redirected;
+  logic f_fetch_pc_advanced, f_fetch_pc_held, f_fetch_pc_retried, f_fetch_pc_redirected,
+        f_fetch_pc_guessed;
   assign f_fetch_pc_advanced   = fetch_pc == past_fetch_pc + 32'd8;
   assign f_fetch_pc_held       = fetch_pc == past_fetch_pc;
   assign f_fetch_pc_retried    = fetch_pc == past2_fetch_pc;
   assign f_fetch_pc_redirected = past2_redirect_r && fetch_pc == past2_next_pc_r;
+  assign f_fetch_pc_guessed    = predicted_active && !past_predicted_active &&
+                                  fetch_pc == predicted_target;
 
   logic f_fetch_pc_prev2_ok;
   always_ff @(posedge clk) if (reset) f_fetch_pc_prev2_ok <= 1'b0;
@@ -260,19 +281,22 @@ module pcloop (
 
   always_comb if (clocked && !reset && f_fetch_pc_prev2_ok)
     assert(f_fetch_pc_advanced || f_fetch_pc_held || f_fetch_pc_retried ||
-           f_fetch_pc_redirected);
+           f_fetch_pc_redirected || f_fetch_pc_guessed);
 
-  // Property 2: the buffer pops only on the cycle pc actually leaves the word it names, restated independently of fetcher.v's own `pop` so an edit to either must keep them agreeing.
+  // Property 2: the buffer pops only on the cycle pc actually leaves the word it names,
+  // restated independently of fetcher.v's own `pop`.
   always_comb if (clocked && !reset)
     assert(fetcher_pop == (next_pc[31:2] != pc[31:2]));
 
   // Property 3: a word that never reaches decode never issues, graded against last cycle's
-  // buffer occupancy since decoder_out.valid reports what issued THEN (out is registered).
+  // buffer occupancy since decoder_out.valid reports what issued THEN (out is registered); a
+  // divider hold republishes out unchanged and is not a fresh issue.
   always_comb if (clocked && !prev_reset && !prev_hard_stall)
     assert(!prev_buffer_empty || !decoder_out.valid);
 
-  // The strengthened half, over `kill` rather than `buffer_empty`: restates decoder's own
-  // `kill => !issuing` one cycle later, against the composed queue's `redirect_recovering`.
+  // The strengthened half, over `kill` rather than `buffer_empty` so a future narrowing of the
+  // latter's other causes stays covered: restates decoder's own `kill => !issuing` one cycle
+  // later, against the composed queue's `redirect_recovering`.
   logic prev_kill;
   always_ff @(posedge clk) prev_kill <= kill;
   always_comb if (clocked && !prev_reset && !prev_hard_stall)

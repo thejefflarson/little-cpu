@@ -1,4 +1,5 @@
-// The fetcher, the decoder and the CSR file, wired the way rtl/littlecpu.v wires them, so mtvec/mepc/mcause/mstatus are real registers rather than free inputs.
+// The fetcher, the decoder and the CSR file, wired the way rtl/littlecpu.v wires them, so
+// mtvec/mepc/mcause/mstatus are real registers rather than free inputs.
 `default_nettype none
 
 module traps #(
@@ -18,24 +19,32 @@ module traps #(
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    // Free: this harness models no queue, so a buffer's emptiness is left to the solver.
+    // Free, like every input below: this harness models no queue, no fetchctrl, no bus
+    // arbiter and no timer, so each is whatever the solver picks.
     input logic buffer_empty,
     // Free: this harness has no fetchctrl to say whether an empty buffer is a discard in flight.
     input logic redirect_recovering,
+    input logic         predicted_active,
+    input logic [31:0]  predicted_src_pc,
+    input logic [31:0]  predicted_target,
     // Free, like the other two: a hart waiting for the shared bus issues nothing either.
     input logic bus_wait,
-    // Free, but coupled to fetcher_out below: rtl/fetchqueue.v answers a fault bit out of the same slot its word comes from.
+    // Free, but coupled to fetcher_out below: rtl/fetchqueue.v answers a fault bit out of the
+    // same slot its word comes from.
     input logic imem_fault,
     // The platform's answer about the address an atomic in decode would use.
     input logic atomic_supported,
     input logic accessor_out_valid,
-    // The platform's timer line, free every cycle.
     input logic irq_timer
 );
   logic [31:0] pc, next_pc;
   logic        redirect;
-  // Unread, declared anyway: `default_nettype none` makes an undeclared output identifier an error in iverilog and a warning in yosys.
+  // kill/predict_resolved/mispredict below, bus_request further down: unread here, and
+  // declared anyway -- an output connected to an undeclared identifier is an implicit net,
+  // which `default_nettype none` makes an error in iverilog and a warning in yosys.
   logic        kill;
+  logic        predict_resolved;
+  logic        mispredict;
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   decoder_output decoder_out;
@@ -51,7 +60,8 @@ module traps #(
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
 
-  // q0/q1 are free here, the same standing imem_data/imem_data2 had: no queue, so the solver's pick stands in for the buffer's head pair.
+  // q0/q1 are free here, the same standing imem_data/imem_data2 had: no queue, so the
+  // solver's pick stands in for the buffer's head pair.
   fetcher fetcher (
     .clk(clk),
     .reset(reset),
@@ -80,6 +90,11 @@ module traps #(
     .divider_stall(divider_stall),
     .buffer_empty(buffer_empty),
     .redirect_recovering(redirect_recovering),
+    .predicted_active(predicted_active),
+    .predicted_src_pc(predicted_src_pc),
+    .predicted_target(predicted_target),
+    .predict_resolved(predict_resolved),
+    .mispredict(mispredict),
     .kill(kill),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
