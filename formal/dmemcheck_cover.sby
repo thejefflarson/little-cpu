@@ -5,7 +5,7 @@
 mode cover
 append 0
 tbtop testbench.uut
-depth 20
+depth 22
 
 [engines]
 smtbmc boolector

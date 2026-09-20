@@ -1964,7 +1964,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
-  "not the 5 this row swept" \
+  "not the 7 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
@@ -2008,15 +2008,15 @@ mutate "$d/remeasure-fg.py" 's/^BELOW, ABOVE = 3, 3$/BELOW, ABOVE = 2, 1/'
 mkdir -p "$tmp/bin-sby-narrow"
 cat > "$tmp/bin-sby-narrow/sby" <<'STUB'
 #!/bin/sh
-# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 11 (the
-# declared F=8, +3), standing in for a flip point that moved three cycles past what
+# Stands in for sby: FAILs until the swept RISCV_FORMAL_CHECK_CYCLE reaches 13 (the
+# declared F=10, +3), standing in for a flip point that moved three cycles past what
 # remeasure-fg.py declares.
 sby_file=$2
 out=$(dirname "$sby_file")
 check=$(basename "$sby_file" .sby)
 mkdir -p "$out/$check"
 cycle=$(grep -o 'RISCV_FORMAL_CHECK_CYCLE [0-9]*' "$sby_file" | head -1 | awk '{print $2}')
-if [ "$cycle" -ge 11 ]; then
+if [ "$cycle" -ge 13 ]; then
   echo "PASS 2 0" > "$out/$check/status"
 else
   echo "FAIL 2 0" > "$out/$check/status"
@@ -3278,7 +3278,7 @@ d=$(fq_fixture "")
 probe "control: the shipping fetchqueue passes its own bench" 0 \
   "PASSED: fetchqueue" "fq_run $d"
 
-d=$(fq_fixture "s/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd2 : 3'd0);/cnt <= cnt - (do_pop ? 3'd1 : 3'd0) + (req_valid ? 3'd1 : 3'd0);/")
+d=$(fq_fixture "s/assign pushed = !req_valid ? 3'd0 : req_half ? 3'd1 : 3'd2;/assign pushed = !req_valid ? 3'd0 : 3'd1;/")
 probe "a push landing only one word instead of two is red across every occupancy" 1 \
   "the first request's pair landed" "fq_run $d"
 
@@ -3298,7 +3298,7 @@ mutate "$d/fetchqueue.v" \
   logic req_valid_d;\
   always_ff @(posedge clk) req_valid_d <= req_valid;' \
   "s/if (req_valid) begin/if (req_valid_d) begin/" \
-  "s/+ (req_valid ? 3'd2 : 3'd0);/+ (req_valid_d ? 3'd2 : 3'd0);/"
+  "s/assign pushed = !req_valid ? 3'd0/assign pushed = !req_valid_d ? 3'd0/"
 probe "a retried response gated on a stale, registered req_valid is red" 1 \
   "the retried request's real response lands exactly once" "fq_run $d"
 
@@ -6483,7 +6483,7 @@ MCD="python3 $REPO/formal/check-memcheck-depth.py"
 mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
   local d; d=$(new_case)
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive F 8  worst-case first retire, swept out of `hang`'
+    '#derive F 10 worst-case first retire, swept out of `hang`'
   fixture_anchor "$REPO/formal/checks.cfg" \
     '#derive G 8  worst-case gap between two retires, swept out of `liveness`'
   cat > "$d/checks.cfg" <<CFG
