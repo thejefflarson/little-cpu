@@ -25,27 +25,26 @@ module fetcher(
   output logic        fault,
   output fetcher_output out
 );
-  logic [29:0] word, rom_addr, rom_next, fetch_word;
+  logic [29:0] word, rom_addr, fetch_word;
   logic        rom_hit, hit, pop, capture, skid_valid, skid_fault;
   logic [31:0] skid_lo, skid_hi;
   logic        guess_valid;
   logic [31:0] guess_target;
 
   assign word     = pc[31:2];
-  assign rom_next = rom_addr + 30'd1;
   assign rom_hit  = !imem_stall && rom_addr == word;
   assign hit      = skid_valid || rom_hit;
   assign pop      = next_pc[31:2] != word;
   assign capture  = rom_hit && !skid_valid && !pop;
   assign fetch_stall = !hit;
 
-  assign fetch_word = reset       ? 30'd0 :
-                      !hit        ? word :
-                      guess_valid ? guess_target[31:2] :
-                      skid_valid  ? rom_addr : rom_next;
+  // A miss re-reads decode's own word; a hit reads the word after it, which is also
+  // the word the skid's successor needs, unless a guess says where decode goes instead.
+  assign fetch_word = reset ? 30'd0 :
+                      hit && guess_valid ? guess_target[31:2] : word + {29'b0, hit};
   assign imem_addr_next = {fetch_word, 2'b00};
   assign imem_addr      = {rom_addr, 2'b00};
-  assign imem_addr2     = {rom_next, 2'b00};
+  assign imem_addr2     = imem_addr + 32'd4;
 
   always_ff @(posedge clk) begin
     rom_addr <= fetch_word;
