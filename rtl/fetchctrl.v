@@ -236,9 +236,7 @@ module fetchctrl (
   always_comb if (clocked && past_predict_commit)
     assert(predicted_active && fetch_pc == predicted_target && stolen_pc == predicted_target);
 
-  logic [31:0] past_fetch_pc;
-  always_ff @(posedge clk) past_fetch_pc <= fetch_pc;
-  always_comb if (clocked && req_valid && !redirect_apply_d1)
-    assert(stolen_pc == past_fetch_pc);
+  always_ff @(posedge clk)
+    if (clocked && req_valid && !flush) assert(stolen_pc == $past(fetch_pc));
  `endif
 endmodule

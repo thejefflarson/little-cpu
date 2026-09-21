@@ -107,9 +107,10 @@ abandoned pair's response is still accepted and flushed, and on that one cycle �
 — `stolen_pc` already holds the new target, which is why `predict_commit` excludes it (the eighth
 bug of ADR-0201) and why the fourth bug, fixed there by adding `fetch_addr_d1`, no longer needs the
 register. `rtl/fetchctrl.v`'s `FORMAL` block asserts
-`!req_valid || redirect_apply_d1 || stolen_pc == $past(fetch_pc)` and `components_pcloop` proves it
-by k-induction; deleting the `stolen_pc <= fetch_pc` arm makes it fail at once, which is its red
-direction.
+`!req_valid || flush || stolen_pc == $past(fetch_pc)` — gated on the same named `flush` window
+`predict_commit` itself excludes, so the property and the arm it certifies share one source of
+truth — and `components_pcloop` proves it by k-induction; deleting the `stolen_pc <= fetch_pc` arm
+makes it fail at once, which is its red direction.
 
 **Why three bits resolve a guess.** While a record is outstanding decode is at or behind its source:
 the candidate's pair is pushed behind at most the two words the queue held (`req_valid` requires
@@ -119,7 +120,7 @@ the record is live, except the one after a redirect, when `pc` has already moved
 clears on the next edge. Within fourteen bytes no two addresses share `pc[3:1]`. `formal/pcloop.sv`
 states that bound as the modular difference — the first spelling, `src <= pc + 14`, went red on a
 pair at the top of the address space, where `pc + 14` wraps to 2, which is arithmetic and not a
-defect. It is not inductive over free queue contents, so `formal/pcloop_bmc.sby` checks it bounded
+defect. It is not inductive over free queue contents, so `formal/pcloop.sby`'s `bmc` task checks it bounded
 at depth 12 as a prerequisite of `components_pcloop`. Twelve, because every shape the check found
 on the way here (both ends of the bound, the wrap, the odd `mtvec`) appeared by step 7, F is 10,
 and the composed harness doubles its solve time per step past ten under either engine — `smtbmc

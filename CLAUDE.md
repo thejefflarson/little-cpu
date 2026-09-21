@@ -74,7 +74,7 @@ references still resolve.
   address to it — passes at full depth with the guess live. **Decode resolves a guess on
   `pc[3:1]` alone** (ADR-0205): while a record is open decode is at or behind its source by at
   most fourteen bytes — two queued words plus the candidate's lane — which `formal/pcloop.sv`
-  states and `formal/pcloop_bmc.sby` checks bounded, since it is not inductive over free queue
+  states and `formal/pcloop.sby`'s `bmc` task checks bounded, since it is not inductive over free queue
   contents; `pair_base` is `stolen_pc`, proved equal to last cycle's `fetch_pc` on every accepted
   response. **The guess is priced lane by lane in ADR-0205, and no cut to it places the up5k**:
   every lane sits inside the SoC's churn band and buys real cycles, the straddle is 60
@@ -889,7 +889,7 @@ make -C formal check-baseline       # re-grade a finished run without re-running
 make -C formal components_decoder   # component proofs by k-induction (mode prove): read the
 make -C formal components_executor  #   sby summaries, not the job colour. decoder and
 make -C formal components_accessor  #   executor run their zkt probes first; pcloop runs
-make -C formal components_pcloop    #   pcloop_cover; traps runs traps-region-probe and
+make -C formal components_pcloop    #   pcloop.sby's cover and bmc tasks; traps runs traps-region-probe and
 make -C formal components_traps     #   traps-tval-probe; busarbiter runs busarbiter_cover
 make -C formal components_busarbiter #  and busarbiter-probe -- each a forced red direction
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
