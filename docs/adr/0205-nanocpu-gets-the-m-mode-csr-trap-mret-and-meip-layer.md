@@ -1,4 +1,4 @@
-# ADR-0204: nanocpu gets the M-mode CSR, trap, mret and MEIP layer
+# ADR-0205: nanocpu gets the M-mode CSR, trap, mret and MEIP layer
 
 **Status:** Accepted · 2026-09-20
 
@@ -140,6 +140,18 @@ counter, and asserts exactly one interrupt lands with `mcause == 0x8000000b`.
 `nano/asm/csrimm.S` (new) is the zero-immediate suppression regression described
 above. The suite is 8/8 on both the cxxrtl and iverilog legs, and both legs agree
 program by program.
+
+**`meip.S`'s `OBSERVED_FLOOR` retire count is not a CPI target.** `irq_meip` asserts at a
+fixed simulated cycle (`NANO_IRQ_MEIP_CYCLE`, default 400), not a fixed instruction
+count, so a slower register-file or memory-timing build retires fewer instructions by
+that cycle. Five builds share `nano/asm/OBSERVED_FLOOR` — default, `NANO_LATCH_RF`,
+`NANO_ONE_PORT_RF`, both together, and the pin-level QSPI model — and the floor was
+lowered three times measuring each in turn (102 → 86 → 38) to the true minimum across
+all five. **38 is a measured floor, not a meaningful number**: it is what the slowest
+build today happens to retire by cycle 400, and a slower future build (a wider QSPI
+preamble, a deeper prefetch stall) will trip it again. Fixing that needs either an
+assertion cycle derived from each variant's own measured CPI or an analytic lower bound
+independent of timing; neither was in this ticket's scope.
 
 Portable subset run against nanocpu (`make nano-littlecpu-test`, `LITTLECPU_FLOOR`):
 `csrset.S` and `hpm.S` are un-excluded now that nano has CSRs (76 and 127 retires,
