@@ -559,6 +559,14 @@ riscv-gcc-pin-test:
 memmap-test:
 	@./test/memmap_test.sh
 
+.PHONY: nano-memmap-probe
+nano-memmap-probe:
+	@./nano/memmap_probe.sh
+
+.PHONY: nano-memmap-test
+nano-memmap-test: nano-memmap-probe
+	@./nano/memmap_test.sh
+
 # Asserts that every rtl/*.v file has a ruling on whether a mutation of it is caught by
 # anything -- a named mutation, or `unpaired` and a real bench or formal task -- checked
 # against `ls rtl/*.v` both ways round.
@@ -728,6 +736,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       nano-oneport-test nano-oneport-startup-test nano-oneport-latch-test nano-oneport-latch-startup-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
+      nano-memmap-test nano-tt-test \
       stall-sites-test pin-help-text-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
