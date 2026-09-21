@@ -2,79 +2,79 @@
   "note": "written by soc/compare/run_product.sh (make compare-product); do not hand-edit",
   "pairs": {
     "coremark": {
-      "base": "7e36714d7f1edaefcbcd63ad143c9efb227fbe57",
+      "base": "474bb03e9357f7cb6f7ef325e374c9bfec24aa03",
       "cflags": "-march=rv32im -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror",
       "cores": {
         "hazard3": {
           "clock_mhz": {
-            "best_mhz": 14.98576352465158,
-            "best_ns": 66.73,
-            "median_mhz": 14.45086705202312,
-            "median_ns": 69.2,
+            "best_mhz": 13.86193512614361,
+            "best_ns": 72.14,
+            "median_mhz": 13.648150675583459,
+            "median_ns": 73.27,
             "n": 12,
-            "spread_pct": 7.163194964783457,
-            "worst_mhz": 13.984058173682001,
-            "worst_ns": 71.51
+            "spread_pct": 5.517050180205162,
+            "worst_mhz": 13.137151865475564,
+            "worst_ns": 76.12
           },
-          "cycle_factor": 1.4414809198378045
+          "cycle_factor": 1.500258044383634
         },
         "littlecpu": {
           "clock_mhz": {
-            "best_mhz": 14.060742407199099,
-            "best_ns": 71.12,
-            "median_mhz": 13.594344752582925,
-            "median_ns": 73.56,
+            "best_mhz": 13.50621285791464,
+            "best_ns": 74.04,
+            "median_mhz": 12.897401173663507,
+            "median_ns": 77.535,
             "n": 12,
-            "spread_pct": 6.889763779527547,
-            "worst_mhz": 13.154433043935807,
-            "worst_ns": 76.02
+            "spread_pct": 7.874122096164232,
+            "worst_mhz": 12.520345561537498,
+            "worst_ns": 79.87
           },
-          "cycle_factor": 2.098908987108501
+          "cycle_factor": 2.2371614895021197
         },
         "vexriscv": {
           "clock_mhz": {
-            "best_mhz": 23.54603249352484,
-            "best_ns": 42.47,
-            "median_mhz": 22.634676324128566,
-            "median_ns": 44.18,
+            "best_mhz": 23.496240601503757,
+            "best_ns": 42.56,
+            "median_mhz": 23.207240659085635,
+            "median_ns": 43.09,
             "n": 12,
-            "spread_pct": 9.230044737461743,
-            "worst_mhz": 21.55636990730761,
-            "worst_ns": 46.39
+            "spread_pct": 4.088345864661642,
+            "worst_mhz": 22.573363431151243,
+            "worst_ns": 44.3
           },
-          "cycle_factor": 2.188753745504847
+          "cycle_factor": 2.345050770349178
         }
       },
-      "date": "2026-09-14T05:03:33Z",
+      "date": "2026-09-21T10:50:23Z",
       "dirty": "no",
       "isa": "rv32im",
       "products": {
         "hazard3": {
           "hazard3_dmips": {
-            "median": 17.297771038053654,
-            "worst": 17.297771038053654
+            "median": 18.003096532603607,
+            "worst": 18.003096532603607
           },
           "littlecpu_dmips": {
-            "median": 25.18690784530201,
-            "worst": 25.18690784530201
+            "median": 26.845937874025438,
+            "worst": 26.845937874025438
           },
           "ratio": {
-            "median": 0.686776286485684,
-            "worst": 0.686776286485684
+            "median": 0.6706078445492624,
+            "worst": 0.6706078445492624
           }
         },
         "vexriscv": {
           "littlecpu_dmips": {
-            "median": 25.18690784530201,
-            "worst": 25.18690784530201
+            "median": 26.845937874025438,
+            "worst": 26.845937874025438
           },
           "ratio": {
-            "median": 1.0428054570008383,
-            "worst": 1.0428054570008383
+            "median": 1.0482259690922306,
+            "worst": 1.0482259690922306
           },
           "vexriscv_dmips": {
-            "median": 26.26504494605816,
-            "worst": 26.26504494605816
+            "median": 28.140609244190134,
+            "worst": 28.140609244190134
           }
         }
       },
@@ -85,61 +85,61 @@
       "step_mhz": 12.0,
       "target_core": "littlecpu",
       "tools": {
-        "icetime": "oss-cad-suite 20260913 sha256:b9e3938a864a9d9b [/opt/oss-cad-suite/bin/icetime]",
-        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-436-gd254ea49e-dirty) [/opt/oss-cad-suite/bin/iverilog]",
-        "nextpnr-ecp5": "\"nextpnr-ecp5\" -- Next Generation Place and Route (Version nextpnr-0.11.1-26-ga601751d) [/opt/oss-cad-suite/bin/nextpnr-ecp5]",
-        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11.1-26-ga601751d) [/opt/oss-cad-suite/bin/nextpnr-ice40]",
-        "riscv64-unknown-elf-gcc": "riscv64-unknown-elf-gcc (13.2.0-11ubuntu1+12) 13.2.0 [/usr/bin/riscv64-unknown-elf-gcc]",
+        "icetime": "oss-cad-suite 20260919 sha256:b9e3938a864a9d9b [/opt/oss-cad-suite/bin/icetime]",
+        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-474-g5591c2dde-dirty) [/opt/oss-cad-suite/bin/iverilog]",
+        "nextpnr-ecp5": "\"nextpnr-ecp5\" -- Next Generation Place and Route (Version nextpnr-0.11.1-30-g3e53a0bf) [/opt/oss-cad-suite/bin/nextpnr-ecp5]",
+        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11.1-30-g3e53a0bf) [/opt/oss-cad-suite/bin/nextpnr-ice40]",
+        "riscv-none-elf-gcc": "riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0 [/home/runner/.cache/little-cpu/riscv-gcc/bin/riscv-none-elf-gcc]",
         "trellis-db": "devices.json sha256:5a3869c1b6fe7ea1 [/opt/oss-cad-suite/bin/../share/trellis/database]",
-        "yosys": "Yosys 0.69+24 (git sha1 d0e71cfb7-dirty, Release, Clang /usr/bin/clang++ 21.1.8) [/opt/oss-cad-suite/bin/yosys]"
+        "yosys": "Yosys 0.69+75 (git sha1 f0b945f63-dirty, Release, Clang /usr/bin/clang++ 21.1.8) [/opt/oss-cad-suite/bin/yosys]"
       },
       "unit": "CoreMark/MHz"
     },
     "coremark_ecp5": {
-      "base": "7e36714d7f1edaefcbcd63ad143c9efb227fbe57",
+      "base": "474bb03e9357f7cb6f7ef325e374c9bfec24aa03",
       "cflags": "-march=rv32im -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror",
       "cores": {
         "hazard3": {
           "clock_mhz": {
-            "best_mhz": 53.022269353128316,
-            "best_ns": 18.86,
-            "median_mhz": 52.042674993494664,
-            "median_ns": 19.215,
+            "best_mhz": 50.27652086475616,
+            "best_ns": 19.89,
+            "median_mhz": 48.673643222195174,
+            "median_ns": 20.545,
             "n": 12,
-            "spread_pct": 4.559915164369032,
-            "worst_mhz": 50.709939148073026,
-            "worst_ns": 19.72
+            "spread_pct": 7.893413775766718,
+            "worst_mhz": 46.59832246039142,
+            "worst_ns": 21.46
           },
-          "cycle_factor": 1.4414809198378045
+          "cycle_factor": 1.500258044383634
         },
         "littlecpu": {
           "clock_mhz": {
-            "best_mhz": 34.97726477789437,
-            "best_ns": 28.59,
-            "median_mhz": 33.766672294445385,
-            "median_ns": 29.615,
+            "best_mhz": 36.496350364963504,
+            "best_ns": 27.4,
+            "median_mhz": 34.50060376056581,
+            "median_ns": 28.985,
             "n": 12,
-            "spread_pct": 8.289611752360969,
-            "worst_mhz": 32.29974160206718,
-            "worst_ns": 30.96
+            "spread_pct": 11.313868613138691,
+            "worst_mhz": 32.78688524590164,
+            "worst_ns": 30.5
           },
-          "cycle_factor": 2.098908987108501
+          "cycle_factor": 2.2371614895021197
         },
         "vexriscv": {
           "clock_mhz": {
-            "best_mhz": 59.488399762046406,
-            "best_ns": 16.81,
-            "median_mhz": 56.657223796033996,
-            "median_ns": 17.65,
+            "best_mhz": 60.42296072507553,
+            "best_ns": 16.55,
+            "median_mhz": 56.17977528089889,
+            "median_ns": 17.799999999999997,
             "n": 12,
-            "spread_pct": 15.110053539559804,
-            "worst_mhz": 51.67958656330749,
-            "worst_ns": 19.35
+            "spread_pct": 10.996978851963748,
+            "worst_mhz": 54.43658138268916,
+            "worst_ns": 18.37
           },
-          "cycle_factor": 2.188753745504847
+          "cycle_factor": 2.345050770349178
         }
       },
-      "date": "2026-09-14T05:03:33Z",
+      "date": "2026-09-21T10:50:23Z",
       "dirty": "no",
       "ecp5_part": "LFE5U-25F-6CABGA381",
       "ecp5_target_mhz": "200.0",
@@ -147,30 +147,30 @@
       "products": {
         "hazard3": {
           "hazard3_dmips": {
-            "median": 75.01852302044259,
-            "worst": 73.09740972808339
+            "median": 73.02302479355725,
+            "worst": 69.9095081259848
           },
           "littlecpu_dmips": {
-            "median": 70.87317194355904,
-            "worst": 67.79421792986113
+            "median": 77.18342209770984,
+            "worst": 73.34955703285638
           },
           "ratio": {
-            "median": 1.0584897072221455,
-            "worst": 1.0782248392290454
+            "median": 0.9460972681557738,
+            "worst": 0.9531006178356246
           }
         },
         "vexriscv": {
           "littlecpu_dmips": {
-            "median": 70.87317194355904,
-            "worst": 67.79421792986113
+            "median": 77.18342209770984,
+            "worst": 73.34955703285638
           },
           "ratio": {
-            "median": 1.7497271166617465,
-            "worst": 1.6684887312013412
+            "median": 1.7069005457381077,
+            "worst": 1.7403860673550917
           },
           "vexriscv_dmips": {
-            "median": 124.00871079347576,
-            "worst": 113.11388865658122
+            "median": 131.74442530051564,
+            "worst": 127.65654710665093
           }
         }
       },
@@ -181,63 +181,63 @@
       "step_mhz": null,
       "target_core": "littlecpu",
       "tools": {
-        "icetime": "oss-cad-suite 20260913 sha256:b9e3938a864a9d9b [/opt/oss-cad-suite/bin/icetime]",
-        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-436-gd254ea49e-dirty) [/opt/oss-cad-suite/bin/iverilog]",
-        "nextpnr-ecp5": "\"nextpnr-ecp5\" -- Next Generation Place and Route (Version nextpnr-0.11.1-26-ga601751d) [/opt/oss-cad-suite/bin/nextpnr-ecp5]",
-        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11.1-26-ga601751d) [/opt/oss-cad-suite/bin/nextpnr-ice40]",
-        "riscv64-unknown-elf-gcc": "riscv64-unknown-elf-gcc (13.2.0-11ubuntu1+12) 13.2.0 [/usr/bin/riscv64-unknown-elf-gcc]",
+        "icetime": "oss-cad-suite 20260919 sha256:b9e3938a864a9d9b [/opt/oss-cad-suite/bin/icetime]",
+        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-474-g5591c2dde-dirty) [/opt/oss-cad-suite/bin/iverilog]",
+        "nextpnr-ecp5": "\"nextpnr-ecp5\" -- Next Generation Place and Route (Version nextpnr-0.11.1-30-g3e53a0bf) [/opt/oss-cad-suite/bin/nextpnr-ecp5]",
+        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11.1-30-g3e53a0bf) [/opt/oss-cad-suite/bin/nextpnr-ice40]",
+        "riscv-none-elf-gcc": "riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0 [/home/runner/.cache/little-cpu/riscv-gcc/bin/riscv-none-elf-gcc]",
         "trellis-db": "devices.json sha256:5a3869c1b6fe7ea1 [/opt/oss-cad-suite/bin/../share/trellis/database]",
-        "yosys": "Yosys 0.69+24 (git sha1 d0e71cfb7-dirty, Release, Clang /usr/bin/clang++ 21.1.8) [/opt/oss-cad-suite/bin/yosys]"
+        "yosys": "Yosys 0.69+75 (git sha1 f0b945f63-dirty, Release, Clang /usr/bin/clang++ 21.1.8) [/opt/oss-cad-suite/bin/yosys]"
       },
       "unit": "CoreMark/MHz"
     },
     "dhrystone": {
-      "base": "7e36714d7f1edaefcbcd63ad143c9efb227fbe57",
+      "base": "474bb03e9357f7cb6f7ef325e374c9bfec24aa03",
       "cflags": "-march=rv32im -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror",
       "cores": {
         "littlecpu": {
           "clock_mhz": {
-            "best_mhz": 14.060742407199099,
-            "best_ns": 71.12,
-            "median_mhz": 13.594344752582925,
-            "median_ns": 73.56,
+            "best_mhz": 13.50621285791464,
+            "best_ns": 74.04,
+            "median_mhz": 12.897401173663507,
+            "median_ns": 77.535,
             "n": 12,
-            "spread_pct": 6.889763779527547,
-            "worst_mhz": 13.154433043935807,
-            "worst_ns": 76.02
+            "spread_pct": 7.874122096164232,
+            "worst_mhz": 12.520345561537498,
+            "worst_ns": 79.87
           },
-          "cycle_factor": 0.7618634079589779
+          "cycle_factor": 0.7258966397335361
         },
         "vexriscv": {
           "clock_mhz": {
-            "best_mhz": 23.54603249352484,
-            "best_ns": 42.47,
-            "median_mhz": 22.634676324128566,
-            "median_ns": 44.18,
+            "best_mhz": 23.496240601503757,
+            "best_ns": 42.56,
+            "median_mhz": 23.207240659085635,
+            "median_ns": 43.09,
             "n": 12,
-            "spread_pct": 9.230044737461743,
-            "worst_mhz": 21.55636990730761,
-            "worst_ns": 46.39
+            "spread_pct": 4.088345864661642,
+            "worst_mhz": 22.573363431151243,
+            "worst_ns": 44.3
           },
-          "cycle_factor": 0.8796036868183915
+          "cycle_factor": 0.8662001446948362
         }
       },
-      "date": "2026-09-14T05:03:33Z",
+      "date": "2026-09-21T10:50:23Z",
       "dirty": "no",
       "isa": "rv32im",
       "products": {
         "vexriscv": {
           "littlecpu_dmips": {
-            "median": 9.142360895507736,
-            "worst": 9.142360895507736
+            "median": 8.710759676802434,
+            "worst": 8.710759676802434
           },
           "ratio": {
-            "median": 1.154542504114797,
-            "worst": 1.154542504114797
+            "median": 1.1932830340870608,
+            "worst": 1.1932830340870608
           },
           "vexriscv_dmips": {
-            "median": 10.555244241820699,
-            "worst": 10.555244241820699
+            "median": 10.394401736338034,
+            "worst": 10.394401736338034
           }
         }
       },
@@ -248,48 +248,48 @@
       "step_mhz": 12.0,
       "target_core": "littlecpu",
       "tools": {
-        "icetime": "oss-cad-suite 20260913 sha256:b9e3938a864a9d9b [/opt/oss-cad-suite/bin/icetime]",
-        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-436-gd254ea49e-dirty) [/opt/oss-cad-suite/bin/iverilog]",
-        "nextpnr-ecp5": "\"nextpnr-ecp5\" -- Next Generation Place and Route (Version nextpnr-0.11.1-26-ga601751d) [/opt/oss-cad-suite/bin/nextpnr-ecp5]",
-        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11.1-26-ga601751d) [/opt/oss-cad-suite/bin/nextpnr-ice40]",
-        "riscv64-unknown-elf-gcc": "riscv64-unknown-elf-gcc (13.2.0-11ubuntu1+12) 13.2.0 [/usr/bin/riscv64-unknown-elf-gcc]",
+        "icetime": "oss-cad-suite 20260919 sha256:b9e3938a864a9d9b [/opt/oss-cad-suite/bin/icetime]",
+        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-474-g5591c2dde-dirty) [/opt/oss-cad-suite/bin/iverilog]",
+        "nextpnr-ecp5": "\"nextpnr-ecp5\" -- Next Generation Place and Route (Version nextpnr-0.11.1-30-g3e53a0bf) [/opt/oss-cad-suite/bin/nextpnr-ecp5]",
+        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11.1-30-g3e53a0bf) [/opt/oss-cad-suite/bin/nextpnr-ice40]",
+        "riscv-none-elf-gcc": "riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0 [/home/runner/.cache/little-cpu/riscv-gcc/bin/riscv-none-elf-gcc]",
         "trellis-db": "devices.json sha256:5a3869c1b6fe7ea1 [/opt/oss-cad-suite/bin/../share/trellis/database]",
-        "yosys": "Yosys 0.69+24 (git sha1 d0e71cfb7-dirty, Release, Clang /usr/bin/clang++ 21.1.8) [/opt/oss-cad-suite/bin/yosys]"
+        "yosys": "Yosys 0.69+75 (git sha1 f0b945f63-dirty, Release, Clang /usr/bin/clang++ 21.1.8) [/opt/oss-cad-suite/bin/yosys]"
       },
       "unit": "DMIPS/MHz"
     },
     "dhrystone_ecp5": {
-      "base": "7e36714d7f1edaefcbcd63ad143c9efb227fbe57",
+      "base": "474bb03e9357f7cb6f7ef325e374c9bfec24aa03",
       "cflags": "-march=rv32im -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror",
       "cores": {
         "littlecpu": {
           "clock_mhz": {
-            "best_mhz": 34.97726477789437,
-            "best_ns": 28.59,
-            "median_mhz": 33.766672294445385,
-            "median_ns": 29.615,
+            "best_mhz": 36.496350364963504,
+            "best_ns": 27.4,
+            "median_mhz": 34.50060376056581,
+            "median_ns": 28.985,
             "n": 12,
-            "spread_pct": 8.289611752360969,
-            "worst_mhz": 32.29974160206718,
-            "worst_ns": 30.96
+            "spread_pct": 11.313868613138691,
+            "worst_mhz": 32.78688524590164,
+            "worst_ns": 30.5
           },
-          "cycle_factor": 0.7618634079589779
+          "cycle_factor": 0.7258966397335361
         },
         "vexriscv": {
           "clock_mhz": {
-            "best_mhz": 59.488399762046406,
-            "best_ns": 16.81,
-            "median_mhz": 56.657223796033996,
-            "median_ns": 17.65,
+            "best_mhz": 60.42296072507553,
+            "best_ns": 16.55,
+            "median_mhz": 56.17977528089889,
+            "median_ns": 17.799999999999997,
             "n": 12,
-            "spread_pct": 15.110053539559804,
-            "worst_mhz": 51.67958656330749,
-            "worst_ns": 19.35
+            "spread_pct": 10.996978851963748,
+            "worst_mhz": 54.43658138268916,
+            "worst_ns": 18.37
           },
-          "cycle_factor": 0.8796036868183915
+          "cycle_factor": 0.8662001446948362
         }
       },
-      "date": "2026-09-14T05:03:33Z",
+      "date": "2026-09-21T10:50:23Z",
       "dirty": "no",
       "ecp5_part": "LFE5U-25F-6CABGA381",
       "ecp5_target_mhz": "200.0",
@@ -297,16 +297,16 @@
       "products": {
         "vexriscv": {
           "littlecpu_dmips": {
-            "median": 25.72559202968016,
-            "worst": 24.607991213145276
+            "median": 25.04387233857292,
+            "worst": 23.79988982732905
           },
           "ratio": {
-            "median": 1.937211119510465,
-            "worst": 1.8472680065836753
+            "median": 1.9431072327535654,
+            "worst": 1.9812265944287077
           },
           "vexriscv_dmips": {
-            "median": 49.8359029358862,
-            "worst": 45.45755487433547
+            "median": 48.662929477237995,
+            "worst": 47.15297467037758
           }
         }
       },
@@ -317,13 +317,13 @@
       "step_mhz": null,
       "target_core": "littlecpu",
       "tools": {
-        "icetime": "oss-cad-suite 20260913 sha256:b9e3938a864a9d9b [/opt/oss-cad-suite/bin/icetime]",
-        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-436-gd254ea49e-dirty) [/opt/oss-cad-suite/bin/iverilog]",
-        "nextpnr-ecp5": "\"nextpnr-ecp5\" -- Next Generation Place and Route (Version nextpnr-0.11.1-26-ga601751d) [/opt/oss-cad-suite/bin/nextpnr-ecp5]",
-        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11.1-26-ga601751d) [/opt/oss-cad-suite/bin/nextpnr-ice40]",
-        "riscv64-unknown-elf-gcc": "riscv64-unknown-elf-gcc (13.2.0-11ubuntu1+12) 13.2.0 [/usr/bin/riscv64-unknown-elf-gcc]",
+        "icetime": "oss-cad-suite 20260919 sha256:b9e3938a864a9d9b [/opt/oss-cad-suite/bin/icetime]",
+        "iverilog": "Icarus Verilog version 14.0 (devel) (s20260301-474-g5591c2dde-dirty) [/opt/oss-cad-suite/bin/iverilog]",
+        "nextpnr-ecp5": "\"nextpnr-ecp5\" -- Next Generation Place and Route (Version nextpnr-0.11.1-30-g3e53a0bf) [/opt/oss-cad-suite/bin/nextpnr-ecp5]",
+        "nextpnr-ice40": "\"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11.1-30-g3e53a0bf) [/opt/oss-cad-suite/bin/nextpnr-ice40]",
+        "riscv-none-elf-gcc": "riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0 [/home/runner/.cache/little-cpu/riscv-gcc/bin/riscv-none-elf-gcc]",
         "trellis-db": "devices.json sha256:5a3869c1b6fe7ea1 [/opt/oss-cad-suite/bin/../share/trellis/database]",
-        "yosys": "Yosys 0.69+24 (git sha1 d0e71cfb7-dirty, Release, Clang /usr/bin/clang++ 21.1.8) [/opt/oss-cad-suite/bin/yosys]"
+        "yosys": "Yosys 0.69+75 (git sha1 f0b945f63-dirty, Release, Clang /usr/bin/clang++ 21.1.8) [/opt/oss-cad-suite/bin/yosys]"
       },
       "unit": "DMIPS/MHz"
     }
