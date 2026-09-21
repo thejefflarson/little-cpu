@@ -195,7 +195,7 @@ nano-qspi-resume-probe:
 
 .PHONY: nano-qspi-resume-test
 nano-qspi-resume-test: nano/tb/nano_qspi_resume.vvp nano-qspi-resume-probe
-	@out=$$(vvp nano/tb/nano_qspi_resume.vvp); echo "$$out"; grep -q '^PASS$$' <<< "$$out"
+	@out=$$(vvp nano/tb/nano_qspi_resume.vvp); echo "$$out"; printf '%s\n' "$$out" | grep -q '^PASS$$'
 
 # nano-qspi-resume-test's reproduction, plus one clk of injected round-trip latency. On `make test`'s path.
 nano/tb/nano_qspi_latency.vvp: $(NANO_QSPI_RESUME_SRCS)
@@ -207,4 +207,4 @@ nano-qspi-latency-probe:
 
 .PHONY: nano-qspi-latency-test
 nano-qspi-latency-test: nano/tb/nano_qspi_latency.vvp nano-qspi-latency-probe
-	@out=$$(vvp nano/tb/nano_qspi_latency.vvp); echo "$$out"; grep -q '^PASS$$' <<< "$$out"
+	@out=$$(vvp nano/tb/nano_qspi_latency.vvp); echo "$$out"; printf '%s\n' "$$out" | grep -q '^PASS$$'
