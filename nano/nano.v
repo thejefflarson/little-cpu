@@ -136,7 +136,6 @@ module riscv #(
 `define RF_RS2 regs[rs2[3:0]]
 `endif
 
-  // instruction decoder (figure 2.3)
   assign opcode = instr[6:2];
   assign quadrant = instr[1:0];
   assign uncompressed = quadrant == 2'b11;
@@ -660,22 +659,11 @@ module riscv #(
               is_store_op || is_cswsp || is_csw: begin
                 (* parallel_case, full_case *)
                 case (1'b1)
-                  is_sw: begin
-                    mem_addr <= load_store_address;
-                    mem_wstrb <= 4'b1111;
-                    mem_wdata <= `RF_RS2;
-                  end
-
-                  is_sh: begin
-                    mem_wstrb <= addr16 ? 4'b1100 : 4'b0011;
-                    mem_wdata <= {2{`RF_RS2[15:0]}};
-                  end
-
-                  is_sb: begin
-                    mem_wstrb <= 4'b0001 << addr24;
-                    mem_wdata <= {4{`RF_RS2[7:0]}};
-                  end
+                  is_sw:  mem_wdata <= `RF_RS2;
+                  is_sh:  mem_wdata <= {2{`RF_RS2[15:0]}};
+                  is_sb:  mem_wdata <= {4{`RF_RS2[7:0]}};
                 endcase
+                mem_wstrb <= store_wstrb;
                 mem_addr <= {load_store_address[31:2], 2'b00};
                 mem_instr <= 0;
                 mem_valid <= 1; // kick off a memory request
@@ -893,13 +881,11 @@ module riscv #(
 
   // Held from execute_instr, not re-read live: a load/store whose rd aliases its rs1
   // moves regs[rs1] (and so load_store_address/take_trap) before its own retirement.
-  logic captured_is_valid, captured_take_trap, captured_is_opm, captured_load_fault,
-        captured_store_fault;
+  logic captured_take_trap, captured_is_opm, captured_load_fault, captured_store_fault;
   logic [3:0]  captured_store_wstrb;
   logic [31:0] captured_ls_addr;
   always_ff @(posedge clk) begin
     if (cpu_state == execute_instr) begin
-      captured_is_valid    <= is_valid;
       captured_take_trap   <= take_trap;
       captured_is_opm      <= is_opm_encoding;
       captured_load_fault  <= load_region_fault;
@@ -968,11 +954,15 @@ module riscv #(
   assign rvfi_csr_minstret_wdata = rvfi_csr_minstret_wdata_q;
 `endif
 
+`ifdef RISCV_FORMAL_MEM_FAULT
+  wire fault_load  = is_fetch_entry && captured_load_fault;
+  wire fault_store = is_fetch_entry && captured_store_fault;
+`endif
+
   always_ff @(posedge clk) begin
-    // is_fetch_entry, not is_fetch: this must fire once per retirement, not once
-    // per cycle dwelled in fetch_instr doing interrupt-entry bookkeeping.
-    rvfi_valid_q <= !reset &&
-      ((is_fetch_entry && (captured_is_valid || captured_take_trap)) || trap);
+    // is_fetch_entry, not is_fetch: fires once per retirement, not once per cycle
+    // dwelled in fetch_instr doing interrupt-entry bookkeeping.
+    rvfi_valid_q <= !reset && (is_fetch_entry || trap);
 
     if (cpu_state == execute_instr) begin
       rvfi_rs1_rdata_q <= rs1_valid ? `RF_RS1 : 0;
@@ -997,10 +987,9 @@ module riscv #(
     rvfi_halt_q <= trap;
 `ifdef RISCV_FORMAL_MEM_FAULT
     rvfi_mem_fault_q       <= is_fetch_entry &&
-      (captured_is_opm || captured_load_fault || captured_store_fault);
-    rvfi_mem_fault_rmask_q <= (is_fetch_entry && captured_load_fault) ? 4'b1111 : 4'b0;
-    rvfi_mem_fault_wmask_q <=
-      (is_fetch_entry && captured_store_fault) ? captured_store_wstrb : 4'b0;
+      (captured_is_opm || fault_load || fault_store);
+    rvfi_mem_fault_rmask_q <= fault_load ? 4'b1111 : 4'b0;
+    rvfi_mem_fault_wmask_q <= fault_store ? captured_store_wstrb : 4'b0;
 `endif
     rvfi_pc_rdata_q <= pc;
     rvfi_pc_wdata_q <= next_pc;
@@ -1048,7 +1037,7 @@ module riscv #(
     // address is reported here instead (the generic spec model has no separate
     // fault-address field, so this overrides the ordinary rvfi_mem_addr too).
 `ifdef RISCV_FORMAL_MEM_FAULT
-    if (is_fetch_entry && (captured_load_fault || captured_store_fault))
+    if (fault_load || fault_store)
       rvfi_mem_addr_q <= captured_ls_addr;
 `endif
   end

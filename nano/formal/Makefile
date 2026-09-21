@@ -65,11 +65,11 @@ components_traps: traps.sby traps.sv ../nano.v traps-region-probe traps-tval-pro
 	sby -f traps.sby
 
 .PHONY: traps-region-probe
-traps-region-probe: traps-region-probe.py traps.sv ../nano.v | $(RISCV_FORMAL_DIR)
+traps-region-probe: traps-region-probe.py probe_common.py traps.sv ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 .PHONY: traps-tval-probe
-traps-tval-probe: traps-tval-probe.py traps.sv ../nano.v | $(RISCV_FORMAL_DIR)
+traps-tval-probe: traps-tval-probe.py probe_common.py traps.sv ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 dmemcheck_cover: dmemcheck_cover.sby dmemcheck.sv ../nano.v dmemcheck-cover-probe | $(RISCV_FORMAL_DIR)
