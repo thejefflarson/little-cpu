@@ -140,6 +140,7 @@ module pcloop (
   initial assume(reset);
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
+  always_comb assume(mtvec[1:0] == 2'b00 && mepc[0] == 1'b0);
 
   logic [31:0] f_instr;
   assign f_instr = fetcher_out.instr;
@@ -284,6 +285,18 @@ module pcloop (
   always_comb if (clocked && !reset && f_fetch_pc_prev2_ok)
     assert(f_fetch_pc_advanced || f_fetch_pc_held || f_fetch_pc_retried ||
            f_fetch_pc_redirected || f_fetch_pc_guessed);
+
+  logic f_guess_open;
+  assign f_guess_open = clocked && !reset && predicted_active && !past_redirect_r;
+ `ifdef PCLOOP_BMC
+  always_comb if (f_guess_open)
+    guess_source_within_fourteen_bytes_so_pc_3_1_resolves: assert(predicted_src_pc - pc <= 32'd14);
+ `endif
+  always_ff @(posedge clk)
+    if (f_guess_open) begin
+      guess_source_reached: cover (pc == predicted_src_pc);
+      guess_source_fourteen_behind: cover (predicted_src_pc == pc + 32'd14);
+    end
 
   // Property 2: the buffer pops only on the cycle pc actually leaves the word it names, and
   // a second word only when a straddling instruction leaves that one too; restated

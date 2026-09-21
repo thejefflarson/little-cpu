@@ -1,7 +1,12 @@
+[tasks]
+cover
+bmc
 
 [options]
-mode cover
-depth 30
+cover: mode cover
+cover: depth 30
+bmc: mode bmc
+bmc: depth 12
 
 [engines]
 smtbmc boolector
@@ -9,7 +14,8 @@ smtbmc boolector
 [script]
 read -sv structs.v fetcher.v decoder.v regsel.v
 read -sv -formal -noassume structs.v fetchctrl.v fetchqueue.v
-read -sv -formal structs.v pcloop.sv
+cover: read -sv -formal structs.v pcloop.sv
+bmc: read -sv -formal -DPCLOOP_BMC structs.v pcloop.sv
 prep -top pcloop
 
 [files]

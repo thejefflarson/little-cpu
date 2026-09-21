@@ -83,8 +83,12 @@ imemcheck-cover-probe: memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby 
                        $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 	python3 $< --harness formal --check imemcheck --workdir memcheck-cover-probe/imemcheck
 
-pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/fetchctrl.v \
-              ../rtl/fetchqueue.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/structs.v
+# pcloop.sby's two tasks: the anti-vacuity cover, and the guess-source bound pcloop.sv states
+# under PCLOOP_BMC, checked bounded because it is not inductive over free queue contents.
+pcloop_cover pcloop_bmc: pcloop_%: pcloop.sby pcloop.sv ../rtl/fetcher.v ../rtl/fetchctrl.v \
+                         ../rtl/fetchqueue.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/structs.v
+	rm -rf $@
+	sby -f $< $*
 
 busarbiter_cover: busarbiter_cover.sby busarbiter.sv ../rtl/busarbiter.v
 
@@ -143,7 +147,7 @@ executor-zkt-probe: executor-zkt-probe.py ../rtl/executor.v components.sby
 components_accessor: components.sby ../rtl/accessor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< accessor
-components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/fetchctrl.v \
+components_pcloop: components.sby pcloop_cover pcloop_bmc ../rtl/fetcher.v ../rtl/fetchctrl.v \
                    ../rtl/fetchqueue.v ../rtl/decoder.v ../rtl/regsel.v \
                    ../rtl/structs.v pcloop.sv
 	rm -rf $@
@@ -174,7 +178,7 @@ busarbiter-probe: busarbiter-probe.py busarbiter.sv ../rtl/busarbiter.v
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
-	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg
+	rm -rf pcloop pcloop_cover pcloop_bmc busarbiter_cover fg-probe fg-probe.cfg
 	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe decoder-kill-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
