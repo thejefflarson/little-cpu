@@ -33,8 +33,6 @@ module fetchctrl (
   logic        fetch_odd;
   logic [15:0] prev_lane3;
   logic        straddle_in;
-  // One cycle behind fetch_pc always; stolen_pc's redirect_apply arm jumps early.
-  logic [31:0] fetch_addr_d1;
   logic        predict_commit_d1;
 
   logic [15:0] lane0, lane1, lane2, lane3;
@@ -55,8 +53,11 @@ module fetchctrl (
   assign boundary3 = (boundary1 && lane1_wide) || (boundary2 && !lane2_wide);
   assign boundary4 = (boundary2 && lane2_wide) || (boundary3 && !lane3_wide);
 
+  // stolen_pc is last cycle's fetch_pc on every response a guess may commit off: the arms that
+  // write it anything else (a redirect, a steal, a commit) each make the next response one
+  // req_valid or predict_commit refuses.
   logic [31:0] pair_base;
-  assign pair_base = {fetch_addr_d1[31:2], 2'b00};
+  assign pair_base = {stolen_pc[31:2], 2'b00};
 
   // A compressed jump or backward branch at each lane; quadrant 01 only, since c.sw and c.swsp
   // share the funct3 codes.
@@ -184,13 +185,11 @@ module fetchctrl (
       fetch_odd           <= 1'b0;
       prev_lane3          <= 16'b0;
       straddle_in         <= 1'b0;
-      fetch_addr_d1       <= 32'b0;
       predict_commit_d1   <= 1'b0;
     end else begin
       redirect_apply_d1 <= redirect_apply;
       redirect_apply    <= redirect;
       redirect_target_reg <= redirect_target;
-      fetch_addr_d1     <= fetch_pc;
       predict_commit_d1 <= predict_commit;
       // !predict_commit drops the pair's own naive successor, already in flight.
       waiting        <= fetch_stall ? 1'b1 : (launch && !predict_commit);
@@ -238,5 +237,10 @@ module fetchctrl (
   always_ff @(posedge clk) past_predict_commit <= !reset && predict_commit;
   always_comb if (clocked && past_predict_commit)
     assert(predicted_active && fetch_pc == predicted_target && stolen_pc == predicted_target);
+
+  logic [31:0] past_fetch_pc;
+  always_ff @(posedge clk) past_fetch_pc <= fetch_pc;
+  always_comb if (clocked && req_valid && !redirect_apply_d1)
+    assert(stolen_pc == past_fetch_pc);
  `endif
 endmodule

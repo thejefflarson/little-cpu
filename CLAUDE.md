@@ -71,7 +71,15 @@ references still resolve.
   whose redirect flushes the queue and the record, exactly as sequential prefetch always did.
   Six `test/asm/pred*.S` programs each go red under one predictor mutation, and
   `formal/imemcheck.sv` — an oracle over the ROM port alone, so a predicted address is just an
-  address to it — passes at full depth with the guess live. **`kill` names the discard for accounting, but changes no
+  address to it — passes at full depth with the guess live. **Decode resolves a guess on
+  `pc[3:1]` alone** (ADR-0205): while a record is open decode is at or behind its source by at
+  most fourteen bytes — two queued words plus the candidate's lane — which `formal/pcloop.sv`
+  states and `formal/pcloop_bmc.sby` checks bounded, since it is not inductive over free queue
+  contents; `pair_base` is `stolen_pc`, proved equal to last cycle's `fetch_pc` on every accepted
+  response. **The guess is priced lane by lane in ADR-0205, and no cut to it places the up5k**:
+  every lane sits inside the SoC's churn band and buys real cycles, the straddle is 60
+  cycles/Dhrystone, a three-word queue is +44%, and with the guess deleted outright the SoC still
+  reads 5,489 of 5,280 — the four-word queue itself is what the part does not hold. **`kill` names the discard for accounting, but changes no
   control signal** (ADR-0199): `rtl/decoder.v`'s `kill` output attributes the cycles this flush
   already paid to their own column instead of the generic `buffer_empty` stall reason, so the
   redirect's cost is visible rather than miscounted as a resource wait; the discard mechanism

@@ -1,0 +1,21 @@
+[options]
+mode bmc
+depth 24
+
+[engines]
+smtbmc boolector
+
+[script]
+read -sv structs.v fetcher.v decoder.v regsel.v
+read -sv -formal -noassume structs.v fetchctrl.v fetchqueue.v
+read -sv -formal -DPCLOOP_BMC structs.v pcloop.sv
+prep -top pcloop
+
+[files]
+../rtl/fetcher.v
+../rtl/fetchctrl.v
+../rtl/fetchqueue.v
+../rtl/decoder.v
+../rtl/regsel.v
+../rtl/structs.v
+pcloop.sv

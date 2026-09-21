@@ -652,8 +652,10 @@ module decoder #(
   // This issuing instruction is the one fetch's outstanding guess was about, and
   // expected_fetch is what fetch already has queued next -- the guessed target if so,
   // else the ordinary straight-line advance next_pc's own default arm already uses.
+  // Three bits suffice: while a record is open decode is at most fourteen bytes behind
+  // its source (formal/pcloop.sv bounds it), so no other pc in reach shares them.
   logic predicted_this;
-  assign predicted_this = predicted_active && (fetcher_pc == predicted_src_pc);
+  assign predicted_this = predicted_active && (fetcher_pc[3:1] == predicted_src_pc[3:1]);
   logic [31:0] expected_fetch;
   assign expected_fetch = predicted_this ? predicted_target : (fetcher_pc + pc_inc);
 
