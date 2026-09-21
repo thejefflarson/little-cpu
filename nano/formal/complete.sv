@@ -25,6 +25,7 @@ module rvfi_testbench (
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
+    .irq_meip(1'b0),
     .trap(trap),
     `RVFI_CONN
   );
@@ -61,20 +62,26 @@ module rvfi_testbench (
     .spec_mem_wdata(spec_mem_wdata)
   );
 
-  // The pin has no SYSTEM spec model, so a SYSTEM retire that does not trap fails here. Excuse
-  // it as formal/complete.sv does, with a graded EXCLUDE line, never with a bare opcode test.
+  wire        insn_uncompressed = rvfi_insn[1:0] == 2'b11;
+  wire [6:0]  insn_opcode       = rvfi_insn[6:0];
+  wire [2:0]  insn_funct3       = rvfi_insn[14:12];
+  wire [6:0]  insn_funct7       = rvfi_insn[31:25];
+  wire        insn_is_m         = insn_opcode == 7'b0110011 && insn_funct7 == 7'b0000001;
+
+  // EXCLUDE SYSTEM 1110011 ecall ebreak mret csrrw csrrs csrrc csrrwi csrrsi csrrci
+  // No spec model at the pin for any of the nine; ecall and ebreak are also excused by
+  // !rvfi_trap, and mret and the six CSR forms now retire without trapping.
+  wire exclude_system = insn_uncompressed && insn_opcode == 7'b1110011;
+
+  wire insn_excluded = exclude_system;
+
   always_comb begin
-    if (!reset && rvfi_valid && !rvfi_trap) begin
+    if (!reset && rvfi_valid && !rvfi_trap && !insn_excluded) begin
       assert(spec_valid && !spec_trap);
     end
   end
 
-  wire       insn_uncompressed = rvfi_insn[1:0] == 2'b11;
-  wire [6:0] insn_opcode       = rvfi_insn[6:0];
-  wire [6:0] insn_funct7       = rvfi_insn[31:25];
-  wire       insn_is_m         = insn_opcode == 7'b0110011 && insn_funct7 == 7'b0000001;
-
-  wire complete_live = !reset && rvfi_valid && !rvfi_trap;
+  wire complete_live = !reset && rvfi_valid && !rvfi_trap && !insn_excluded;
   cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0000011); // LOAD
   cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0010011); // OP-IMM
   cover property (complete_live && insn_uncompressed && insn_opcode == 7'b0010111); // AUIPC

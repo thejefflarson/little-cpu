@@ -47,10 +47,30 @@ memcheck-depth: ../../formal/check-memcheck-depth.py ../../formal/depth_rules.py
 
 dmemcheck: dmemcheck.sby dmemcheck.sv ../nano.v memcheck-depth | $(RISCV_FORMAL_DIR)
 imemcheck: imemcheck.sby imemcheck.sv ../nano.v memcheck-depth | $(RISCV_FORMAL_DIR)
-complete:  complete.sby  complete.sv  ../nano.v | $(RISCV_FORMAL_DIR)
-complete_cover: complete_cover.sby complete.sv ../nano.v complete-cover-probe | $(RISCV_FORMAL_DIR)
+complete:  complete.sby  complete.sv  ../nano.v complete-exclusions | $(RISCV_FORMAL_DIR)
+complete_cover: complete_cover.sby complete.sv ../nano.v complete-cover-probe \
+                complete-exclusions | $(RISCV_FORMAL_DIR)
+
+.PHONY: complete-exclusions
+complete-exclusions: ../../formal/check-complete-exclusions.py complete.sv \
+                     COMPLETE_EXCLUSIONS | $(RISCV_FORMAL_DIR)
+	python3 $< complete.sv COMPLETE_EXCLUSIONS $(RISCV_FORMAL_DIR)
 ill_e: ill_e.sby ill_e.sv ../nano.v ill-e-probe | $(RISCV_FORMAL_DIR)
 ill_e_cover: ill_e_cover.sby ill_e.sv ../nano.v | $(RISCV_FORMAL_DIR)
+
+.PHONY: components_traps
+components_traps: traps.sby traps.sv ../nano.v traps-region-probe traps-tval-probe \
+                  | $(RISCV_FORMAL_DIR)
+	rm -rf traps
+	sby -f traps.sby
+
+.PHONY: traps-region-probe
+traps-region-probe: traps-region-probe.py probe_common.py traps.sv ../nano.v | $(RISCV_FORMAL_DIR)
+	python3 $<
+
+.PHONY: traps-tval-probe
+traps-tval-probe: traps-tval-probe.py probe_common.py traps.sv ../nano.v | $(RISCV_FORMAL_DIR)
+	python3 $<
 
 dmemcheck_cover: dmemcheck_cover.sby dmemcheck.sv ../nano.v dmemcheck-cover-probe | $(RISCV_FORMAL_DIR)
 imemcheck_cover: imemcheck_cover.sby imemcheck.sv ../nano.v imemcheck-cover-probe | $(RISCV_FORMAL_DIR)
@@ -95,8 +115,8 @@ clean:
 	rm -rf checks complete complete_cover dmemcheck imemcheck fg-probe fg-probe.cfg
 	rm -rf complete-cover-probe ill_e ill_e_cover ill-e-probe
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
-	rm -rf qspi qspi-probe
+	rm -rf qspi qspi-probe traps region-probe tval-probe
 
 .PHONY: all clean
 all: check dmemcheck imemcheck dmemcheck_cover imemcheck_cover complete complete_cover \
-     ill_e ill_e_cover check-rvfi-insn-check components_qspi
+     ill_e ill_e_cover check-rvfi-insn-check components_qspi components_traps

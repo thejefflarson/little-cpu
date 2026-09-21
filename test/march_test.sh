@@ -122,7 +122,7 @@ soc/compare/run_coremark_compare.sh (empty) 1
 
 # nanocpu's own suite: RV32E, ilp32e, x0-x15 only, no M, so this is not a widening of
 # the declared string above -- it is a second core with no ISA in common to share it with.
-nano/tb.mk rv32ec 1
+nano/tb.mk rv32ec_zicsr 1
 EXCEPTIONS
 }
 
