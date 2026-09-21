@@ -163,7 +163,7 @@ mispredicts of 134,731 guesses) and CoreMark (51,135,805 cycles, 232,061 of 2,96
 at steps 4 and 5), `pcloop_bmc` passes depth 12 in 85 s with no trace, and the k-induction passes
 basecase and induction in 16 s with the `stolen_pc` assertion in it. Both graders were then forced
 red by hand and restored: with the `stolen_pc <= fetch_pc` arm replaced by a hold, the k-induction
-fails at that assertion at step 3; with the bound narrowed to six bytes, `pcloop_bmc` finds the
+fails at that assertion at step 4; with the bound narrowed to six bytes, `pcloop_bmc` finds the
 fourteen-byte case at step 4.
 
 The rest, on the shipping tree, from a real clone of riscv-formal at the pin inside the worktree:
