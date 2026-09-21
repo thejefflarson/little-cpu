@@ -3,6 +3,7 @@
 alu.S          66
 branch.S       33
 loadstore.S    44
-mul.S          4
-divide.S       4
+mul.S          52
+divide.S       52
 compressed.S   75
+meip.S         102

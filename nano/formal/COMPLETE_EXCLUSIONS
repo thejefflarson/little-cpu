@@ -1,0 +1,7 @@
+# The opcode classes nano/formal/complete.sv's assertion declines to cover, and the
+# reason each is declined. Same format and grading as formal/COMPLETE_EXCLUSIONS
+# (docs/manifests/complete-exclusions.md): a BASELINE checked exactly against
+# complete.sv's own declared set, in both directions, by
+# ../../formal/check-complete-exclusions.py.
+
+SYSTEM  1110011  ecall ebreak mret csrrw csrrs csrrc csrrwi csrrsi csrrci

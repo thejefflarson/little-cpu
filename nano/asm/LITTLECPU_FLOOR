@@ -17,15 +17,15 @@ blt.S          255
 bltu.S         280
 bne.S          255
 cebreak.S      EXCLUDED CSR (trap handler, ebreak)
-contend.S      113
+contend.S      EXCLUDED CSR (RAM-window fault: a load/store cannot reach the ROM region)
 csr.S          EXCLUDED CSR
-csrset.S       EXCLUDED CSR
+csrset.S       76
 datainit.c     EXCLUDED not an assembly program; this runner builds .S only
 div.S          EXCLUDED M extension
 divu.S         EXCLUDED M extension
 fencenop.S     EXCLUDED Zifencei (fence.i)
 hazard.S       EXCLUDED M extension (div is the hazard-forcing instruction)
-hpm.S          EXCLUDED CSR (performance-monitor)
+hpm.S          127
 ifault.S       EXCLUDED CSR (trap handler)
 jal.S           19
 jalr.S          73

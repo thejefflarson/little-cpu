@@ -13,6 +13,8 @@ module rvfi_wrapper (
   (* keep *) logic [3:0]  mem_wstrb;
   (* keep *) logic        trap;
 
+  // riscv-formal ships no interrupt model, the way it ships no timer for littlecpu:
+  // tied off here so a generated per-instruction check never has to reason about one.
   riscv wrapper (
     .clk(clock),
     .reset(reset),
@@ -23,6 +25,7 @@ module rvfi_wrapper (
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
+    .irq_meip(1'b0),
     .trap(trap),
     `RVFI_CONN
   );

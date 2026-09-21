@@ -1,5 +1,3 @@
 # nano's baseline failure set, name-and-status pairs under set equality both ways --
-# the same rule test/EXPECTED_FAIL states for littlecpu.
-
-mul.S TRAP
-divide.S TRAP
+# the same rule test/EXPECTED_FAIL states for littlecpu. Empty: mul.S and divide.S now
+# install a handler and prove the trap's cause and pc, rather than asserting a halt.
