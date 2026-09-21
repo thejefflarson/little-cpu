@@ -122,6 +122,7 @@ module riscv #(
   logic [1:0] addr24;
   logic addr16;
   logic addr8;
+  logic [3:0] store_wstrb;
   logic [31:0] next_pc;
   logic [31:0] pc_inc;
   logic [31:0] reg_wdata;
@@ -321,7 +322,8 @@ module riscv #(
   // compressed-remap cases in decode_instr match an uncompressed SYSTEM opcode.
   assign csr_addr = instr[31:20];
   assign csr_src_zero = rs1 == 5'b0;
-  assign csr_write_op = is_csr && !((is_csrrs || is_csrrc) && csr_src_zero);
+  assign csr_write_op = is_csr &&
+    !((is_csrrs || is_csrrc || is_csrrsi || is_csrrci) && csr_src_zero);
   assign csr_readonly_write = is_csr && csr_write_op && csr_addr[11:10] == 2'b11;
   assign csr_arg = (is_csrrwi || is_csrrsi || is_csrrci) ? {27'b0, rs1} : `RF_RS1;
   assign csr_new_value = (is_csrrw || is_csrrwi) ? csr_arg :
@@ -366,6 +368,12 @@ module riscv #(
   assign addr24 = load_store_address[1:0];
   assign addr16 = load_store_address[1];
   assign addr8 = load_store_address[0];
+  // What a store's write strobe would be, valid whether or not it actually reaches
+  // memory: a faulting store never runs its own case arm, so RVFI's fault-channel
+  // write mask needs this computed independently.
+  assign store_wstrb = is_sw ? 4'b1111 :
+                        is_sh ? (addr16 ? 4'b1100 : 4'b0011) :
+                        is_sb ? (4'b0001 << addr24) : 4'b0000;
 
   // storage for the next program counter
   assign pc_inc = uncompressed ? 4 : 2;
@@ -930,12 +938,22 @@ module riscv #(
   // is_fetch_entry: a load or store whose own rd aliases its rs1 moves regs[rs1] at
   // its reg_write edge, which moves load_store_address and so take_trap's own value,
   // between the instruction's real execute_instr cycle and its later retirement.
-  logic captured_is_valid, captured_take_trap, captured_is_opm;
+  logic captured_is_valid, captured_take_trap, captured_is_opm, captured_load_fault,
+        captured_store_fault;
+  logic [3:0]  captured_store_wstrb;
+  logic [31:0] captured_ls_addr;
   always_ff @(posedge clk) begin
     if (cpu_state == execute_instr) begin
-      captured_is_valid  <= is_valid;
-      captured_take_trap <= take_trap;
-      captured_is_opm    <= is_opm_encoding;
+      captured_is_valid    <= is_valid;
+      captured_take_trap   <= take_trap;
+      captured_is_opm      <= is_opm_encoding;
+      captured_load_fault  <= load_region_fault;
+      captured_store_fault <= store_region_fault;
+      captured_store_wstrb <= store_wstrb;
+      // Word-aligned, matching the address a non-faulting load/store publishes on
+      // mem_addr: the generic spec model reports the same alignment under
+      // RISCV_FORMAL_ALIGNED_MEM, so a sub-word offset here would read as a mismatch.
+      captured_ls_addr     <= {load_store_address[31:2], 2'b00};
     end
   end
 
@@ -1014,19 +1032,26 @@ module riscv #(
     rvfi_rs2_addr_q <= rs2_valid ? rs2 : 0;
     rvfi_insn_q <= instr;
 
-    rvfi_rd_addr_q <= rd;
+    // RVFI requires a trapping retirement to report no destination register: rd
+    // itself stays decoded from the trapping word (nothing re-decodes it before this
+    // report goes out), so the trap must be read here rather than relied on upstream.
+    rvfi_rd_addr_q <= (is_fetch_entry && captured_take_trap) ? 5'b0 : rd;
 `ifdef NANO_LATCH_RF
     // A retiring write's latch has not opened yet; reg_wdata already holds the value.
-    rvfi_rd_wdata_q <= |rd ? reg_wdata : 0;
+    rvfi_rd_wdata_q <=
+      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd ? reg_wdata : 0);
 `else
-    rvfi_rd_wdata_q <= |rd ? regs[rd[3:0]] : 0;
+    rvfi_rd_wdata_q <=
+      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd ? regs[rd[3:0]] : 0);
 `endif
     rvfi_trap_q <= (is_fetch_entry && captured_take_trap) || trap;
     rvfi_halt_q <= trap;
 `ifdef RISCV_FORMAL_MEM_FAULT
-    rvfi_mem_fault_q       <= is_fetch_entry && captured_is_opm;
-    rvfi_mem_fault_rmask_q <= 4'b0;
-    rvfi_mem_fault_wmask_q <= 4'b0;
+    rvfi_mem_fault_q       <= is_fetch_entry &&
+      (captured_is_opm || captured_load_fault || captured_store_fault);
+    rvfi_mem_fault_rmask_q <= (is_fetch_entry && captured_load_fault) ? 4'b1111 : 4'b0;
+    rvfi_mem_fault_wmask_q <=
+      (is_fetch_entry && captured_store_fault) ? captured_store_wstrb : 4'b0;
 `endif
     rvfi_pc_rdata_q <= pc;
     rvfi_pc_wdata_q <= next_pc;
@@ -1072,6 +1097,14 @@ module riscv #(
       rvfi_mem_rdata_q <= mem_rdata;
       rvfi_mem_wdata_q <= mem_wdata;
     end
+    // A faulting load/store never reaches the case arm that would set mem_addr, so
+    // the address it would have used is reported here instead, on the fault channel's
+    // masks and the ordinary rvfi_mem_addr both (the generic spec model has no
+    // separate fault-address field).
+`ifdef RISCV_FORMAL_MEM_FAULT
+    if (is_fetch_entry && (captured_load_fault || captured_store_fault))
+      rvfi_mem_addr_q <= captured_ls_addr;
+`endif
   end
  `endif
 endmodule
