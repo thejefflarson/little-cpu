@@ -50,7 +50,8 @@ Cycles are per Dhrystone; CoreMark/MHz is at 16 KB of ROM as always. Mispredict 
 | straddle dropped and `pop2` tied low | 5,887 | 5,128 | 880 | 1.907 | 2.3% / 6.9% |
 | `pair_base` off `stolen_pc`, `fetch_addr_d1` deleted | 6,003 | 5,200 | 820 | 1.955 | 3.0% / 7.8% |
 | resolve compare on `pc[3:1]` alone | 6,008 | 5,164 | 820 | 1.955 | 3.0% / 7.8% |
-| both of the above | 6,004 | 5,135 | 820 | 1.955 | 3.0% / 7.8% |
+| both of the above, as throwaways | 6,004 | 5,135 | 820 | 1.955 | 3.0% / 7.8% |
+| **both, as the text that ships** | **5,963** | **5,154** | **820** | **1.955** | **3.0% / 7.8%** |
 | both, plus `redirect_target_reg` deleted (reads decode's `pc`) | 6,026 | 5,136 | 820 | 1.955 | 3.0% / 7.8% |
 | both, plus mispredict from `jal`/`branch_taken` rather than the target compare | 5,927 | 5,050 | 820 | 1.955 | 3.0% / 7.8% |
 | both, plus straddle dropped and `pop2` tied low | 5,779 | 4,983 | 880 | 1.907 | 2.3% / 6.9% |
@@ -75,7 +76,10 @@ What the rows say:
   at 6,052 — but the queue's second-word pop path and `fetcher.v`'s straddle test together.
 - **Two spellings cost no cycle and ship.** `fetch_addr_d1` duplicated `stolen_pc` on every cycle a
   response is accepted, and `stolen_pc` was already there; the resolve compare needs three bits,
-  not thirty-two. Together −65 SoC, −139 `fit`, retire-identical on both benchmarks.
+  not thirty-two. Together −65 SoC and −139 `fit` as throwaways, and **−106 SoC (5,963) and −120
+  `fit` (5,154)** as the text that ships — the dead register gone from the source and the comment
+  lines around it reorder what ABC is handed, which is the churn band doing what it does — with the
+  retire stream identical on both benchmarks.
 - **Three re-spellings are nulls and stay out.** Deleting `redirect_target_reg` reads +49 alone and
   +22 in combination: on this part a register whose D is a LUT output packs into that LUT's cell,
   so a deleted register frees nothing unless its input was another register. Comparing before the
@@ -152,6 +156,32 @@ Stage A built, and no cut to the predictor changes it.
 ## Verification
 
 Both shipped spellings are retire-identical to ADR-0201's tree on Dhrystone (820 cycles, 4,081
-mispredicts of 134,731 guesses) and CoreMark (51,135,805 cycles, 232,061 of 2,960,656). The gates
-run on the shipping tree are listed in the pull request that lands this ADR, with the one red result
-(`make fit`, still over its budget, left tripped for the same reason ADR-0201 gives) recorded as red.
+mispredicts of 134,731 guesses) and CoreMark (51,135,805 cycles, 232,061 of 2,960,656).
+
+`components_pcloop` on the shipping tree: `pcloop_cover` reaches all four covers (the two new ones
+at steps 4 and 5), `pcloop_bmc` passes depth 12 in 85 s with no trace, and the k-induction passes
+basecase and induction in 16 s with the `stolen_pc` assertion in it. Both graders were then forced
+red by hand and restored: with the `stolen_pc <= fetch_pc` arm replaced by a hold, the k-induction
+fails at that assertion at step 3; with the bound narrowed to six bytes, `pcloop_bmc` finds the
+fourteen-byte case at step 4.
+
+The rest, on the shipping tree, from a real clone of riscv-formal at the pin inside the worktree:
+
+| gate | result |
+|---|---|
+| `make lint`, `make elaborate-strict` | clean, both passes; no warning |
+| `make -C formal imemcheck` / `imemcheck_cover` | PASS at full depth with the guess live, no trace; cover reached |
+| `make -C formal components_decoder`, `components_traps` | PASS, basecase and induction, with their probes |
+| `make -C formal remeasure-fg` | **not re-taken**: this change adds no stall reason and no stage and the retire stream is cycle-identical, so F = 10 / G = 8 stand as ADR-0201 measured them; the sweep was started and stopped after its `liveness_ch0` probe at bound 28 had not answered in thirty minutes on a machine at load 54 |
+| `make test` | exit 0: 81/81, 43,575 cycles, `unattributed` 0, every `*-test` target and `probe-gates` green, the Zkt walk unchanged |
+| `make cosim-suite` | 75/81 agree; the six divergences match `test/COSIM_EXPECTED_FAIL` exactly |
+| `make mutation-check` | 11 mutations, each caught by exactly its paired detectors; tree restored |
+| `make dual-smoke` | OK — two harts counted 32, one hart counted 16 |
+| `make dhrystone` / `make coremark` | 820 cycles/Dhrystone, 0.694 DMIPS/MHz; 1.955 CoreMark/MHz — every `STALLS` field identical to ADR-0201's run |
+| `make fit` | **RED: 5,154** against the 4,802 budget, −120 from 5,274, left tripped for ADR-0201's reason |
+| SoC, seed 1 | **5,963 `ICESTORM_LC`, does not place**; `make soc-timing` says so and PIN STALE |
+| `make ecp5-timing` | `DP16KD` 36, `TRELLIS_DPR16X4` 32, `MULT18X18D` 4, all as declared; no block-RAM reset driven by logic; 38.81 MHz at one placement against 39.49 on ADR-0201's text — inside the part's 10.3% placement spread, so a null at one seed |
+
+The generated riscv-formal set (`make -C formal check`) is left to the stack's CI job, as ADR-0201
+did: four of its checks did not terminate with the guess live on that tree and nothing here changes
+what they see.
