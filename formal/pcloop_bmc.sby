@@ -1,6 +1,6 @@
 [options]
 mode bmc
-depth 24
+depth 12
 
 [engines]
 smtbmc boolector

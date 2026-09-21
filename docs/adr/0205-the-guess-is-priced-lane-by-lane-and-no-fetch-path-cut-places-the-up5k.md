@@ -110,13 +110,24 @@ direction.
 **Why three bits resolve a guess.** While a record is outstanding decode is at or behind its source:
 the candidate's pair is pushed behind at most the two words the queue held (`req_valid` requires
 `queue_count <= 2`), the candidate sits at most six bytes into its pair, and decode's `pc` names the
-queue's head word or a half of it — so `0 <= src - pc <= 14` on every cycle the record is live,
-except the one after a redirect, when `pc` has already moved and the record clears on the next edge.
-No two addresses fourteen bytes apart share `pc[3:1]`. `formal/pcloop.sv` states that bound; it is
-not inductive over free queue contents, so `formal/pcloop_bmc.sby` checks it bounded at depth 24 as
-a prerequisite of `components_pcloop`, and `pcloop_cover` covers both ends of it (the source
-reached, and a source exactly fourteen bytes ahead). The full-width `predicted_src_pc` port stays,
-so the harness can state the bound; the synthesised register keeps only the bits decode reads.
+queue's head word or a half of it — so `src - pc <= 14` in 32-bit modular arithmetic on every cycle
+the record is live, except the one after a redirect, when `pc` has already moved and the record
+clears on the next edge. Within fourteen bytes no two addresses share `pc[3:1]`. `formal/pcloop.sv`
+states that bound as the modular difference — the first spelling, `src <= pc + 14`, went red on a
+pair at the top of the address space, where `pc + 14` wraps to 2, which is arithmetic and not a
+defect. It is not inductive over free queue contents, so `formal/pcloop_bmc.sby` checks it bounded
+at depth 12 as a prerequisite of `components_pcloop`. Twelve, because every shape the check found
+on the way here (both ends of the bound, the wrap, the odd `mtvec`) appeared by step 7, F is 10,
+and the composed harness doubles its solve time per step past ten under either engine — `smtbmc
+boolector` reached step 12 at 1.5 minutes, 14 at 6 and 15 at 12, and `abc bmc3` was slower still
+(step 12 at 4.4 minutes) — against the pcloop CI job's twenty-minute wall, which the k-induction
+that this task prerequisites also has to fit. `pcloop_cover` covers both ends of the bound (the
+source reached at step 4, a source exactly fourteen bytes ahead at step 5). The
+harness also assumes `mtvec[1:0] == 0` and `mepc[0] == 0`, which restates `rtl/csrs.v`'s own WARL
+masks: with those two inputs free a trap could land `pc` on an odd byte, a state no CSR write
+reaches, and the bound read the source one byte behind it. The full-width `predicted_src_pc` port
+stays, so the harness can state the bound; the synthesised register keeps only the bits decode
+reads.
 
 ## The up5k
 

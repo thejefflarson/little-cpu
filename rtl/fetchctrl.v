@@ -53,9 +53,7 @@ module fetchctrl (
   assign boundary3 = (boundary1 && lane1_wide) || (boundary2 && !lane2_wide);
   assign boundary4 = (boundary2 && lane2_wide) || (boundary3 && !lane3_wide);
 
-  // stolen_pc is last cycle's fetch_pc on every response a guess may commit off: the arms that
-  // write it anything else (a redirect, a steal, a commit) each make the next response one
-  // req_valid or predict_commit refuses.
+  // Last cycle's fetch_pc on every response a guess may commit off; asserted in the FORMAL block.
   logic [31:0] pair_base;
   assign pair_base = {stolen_pc[31:2], 2'b00};
 

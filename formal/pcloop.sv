@@ -140,6 +140,7 @@ module pcloop (
   initial assume(reset);
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
+  always_comb assume(mtvec[1:0] == 2'b00 && mepc[0] == 1'b0);
 
   logic [31:0] f_instr;
   assign f_instr = fetcher_out.instr;
@@ -285,15 +286,11 @@ module pcloop (
     assert(f_fetch_pc_advanced || f_fetch_pc_held || f_fetch_pc_retried ||
            f_fetch_pc_redirected || f_fetch_pc_guessed);
 
-  // While a guess is outstanding decode sits at or behind its source by at most the two
-  // words queued ahead of the candidate's pair plus its lane, fourteen bytes, so the
-  // decoder's resolve compare can read pc[3:1] alone. Not inductive over free queue
-  // contents, so pcloop_bmc.sby checks it bounded; the covers keep both ends reachable.
   logic f_guess_open;
   assign f_guess_open = clocked && !reset && predicted_active && !past_redirect_r;
  `ifdef PCLOOP_BMC
   always_comb if (f_guess_open)
-    assert(pc <= predicted_src_pc && predicted_src_pc <= pc + 32'd14);
+    guess_source_within_fourteen_bytes_so_pc_3_1_resolves: assert(predicted_src_pc - pc <= 32'd14);
  `endif
   always_ff @(posedge clk)
     if (f_guess_open) begin
