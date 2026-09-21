@@ -1,11 +1,9 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// The ROM answers a word address a cycle after `imem_addr_next` presents it, and that
-// address is built from registers alone: decode reads the window at `pc` out of the
-// ROM's own output register, or out of `skid`, the one window fetch has moved past.
-// A guess formed a cycle early steers the ROM to a jump's target; a wrong guess or an
-// unguessed redirect is a miss, and a miss costs one cycle and un-commits nothing.
+// The fetch address is built from registers alone. Decode reads the window at `pc` off
+// the ROM's output register or off `skid`, the one window fetch has moved past; a guess
+// formed a cycle early steers the ROM to a jump's target, and any miss costs one cycle.
 module fetcher(
   input  logic clk,
   input  logic reset,
@@ -18,7 +16,6 @@ module fetcher(
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
   output logic [31:0] imem_addr_next,
-  // The read `imem_addr_next` asked for last cycle went to a load or store instead.
   input  logic        imem_stall,
   input  logic        imem_fault,
   output logic        fetch_stall,
@@ -26,7 +23,7 @@ module fetcher(
   output fetcher_output out
 );
   logic [29:0] word, rom_addr, fetch_word;
-  logic        rom_hit, hit, pop, capture, skid_valid, skid_fault;
+  logic        rom_hit, hit, pop, skid_load, capture, skid_valid, skid_fault;
   logic [31:0] skid_lo, skid_hi;
   logic        guess_valid;
   logic [31:0] guess_target;
@@ -35,11 +32,12 @@ module fetcher(
   assign rom_hit  = !imem_stall && rom_addr == word;
   assign hit      = skid_valid || rom_hit;
   assign pop      = next_pc[31:2] != word;
-  assign capture  = rom_hit && !skid_valid && !pop;
+  // The words load off registers alone and the valid bit alone reads decode's answer,
+  // so `next_pc` reaches one flop and not sixty-five enables.
+  assign skid_load = rom_hit && !skid_valid;
+  assign capture   = skid_load && !pop;
   assign fetch_stall = !hit;
 
-  // A miss re-reads decode's own word; a hit reads the word after it, which is also
-  // the word the skid's successor needs, unless a guess says where decode goes instead.
   assign fetch_word = reset ? 30'd0 :
                       hit && guess_valid ? guess_target[31:2] : word + {29'b0, hit};
   assign imem_addr_next = {fetch_word, 2'b00};
@@ -50,7 +48,7 @@ module fetcher(
     rom_addr <= fetch_word;
     if (reset) skid_valid <= 1'b0;
     else       skid_valid <= capture || (skid_valid && !pop);
-    if (capture) begin
+    if (skid_load) begin
       skid_lo    <= imem_data;
       skid_hi    <= imem_data2;
       skid_fault <= imem_fault;
@@ -84,7 +82,6 @@ module fetcher(
     end
   end
 
-  // A jal or a backward branch next in line is guessed taken, off its own immediate.
   // A word-straddling instruction leaves `next_word`'s upper half empty, so no guess.
   logic n_jal, n_branch, n_cj, n_cb, candidate, next_whole;
   assign n_jal    = next_word[1:0] == 2'b11 && next_word[6:2] == 5'b11011;
@@ -129,5 +126,13 @@ module fetcher(
   always_comb if (clocked && skid_valid) assert(skid_word == word);
   always_comb if (clocked && !fetch_stall)
     assert((skid_valid ? skid_word : rom_addr) == word);
+
+  logic prev_fetch_stall;
+  always_ff @(posedge clk) prev_fetch_stall <= fetch_stall;
+  always_ff @(posedge clk) if (clocked && !reset) begin
+    skid_read:   cover (skid_valid && issuing);
+    miss_then_hit: cover (prev_fetch_stall && !fetch_stall);
+    guess_taken: cover (guess_valid && hit && !skid_valid && issuing && pop);
+  end
  `endif
 endmodule
