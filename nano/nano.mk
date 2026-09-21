@@ -55,7 +55,7 @@ nano-liberty-setup:
 	fetch '$(NANO_LATCHMAP_URL)' '$(NANO_LATCHMAP)' '$(NANO_LATCHMAP_SHA256)' || rc=1; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped for the M-mode CSR/trap layer: mcycle/minstret at 64 bits, mtvec/mepc/mcause/mtval/mscratch, mstatus/mie/mip and the region/misalignment fault logic, measure 77,247.8 um2 against the QSPI-front-end baseline's 60,859.6.
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped for the M-mode CSR/trap layer: mcycle/minstret at 64 bits, mtvec/mepc/mcause/mtval/mscratch, mstatus/mie/mip, the region/misalignment fault logic and the RVFI fault-channel reporting it needed, measure 76,982.6 um2 against the QSPI-front-end baseline's 60,859.6.
 override NANO_MAX_UM2 := 79000
 
 NANO_SRCS := nano/nano.v nano/qspi.v nano/area_top.v
