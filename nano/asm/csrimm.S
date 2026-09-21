@@ -1,8 +1,4 @@
-// nano-local: every register below is x0-x15, since nano is RV32E and traps on x16-x31.
-//
-// csrrsi/csrrci with a zero immediate must not write, the same suppression the spec
-// gives csrrs/csrrc with rs1=x0 -- a tripwire against writing that arm's write-enable
-// only over the register-operand pair.
+// nano-local, x0-x15: csrrsi/csrrci with a zero immediate must not write, the same suppression the spec gives csrrs/csrrc with rs1=x0.
 #include "riscv_test.h"
 
 RVTEST_RV64U

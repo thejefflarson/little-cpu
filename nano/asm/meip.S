@@ -1,7 +1,4 @@
-// nano-local, x0-x15 only. Exercises the machine external interrupt (MEIP, ui_in[7]
-// on silicon): the sim harness asserts irq_meip once, at a fixed cycle, and holds it
-// -- a real external pin has no software-visible clear, so the handler disables
-// mie.MEIE rather than waiting for the level to drop.
+// nano-local, x0-x15. Exercises MEIP (ui_in[7]); the handler disables mie.MEIE since a real pin has no software-visible clear.
 #include "riscv_test.h"
 
 #define MIE_MEIE 0x800
@@ -30,12 +27,12 @@ RVTEST_CODE_BEGIN
   bnez t1, 2f
   addi s0, s0, 1
   blt s0, a0, 1b
-  j fail                      // timed out waiting for the interrupt
+  j fail
 
 2:
   li gp, 3
   li a0, 1
-  bne t1, a0, fail            // exactly one interrupt taken
+  bne t1, a0, fail
 
   li gp, 4
   csrr t1, mcause

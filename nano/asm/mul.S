@@ -1,6 +1,4 @@
-// nano-local, x0-x15 only. M is cut, so the assembler's rv32ec target refuses the
-// mnemonic itself -- the raw encoding is placed directly to prove the CORE traps it,
-// and now that mtvec/mepc/mcause exist, that the handler sees cause 2 at the right pc.
+// nano-local, x0-x15: the raw M-encoding proves the trap handler sees cause 2 at mepc.
 #include "riscv_test.h"
 
 RVTEST_RV64U

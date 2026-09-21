@@ -1,13 +1,10 @@
 module riscv #(
-  // The RAM window a plain load or store must land in to be answered; anything else
-  // is a cause-5/7 fault, decided here since the shared bus has no fault line of its
-  // own. Matches nano.lds's `ram` region so the two move together.
+  // The RAM window a load/store must land in or fault (cause 5/7); matches nano.lds.
   parameter logic [31:0] RAM_BASE  = 32'h0001_0000,
   parameter int          RAM_WORDS = 4096
 ) (
   input  logic        clk,
   input  logic        reset,
-  // picorv32 memory interface, cuz it is nice
   output logic        mem_valid,
   output logic        mem_instr,
   input  logic        mem_ready,
@@ -20,8 +17,7 @@ module riscv #(
   output logic        trap
  `ifdef RISCV_FORMAL
    , `RVFI_OUTPUTS
-   // Not part of the RVFI standard: no self-reporting oracle can see mtvec, mepc,
-   // mcause, mtval or mstatus, so a proof over trap entry needs them named here.
+   // Not part of RVFI: a proof over trap entry needs these named, self-reported.
    , output logic [31:0] rvfi_dbg_mtvec
    , output logic [31:0] rvfi_dbg_mepc
    , output logic [31:0] rvfi_dbg_mcause
@@ -67,7 +63,6 @@ module riscv #(
   logic is_valid;
   logic [31:0] regs[0:15];
 
-  // --- CSR file and trap machinery ---
   localparam logic [31:0] MISA_VALUE = 32'h4000_0014; // RV32, E, C
   localparam logic [11:0] CSR_MSTATUS    = 12'h300;
   localparam logic [11:0] CSR_MISA       = 12'h301;
@@ -131,8 +126,7 @@ module riscv #(
   logic skip_reg_write;
 
 `ifdef NANO_ONE_PORT_RF
-  // One held register per operand; `rf_raddr` (assigned in the state machine below) is
-  // the one address that ever indexes `regs[]` for a read.
+  // One held register per operand; `rf_raddr` is the one address that reads `regs[]`.
   logic [31:0] op_rs1, op_rs2;
   logic [3:0] rf_raddr;
 `define RF_RS1 op_rs1
@@ -161,7 +155,6 @@ module riscv #(
   assign u_immediate = {instr[31], instr[30:20], instr[19:12], 12'b0};
   assign j_immediate = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0};
 
-  // compressed instructions
   assign cl_immediate = {25'b0, instr[5], instr[12:10], instr[6], 2'b00};
   assign clwsp_immediate = {24'b0, instr[3:2], instr[12], instr[6:4], 2'b00};
   assign cli_immediate = {{26{instr[12]}}, instr[12], instr[6:2]};
@@ -275,13 +268,9 @@ module riscv #(
     is_slli || is_srli || is_srai;
 
   assign is_math_op = opcode == 5'b01100 && uncompressed;
-  // Legal, unimplemented: OP with funct7 0000001 is the eight cut M encodings. They
-  // trap illegal like anything else this core does not decode, but the shared sim
-  // monitor's spec model still claims M (it is not built per-core), so this class
-  // alone is excluded from RVFI's retirement stream rather than reported and compared
-  // against a spec that disagrees about whether the encoding exists at all -- the
-  // same accommodation nano/formal/complete.sv makes for it with a cover in place of
-  // a value-checked retire.
+  // The eight cut M encodings: legal but unimplemented, traps like anything else this
+  // core does not decode. Excluded from RVFI's retirement stream (not just reported
+  // as trapping) since the shared sim monitor's spec model still claims M exists.
   assign is_opm_encoding = is_math_op && funct7 == 7'b0000001;
   assign is_add = (is_math_op && math_low && funct3 == 3'b000) || is_cmv || is_cadd;
   assign is_cmv = quadrant == 2'b10 && cfunct4 == 4'b1000 && instr[6:2] != 0;
@@ -305,10 +294,7 @@ module riscv #(
   assign math_arg = is_math_immediate ? immediate : `RF_RS2;
   assign shamt = is_math_immediate ? rs2 : `RF_RS2[4:0];
 
-  // is_system_op alone is not "is a CSR instruction": funct3 000 under the same
-  // opcode is ecall/ebreak/mret (is_error's own encodings below), and a bare opcode
-  // check here previously let is_csr read true for those too, wrongly running mret
-  // through the CSR write path.
+  // is_system_op alone is not "is a CSR instruction": funct3 000 is ecall/ebreak/mret.
   assign is_system_op = opcode == 5'b11100 && uncompressed;
   assign is_csrrw = is_system_op && funct3 == 3'b001;
   assign is_csrrs = is_system_op && funct3 == 3'b010;
@@ -318,8 +304,7 @@ module riscv #(
   assign is_csrrci = is_system_op && funct3 == 3'b111;
   assign is_csr = is_csrrw || is_csrrs || is_csrrc || is_csrrwi || is_csrrsi || is_csrrci;
 
-  // rs1 holds instr[19:15] for every CSR form, register or immediate: none of the
-  // compressed-remap cases in decode_instr match an uncompressed SYSTEM opcode.
+  // rs1 holds instr[19:15] for every CSR form, register or immediate.
   assign csr_addr = instr[31:20];
   assign csr_src_zero = rs1 == 5'b0;
   assign csr_write_op = is_csr &&
@@ -335,14 +320,7 @@ module riscv #(
   assign is_ebreak = is_error && instr[31:20] == 12'h001;
   assign is_mret = is_error && instr[31:20] == 12'h302;
 
-  // RV32E: x0-x15 only. rd's decode case always fills a real register field from
-  // instr[11:7] except where it hard-codes a value under 16, so bit 4 alone says whether
-  // the raw field named x16-x31; rs1/rs2 are the same but must first be gated to the
-  // encodings that actually read a register there, since lui/auipc/jal have no rs1,
-  // jalr/load/math_immediate's would-be rs2 field is immediate or shamt bits instead
-  // (math_arg and shamt both read `immediate`/`rs2` directly rather than regs[rs2] there),
-  // an immediate-form CSR's rs1 field is a zimm rather than a register, and ecall/ebreak/
-  // mret's rs1/rs2 fields are always zero by their own decode so neither reads a register.
+  // RV32E: x0-x15 only, bit 4 of a decoded field says whether it named x16-x31.
   assign rs1_valid = !is_lui && !is_jal && !is_auipc &&
     !(is_csrrwi || is_csrrsi || is_csrrci) && !is_error;
   assign rs2_valid = !is_lui && !is_jal && !is_auipc && !is_jalr && !is_load &&
@@ -363,25 +341,21 @@ module riscv #(
     is_mret ||
     (is_csr && csr_implemented && !csr_readonly_write)) && !is_e_illegal;
 
-  // registers
   assign load_store_address = $signed(immediate) + $signed(`RF_RS1);
   assign addr24 = load_store_address[1:0];
   assign addr16 = load_store_address[1];
   assign addr8 = load_store_address[0];
-  // What a store's write strobe would be, valid whether or not it actually reaches
-  // memory: a faulting store never runs its own case arm, so RVFI's fault-channel
-  // write mask needs this computed independently.
+  // A faulting store never runs its own case arm, so RVFI's fault-channel write mask
+  // needs the intended strobe computed independently, here.
   assign store_wstrb = is_sw ? 4'b1111 :
                         is_sh ? (addr16 ? 4'b1100 : 4'b0011) :
                         is_sb ? (4'b0001 << addr24) : 4'b0000;
 
-  // storage for the next program counter
   assign pc_inc = uncompressed ? 4 : 2;
 
-  // A plain load or store outside the RAM window faults with the address, not the
-  // response: the bus has no fault line, so this is decided the same cycle decode
-  // would otherwise issue the transaction. Alignment outranks the region, matching
-  // littlecpu: a misaligned access never also claims to be out of range.
+  // A plain load or store outside the RAM window faults with the address, decided
+  // the same cycle decode would otherwise issue the transaction, since the bus has
+  // no fault line. Alignment outranks the region, matching littlecpu.
   assign load_misaligned = (is_load_op || is_clwsp || is_clw) &&
     ((is_lw && |addr24) || ((is_lh || is_lhu) && addr8));
   assign store_misaligned = (is_store_op || is_cswsp || is_csw) &&
@@ -477,10 +451,6 @@ module riscv #(
     endcase
   end
 
-  // register write addr
-  // pc write
-
-  // state machine
   localparam cpu_trap = 4'b0000;
   localparam fetch_instr = 4'b0001;
   localparam ready_instr = 4'b0010;
@@ -497,9 +467,7 @@ module riscv #(
   assign rf_raddr = cpu_state == fetch_rs2 ? rs2[3:0] : rs1[3:0];
 `endif
 
-  // Interrupts take effect only at a genuine instruction boundary: nano completes one
-  // instruction fully, cycle by cycle, before returning here, so there is no in-flight
-  // instruction a redirect could ever need to undo.
+  // Nano completes one instruction fully before returning here to redirect.
   assign take_interrupt = interrupt_pending && cpu_state == fetch_instr;
 
   always_ff @(posedge clk) begin
@@ -522,9 +490,8 @@ module riscv #(
           regs[0] <= 0;
 `endif
           if (take_interrupt) begin
-            // Nothing issues this cycle: next_pc becomes mtvec, and next cycle's
-            // take_interrupt reads mstatus_mie already cleared, so the fetch below
-            // runs then instead.
+            // Nothing issues this cycle: next_pc becomes mtvec, and mstatus_mie
+            // reads already cleared next cycle, so the fetch below runs then.
             next_pc <= mtvec;
           end else begin
             mem_wstrb <= 4'b0000;
@@ -700,7 +667,6 @@ module riscv #(
                   end
 
                   is_sh: begin
-                    // Offset to the right position
                     mem_wstrb <= addr16 ? 4'b1100 : 4'b0011;
                     mem_wdata <= {2{`RF_RS2[15:0]}};
                   end
@@ -735,7 +701,6 @@ module riscv #(
           end
         end
 
-        // for branches and jumps: if the next program counter is misaligned we need to trap
         check_pc: begin
           if (pc_wdata[0]) begin
             cpu_state <= cpu_trap;
@@ -756,7 +721,6 @@ module riscv #(
           if (mem_ready) begin
             (* parallel_case, full_case *)
             case (1'b1)
-              // unpack the alignment from above
               is_lb: begin
                 case (addr24)
                   2'b00: reg_wdata <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
@@ -812,12 +776,7 @@ module riscv #(
     end
   end
 
-  // A CSR write and an exception/interrupt/mret redirect never coincide: the first
-  // fires only on a normal is_csr execute cycle, and that cycle's own take_trap is
-  // always 0 (is_csr is only reached when is_valid holds). One CSR file, one driver.
-  // !take_trap excludes an E-illegal CSR instruction (a register field naming x16-x31):
-  // is_valid already covers an unimplemented or read-only-by-address CSR, but not that.
-  // A trapping instruction commits no architectural state, CSR writes included.
+  // !take_trap excludes an E-illegal CSR instruction, which is_valid alone does not.
   assign csr_wen = is_csr && csr_write_op && cpu_state == execute_instr && !take_trap;
   assign wr_mcycle    = csr_wen && csr_addr == CSR_MCYCLE;
   assign wr_mcycleh   = csr_wen && csr_addr == CSR_MCYCLEH;
@@ -923,10 +882,8 @@ module riscv #(
   assign rvfi_dbg_mtval   = mtval;
   assign rvfi_dbg_mstatus = mstatus_value;
 
-  // Sampled the cycle we're back in fetch_instr with a retired instruction's fields
-  // still held: prev_cpu_state tells a genuine arrival apart from a cycle merely
-  // spent dwelling here doing interrupt-entry bookkeeping (fetch_instr is the only
-  // state that can be revisited without a fetch in between).
+  // prev_cpu_state tells a genuine arrival in fetch_instr apart from a cycle merely
+  // spent dwelling here doing interrupt-entry bookkeeping.
   logic [3:0] prev_cpu_state;
   always_ff @(posedge clk)
     prev_cpu_state <= reset ? fetch_instr : cpu_state;
@@ -934,10 +891,8 @@ module riscv #(
   assign is_fetch = cpu_state == fetch_instr;
   assign is_fetch_entry = is_fetch && prev_cpu_state != fetch_instr;
 
-  // Held from the one cycle take_trap actually decided anything, not re-read live at
-  // is_fetch_entry: a load or store whose own rd aliases its rs1 moves regs[rs1] at
-  // its reg_write edge, which moves load_store_address and so take_trap's own value,
-  // between the instruction's real execute_instr cycle and its later retirement.
+  // Held from execute_instr, not re-read live: a load/store whose rd aliases its rs1
+  // moves regs[rs1] (and so load_store_address/take_trap) before its own retirement.
   logic captured_is_valid, captured_take_trap, captured_is_opm, captured_load_fault,
         captured_store_fault;
   logic [3:0]  captured_store_wstrb;
@@ -950,16 +905,13 @@ module riscv #(
       captured_load_fault  <= load_region_fault;
       captured_store_fault <= store_region_fault;
       captured_store_wstrb <= store_wstrb;
-      // Word-aligned, matching the address a non-faulting load/store publishes on
-      // mem_addr: the generic spec model reports the same alignment under
-      // RISCV_FORMAL_ALIGNED_MEM, so a sub-word offset here would read as a mismatch.
+      // Word-aligned, matching both the non-faulting mem_addr and RISCV_FORMAL_ALIGNED_MEM's spec model.
       captured_ls_addr     <= {load_store_address[31:2], 2'b00};
     end
   end
 
-  // Set the cycle an interrupt redirects next_pc, read (and cleared) at the handler's
-  // first retirement -- the two are cycles apart whenever the load/store that was
-  // in flight when the interrupt became visible takes more than one cycle to finish.
+  // Set the cycle an interrupt redirects next_pc, cleared at the handler's first
+  // retirement -- the two can be cycles apart if a load/store was in flight.
   logic pending_rvfi_intr;
   always_ff @(posedge clk) begin
     if (reset) pending_rvfi_intr <= 1'b0;
@@ -1017,12 +969,11 @@ module riscv #(
 `endif
 
   always_ff @(posedge clk) begin
-    // is_fetch_entry, not is_fetch: fetch_instr can be dwelled in for an extra cycle
-    // doing interrupt-entry bookkeeping, and this must fire once per retirement.
+    // is_fetch_entry, not is_fetch: this must fire once per retirement, not once
+    // per cycle dwelled in fetch_instr doing interrupt-entry bookkeeping.
     rvfi_valid_q <= !reset &&
       ((is_fetch_entry && (captured_is_valid || captured_take_trap)) || trap);
 
-    // what were our read registers while this instruction was executing?
     if (cpu_state == execute_instr) begin
       rvfi_rs1_rdata_q <= rs1_valid ? `RF_RS1 : 0;
       rvfi_rs2_rdata_q <= rs2_valid ? `RF_RS2 : 0;
@@ -1032,9 +983,7 @@ module riscv #(
     rvfi_rs2_addr_q <= rs2_valid ? rs2 : 0;
     rvfi_insn_q <= instr;
 
-    // RVFI requires a trapping retirement to report no destination register: rd
-    // itself stays decoded from the trapping word (nothing re-decodes it before this
-    // report goes out), so the trap must be read here rather than relied on upstream.
+    // RVFI requires a trapping retirement to report no destination register.
     rvfi_rd_addr_q <= (is_fetch_entry && captured_take_trap) ? 5'b0 : rd;
 `ifdef NANO_LATCH_RF
     // A retiring write's latch has not opened yet; reg_wdata already holds the value.
@@ -1061,9 +1010,8 @@ module riscv #(
     rvfi_order_q <= !reset ? rvfi_order_q + rvfi_valid_q : 0;
 
 `ifdef RISCV_FORMAL_CSR_MCYCLE
-    // Held, not sampled every cycle: mcycle keeps ticking through the cycles between
-    // this instruction's own execute_instr and the fetch_instr that reports it, so
-    // what is reported must be captured once, the same cycle csr_wen can fire.
+    // Held, not sampled every cycle: mcycle keeps ticking between this instruction's
+    // execute_instr and the fetch_instr that reports it.
     if (cpu_state == execute_instr) begin
       rvfi_csr_mcycle_rmask_q <= {64{is_csr && (csr_addr == CSR_MCYCLE || csr_addr == CSR_MCYCLEH)}};
       rvfi_csr_mcycle_wmask_q <= {{32{wr_mcycleh}}, {32{wr_mcycle}}};
@@ -1089,7 +1037,6 @@ module riscv #(
       rvfi_mem_rmask_q <= 0;
       rvfi_mem_rdata_q <= 0;
       rvfi_mem_wdata_q <= 0;
-    // what exactly came back from memory?
     end else if (mem_valid && mem_ready) begin
       rvfi_mem_addr_q <= mem_addr;
       rvfi_mem_wmask_q <= mem_wstrb;
@@ -1097,10 +1044,9 @@ module riscv #(
       rvfi_mem_rdata_q <= mem_rdata;
       rvfi_mem_wdata_q <= mem_wdata;
     end
-    // A faulting load/store never reaches the case arm that would set mem_addr, so
-    // the address it would have used is reported here instead, on the fault channel's
-    // masks and the ordinary rvfi_mem_addr both (the generic spec model has no
-    // separate fault-address field).
+    // A faulting load/store never reaches the case arm that sets mem_addr, so its
+    // address is reported here instead (the generic spec model has no separate
+    // fault-address field, so this overrides the ordinary rvfi_mem_addr too).
 `ifdef RISCV_FORMAL_MEM_FAULT
     if (is_fetch_entry && (captured_load_fault || captured_store_fault))
       rvfi_mem_addr_q <= captured_ls_addr;
