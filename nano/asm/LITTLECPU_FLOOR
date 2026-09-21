@@ -75,4 +75,4 @@ trap.S         EXCLUDED CSR (trap handler)
 uart.S         EXCLUDED CSR (trap handler), UART device
 xor.S          451
 xori.S         171
-zicsr.S        EXCLUDED CSR
+zicsr.S        241
