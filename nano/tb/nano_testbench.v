@@ -62,6 +62,11 @@ module nano_testbench(
   logic [31:0] rvfi_mem_rdata;
   logic [31:0] rvfi_mem_wdata;
   logic [15:0] rvfi_monitor_errcode;
+`ifdef RISCV_FORMAL_MEM_FAULT
+  logic        rvfi_mem_fault;
+  logic [3:0]  rvfi_mem_fault_rmask;
+  logic [3:0]  rvfi_mem_fault_wmask;
+`endif
 `endif
 
 `ifdef ICARUS
@@ -177,6 +182,19 @@ module nano_testbench(
   );
 `endif
 
+  int unsigned cycle;
+  initial cycle = 0;
+  always @(posedge clk) cycle <= cycle + 1;
+
+`ifndef NANO_IRQ_MEIP_CYCLE
+`define NANO_IRQ_MEIP_CYCLE 400
+`endif
+  // Level, asserted once and held: a real MEIP pin has no software-visible clear, so a
+  // handler that wants to stop taking it must disable mie.MEIE before mret. A program
+  // that never sets mstatus.MIE or mie.MEIE never observes this at all.
+  (* keep *) logic irq_meip;
+  assign irq_meip = cycle >= `NANO_IRQ_MEIP_CYCLE;
+
   riscv uut (
     .clk(clk),
     .reset(reset),
@@ -187,6 +205,7 @@ module nano_testbench(
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
+    .irq_meip(irq_meip),
     .trap(trap)
 `ifdef RISCV_FORMAL
     , .rvfi_valid(rvfi_valid),
@@ -208,6 +227,11 @@ module nano_testbench(
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
     .rvfi_mem_wdata(rvfi_mem_wdata)
+`ifdef RISCV_FORMAL_MEM_FAULT
+    , .rvfi_mem_fault(rvfi_mem_fault),
+    .rvfi_mem_fault_rmask(rvfi_mem_fault_rmask),
+    .rvfi_mem_fault_wmask(rvfi_mem_fault_wmask)
+`endif
 `endif
   );
 
@@ -215,9 +239,10 @@ module nano_testbench(
   logic rvfi_valid_observed;
   assign rvfi_valid_observed = rvfi_valid;
 
-  // nano's bus carries no fault line (CLAUDE.md: no CSR, no memory map faults on this
-  // bus), so the monitor's mem_fault gate -- built for a refused access the spec model
-  // cannot see -- is tied low rather than never wired.
+  // nano's bus carries no fault line of its own, but the monitor's mem_fault gate is
+  // reused here for a different absence: the eight cut M encodings retire as illegal
+  // (cause 2), and the pinned spec model still claims M, so their own trap retire is
+  // the one this gates.
   monitor monitor (
     .clock(clk),
     .reset(reset),
@@ -240,7 +265,11 @@ module nano_testbench(
     .rvfi_mem_wmask(rvfi_mem_wmask),
     .rvfi_mem_rdata(rvfi_mem_rdata),
     .rvfi_mem_wdata(rvfi_mem_wdata),
+`ifdef RISCV_FORMAL_MEM_FAULT
+    .rvfi_mem_fault(rvfi_mem_fault),
+`else
     .rvfi_mem_fault(1'b0),
+`endif
     .errcode(rvfi_monitor_errcode)
   );
 
@@ -254,11 +283,8 @@ module nano_testbench(
 `endif
 
   // The cross-core harness's marker mechanism (soc/compare/dhry_monitor.v): it watches
-  // this bus for two magic addresses and needs no mcycle on the DUT side, which is what
-  // makes it reusable unmodified for a core with no CSR at all.
-  int unsigned cycle;
-  initial cycle = 0;
-  always @(posedge clk) cycle <= cycle + 1;
+  // this bus for two magic addresses over its own cycle count, never nano's mcycle, so
+  // it stays reusable unmodified across every core in that harness.
 
   (* keep *) int unsigned bench_marks;
   (* keep *) int unsigned bench_begin_cycle;

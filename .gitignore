@@ -108,6 +108,9 @@ nano/formal/ill_e_cover
 nano/formal/ill-e-probe/
 nano/formal/qspi
 nano/formal/qspi-probe/
+nano/formal/traps
+nano/formal/region-probe/
+nano/formal/tval-probe/
 nano/tb/nano-x-probe/
 __pycache__/
 test/rtl.cc
@@ -150,6 +153,8 @@ nano/tb/nano-qspi-pins-probe/
 nano/tb/nano_qspi_resume.vvp
 nano/tb/nano-qspi-resume-probe/
 nano/tb/nano-qspi-derived-clock-probe/
+nano/tb/nano_qspi_latency.vvp
+nano/tb/nano-qspi-latency-probe/
 tools/
 test/a.out.dSYM/
 .claude/worktrees/

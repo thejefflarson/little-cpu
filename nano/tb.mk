@@ -1,9 +1,10 @@
 # nanocpu's cxxrtl harness. NANO_CFLAGS is the one place its -march/-mabi is stated;
 # test/march_test.sh's exception list names this line by its exact count.
-NANO_CFLAGS := -march=rv32ec -mabi=ilp32e
+NANO_CFLAGS := -march=rv32ec_zicsr -mabi=ilp32e
 
 NANO_RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED_MEM \
-                            RISCV_FORMAL_NRET=1 RISCV_FORMAL_XLEN=32 RISCV_FORMAL_ILEN=32
+                            RISCV_FORMAL_MEM_FAULT RISCV_FORMAL_NRET=1 RISCV_FORMAL_XLEN=32 \
+                            RISCV_FORMAL_ILEN=32
 
 NANO_SIM_RTL_SRCS := nano/nano.v nano/tb/nano_memory.v soc/compare/dhry_monitor.v
 NANO_SIM_TB_SRCS  := nano/tb/nano_testbench.v
@@ -195,4 +196,16 @@ nano-qspi-resume-probe:
 
 .PHONY: nano-qspi-resume-test
 nano-qspi-resume-test: nano/tb/nano_qspi_resume.vvp nano-qspi-resume-probe
-	@out=$$(vvp nano/tb/nano_qspi_resume.vvp); echo "$$out"; grep -q '^PASS$$' <<< "$$out"
+	@out=$$(vvp nano/tb/nano_qspi_resume.vvp); echo "$$out"; printf '%s\n' "$$out" | grep -q '^PASS$$'
+
+# nano-qspi-resume-test's reproduction, plus one clk of injected round-trip latency. On `make test`'s path.
+nano/tb/nano_qspi_latency.vvp: $(NANO_QSPI_RESUME_SRCS)
+	iverilog -g2012 -DQSPI_RESUME_TB_DELAY_CYCLES=1 -o $@ $(NANO_QSPI_RESUME_SRCS)
+
+.PHONY: nano-qspi-latency-probe
+nano-qspi-latency-probe:
+	@./nano/tb/nano_qspi_latency_probe.sh
+
+.PHONY: nano-qspi-latency-test
+nano-qspi-latency-test: nano/tb/nano_qspi_latency.vvp nano-qspi-latency-probe
+	@out=$$(vvp nano/tb/nano_qspi_latency.vvp); echo "$$out"; printf '%s\n' "$$out" | grep -q '^PASS$$'
