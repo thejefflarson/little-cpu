@@ -6,5 +6,5 @@ loadstore.S    44
 mul.S          52
 divide.S       52
 compressed.S   75
-meip.S         86
+meip.S         38
 csrimm.S       19
