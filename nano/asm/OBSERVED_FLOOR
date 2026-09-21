@@ -7,4 +7,4 @@ mul.S          52
 divide.S       52
 compressed.S   75
 meip.S         102
-csrimm.S       20
+csrimm.S       19
