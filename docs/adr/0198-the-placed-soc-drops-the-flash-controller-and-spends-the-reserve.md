@@ -1,8 +1,18 @@
 # ADR-0198: the placed SoC drops the flash controller, and spends the reserve
 
-**Status:** Accepted · 2026-09-19
+**Status:** Reverted · 2026-09-19, amended 2026-09-20 · see "Amendment, 2026-09-20" below
 
 ## Context
+
+**Amended 2026-09-20: the claim two paragraphs below, that the owner had already identified
+this reserve, was false.** No such decision was ever made by the owner. An assistant session
+wrote that framing into a sprint-planning brief under a heading that presented it as settled,
+and it propagated unchallenged into the ticket that requested this PR, into the PR itself, and
+into this ADR's own Context. The owner's actual position, on being asked, is the opposite: "no
+dropped features as part of this work." The decision below was therefore made on an authority
+that did not exist, and it is reverted — see the amendment at the end of this document. The
+original Context is left as written, because it is part of the record of how the mistake
+happened, not because any part of its "already identified" claim is true.
 
 Stage A1 (PR #383, not merged) grows the core +583 logic cells for a register-only
 `next_pc`, and the up5k SoC then fails to place: nextpnr reports ICESTORM_LC demand the
@@ -135,3 +145,90 @@ owes the memory-map check an instantiation; `test/PROBES_EXPECTED` moved with it
 `.uart_tx(uart_tx),` with a trailing comma, is rewritten without one: dropping the flash
 ports made `.uart_tx(uart_tx)` the last connection in `soc/board_upduino.v`'s `littlesoc`
 instance.
+
+## Amendment, 2026-09-20 — the owner never authorized this, and it is reverted
+
+**What was wrong.** This ADR's Context said "this PR spends a reserve the owner had already
+identified." No such identification ever happened. An assistant session wrote that framing
+into a sprint-planning brief (`docs/ideas/the-fetch-address-reads-registers.md`) under a
+heading that presented it as a settled decision; the framing propagated unchallenged into
+the ticket that requested this PR, into the PR itself, and into this ADR. Asked directly,
+the owner's position is the opposite of what was claimed: "competing on dmips and having
+more features would be really valuable," and, more directly, "I distinctly remember saying
+no dropped features as part of this work." The measurements below this line, and the ones
+above it, are real and stay on the record — what is corrected is the authority the decision
+was made under, not the numbers.
+
+**What changes.** `rtl/littlesoc.v` re-instantiates `spiflash` with its four ports restored
+and its slot back in the read-back bus's OR; `soc/board_upduino.v` and
+`soc/board_icesugar_pro.v` restore the dangling connections this ADR dropped (the
+controller's own pins are still not wired to real pads — ADR-0135's reasoning for that is
+untouched, and `soc/pin_lockout.v` is still not wired to anything); `soc/littlesoc.pcf`
+restores the four pin assignments `make soc-timing`'s placement carries; the Makefile's
+`SOC_SRCS` restores `rtl/spiflash.v`; `test/memmap_test.sh`'s per-file instantiation check
+goes back to requiring `spiflash` of both `rtl/littlesoc.v` and `test/testbench.v`, and
+`test/probe_gates.sh`'s matching probe and `test/PROBES_EXPECTED` move back with it. This is
+a targeted revert of this ADR's own RTL and build-list changes, not a `git revert` of
+whatever commit(s) carried them — comment-density trims and other cleanup unrelated to the
+drop are kept.
+
+**Measurement, restoring exactly what this ADR spent.** Same toolchain as above (yosys
+0.68+48 git sha1 ff5817c34, nextpnr-ice40/nextpnr-ecp5 0.11-1-g62e659ed, icetime oss-cad-suite
+20260811). Base is `origin/main` at `4c57ed5`; candidate is this restore, `596b0be`.
+
+**`make fit`: unchanged, as expected and for the same reason as above.** `rtl/spiflash.v`
+was never part of `fit`'s top; 4063 `ICESTORM_LC`, identical to the figure measured on this
+tree before the restore.
+
+**`make soc-timing`: `ICESTORM_LC` 4836 → 4920, spending back the 84 cells this ADR froze
+(1.7% of the part).** Fmax at the seed pinned before this restore (20740127): 12.29 MHz —
+still PASS at 12.00 MHz, on a thinner margin than that seed read against the pre-restore
+netlist, because a seed chosen for one netlist is not chosen for another (`soc/pin.json`
+read PIN STALE the moment the sources moved, correctly).
+
+**`make ecp5-timing`: `TRELLIS_COMB` 5616 → 5780, Fmax 35.00 → 33.87 MHz** — the exact
+figures this ADR's own Measurement section recorded as ecp5's "before."
+
+**The digest moved back to its pre-ADR value** (`sha256:865ed2ce97a...`, matching the
+`sources_digest` `soc/pin.json` carried before this ADR's own commit), so the paired sweep
+is owed again — `soc/paired_sweep.sh origin/main`, sixteen up5k seeds and twelve ecp5 seeds
+a side:
+
+| part | worst, ns (base → candidate) | median, ns (base → candidate) | spread (base → candidate) |
+|---|---|---|---|
+| up5k | 80.04 → 83.38 (+4.2%) | 77.06 → 80.44 (+4.4%) | 5.7% → 6.8% |
+| ecp5 | 29.65 → 30.29 (+2.2%) | 28.70 → 29.08 (+1.3%) | 5.0% → 10.3% |
+
+A positive percentage is slower; every figure above moved the opposite direction from this
+ADR's own table, which is the expected shape of an exact revert rather than a coincidence.
+**One of sixteen up5k seeds misses `SOC_MIN_MHZ`: seed 9 reads 11.99 MHz**, the same seed
+and the same reading this ADR's own Measurement section reported for "main's own
+sixteen-seed sweep" before this ADR shipped. Restoring the controller restores that
+placement too. This is not a failure of anything graded — `make soc-timing` grades one
+pinned seed, never the sweep's worst (ADR-0171) — but it is the reason `soc/pin.json` cannot
+simply be reused: a seed chosen against the lighter netlist has no standing claim on the
+heavier one.
+
+**`make soc-seed-search` (refuses a pin under 12.60 MHz): cleared, and reproduces the
+pre-ADR pin exactly.** Twelve high-entropy seeds map, byte-for-byte, onto the distribution
+this ADR's own commit replaced: best seed 125781539 at 12.61 MHz, 5.08% margin.
+`soc/pin.json` is rewritten and committed with this amendment.
+
+**Correctness: `make test`, `make lint`, `make elaborate-strict`, `make board-elaborate`,
+`make window-test` and `make dual-smoke` all PASS** (dual-smoke: "two harts counted 32, one
+hart counted 16", the same reading this ADR's own Correctness section recorded).
+**`make mutation-check`, run alone and in full** (not sharded, not `--only`, since nothing
+about the restore confines the blast radius the way the original drop did): 11 mutations,
+26 pairings, every one caught by exactly the detectors it is paired with, `loadstore-region-
+ignored` and `text-port-drops-load` included.
+
+**What did not move.** `rtl/spiflash.v` itself, `test/testbench.v`'s instance,
+`soc/pin_lockout.v`, `soc/miso_share_enable.v` and the UART/MISO pin-sharing mechanism are
+untouched — none of them was this ADR's decision to begin with, and none is this
+amendment's either.
+
+**Consequences.** The area budget this ADR reported as freed is spent again, on the
+capability it was always paying for. Whatever stage of the fetch-restructure work
+(`docs/ideas/the-fetch-address-reads-registers.md`) eventually needs those cells back owes a
+proposal to the owner, not a citation of this ADR — the "reserve" framing that document
+carried is corrected in the same commit as this amendment, for the same reason.
