@@ -160,13 +160,14 @@ module executor #(
     end
   end
 
+  // Read again by the RVFI fault mask below, ungated by `executing`, for a trapping amo.
+  logic is_amo;
+  assign is_amo = in_is_amoswap || in_is_amoadd || in_is_amoxor || in_is_amoand ||
+    in_is_amoor || in_is_amomin || in_is_amomax || in_is_amominu || in_is_amomaxu;
+
   logic instr_atomic, instr_atomic_write, word_misaligned;
-  assign instr_atomic = in_is_lr || in_is_sc || in_is_amoswap || in_is_amoadd || in_is_amoxor ||
-    in_is_amoand || in_is_amoor || in_is_amomin || in_is_amomax || in_is_amominu ||
-    in_is_amomaxu;
-  assign instr_atomic_write = in_is_sc || in_is_amoswap || in_is_amoadd || in_is_amoxor ||
-    in_is_amoand || in_is_amoor || in_is_amomin || in_is_amomax || in_is_amominu ||
-    in_is_amomaxu;
+  assign instr_atomic = in_is_lr || in_is_sc || is_amo;
+  assign instr_atomic_write = in_is_sc || is_amo;
   assign word_misaligned = mem_addr_low != 2'b00;
 
   logic load_misaligned, store_misaligned;
@@ -368,11 +369,7 @@ module executor #(
   assign launch.is_sb = executing && in_is_sb;
   assign launch.is_sh = executing && in_is_sh;
   assign launch.is_sw = executing && in_is_sw;
-  // Not a read of `launch.is_amo` (would read as feedback through the struct port);
-  // ungated by `executing`, since the RVFI fault mask below needs it for a trapping amo.
-  logic is_amo;
-  assign is_amo = in_is_amoswap || in_is_amoadd || in_is_amoxor || in_is_amoand ||
-    in_is_amoor || in_is_amomin || in_is_amomax || in_is_amominu || in_is_amomaxu;
+  // Not a read of `launch.is_amo`: that would read as feedback through the struct port.
   assign launch.is_amo = executing && is_amo;
   assign launch.is_amoswap = executing && in_is_amoswap;
   assign launch.is_amoadd = executing && in_is_amoadd;
