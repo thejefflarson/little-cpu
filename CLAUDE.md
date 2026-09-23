@@ -173,6 +173,20 @@ references still resolve.
 Retired numbers, never reused: 7 (the generated-but-tracked monitor) lives under Verification; 9 is
 folded into 6.
 
+**Stage B1 of the fetch refactor split decode into D and X** (ADR-0208, on a branch stacked on
+ADR-0207, not yet on `main`). D decodes and presents the register file its own pair, never the
+guessed one commitment 6 above still describes; X, one cycle later, is where every register value
+first exists, so branch resolution, the region test, CSR access and every trap but the timer
+interrupt commit there instead of in decode. `make test`'s cxxrtl leg (75/75), `make cosim-suite`
+(matching its existing baseline), the 86 generated riscv-formal checks, `imemcheck`, `dmemcheck`,
+`nonperturbation`, `remeasure-fg` (F=6, G=6, unchanged) and `make dual-smoke` all pass against the
+new split. **The commitments above are not yet rewritten for it**: `formal/pcloop.sv` and
+`formal/traps.sv` still wire the old fused decoder by hand rather than instantiating `littlecpu` as
+a whole, `rtl/executor.v` has no `` `ifdef FORMAL `` block of its own yet, and
+`test/decoder_tb.v`/`test/exec_tb.v` still carry the old port lists — so commitments 1, 2, 4 and 8's
+component-level formal claims are unverified under this split until that work lands, and their
+prose stays as written until it does.
+
 ## ISA target
 
 RV32IMAC_Zicsr_Zifencei_Zkt, M-mode only, `misa = 0x4000_1105` (none of the three Z-extensions has
