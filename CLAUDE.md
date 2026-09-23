@@ -630,7 +630,12 @@ VexRiscv on both.
   that ABC folds into the decode reading it, and a register there forbids the sharing), the two
   parts disagree in sign, and the best product of clock against cycles is +0.4%. Redirects are
   7.15% of the suite's issues and 16.92% of Dhrystone's, the opposite ordering from the RAW share,
-  so no depth argument stands on the suite alone.
+  so no depth argument stands on the suite alone. **A register-only fetch address over a
+  one-window skid is built, proven and declined** (ADR-0206, `soc/fetch_ahead/skid.patch`): it is
+  −1.65% of Dhrystone's cycles and +365 to +418 placed cells, which the up5k does not hold, and
+  it moves the ECP5 clock nowhere at one placement — the tail leaves the loop and the head is still
+  the block RAM's output. The clock Stage A saw (ADR-0201) came from a registered head, which is a
+  second window register and a two-cycle redirect: the four-word queue's price by another name.
 - **yosys and ABC already do everything derivable from the expression** — dead bits, common
   subexpressions, duplicate adders — so an edit that restates the same arithmetic is a null
   (ADR-0088). **Redundant SOURCE TEXT is not redundant HARDWARE, and it predicts nothing about the

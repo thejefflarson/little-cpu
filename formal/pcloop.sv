@@ -10,14 +10,13 @@ module pcloop (
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    // The ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`.
-    input logic imem_stall,
+    input logic fetch_stall,
     // Free, like every other stall input here: a hart that has not been granted the
     // shared bus holds the pc, and the increment assertion has to skip that cycle the
     // same way it skips a stolen fetch window.
     input logic bus_wait,
     // Free, like everything else not instantiated here.
-    input logic rom_fault,
+    input logic imem_fault,
     // Free for the same reason and with the same effect: an atomic the platform does not
     // answer redirects the pc, and `branch_jump` names that trap too.
     input logic atomic_supported,
@@ -32,7 +31,6 @@ module pcloop (
   logic [31:0] pc;
   logic [31:0] imem_addr, imem_addr2;
   logic [31:0] next_pc, imem_addr_next;
-  logic        fetch_stall, imem_fault, issuing, redirect;
   // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
@@ -49,17 +47,11 @@ module pcloop (
     .reset(reset),
     .pc(pc),
     .next_pc(next_pc),
-    .issuing(issuing),
-    .redirect(redirect),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
     .imem_addr_next(imem_addr_next),
-    .imem_stall(imem_stall),
-    .imem_fault(rom_fault),
-    .fetch_stall(fetch_stall),
-    .fault(imem_fault),
     .out(fetcher_out)
   );
 
@@ -85,8 +77,6 @@ module pcloop (
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
-    .issuing(issuing),
-    .redirect(redirect),
     .rs1(rs1),
     .rs2(rs2),
     .read_rs1(read_rs1),

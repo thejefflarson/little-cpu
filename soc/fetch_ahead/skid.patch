@@ -1,0 +1,584 @@
+diff --git a/Makefile b/Makefile
+index f15e8ae..6422507 100644
+--- a/Makefile
++++ b/Makefile
+@@ -451,7 +451,8 @@ lint-setup:
+ 	@'$(SVLINT_DIR)'/bin/svlint --version
+ 
+ UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
+-                timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb fetchqueue_tb
++                timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb fetchqueue_tb \
++                fetcher_tb
+ 
+ UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
+ UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
+@@ -467,6 +468,7 @@ UNIT_BENCH_SRC_spiflash_tb := rtl/spiflash.v test/spiflash_model.v
+ UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
+ UNIT_BENCH_SRC_miso_share_enable_tb := soc/miso_share_enable.v
+ UNIT_BENCH_SRC_fetchqueue_tb := rtl/fetchqueue.v
++UNIT_BENCH_SRC_fetcher_tb := rtl/structs.v rtl/fetcher.v
+ 
+ # `present` reads the directory in the recipe, not via $(wildcard) -- make caches that
+ # and a stale listing could miss a bench that is really there.
+diff --git a/formal/components.sby b/formal/components.sby
+index ca926de..6ad89a1 100644
+--- a/formal/components.sby
++++ b/formal/components.sby
+@@ -34,7 +34,8 @@ read -sv -formal structs.v accessor.v
+ prep -top accessor
+ 
+ pcloop:
+-read -sv structs.v fetcher.v decoder.v regsel.v
++read -sv -formal -noassume structs.v fetcher.v
++read -sv structs.v decoder.v regsel.v
+ read -sv -formal structs.v pcloop.sv
+ prep -top pcloop
+ 
+diff --git a/formal/pcloop.sv b/formal/pcloop.sv
+index fad988f..f8cb7f1 100644
+--- a/formal/pcloop.sv
++++ b/formal/pcloop.sv
+@@ -10,13 +10,14 @@ module pcloop (
+     input logic [31:0] reg_rs2,
+     input executor_output executor_out,
+     input logic divider_stall,
+-    input logic fetch_stall,
++    // The ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`.
++    input logic imem_stall,
+     // Free, like every other stall input here: a hart that has not been granted the
+     // shared bus holds the pc, and the increment assertion has to skip that cycle the
+     // same way it skips a stolen fetch window.
+     input logic bus_wait,
+     // Free, like everything else not instantiated here.
+-    input logic imem_fault,
++    input logic rom_fault,
+     // Free for the same reason and with the same effect: an atomic the platform does not
+     // answer redirects the pc, and `branch_jump` names that trap too.
+     input logic atomic_supported,
+@@ -31,6 +32,7 @@ module pcloop (
+   logic [31:0] pc;
+   logic [31:0] imem_addr, imem_addr2;
+   logic [31:0] next_pc, imem_addr_next;
++  logic        fetch_stall, imem_fault, issuing, redirect;
+   // The address the decoder publishes for a platform to decode.
+   logic [31:0] atomic_addr;
+   fetcher_output fetcher_out;
+@@ -47,11 +49,17 @@ module pcloop (
+     .reset(reset),
+     .pc(pc),
+     .next_pc(next_pc),
++    .issuing(issuing),
++    .redirect(redirect),
+     .imem_addr(imem_addr),
+     .imem_data(imem_data),
+     .imem_addr2(imem_addr2),
+     .imem_data2(imem_data2),
+     .imem_addr_next(imem_addr_next),
++    .imem_stall(imem_stall),
++    .imem_fault(rom_fault),
++    .fetch_stall(fetch_stall),
++    .fault(imem_fault),
+     .out(fetcher_out)
+   );
+ 
+@@ -77,6 +85,8 @@ module pcloop (
+     .interrupt_pending(interrupt_pending),
+     .pc(pc),
+     .next_pc(next_pc),
++    .issuing(issuing),
++    .redirect(redirect),
+     .rs1(rs1),
+     .rs2(rs2),
+     .read_rs1(read_rs1),
+diff --git a/formal/pcloop_cover.sby b/formal/pcloop_cover.sby
+index b050f56..ef5416d 100644
+--- a/formal/pcloop_cover.sby
++++ b/formal/pcloop_cover.sby
+@@ -7,7 +7,8 @@ depth 30
+ smtbmc boolector
+ 
+ [script]
+-read -sv structs.v fetcher.v decoder.v regsel.v
++read -sv -formal -noassume structs.v fetcher.v
++read -sv structs.v decoder.v regsel.v
+ read -sv -formal structs.v pcloop.sv
+ prep -top pcloop
+ 
+diff --git a/formal/traps.sv b/formal/traps.sv
+index 36267d7..5c0fad9 100644
+--- a/formal/traps.sv
++++ b/formal/traps.sv
+@@ -21,12 +21,13 @@ module traps #(
+     input logic [31:0] reg_rs2,
+     input executor_output executor_out,
+     input logic divider_stall,
+-    input logic fetch_stall,
++    // The ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`.
++    input logic imem_stall,
+     // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
+     // trap is committed on that cycle either.
+     input logic bus_wait,
+     // Free, like everything else not instantiated here.
+-    input logic imem_fault,
++    input logic rom_fault,
+     // The platform's answer about the address an atomic in decode would use.
+     input logic atomic_supported,
+     input logic accessor_out_valid,
+@@ -35,6 +36,7 @@ module traps #(
+ );
+   logic [31:0] pc, next_pc;
+   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
++  logic        fetch_stall, imem_fault, decoder_issuing, redirect;
+   // The address the decoder publishes for a platform to decode.
+   logic [31:0] atomic_addr;
+   fetcher_output fetcher_out;
+@@ -58,11 +60,17 @@ module traps #(
+     .reset(reset),
+     .pc(pc),
+     .next_pc(next_pc),
++    .issuing(decoder_issuing),
++    .redirect(redirect),
+     .imem_addr(imem_addr),
+     .imem_data(imem_data),
+     .imem_addr2(imem_addr2),
+     .imem_data2(imem_data2),
+     .imem_addr_next(imem_addr_next),
++    .imem_stall(imem_stall),
++    .imem_fault(rom_fault),
++    .fetch_stall(fetch_stall),
++    .fault(imem_fault),
+     .out(fetcher_out)
+   );
+ 
+@@ -95,6 +103,8 @@ module traps #(
+     .interrupt_pending(interrupt_pending),
+     .pc(pc),
+     .next_pc(next_pc),
++    .issuing(decoder_issuing),
++    .redirect(redirect),
+     .read_rs1(read_rs1),
+     .read_rs2(read_rs2),
+     .csr_addr(csr_addr),
+diff --git a/rtl/decoder.v b/rtl/decoder.v
+index 79bfcb9..bbddef4 100644
+--- a/rtl/decoder.v
++++ b/rtl/decoder.v
+@@ -29,6 +29,9 @@ module decoder #(
+   input  logic       accessor_out_valid,
+   output logic [31:0] pc,
+   output logic [31:0] next_pc,
++  // Fetch's view of this cycle: an instruction leaves decode, and not to its successor.
++  output logic        issuing,
++  output logic        redirect,
+   output logic [4:0] rs1,
+   output logic [4:0] rs2,
+   output logic [4:0] read_rs1,
+@@ -642,8 +645,8 @@ module decoder #(
+   // DO NOT ADD `&& in.valid`. The publish block's last two arms do not test it, and if
+   // the two ever disagree a CSR write fires once per stalled cycle with nothing to say
+   // so.
+-  logic issuing;
+   assign issuing = !reset && !stall;
++  assign redirect = trap_taken || instr_mret || instr_jalr || instr_jal || branch_taken;
+ 
+   logic committing;
+   assign committing = issuing && !trap_taken;
+diff --git a/rtl/fetcher.v b/rtl/fetcher.v
+index 72074a4..49eefcf 100644
+--- a/rtl/fetcher.v
++++ b/rtl/fetcher.v
+@@ -1,33 +1,72 @@
+ `timescale 1 ns / 1 ps
+ `default_nettype none
+ `include "structs.v"
++// The fetch address is built from registers alone. Decode reads the window at `pc` off
++// the ROM's output register or off `skid`, the one window fetch has moved past; a guess
++// formed a cycle early steers the ROM to a jump's target, and any miss costs one cycle.
+ module fetcher(
+   input  logic clk,
+   input  logic reset,
+   input  logic [31:0] pc,
++  input  logic [31:0] next_pc,
++  input  logic        issuing,
++  input  logic        redirect,
+   output logic [31:0] imem_addr,
+   input  logic [31:0] imem_data,
+   output logic [31:0] imem_addr2,
+   input  logic [31:0] imem_data2,
+-  // Published one cycle early, so a synchronous memory answers in the cycle `imem_addr`
+-  // names the word.
+-  input  logic [31:0] next_pc,
+   output logic [31:0] imem_addr_next,
++  input  logic        imem_stall,
++  input  logic        imem_fault,
++  output logic        fetch_stall,
++  output logic        fault,
+   output fetcher_output out
+ );
++  logic [29:0] word, rom_addr, fetch_word;
++  logic        rom_hit, hit, pop, skid_load, capture, skid_valid, skid_fault;
++  logic [31:0] skid_lo, skid_hi;
++  logic        guess_valid;
++  logic [31:0] guess_target;
++
++  assign word     = pc[31:2];
++  assign rom_hit  = !imem_stall && rom_addr == word;
++  assign hit      = skid_valid || rom_hit;
++  assign pop      = next_pc[31:2] != word;
++  // The words load off registers alone and the valid bit alone reads decode's answer,
++  // so `next_pc` reaches one flop and not sixty-five enables.
++  assign skid_load = rom_hit && !skid_valid;
++  assign capture   = skid_load && !pop;
++  assign fetch_stall = !hit;
+ 
+-  assign imem_addr  = {pc[31:2], 2'b00};
+-  assign imem_addr2 = imem_addr + 4;
+-  assign imem_addr_next = {next_pc[31:2], 2'b00};
++  assign fetch_word = reset ? 30'd0 :
++                      hit && guess_valid ? guess_target[31:2] : word + {29'b0, hit};
++  assign imem_addr_next = {fetch_word, 2'b00};
++  assign imem_addr      = {rom_addr, 2'b00};
++  assign imem_addr2     = imem_addr + 32'd4;
++
++  always_ff @(posedge clk) begin
++    rom_addr <= fetch_word;
++    if (reset) skid_valid <= 1'b0;
++    else       skid_valid <= capture || (skid_valid && !pop);
++    if (skid_load) begin
++      skid_lo    <= imem_data;
++      skid_hi    <= imem_data2;
++      skid_fault <= imem_fault;
++    end
++  end
++
++  logic [31:0] win_lo, win_hi;
++  assign win_lo = skid_valid ? skid_lo : imem_data;
++  assign win_hi = skid_valid ? skid_hi : imem_data2;
++  assign fault  = skid_valid ? skid_fault : imem_fault;
+ 
+   logic [63:0] fetch_pair;
+-  assign fetch_pair = {imem_data2, imem_data} >> (pc[1] ? 16 : 0);
+-  logic [31:0] windowed_instr;
++  assign fetch_pair = {win_hi, win_lo} >> (pc[1] ? 16 : 0);
++  logic [31:0] windowed_instr, next_word;
++  logic        uncompressed;
+   assign windowed_instr = fetch_pair[31:0];
+-
+-  logic [31:0] next_word;
+-  assign next_word = (windowed_instr[1:0] == 2'b11) ? fetch_pair[63:32]
+-                                                    : fetch_pair[47:16];
++  assign uncompressed   = windowed_instr[1:0] == 2'b11;
++  assign next_word = uncompressed ? fetch_pair[63:32] : fetch_pair[47:16];
+ 
+   always_comb begin
+     if (reset) begin
+@@ -43,4 +82,57 @@ module fetcher(
+     end
+   end
+ 
++  // A word-straddling instruction leaves `next_word`'s upper half empty, so no guess.
++  logic n_jal, n_branch, n_cj, n_cb, candidate, next_whole;
++  assign n_jal    = next_word[1:0] == 2'b11 && next_word[6:2] == 5'b11011;
++  assign n_branch = next_word[1:0] == 2'b11 && next_word[6:2] == 5'b11000;
++  assign n_cj     = next_word[1:0] == 2'b01 && next_word[14:13] == 2'b01;
++  assign n_cb     = next_word[1:0] == 2'b01 && next_word[15:14] == 2'b11;
++  assign candidate  = n_jal || (n_branch && next_word[31]) || n_cj || (n_cb && next_word[12]);
++  assign next_whole = !(uncompressed && pc[1]);
++
++  logic [31:0] n_imm, j_imm, b_imm, cj_imm, cb_imm;
++  assign j_imm  = {{12{next_word[31]}}, next_word[19:12], next_word[20], next_word[30:21],
++                   1'b0};
++  assign b_imm  = {{20{next_word[31]}}, next_word[7], next_word[30:25], next_word[11:8],
++                   1'b0};
++  assign cj_imm = {{20{next_word[12]}}, next_word[12], next_word[8], next_word[10],
++                   next_word[9], next_word[6], next_word[7], next_word[2], next_word[11],
++                   next_word[5], next_word[4], next_word[3], 1'b0};
++  assign cb_imm = {{23{next_word[12]}}, next_word[12], next_word[6:5], next_word[2],
++                   next_word[11:10], next_word[4:3], 1'b0};
++  assign n_imm  = n_jal ? j_imm : n_branch ? b_imm : n_cj ? cj_imm : cb_imm;
++
++  logic [31:0] seq_pc;
++  assign seq_pc = pc + (uncompressed ? 32'd4 : 32'd2);
++
++  always_ff @(posedge clk) begin
++    if (reset)        guess_valid <= 1'b0;
++    else if (issuing) guess_valid <= candidate && next_whole && !redirect;
++    if (issuing) guess_target <= seq_pc + n_imm;
++  end
++
++ `ifdef FORMAL
++  logic clocked;
++  initial clocked = 1'b0;
++  always_ff @(posedge clk) clocked <= 1'b1;
++
++  logic [29:0] skid_word, past_fetch_word;
++  always_ff @(posedge clk) begin
++    if (capture) skid_word <= rom_addr;
++    past_fetch_word <= fetch_word;
++  end
++  always_comb if (clocked) assert(rom_addr == past_fetch_word);
++  always_comb if (clocked && skid_valid) assert(skid_word == word);
++  always_comb if (clocked && !fetch_stall)
++    assert((skid_valid ? skid_word : rom_addr) == word);
++
++  logic prev_fetch_stall;
++  always_ff @(posedge clk) prev_fetch_stall <= fetch_stall;
++  always_ff @(posedge clk) if (clocked && !reset) begin
++    skid_read:   cover (skid_valid && issuing);
++    miss_then_hit: cover (prev_fetch_stall && !fetch_stall);
++    guess_taken: cover (guess_valid && hit && !skid_valid && issuing && pop);
++  end
++ `endif
+ endmodule
+diff --git a/rtl/littlecpu.v b/rtl/littlecpu.v
+index 7ca92e5..8803932 100644
+--- a/rtl/littlecpu.v
++++ b/rtl/littlecpu.v
+@@ -126,14 +126,21 @@ module littlecpu #(
+   assign trap = decoder_trap_entry;
+   logic  [31:0] pc;
+   logic  [31:0] next_pc;
++  logic         decoder_issuing, decoder_redirect, fetch_wait, fetch_fault;
+   fetcher_output fetcher_out;
+   fetcher fetcher(
+     .clk(clk),
+     .reset(reset),
+     .pc(pc),
+     .next_pc(next_pc),
++    .issuing(decoder_issuing),
++    .redirect(decoder_redirect),
+     .imem_data(imem_data),
+     .imem_data2(imem_data2),
++    .imem_stall(fetch_stall),
++    .imem_fault(imem_fault),
++    .fetch_stall(fetch_wait),
++    .fault(fetch_fault),
+     .out(fetcher_out),
+     .imem_addr(imem_addr),
+     .imem_addr2(imem_addr2),
+@@ -189,10 +196,10 @@ module littlecpu #(
+     .reg_rs2(reg_rs2),
+     .executor_out(executor_out),
+     .divider_stall(divider_stalled),
+-    .fetch_stall(fetch_stall),
++    .fetch_stall(fetch_wait),
+     .bus_wait(bus_wait),
+     .bus_request(bus_request),
+-    .imem_fault(imem_fault),
++    .imem_fault(fetch_fault),
+     .atomic_addr(atomic_addr),
+     .atomic_supported(atomic_supported),
+     .accessor_out_valid(accessor_out_valid),
+@@ -213,6 +220,8 @@ module littlecpu #(
+    `endif
+     .pc(pc),
+     .next_pc(next_pc),
++    .issuing(decoder_issuing),
++    .redirect(decoder_redirect),
+     .read_rs1(read_rs1),
+     .read_rs2(read_rs2),
+     .csr_addr(csr_addr),
+diff --git a/test/fetcher_tb.v b/test/fetcher_tb.v
+new file mode 100644
+index 0000000..e461719
+--- /dev/null
++++ b/test/fetcher_tb.v
+@@ -0,0 +1,198 @@
++`timescale 1 ns / 1 ps
++`default_nettype none
++`include "structs.v"
++
++// rtl/fetcher.v over a ROM that answers a cycle late: the window at `pc` is always the
++// ROM's own words, a sequential run and a guessed jump cost no cycle, and a miss, a
++// mispredict or a stolen read costs exactly one.
++module fetcher_tb;
++  localparam int ROM_WORDS = 64;
++  localparam int FAULT_WORD = 32;
++
++  logic clk = 0;
++  always #5 clk = ~clk;
++
++  logic        reset = 1'b1;
++  logic [31:0] pc = 32'b0, next_pc, target = 32'b0, seq_pc;
++  logic        hold_now = 1'b0, steal = 1'b0;
++  logic        issuing, redirect;
++  logic [31:0] imem_addr, imem_addr2, imem_addr_next, imem_data, imem_data2;
++  logic        imem_stall, imem_fault, fetch_stall, fault;
++  fetcher_output out;
++
++  fetcher dut (
++    .clk(clk),
++    .reset(reset),
++    .pc(pc),
++    .next_pc(next_pc),
++    .issuing(issuing),
++    .redirect(redirect),
++    .imem_addr(imem_addr),
++    .imem_data(imem_data),
++    .imem_addr2(imem_addr2),
++    .imem_data2(imem_data2),
++    .imem_addr_next(imem_addr_next),
++    .imem_stall(imem_stall),
++    .imem_fault(imem_fault),
++    .fetch_stall(fetch_stall),
++    .fault(fault),
++    .out(out)
++  );
++
++  logic [31:0] rom[0:ROM_WORDS-1];
++  logic [5:0]  rom_word;
++  assign rom_word = imem_addr_next[7:2];
++  always_ff @(posedge clk) begin
++    imem_data  <= steal ? 32'hdead_beef : rom[rom_word];
++    imem_data2 <= steal ? 32'hfeed_face : rom[rom_word + 6'd1];
++    imem_fault <= rom_word >= FAULT_WORD;
++    imem_stall <= steal;
++  end
++
++  // Decode, reduced to what the fetcher can see of it.
++  assign seq_pc   = pc + (out.instr[1:0] == 2'b11 ? 32'd4 : 32'd2);
++  assign issuing  = !reset && !fetch_stall && !hold_now;
++  assign next_pc  = reset ? 32'b0 : issuing ? target : pc;
++  assign redirect = target != seq_pc;
++  always_ff @(posedge clk) pc <= next_pc;
++
++  logic [31:0] past_addr_next;
++  always_ff @(posedge clk) past_addr_next <= imem_addr_next;
++
++  int errors = 0;
++
++  task automatic check(input string what, input logic [31:0] got, input logic [31:0] expected);
++    begin
++      if (got !== expected) begin
++        $display("MISMATCH %s: got=%08x expected=%08x", what, got, expected);
++        errors++;
++      end
++    end
++  endtask
++
++  task automatic check_window(input string what);
++    logic [63:0] pair;
++    logic [31:0] want_instr, want_next;
++    begin
++      pair = {rom[pc[7:2] + 6'd1], rom[pc[7:2]]} >> (pc[1] ? 16 : 0);
++      want_instr = pair[31:0];
++      want_next  = want_instr[1:0] == 2'b11 ? pair[63:32] : pair[47:16];
++      check({what, ": instr at pc"}, out.instr, want_instr);
++      check({what, ": the word after it"}, out.next_instr, want_next);
++      check({what, ": out.pc"}, out.pc, pc);
++      check({what, ": fault"}, {31'b0, fault}, {31'b0, pc[7:2] >= FAULT_WORD});
++    end
++  endtask
++
++  // One instruction: wait out any miss counting the cycles, hold `holds` cycles with the
++  // window checked on each, then issue it toward `to`, stealing the ROM read on the
++  // issue cycle or the first held cycle if asked.
++  task automatic step(input logic [31:0] at, input logic [31:0] to, input int holds,
++                      input int want_stalls, input logic steal_issue, input logic steal_hold);
++    int stalls, h;
++    string what;
++    begin
++      #1;
++      stalls = 0;
++      h = holds;
++      what = $sformatf("pc %02x -> %02x", at, to);
++      check({what, ": decode is where the script says"}, pc, at);
++      while (fetch_stall) begin
++        stalls++;
++        hold_now = 1'b0;
++        @(posedge clk);
++        #1;
++      end
++      check({what, ": miss cycles before it"}, stalls, want_stalls);
++      while (h > 0) begin
++        check_window({what, " (held)"});
++        hold_now = 1'b1;
++        steal = steal_hold && h == holds;
++        @(posedge clk);
++        #1;
++        steal = 1'b0;
++        h--;
++        check({what, ": a held window stays put"}, {31'b0, fetch_stall}, 32'b0);
++      end
++      check_window(what);
++      hold_now = 1'b0;
++      target = to;
++      steal = steal_issue;
++      @(posedge clk);
++      #1;
++      steal = 1'b0;
++    end
++  endtask
++
++  always @(posedge clk) begin
++    #1;
++    if (!reset) check("the ROM's address is last cycle's fetch address", imem_addr, past_addr_next);
++  end
++
++  initial begin
++    for (int i = 0; i < ROM_WORDS; i++) rom[i] = 32'b0;
++    rom[0]  = 32'h0010_0093;  // addi x1, x0, 1
++    rom[1]  = 32'h0085_0001;  // c.nop; c.addi x1, 1
++    rom[2]  = 32'h0070_0193;  // addi x3, x0, 7
++    rom[3]  = 32'h0213_0001;  // c.nop; the low half of addi x4, x0, 9
++    rom[4]  = 32'h0001_0090;  // its high half; c.nop
++    rom[5]  = 32'h0012_8293;  // addi x5, x5, 1
++    rom[6]  = 32'hfe62_9ee3;  // bne x5, x6, -4  (backward: guessed taken)
++    rom[7]  = 32'h0000_0463;  // beq x0, x0, +8  (forward: not guessed)
++    rom[8]  = 32'h0038_0393;  // addi x7, x0, 3
++    rom[9]  = 32'h3fdd_0001;  // c.nop; c.j -10 (guessed)
++    rom[10] = 32'h0000_0013;
++    rom[11] = 32'h0000_0013;
++    rom[12] = 32'h0010_0093;
++    rom[13] = 32'h0000_0013;
++    rom[14] = 32'h0020_0113;
++    rom[15] = 32'h0030_0193;
++    rom[16] = 32'h0040_0213;
++    rom[17] = 32'h0050_0293;
++    rom[18] = 32'h0060_0313;
++
++    repeat (2) @(posedge clk);
++    #1;
++    reset = 1'b0;
++
++    step(32'h00, 32'h04, 0, 0, 0, 0);
++    step(32'h04, 32'h06, 0, 0, 0, 0);
++    step(32'h06, 32'h08, 0, 0, 0, 0);
++    step(32'h08, 32'h0c, 0, 0, 0, 0);
++    step(32'h0c, 32'h0e, 0, 0, 0, 0);
++    step(32'h0e, 32'h12, 0, 0, 0, 0);   // straddles words 3 and 4
++    step(32'h12, 32'h14, 0, 0, 0, 0);
++    step(32'h14, 32'h18, 0, 0, 0, 0);
++    step(32'h18, 32'h14, 0, 0, 0, 0);   // bne taken: guessed, so the target is free
++    step(32'h14, 32'h18, 0, 0, 0, 0);
++    step(32'h18, 32'h14, 0, 0, 0, 0);
++    step(32'h14, 32'h18, 0, 0, 0, 0);
++    step(32'h18, 32'h1c, 0, 0, 0, 0);   // bne not taken: a mispredict
++    step(32'h1c, 32'h24, 0, 1, 0, 0);   // ...costs one; beq taken forward is unguessed
++    step(32'h24, 32'h26, 0, 1, 0, 0);   // ...and costs one
++    step(32'h26, 32'h1c, 0, 0, 0, 0);   // c.j backward: guessed
++    step(32'h1c, 32'h24, 0, 0, 0, 0);
++    step(32'h24, 32'h26, 0, 1, 0, 0);
++    step(32'h26, 32'h30, 0, 0, 0, 0);   // the guess says 1c; decode goes elsewhere
++    step(32'h30, 32'h34, 0, 1, 0, 0);
++    step(32'h34, 32'h38, 3, 0, 0, 0);   // decode holds three cycles
++    step(32'h38, 32'h3c, 0, 0, 0, 0);
++    step(32'h3c, 32'h40, 0, 0, 1, 0);   // the next read is stolen
++    step(32'h40, 32'h44, 0, 1, 0, 0);
++    step(32'h44, 32'h48, 2, 0, 0, 1);   // stolen while decode holds: nothing is lost
++    step(32'h48, 32'h80, 0, 0, 0, 0);
++    step(32'h80, 32'h00, 0, 1, 0, 0);   // a faulting word arrives with its flag
++    step(32'h00, 32'h04, 0, 1, 0, 0);
++    step(32'h04, 32'h06, 1, 0, 1, 0);   // stolen on the issue of a held compressed pair
++    step(32'h06, 32'h08, 0, 0, 0, 0);
++    step(32'h08, 32'h0c, 0, 0, 0, 0);
++
++    if (errors != 0) begin
++      $display("FAILED: %0d mismatches", errors);
++      $fatal(1);
++    end else begin
++      $display("PASSED: fetcher.v window source, skid, guess, miss, steal and fault");
++      $finish;
++    end
++  end
++endmodule

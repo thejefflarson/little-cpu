@@ -372,6 +372,7 @@ a part this script cannot grade a stamp for is rejected, not guessed at
 a part with no cell-name row is refused rather than defaulted
 a part with no icetime walk reads NA rather than a fabricated zero
 a partial pin missing required fields is not a pin
+a patch whose context no longer matches the tree is red rather than skipped
 a path that does not reconcile blames the script, not the design
 a path with no LUT level at all reports zero rather than dividing by it
 a peripheral inside the timer's reserved span is red
@@ -497,6 +498,7 @@ a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
 a single, fully-excluded manifest is red: a run that tests nothing is not a pass
 a size the parser cannot read stops rather than comparing as zero
+a skid the window never reads is red at the first held instruction
 a slice that selects no checks is an error, not an empty success
 a soc/compare script naming no .lds at all does not sink the scan
 a soc/compare/ change since the stamp's base is STALE, and the file is named
@@ -783,6 +785,7 @@ control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0
 control: every line of the littlecpu-subset manifest marked EXCLUDED is red too
 control: every named source present proceeds
 control: every site names every port of littlecpu
+control: every tracked spike patch applies, and the skid bench passes
 control: fixture_anchor finds its literal in the real file
 control: formal/Makefile also puts the cached suite first
 control: icetime whose chip database resolves is stamped like any tool

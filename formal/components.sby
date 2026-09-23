@@ -34,8 +34,7 @@ read -sv -formal structs.v accessor.v
 prep -top accessor
 
 pcloop:
-read -sv -formal -noassume structs.v fetcher.v
-read -sv structs.v decoder.v regsel.v
+read -sv structs.v fetcher.v decoder.v regsel.v
 read -sv -formal structs.v pcloop.sv
 prep -top pcloop
 

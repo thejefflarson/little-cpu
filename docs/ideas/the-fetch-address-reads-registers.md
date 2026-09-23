@@ -1,6 +1,6 @@
 # The fetch address reads registers, and the register file gets its own stage
 
-**Status:** planned · not started · 2026-09-18. The cycle figures below were re-taken under the
+**Status:** Stage A built on a stacked branch and priced (ADR-0196, ADR-0201, ADR-0205: the four-word queue alone is +585 placed cells); re-spiked from a clean base as a one-window skid (ADR-0206: −1.65% of Dhrystone's cycles, +365 to +418 placed cells, no ECP5 clock at one placement, does not place on the up5k) · 2026-09-21. The rest of this brief is the plan as written on 2026-09-18. The cycle figures below were re-taken under the
 pinned `riscv-none-elf-gcc` 15.2.0-1 (ADR-0190); the ECP5 clock figures and both opponents' products
 predate that pin and are flagged where they appear, because the weekly cross-core stamp has not
 re-taken them yet. The area and Fmax figures for the proposed design are **estimates**, labelled as

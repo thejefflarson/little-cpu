@@ -29,9 +29,6 @@ module decoder #(
   input  logic       accessor_out_valid,
   output logic [31:0] pc,
   output logic [31:0] next_pc,
-  // Fetch's view of this cycle: an instruction leaves decode, and not to its successor.
-  output logic        issuing,
-  output logic        redirect,
   output logic [4:0] rs1,
   output logic [4:0] rs2,
   output logic [4:0] read_rs1,
@@ -645,8 +642,8 @@ module decoder #(
   // DO NOT ADD `&& in.valid`. The publish block's last two arms do not test it, and if
   // the two ever disagree a CSR write fires once per stalled cycle with nothing to say
   // so.
+  logic issuing;
   assign issuing = !reset && !stall;
-  assign redirect = trap_taken || instr_mret || instr_jalr || instr_jal || branch_taken;
 
   logic committing;
   assign committing = issuing && !trap_taken;
