@@ -437,8 +437,27 @@ module decoder (
   always_comb if(!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
 
-  always_comb if (clocked && !out.valid) assert(out.rd == 0);
-  always_comb if (clocked && out.is_interrupt) assert(out.rd == 0);
+  // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
+  // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
+  logic out_valid, out_is_interrupt;
+  logic [4:0] out_rd;
+  logic out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
+    out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu;
+  assign out_valid = out.valid;
+  assign out_is_interrupt = out.is_interrupt;
+  assign out_rd = out.rd;
+  assign out_is_amoswap = out.is_amoswap;
+  assign out_is_amoadd = out.is_amoadd;
+  assign out_is_amoxor = out.is_amoxor;
+  assign out_is_amoand = out.is_amoand;
+  assign out_is_amoor = out.is_amoor;
+  assign out_is_amomin = out.is_amomin;
+  assign out_is_amomax = out.is_amomax;
+  assign out_is_amominu = out.is_amominu;
+  assign out_is_amomaxu = out.is_amomaxu;
+
+  always_comb if (clocked && !out_valid) assert(out_rd == 0);
+  always_comb if (clocked && out_is_interrupt) assert(out_rd == 0);
 
   always_comb if (rs1 == 0) assert(!hazard_rs1);
   always_comb if (rs2 == 0) assert(!hazard_rs2);
@@ -480,8 +499,8 @@ module decoder (
     instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
-  always_comb if (out.valid && !out.is_interrupt)
-    assert($onehot0({out.is_amoswap, out.is_amoadd, out.is_amoxor, out.is_amoand, out.is_amoor,
-      out.is_amomin, out.is_amomax, out.is_amominu, out.is_amomaxu}));
+  always_comb if (out_valid && !out_is_interrupt)
+    assert($onehot0({out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
+      out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu}));
  `endif
 endmodule
