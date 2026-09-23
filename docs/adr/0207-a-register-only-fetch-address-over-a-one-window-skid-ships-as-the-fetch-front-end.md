@@ -1,8 +1,14 @@
-# 0206 — A register-only fetch address over a one-window skid is built, proven, and declined on the up5k
+# 0207 — A register-only fetch address over a one-window skid ships as the fetch front end
 
-Status: Accepted. 2026-09-21. The RTL ships as a tracked patch (`soc/fetch_ahead/skid.patch`,
-graded on every `make test`), not in `rtl/`: the shape is correct, proven, and faster than `main`
-in cycles, and it does not place on the up5k.
+Status: Accepted. 2026-09-21, amended 2026-09-23. The RTL shipped first as a tracked patch
+(`soc/fetch_ahead/skid.patch`) while its up5k fit was in question; it now ships in `rtl/` as the
+real fetch front end on `thejefflarson/fetch-refactor`, the integration branch the rest of the
+fetch refactor stacks on. The shape is correct, proven, and faster than `main` in cycles. It still
+misses the up5k by five placed cells with the flash controller restored — **that overrun is not
+this ADR's to close**: the owner's call is to finish the refactor first and trim cells once, on
+the tree Stage B leaves, rather than shave five cells off a shape that is about to move again.
+`make soc-timing` is expected red on the branch that carries this commit until that trim pass
+lands; every other gate is green.
 
 ## What this is
 
@@ -14,6 +20,11 @@ placed SoC, on Dhrystone, and on ECP5, under a budget of about +250 placed cells
 meets all three; the cheapest one that keeps the cycles is +365 to +418 cells, and no shape moves
 the ECP5 clock at one placement, because the clock Stage A bought came from registering the head
 of the fetch loop and not from decoupling its tail. Both halves of that are the finding.
+
+The amendment below moves that shape from a tracked patch into `rtl/` itself, on the branch the
+rest of the fetch refactor stacks on, and runs the verification the original write-up deferred
+until the shape shipped somewhere: the generated riscv-formal set, `imemcheck`, `make
+cosim-suite`, `make mutation-check` and `make dual-smoke`.
 
 ## The mechanism
 
@@ -134,23 +145,25 @@ What the rows say:
 
 ## The decision
 
-The RTL does not ship. `soc/fetch_ahead/skid.patch` carries it — `rtl/fetcher.v`, the two decoder
-outputs, `rtl/littlecpu.v`'s wiring, both formal harnesses, the `.sby` tasks and
-`test/fetcher_tb.v` — and `soc/fetch_ahead/patches_check.sh` stages the files each tracked patch names
-onto a copy, applies it with no fuzz, and runs this one's bench there, on every `make test` as
-`fetch-ahead-patches-test` — the two older spike patches are graded for applying by the same loop,
-with two forced-red directions in `make probe-gates`: a skid the window never reads fails the
-bench at the first held instruction, and a patch whose context has drifted fails to apply rather
-than being skipped. `rtl/`, `formal/` and `test/` on `main` are untouched, so every gate `main`
-grades is unmoved.
+**The RTL ships**, in `rtl/fetcher.v`, the two decoder outputs, `rtl/littlecpu.v`'s wiring, both
+formal harnesses, their `.sby` tasks and `test/fetcher_tb.v`, on `thejefflarson/fetch-refactor` —
+the integration branch the rest of the fetch refactor stacks on, not `main` directly. The patch
+this shape first shipped as, and the script that staged and graded it
+(`soc/fetch_ahead/skid.patch`, `soc/fetch_ahead/patches_check.sh`), are deleted along with the
+`make test` target and the two probes that graded them: once the shape lives in `rtl/`, every
+gate that already reads `rtl/` — `make test`, `make lint`, `make elaborate-strict`, the formal
+component proofs — grades it directly, and a second grading path over a patch would just be a
+second place the same claim could drift from the code.
 
-**On the up5k the direction is closed at this budget.** The cheapest decoupled fetch that keeps
-`main`'s cycles costs +365 placed cells after churn, the part has about 360 after the flash
-controller, and a pinnable seed needs margin under that. The +250 target is not reachable: the
-skid alone is +158, the control it needs is +135, and a guess that keeps the cycles is +125 —
-the two shapes that drop the guess are inside +330 and outside the cycle ceiling. Stage B's ~200
-cells of later deletions would let the shipping shape place with about 190 to spare, which is a
-decision for the architect against the owner's rule that the credit is not a budget to spend now.
+**On the up5k the fit is still short, and closing it is out of scope here.** The cheapest
+decoupled fetch that keeps `main`'s cycles costs +365 placed cells after churn; the part had
+about 360 free before the flash controller and has five fewer with it back, so this shape does
+not place at 5,285 against 5,280. The owner's direction is to finish the fetch refactor on this
+branch first and spend a single trim pass against the tree Stage B leaves, rather than shave five
+cells from a shape only Stage B's own deletions (about 200 cells, ADR-0205) will make room for
+anyway. `make soc-timing` on this commit, applied to current `main` (474bb03) alone, is the
+number that trim pass starts from — see Verification below. Until it lands, `soc-timing` stays
+red on every branch carrying this commit; that is expected, not a regression to chase here.
 
 **On ECP5 the direction as measured buys nothing**, so there is no clock reason to carry the
 shape on that part either: the decoupling that moves the ECP5 period is the registered head, and
@@ -160,23 +173,20 @@ Stage A built.
 Not built, and named: a 48-bit skid (`w[p]` and `w[p+1]`'s low half, with `w[p+1]`'s upper half
 read off the ROM when it is at `p+1`) saves about 32 cells at the cost of a bubble when a guess
 has moved the ROM and decode's `next_instr` guess reads garbage; a guess restricted to
-uncompressed encodings saves about 25; neither reaches the budget.
+uncompressed encodings saves about 25; neither reaches the budget on its own, and neither is
+needed once Stage B's deletions are in hand.
 
-## Verification of the patched tree
+## Verification
 
-| gate | result |
-|---|---|
-| `make test-units` | 15 benches pass, `fetcher_tb` included |
-| `make cycles` (the suite) | 74/75 pass: `uart.S` retires 1,336 against its 1,381 floor — the poll loop's exit branch is guessed taken and mispredicts once per frame, so fewer loops complete in the fixed window, the same CPI question the floor's own comment names; every other floor holds, `unattributed` 0 |
-| `make -C formal components_pcloop` | `pcloop_cover` reaches all five covers; k-induction passes basecase and induction with the fetcher's three assertions in it |
-| `make -C formal components_traps` | both probes red for their own reason, k-induction passes |
-| `make -C formal remeasure-fg` | F = 6, G = 6, both reproduce |
-| `make lint`, `test/stall_sites_test.py`, `test/comment_density_test.py` | clean |
-| `make dhrystone` | PASS, 1,587,014 cycles, 0.734 DMIPS/MHz |
-| `make soc-timing` on 474bb03 | does not place: 5,285 of 5,280 |
+The first pass (2026-09-21, over the patched tree) ran `make test-units`, `make cycles` (the
+suite), `components_pcloop`, `components_traps`, `make -C formal remeasure-fg`, `make lint`,
+`test/stall_sites_test.py`, `test/comment_density_test.py` and `make dhrystone`, and deferred the
+generated riscv-formal set, `imemcheck`, `make cosim-suite`, `make mutation-check` and
+`make dual-smoke` until the shape shipped somewhere those checks read. This amendment
+(2026-09-23) moved the shape into `rtl/` and ran the deferred five, plus every gate `make test`
+already carries, on the tree that now ships it:
 
-Not run on the patched tree, because the shape does not ship: the generated riscv-formal set,
-`imemcheck` (whose assume block keys `imem_data` off `imem_addr`, which this fetcher publishes as
-the ROM's own address, so the oracle's contract still holds as written), `make cosim-suite`,
-`make mutation-check` and `make dual-smoke`. Whoever re-opens the shape once cells exist owes
-those five before the patch becomes `rtl/`.
+VERIFICATION-TABLE-PLACEHOLDER
+
+`make soc-timing` applied to current `main` (474bb03) alone (no other branch changes):
+SOC-TIMING-PLACEHOLDER — the number the owner's later trim pass starts from.
