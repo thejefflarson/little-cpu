@@ -409,7 +409,8 @@ module executor #(
   logic uses_rs2_rvfi;
   assign uses_rs2_rvfi = ((in_is_add || in_is_sub || in_is_sll || in_is_slt || in_is_sltu ||
     in_is_xor || in_is_srl || in_is_sra || in_is_or || in_is_and || in_is_mul || in_is_mulh ||
-    in_is_mulhu || in_is_mulhsu || in_is_div || in_is_divu || in_is_rem || in_is_remu)) ||
+    in_is_mulhu || in_is_mulhsu || in_is_div || in_is_divu || in_is_rem || in_is_remu) &&
+    !in_is_math_imm) ||
     in_is_sb || in_is_sh || in_is_sw || in_is_beq || in_is_bne || in_is_blt || in_is_bltu ||
     in_is_bge || in_is_bgeu || is_amo || in_is_sc;
   assign rvfi_rs2_valid = uses_rs2_rvfi;
