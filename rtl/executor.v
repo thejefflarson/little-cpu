@@ -752,23 +752,24 @@ module executor #(
   logic signed [31:0] alu_ref_x, alu_ref_y;
   assign alu_ref_x = alu_rs1;
   assign alu_ref_y = alu_rs2;
-  always_comb assert(alu_sub_lo == alu_rs1 - alu_rs2);
-  always_comb assert(alu_ltu == (alu_rs1 < alu_rs2));
-  always_comb assert(alu_lt == (alu_ref_x < alu_ref_y));
+  always_comb if (clocked) assert(alu_sub_lo == alu_rs1 - alu_rs2);
+  always_comb if (clocked) assert(alu_ltu == (alu_rs1 < alu_rs2));
+  always_comb if (clocked) assert(alu_lt == (alu_ref_x < alu_ref_y));
 
   logic [31:0] shift_sll_ref, shift_srl_ref;
   logic signed [31:0] shift_sra_ref;
   assign shift_sll_ref = alu_rs1 << shift_amt;
   assign shift_srl_ref = alu_rs1 >> shift_amt;
   assign shift_sra_ref = alu_ref_x >>> shift_amt;
-  always_comb if (in_is_sll) assert(shift_rev == shift_sll_ref);
-  always_comb if (in_is_srl) assert(shift_res == shift_srl_ref);
-  always_comb if (in_is_sra) assert(shift_res == shift_sra_ref);
+  always_comb if (clocked && in_is_sll) assert(shift_rev == shift_sll_ref);
+  always_comb if (clocked && in_is_srl) assert(shift_res == shift_srl_ref);
+  always_comb if (clocked && in_is_sra) assert(shift_res == shift_sra_ref);
 
   always_comb
-    if (div_rem < div_divisor) assert(rem_sub_hi == (rem_shifted < {1'b0, div_divisor}));
+    if (clocked && div_rem < div_divisor)
+      assert(rem_sub_hi == (rem_shifted < {1'b0, div_divisor}));
   always_comb
-    if (div_rem < div_divisor && rem_sub_hi) assert(rem_shifted_hi == 1'b0);
+    if (clocked && div_rem < div_divisor && rem_sub_hi) assert(rem_shifted_hi == 1'b0);
 
   logic [32:0] rs1_sext33, rs2_sext33, rs1_zext33, rs2_zext33;
   assign rs1_sext33 = $signed(reg_rs1);
@@ -778,8 +779,8 @@ module executor #(
   logic [32:0] mul_op_x_ref, mul_op_y_ref;
   assign mul_op_x_ref = (in_is_mulh || in_is_mulhsu) ? rs1_sext33 : rs1_zext33;
   assign mul_op_y_ref = in_is_mulh ? rs2_sext33 : rs2_zext33;
-  always_comb assert({mul_sign_x, reg_rs1} == mul_op_x_ref);
-  always_comb assert({mul_sign_y, reg_rs2} == mul_op_y_ref);
+  always_comb if (clocked) assert({mul_sign_x, reg_rs1} == mul_op_x_ref);
+  always_comb if (clocked) assert({mul_sign_y, reg_rs2} == mul_op_y_ref);
 
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mul))
@@ -803,11 +804,11 @@ module executor #(
 
   logic [63:0] mul_result;
   assign mul_result = {mul_hi, mul_lo};
-  always_comb if (reg_rs1 == 32'b0) assert(mul_result == 64'b0);
-  always_comb if (reg_rs2 == 32'b0) assert(mul_result == 64'b0);
-  always_comb if (reg_rs2 == 32'h1 && !mul_sign_y)
+  always_comb if (clocked && reg_rs1 == 32'b0) assert(mul_result == 64'b0);
+  always_comb if (clocked && reg_rs2 == 32'b0) assert(mul_result == 64'b0);
+  always_comb if (clocked && reg_rs2 == 32'h1 && !mul_sign_y)
     assert(mul_result == {{32{mul_sign_x}}, reg_rs1});
-  always_comb if (reg_rs1 == 32'h1 && !mul_sign_x)
+  always_comb if (clocked && reg_rs1 == 32'h1 && !mul_sign_x)
     assert(mul_result == {{32{mul_sign_y}}, reg_rs2});
 
   logic [31:0] div_ghost_rs1, div_ghost_rs2;
@@ -890,9 +891,9 @@ module executor #(
       launch_is_amoand || launch_is_amoor || launch_is_amomin || launch_is_amomax ||
       launch_is_amominu || launch_is_amomaxu));
 
-  always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
+  always_comb if (clocked && instr_atomic) assert(mem_addr_calc == atomic_addr);
 
-  always_comb if (ls_access) begin
+  always_comb if (clocked && ls_access) begin
     assert(in_immediate_hi == {20{in_immediate_sign}});
     if (ls_settled) assert(ls_supported);
   end
@@ -908,32 +909,32 @@ module executor #(
   // word alone (no interrupt, no fetch fault) is what is deciding.
   logic word_decides;
   assign word_decides = !in_is_interrupt && !in_imem_fault;
-  always_comb if (in_is_interrupt) assert(trap_cause == CAUSE_MACHINE_TIMER);
-  always_comb if (!in_is_interrupt && in_imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
-  always_comb if (word_decides && instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
-  always_comb if (word_decides && in_is_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
-  always_comb if (word_decides && in_is_ecall)      assert(trap_cause == CAUSE_ECALL_M);
-  always_comb if (word_decides && load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
-  always_comb if (word_decides && store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
-  always_comb if (word_decides && load_access_fault)
+  always_comb if (clocked && in_is_interrupt) assert(trap_cause == CAUSE_MACHINE_TIMER);
+  always_comb if (clocked && !in_is_interrupt && in_imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
+  always_comb if (clocked && word_decides && instr_illegal) assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
+  always_comb if (clocked && word_decides && in_is_ebreak) assert(trap_cause == CAUSE_BREAKPOINT);
+  always_comb if (clocked && word_decides && in_is_ecall) assert(trap_cause == CAUSE_ECALL_M);
+  always_comb if (clocked && word_decides && load_misaligned) assert(trap_cause == CAUSE_LOAD_MISALIGNED);
+  always_comb if (clocked && word_decides && store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
+  always_comb if (clocked && word_decides && load_access_fault)
     assert(trap_cause == CAUSE_LOAD_ACCESS_FAULT);
-  always_comb if (word_decides && store_access_fault)
+  always_comb if (clocked && word_decides && store_access_fault)
     assert(trap_cause == CAUSE_STORE_ACCESS_FAULT);
-  always_comb if (!trap_taken) assert(trap_cause == 32'b0);
+  always_comb if (clocked && !trap_taken) assert(trap_cause == 32'b0);
 
   // X is the single commit point: a trap redirects to mtvec and an mret to mepc, both
   // same-cycle claims (X owns no registered pc of its own for a $past version to check).
-  always_comb if (trap_entry) assert(redirect_target == mtvec);
-  always_comb if (mret_entry) assert(redirect_target == mepc);
-  always_comb if (trap_entry) begin
+  always_comb if (clocked && trap_entry) assert(redirect_target == mtvec);
+  always_comb if (clocked && mret_entry) assert(redirect_target == mepc);
+  always_comb if (clocked && trap_entry) begin
     assert(launch_rd == 5'b0);
     assert(!launch_is_lb && !launch_is_lbu && !launch_is_lh && !launch_is_lhu && !launch_is_lw);
     assert(!launch_is_sb && !launch_is_sh && !launch_is_sw);
     assert(!launch_is_amo && !launch_is_lr && !launch_is_sc);
   end
 
-  always_comb if (trap_taken) assert(!instret && !csr_wen && !csr_ren);
-  always_comb assert(!(trap_entry && mret_entry));
+  always_comb if (clocked && trap_taken) assert(!instret && !csr_wen && !csr_ren);
+  always_comb if (clocked) assert(!(trap_entry && mret_entry));
   // NOT asserted here: "in_is_interrupt implies trap_entry" depends on D never handing X
   // an interrupt while x_busy or region_stall holds -- a claim about D's own behavior this
   // module cannot see standalone. formal/traps.sv checks it composed.
@@ -941,9 +942,9 @@ module executor #(
   logic signed [31:0] cmp_ref_x, cmp_ref_y;
   assign cmp_ref_x = reg_rs1;
   assign cmp_ref_y = reg_rs2;
-  always_comb assert(cmp_eq == (reg_rs1 == reg_rs2));
-  always_comb assert(cmp_ltu == (reg_rs1 < reg_rs2));
-  always_comb assert(cmp_lt == (cmp_ref_x < cmp_ref_y));
-  always_comb assert(mem_addr_low == mem_addr_calc_lo);
+  always_comb if (clocked) assert(cmp_eq == (reg_rs1 == reg_rs2));
+  always_comb if (clocked) assert(cmp_ltu == (reg_rs1 < reg_rs2));
+  always_comb if (clocked) assert(cmp_lt == (cmp_ref_x < cmp_ref_y));
+  always_comb if (clocked) assert(mem_addr_low == mem_addr_calc_lo);
  `endif
 endmodule

@@ -14,8 +14,8 @@ demands of every other graded comparison here.
 
 Both this arm and the region arms next door are reached by the shipping core;
 what this probe asks is not whether the trap happens but whether the comparison
-still separates values. Three cores are built, each one line of rtl/decoder.v
-from the shipping one:
+still separates values. Three cores are built, each one line of rtl/executor.v
+(the mtval mux moved there with the D/X split) from the shipping one:
 
   control      the shipping mtval mux, and the proof must PASS. Without it a
                model that had become unprovable for some unrelated reason would
@@ -52,16 +52,16 @@ from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 # The comparison being probed, found in traps.sv by its text.
 MTVAL_ASSERT = "assert(csr_rdata == prev_tval);"
 
-# One arm of rtl/decoder.v's mtval mux per case, matched in full so a respelling stops
+# One arm of rtl/executor.v's mtval mux per case, matched in full so a respelling stops
 # this file rather than silently probing nothing.
 CASES = {
     "wrong-addr": (
-        "      data_fault:        trap_tval = mem_addr_calc;",
-        "      data_fault:        trap_tval = reg_rs1;",
+        "      data_fault:      trap_tval = mem_addr_calc;",
+        "      data_fault:      trap_tval = reg_rs1;",
     ),
     "wrong-word": (
-        "      instr_illegal:     trap_tval = instr;",
-        "      instr_illegal:     trap_tval = 32'b0;",
+        "      instr_illegal:   trap_tval = in_instr;",
+        "      instr_illegal:   trap_tval = 32'b0;",
     ),
 }
 
@@ -86,25 +86,25 @@ def mtval_assert_line(traps_sv):
         )
     return hits[0]
 
-def mutate(decoder_v, case):
-    """rtl/decoder.v with one arm of the mtval mux reporting the wrong thing."""
+def mutate(executor_v, case):
+    """rtl/executor.v with one arm of the mtval mux reporting the wrong thing."""
     if case == "control":
         for site, _ in CASES.values():
-            if site not in decoder_v:
+            if site not in executor_v:
                 stop(
-                    "rtl/decoder.v no longer spells its mtval mux the way this probe\n"
+                    "rtl/executor.v no longer spells its mtval mux the way this probe\n"
                     "patches it. Re-anchor the mutations on the new spelling -- left\n"
                     "alone this file would build the shipping core three times and\n"
                     "report that an arm it never disturbed is fine."
                 )
-        return decoder_v
+        return executor_v
     site, replacement = CASES[case]
-    if site not in decoder_v:
+    if site not in executor_v:
         stop(
-            f"rtl/decoder.v does not contain this probe's {case} line, so the\n"
+            f"rtl/executor.v does not contain this probe's {case} line, so the\n"
             "mutation is a no-op and that core would be the shipping one."
         )
-    return decoder_v.replace(site, replacement)
+    return executor_v.replace(site, replacement)
 
 def run_case(repo, workdir, sby, config, case):
     """Builds the mutated tree, runs sby, and returns (status, failing lines)."""
@@ -114,8 +114,8 @@ def run_case(repo, workdir, sby, config, case):
     for name in SOURCES:
         shutil.copy(repo / "rtl" / name, root / "src" / name)
     shutil.copy(repo / "formal" / "traps.sv", root / "src" / "traps.sv")
-    decoder = (repo / "rtl" / "decoder.v").read_text()
-    (root / "src" / "decoder.v").write_text(mutate(decoder, case))
+    executor = (repo / "rtl" / "executor.v").read_text()
+    (root / "src" / "executor.v").write_text(mutate(executor, case))
     (root / "probe.sby").write_text(config)
 
     # sby's own exit status is not read: FAIL is the required outcome of two of the three
@@ -146,7 +146,7 @@ def main():
     args = parser.parse_args()
 
     repo = pathlib.Path(args.repo).resolve()
-    for name in ("formal/traps.sv", "rtl/decoder.v"):
+    for name in ("formal/traps.sv", "rtl/executor.v"):
         if not (repo / name).is_file():
             stop(f"{name} is missing from {repo}, so there is nothing to probe.")
     workdir = pathlib.Path(args.workdir).resolve()

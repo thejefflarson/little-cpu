@@ -1,6 +1,5 @@
-// The fetcher, the decoder and the CSR file, wired together the way rtl/littlecpu.v wires
-// them, so that mtvec, mepc, mcause and mstatus are real registers rather than free
-// inputs.
+// The fetcher, D, X and the CSR file, wired together the way rtl/littlecpu.v wires them,
+// so that mtvec, mepc, mcause and mstatus are real registers rather than free inputs.
 `default_nettype none
 
 module traps #(
@@ -19,10 +18,8 @@ module traps #(
     input logic [31:0] imem_data2,
     input logic [31:0] reg_rs1,
     input logic [31:0] reg_rs2,
-    input executor_output executor_out,
-    input logic divider_stall,
     input logic imem_stall,  // the ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`
-    // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
+    // Free, like the others: a hart waiting for the shared bus issues nothing, so no
     // trap is committed on that cycle either.
     input logic bus_wait,
     // Free, like everything else not instantiated here.
@@ -33,34 +30,39 @@ module traps #(
     // The platform's timer line, free every cycle.
     input logic irq_timer
 );
-  logic [31:0] pc, next_pc;
+  logic [31:0] fetch_pc, fetch_pc_next;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
-  logic        fetch_stall, imem_fault, decoder_issuing, redirect;
-  // The address the decoder publishes for a platform to decode.
+  logic        fetch_wait, fetch_fault, decoder_issuing, x_redirect;
+  // The address X publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
+  dx_output dx_out;
   decoder_output decoder_out;
+  executor_output executor_out;
   logic [4:0] read_rs1, read_rs2;
+  logic        x_busy;
   logic [11:0] csr_addr;
   logic        csr_ren, csr_wen, instret;
   logic [31:0] csr_wdata, csr_rdata;
   logic        csr_implemented;
   logic        trap_entry, mret_entry;
+  logic [31:0] trap_cause, trap_epc, trap_tval;
+  logic [31:0] mtvec_value, mepc_value;
+  logic        interrupt_pending;
+  logic [31:0] decoder_predicted_pc;
+  logic [31:0] x_redirect_target;
   // Unread here, and declared anyway: an output connected to an undeclared identifier is
   // an implicit net, which `default_nettype none` makes an error in iverilog and a
   // warning in yosys.
   logic        bus_request;
-  logic [31:0] trap_cause, trap_epc, trap_tval;
-  logic [31:0] mtvec_value, mepc_value;
-  logic        interrupt_pending;
 
   fetcher fetcher (
     .clk(clk),
     .reset(reset),
-    .pc(pc),
-    .next_pc(next_pc),
+    .pc(fetch_pc),
+    .next_pc(fetch_pc_next),
     .issuing(decoder_issuing),
-    .redirect(redirect),
+    .redirect(x_redirect),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
@@ -68,55 +70,71 @@ module traps #(
     .imem_addr_next(imem_addr_next),
     .imem_stall(imem_stall),
     .imem_fault(rom_fault),
-    .fetch_stall(fetch_stall),
-    .fault(imem_fault),
+    .fetch_stall(fetch_wait),
+    .fault(fetch_fault),
     .out(fetcher_out)
   );
+  // fetch_pc ownership lives in the integrator, not in either stage: the guess is D's
+  // (`decoder_predicted_pc`) and the override is X's (`x_redirect`/`x_redirect_target`).
+  assign fetch_pc_next = x_redirect       ? x_redirect_target :
+                         !decoder_issuing ? fetch_pc :
+                                            decoder_predicted_pc;
+  always_ff @(posedge clk) fetch_pc <= reset ? 32'b0 : fetch_pc_next;
 
-  decoder #(
+  decoder decoder (
+    .clk(clk),
+    .reset(reset),
+    .in(fetcher_out),
+    .x_busy(x_busy),
+    .executor_out(executor_out),
+    .fetch_stall(fetch_wait),
+    .bus_wait(bus_wait),
+    .bus_request(bus_request),
+    .imem_fault(fetch_fault),
+    .accessor_out_valid(accessor_out_valid),
+    .issuing(decoder_issuing),
+    .predicted_pc(decoder_predicted_pc),
+    .read_rs1(read_rs1),
+    .read_rs2(read_rs2),
+    .interrupt_pending(interrupt_pending),
+    .x_redirect(x_redirect),
+    .out(dx_out)
+  );
+
+  executor #(
     .LS_TEXT_WORDS(LS_TEXT_WORDS),
     .LS_RAM_BASE(LS_RAM_BASE),
     .LS_RAM_WORDS(LS_RAM_WORDS),
     .LS_TIMER_BASE(LS_TIMER_BASE),
     .LS_UART_BASE(LS_UART_BASE),
     .LS_FLASH_BASE(LS_FLASH_BASE)
-  ) decoder (
+  ) executor (
     .clk(clk),
     .reset(reset),
-    .in(fetcher_out),
+    .in(dx_out),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
-    .executor_out(executor_out),
-    .divider_stall(divider_stall),
-    .fetch_stall(fetch_stall),
-    .bus_wait(bus_wait),
-    .bus_request(bus_request),
-    .imem_fault(imem_fault),
+    .x_busy(x_busy),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
-    .accessor_out_valid(accessor_out_valid),
-    .csr_rdata(csr_rdata),
-    .csr_implemented(csr_implemented),
-    .mtvec(mtvec_value),
-    .mepc(mepc_value),
-    .interrupt_pending(interrupt_pending),
-    .pc(pc),
-    .next_pc(next_pc),
-    .issuing(decoder_issuing),
-    .redirect(redirect),
-    .read_rs1(read_rs1),
-    .read_rs2(read_rs2),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
     .csr_wdata(csr_wdata),
+    .csr_rdata(csr_rdata),
+    .csr_implemented(csr_implemented),
     .instret(instret),
     .trap_entry(trap_entry),
     .trap_cause(trap_cause),
     .trap_epc(trap_epc),
     .trap_tval(trap_tval),
     .mret_entry(mret_entry),
-    .out(decoder_out)
+    .mtvec(mtvec_value),
+    .mepc(mepc_value),
+    .redirect(x_redirect),
+    .redirect_target(x_redirect_target),
+    .launch(decoder_out),
+    .out(executor_out)
   );
 
   csrs csrs (
@@ -171,7 +189,8 @@ module traps #(
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
 
-  // Build every guard from this module's own signals.
+  // Build every guard from this module's own signals -- never a hierarchical read into
+  // an instance, which yosys resolves as a free undriven wire on a warning nothing grades.
   logic [31:0] instr;
   assign instr = (fetcher_out.instr[1:0] == 2'b11) ? fetcher_out.instr
                                                    : {16'b0, fetcher_out.instr[15:0]};
@@ -182,14 +201,10 @@ module traps #(
   assign opcode = instr[6:2];
   assign funct3 = instr[14:12];
 
-  // `issuing` is not a port, but it is exactly this: the decoder counts a retired
-  // instruction on every cycle it issues one that does not trap, and raises trap_entry on
-  // every cycle it issues one that does.
+  // Decode's own `issuing` output already folds in every stall reason, X's x_busy
+  // included, so it is read directly rather than hand-reconstructed.
   logic issuing;
-  assign issuing = instret || trap_entry;
-
-  logic hard_stall;
-  assign hard_stall = divider_stall || fetch_stall || bus_wait;
+  assign issuing = decoder_issuing;
 
   logic [31:0] prev_reg_rs1;
   fetcher_output prev_fetcher_out;
@@ -331,33 +346,33 @@ module traps #(
                       mstatus_addressed)) ||
       (mret_entry && mstatus_addressed);
 
-  logic [31:0] past_pc, prev_mtvec, prev_mepc, prev_rdata, prev_cause, prev_tval;
+  logic [31:0] past_fetch_pc, prev_mtvec, prev_mepc, prev_rdata, prev_cause, prev_tval;
   logic [11:0] prev_csr_addr;
   logic prev_reset, prev_trap_entry, prev_mret_entry, prev_csr_wen;
   logic prev_cause_modelled, prev_counter_ticking, prev_written_by_trap;
   logic prev_mstatus_addressed, prev_mstatus_static;
-  logic prev_interrupt_pending, prev_interrupt_entry, prev_imem_fault;
+  logic prev_interrupt_pending, prev_interrupt_entry, prev_fetch_fault;
   logic [31:0] prev2_rdata;
   logic prev2_reset, prev2_mstatus_addressed, prev2_mstatus_static;
   always_ff @(posedge clk) begin
-    past_pc                <= pc;
+    past_fetch_pc          <= fetch_pc;
     prev_reset             <= reset;
     prev_mtvec             <= mtvec_value;
     prev_mepc              <= mepc_value;
-    prev_rdata             <= csr_rdata;
+    prev_rdata              <= csr_rdata;
     prev_csr_addr          <= csr_addr;
-    prev_csr_wen           <= csr_wen;
+    prev_csr_wen            <= csr_wen;
     prev_trap_entry        <= trap_entry;
-    prev_mret_entry        <= mret_entry;
-    prev_cause             <= expected_cause;
-    prev_tval              <= expected_tval;
+    prev_mret_entry         <= mret_entry;
+    prev_cause              <= expected_cause;
+    prev_tval                <= expected_tval;
     prev_cause_modelled    <= cause_modelled;
     prev_counter_ticking   <= counter_ticking;
     prev_written_by_trap   <= csr_written_by_trap;
     prev_mstatus_addressed <= mstatus_addressed;
     prev_mstatus_static    <= mstatus_static;
     prev_interrupt_pending <= interrupt_pending;
-    prev_imem_fault        <= imem_fault;
+    prev_fetch_fault        <= fetch_fault;
     prev_interrupt_entry   <= trap_entry && interrupt_pending;
 
     prev2_rdata             <= prev_rdata;
@@ -373,7 +388,52 @@ module traps #(
   assign settled = clocked && !prev_reset;
   assign settled2 = settled && !prev2_reset;
 
-  always_comb if (clocked && hard_stall) assert(!issuing);
+  // Named continuous assigns, not part-selects or struct-field reads inside the
+  // always_* blocks below: iverilog cannot build a precise sensitivity entry for those
+  // (ADR-0037's class of defect).
+  logic [30:0] past_fetch_pc_hi;
+  assign past_fetch_pc_hi = past_fetch_pc[31:1];
+  logic csr_rdata_bit3, csr_rdata_bit7, prev_rdata_bit3, prev2_rdata_bit7;
+  logic [1:0] csr_rdata_hi;
+  assign csr_rdata_bit3 = csr_rdata[3];
+  assign csr_rdata_bit7 = csr_rdata[7];
+  assign csr_rdata_hi = csr_rdata[12:11];
+  assign prev_rdata_bit3 = prev_rdata[3];
+  assign prev2_rdata_bit7 = prev2_rdata[7];
+  logic [1:0] mtvec_lo;
+  logic       mepc_bit0;
+  assign mtvec_lo = mtvec_value[1:0];
+  assign mepc_bit0 = mepc_value[0];
+  logic        decoder_out_valid;
+  logic [4:0]  decoder_out_rd;
+  logic decoder_out_is_lb, decoder_out_is_lbu, decoder_out_is_lh, decoder_out_is_lhu,
+    decoder_out_is_lw, decoder_out_is_sb, decoder_out_is_sh, decoder_out_is_sw,
+    decoder_out_is_amo, decoder_out_is_amoswap, decoder_out_is_amoadd, decoder_out_is_amoxor,
+    decoder_out_is_amoand, decoder_out_is_amoor, decoder_out_is_amomin, decoder_out_is_amomax,
+    decoder_out_is_amominu, decoder_out_is_amomaxu, decoder_out_is_lr, decoder_out_is_sc;
+  assign decoder_out_valid = decoder_out.valid;
+  assign decoder_out_rd = decoder_out.rd;
+  assign decoder_out_is_lb = decoder_out.is_lb;
+  assign decoder_out_is_lbu = decoder_out.is_lbu;
+  assign decoder_out_is_lh = decoder_out.is_lh;
+  assign decoder_out_is_lhu = decoder_out.is_lhu;
+  assign decoder_out_is_lw = decoder_out.is_lw;
+  assign decoder_out_is_sb = decoder_out.is_sb;
+  assign decoder_out_is_sh = decoder_out.is_sh;
+  assign decoder_out_is_sw = decoder_out.is_sw;
+  assign decoder_out_is_amo = decoder_out.is_amo;
+  assign decoder_out_is_amoswap = decoder_out.is_amoswap;
+  assign decoder_out_is_amoadd = decoder_out.is_amoadd;
+  assign decoder_out_is_amoxor = decoder_out.is_amoxor;
+  assign decoder_out_is_amoand = decoder_out.is_amoand;
+  assign decoder_out_is_amoor = decoder_out.is_amoor;
+  assign decoder_out_is_amomin = decoder_out.is_amomin;
+  assign decoder_out_is_amomax = decoder_out.is_amomax;
+  assign decoder_out_is_amominu = decoder_out.is_amominu;
+  assign decoder_out_is_amomaxu = decoder_out.is_amomaxu;
+  assign decoder_out_is_lr = decoder_out.is_lr;
+  assign decoder_out_is_sc = decoder_out.is_sc;
+
   always_comb if (clocked && !issuing) assert(!csr_wen && !csr_ren && !mret_entry);
 
   always_comb if (settled && !prev_csr_wen && !prev_trap_entry) begin
@@ -385,51 +445,51 @@ module traps #(
                   !prev_written_by_trap)
     assert(csr_rdata == prev_rdata);
 
-  always_comb if (settled && prev_trap_entry) assert(pc == prev_mtvec);
-  always_comb if (settled && prev_mret_entry) assert(pc == prev_mepc);
+  always_comb if (settled && prev_trap_entry) assert(fetch_pc == prev_mtvec);
+  always_comb if (settled && prev_mret_entry) assert(fetch_pc == prev_mepc);
 
-  always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_pc[31:1], 1'b0});
+  always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_fetch_pc_hi, 1'b0});
 
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  !prev_imem_fault && prev_cause_modelled && csr_addr == MCAUSE)
+                  !prev_fetch_fault && prev_cause_modelled && csr_addr == MCAUSE)
     assert(csr_rdata == prev_cause);
 
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  prev_imem_fault && csr_addr == MCAUSE)
+                  prev_fetch_fault && csr_addr == MCAUSE)
     assert(csr_rdata == 32'd1);
 
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  !prev_imem_fault && prev_cause_modelled && csr_addr == MTVAL)
+                  !prev_fetch_fault && prev_cause_modelled && csr_addr == MTVAL)
     assert(csr_rdata == prev_tval);
 
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  prev_imem_fault && csr_addr == MTVAL)
-    assert(csr_rdata == past_pc);
+                  prev_fetch_fault && csr_addr == MTVAL)
+    assert(csr_rdata == past_fetch_pc);
 
   always_comb if (settled && prev_interrupt_entry && csr_addr == MTVAL)
     assert(csr_rdata == 32'b0);
 
   always_comb if (settled && prev_trap_entry && prev_mstatus_addressed && mstatus_addressed) begin
-    assert(csr_rdata[3] == 1'b0);
-    assert(csr_rdata[7] == prev_rdata[3]);
+    assert(csr_rdata_bit3 == 1'b0);
+    assert(csr_rdata_bit7 == prev_rdata_bit3);
   end
 
   always_comb if (settled && prev_mret_entry && mstatus_addressed) begin
-    assert(csr_rdata[7] == 1'b1);
+    assert(csr_rdata_bit7 == 1'b1);
     if (settled2 && prev2_mstatus_addressed && prev2_mstatus_static)
-      assert(csr_rdata[3] == prev2_rdata[7]);
+      assert(csr_rdata_bit3 == prev2_rdata_bit7);
   end
 
   always_comb if (settled && prev_trap_entry) begin
-    assert(decoder_out.rd == 5'b0);
-    assert(!decoder_out.is_lb && !decoder_out.is_lbu && !decoder_out.is_lh &&
-           !decoder_out.is_lhu && !decoder_out.is_lw);
-    assert(!decoder_out.is_sb && !decoder_out.is_sh && !decoder_out.is_sw);
-    assert(!decoder_out.is_amo);
-    assert(!decoder_out.is_amoswap && !decoder_out.is_amoadd && !decoder_out.is_amoxor &&
-           !decoder_out.is_amoand && !decoder_out.is_amoor && !decoder_out.is_amomin &&
-           !decoder_out.is_amomax && !decoder_out.is_amominu && !decoder_out.is_amomaxu &&
-           !decoder_out.is_lr && !decoder_out.is_sc);
+    assert(decoder_out_rd == 5'b0);
+    assert(!decoder_out_is_lb && !decoder_out_is_lbu && !decoder_out_is_lh &&
+           !decoder_out_is_lhu && !decoder_out_is_lw);
+    assert(!decoder_out_is_sb && !decoder_out_is_sh && !decoder_out_is_sw);
+    assert(!decoder_out_is_amo);
+    assert(!decoder_out_is_amoswap && !decoder_out_is_amoadd && !decoder_out_is_amoxor &&
+           !decoder_out_is_amoand && !decoder_out_is_amoor && !decoder_out_is_amomin &&
+           !decoder_out_is_amomax && !decoder_out_is_amominu && !decoder_out_is_amomaxu &&
+           !decoder_out_is_lr && !decoder_out_is_sc);
   end
 
   always_comb if (clocked) assert(!(trap_entry && instret));
@@ -442,31 +502,31 @@ module traps #(
   always_comb if (clocked) assert(!(trap_entry && (csr_wen || csr_ren)));
 
   always_comb if (clocked && issuing && expected_trap) assert(trap_entry);
-  always_comb if (clocked && issuing && must_not_trap && !interrupt_pending && !imem_fault)
+  always_comb if (clocked && issuing && must_not_trap && !interrupt_pending && !fetch_fault)
     assert(!trap_entry);
 
   always_comb if (clocked && !irq_timer) assert(!interrupt_pending);
-  always_comb if (clocked && csr_addr == MIE && !csr_rdata[7]) assert(!interrupt_pending);
-  always_comb if (clocked && mstatus_addressed && !csr_rdata[3]) assert(!interrupt_pending);
+  always_comb if (clocked && csr_addr == MIE && !csr_rdata_bit7) assert(!interrupt_pending);
+  always_comb if (clocked && mstatus_addressed && !csr_rdata_bit3) assert(!interrupt_pending);
 
   always_comb if (clocked && csr_addr == MIP)
     assert(csr_rdata == {24'b0, irq_timer, 7'b0});
 
   always_comb if (clocked && interrupt_pending)
     assert(!instret && !csr_wen && !csr_ren && !mret_entry);
-  always_comb if (settled && prev_interrupt_entry) assert(!decoder_out.valid);
+  always_comb if (settled && prev_interrupt_entry) assert(!decoder_out_valid);
 
   always_comb if (settled && prev_interrupt_entry)
-    assert(mepc_value == {past_pc[31:1], 1'b0});
+    assert(mepc_value == {past_fetch_pc_hi, 1'b0});
 
   always_comb if (settled && prev_interrupt_entry && csr_addr == MCAUSE)
     assert(csr_rdata == CAUSE_TIMER_IRQ);
 
   always_comb if (settled && prev_trap_entry) assert(!interrupt_pending);
 
-  always_comb if (clocked) assert(mtvec_value[1:0] == 2'b00);
-  always_comb if (clocked) assert(mepc_value[0] == 1'b0);
-  always_comb if (clocked && mstatus_addressed) assert(csr_rdata[12:11] == 2'b11);
+  always_comb if (clocked) assert(mtvec_lo == 2'b00);
+  always_comb if (clocked) assert(mepc_bit0 == 1'b0);
+  always_comb if (clocked && mstatus_addressed) assert(csr_rdata_hi == 2'b11);
  `endif
 endmodule
 
