@@ -186,7 +186,25 @@ generated riscv-formal set, `imemcheck`, `make cosim-suite`, `make mutation-chec
 (2026-09-23) moved the shape into `rtl/` and ran the deferred five, plus every gate `make test`
 already carries, on the tree that now ships it:
 
-VERIFICATION-TABLE-PLACEHOLDER
+| gate | result |
+|---|---|
+| `make -C formal check` | 86/86 generated riscv-formal checks pass; matches `EXPECTED_FAIL` (empty) and `EXPECTED_CHECKS` (86) |
+| `make -C formal imemcheck` `imemcheck_cover` | both PASS; depths 15 (imemcheck, ≥ F+2=8) and 20 (dmemcheck, ≥ F+G+2=14) clear `check-memcheck-depth.py`; cover reaches its statement at step 6 |
+| `make cosim-suite` | 69/75 agree; the divergence list matches `test/COSIM_EXPECTED_FAIL` exactly |
+| `make mutation-check` | PASS; 11 mutations, each caught by exactly the detectors `test/MUTATION_DETECTORS` pairs with it |
+| `make dual-smoke` | OK; both harts retire together, the held-hart-1 mutant correctly reports nothing observed on hart 1 |
+| `make test` | PASS; suite 75/75 (see uart.S note below), every repo-scan target, `make probe-gates` |
+| `make lint` | clean, both RVFI passes |
+| `make elaborate-strict` | clean |
 
-`make soc-timing` applied to current `main` (474bb03) alone (no other branch changes):
-SOC-TIMING-PLACEHOLDER — the number the owner's later trim pass starts from.
+**One floor moved, and it is the same one this ADR already characterized before landing in
+`rtl/`**: `uart.S` retires 1,336 against its prior floor of 1,381 (`test/OBSERVED_FLOOR`, updated
+in this change) — the poll loop's exit branch is a guessed-taken backward branch, a mispredict
+costs one cycle every frame, and fewer polls complete in the fixed window. Every other floor
+holds.
+
+`make soc-timing` on this branch, which is current `main` (474bb03) plus this shape and no other
+RTL change: **`ICESTORM_LC: 5285/5280` (100%), placement fails** ("Failed to expand region").
+That is the number the owner's later trim pass starts from — five cells, not the ADR's earlier
++365-to-+418-against-`main` estimate restated, since it is now a direct placement rather than a
+throwaway measurement off a patched tree.
