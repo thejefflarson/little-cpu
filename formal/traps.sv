@@ -206,18 +206,36 @@ module traps #(
   logic issuing;
   assign issuing = decoder_issuing;
 
-  logic [31:0] prev_reg_rs1;
+  // The trapping instruction's own pc, stable from capture through commit (unlike
+  // fetch_pc, which keeps advancing to the next window underneath a held instruction).
+  logic [31:0] dx_pc;
+  assign dx_pc = dx_out.pc;
+
+  logic [31:0] prev_reg_rs1, prev_reg_rs2;
   fetcher_output prev_fetcher_out;
   logic        prev_issuing;
+  logic [4:0]  dx_out_rs1, dx_out_rs2;
+  assign dx_out_rs1 = dx_out.rs1;
+  assign dx_out_rs2 = dx_out.rs2;
+  logic [4:0]  prev_dx_rs1, prev_dx_rs2;
   always_ff @(posedge clk) begin
     prev_reg_rs1     <= reg_rs1;
+    prev_reg_rs2     <= reg_rs2;
     prev_fetcher_out <= fetcher_out;
     prev_issuing     <= issuing || reset;
+    prev_dx_rs1      <= dx_out_rs1;
+    prev_dx_rs2      <= dx_out_rs2;
   end
-  always_comb if (clocked && !reset && !prev_issuing) begin
-    assume(reg_rs1 == prev_reg_rs1);
-    assume(fetcher_out == prev_fetcher_out);
-  end
+  always_comb if (clocked && !reset && !prev_issuing) assume(fetcher_out == prev_fetcher_out);
+  // The regfile read is synchronous, so the value X reads for reg_rs1 belongs to
+  // whichever register `in.rs1` (== dx_out.rs1, a real captured field, not a guess)
+  // names -- not to whatever D is presenting as its speculative guess for the NEXT
+  // instruction's pair, which keeps moving even while X still holds this one. As long
+  // as dx_out.rs1 itself hasn't changed (D has not issued something new over it),
+  // reg_rs1 must not either -- true for the whole window from issue through commit,
+  // x_busy or not, which a guess-based comparison does not cover.
+  always_comb if (clocked && !reset && dx_out_rs1 == prev_dx_rs1) assume(reg_rs1 == prev_reg_rs1);
+  always_comb if (clocked && !reset && dx_out_rs2 == prev_dx_rs2) assume(reg_rs2 == prev_reg_rs2);
 
   logic [31:0] i_immediate, s_immediate;
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
@@ -346,7 +364,7 @@ module traps #(
                       mstatus_addressed)) ||
       (mret_entry && mstatus_addressed);
 
-  logic [31:0] past_fetch_pc, prev_mtvec, prev_mepc, prev_rdata, prev_cause, prev_tval;
+  logic [31:0] past_fetch_pc, past_dx_pc, prev_mtvec, prev_mepc, prev_rdata, prev_cause, prev_tval;
   logic [11:0] prev_csr_addr;
   logic prev_reset, prev_trap_entry, prev_mret_entry, prev_csr_wen;
   logic prev_cause_modelled, prev_counter_ticking, prev_written_by_trap;
@@ -356,6 +374,7 @@ module traps #(
   logic prev2_reset, prev2_mstatus_addressed, prev2_mstatus_static;
   always_ff @(posedge clk) begin
     past_fetch_pc          <= fetch_pc;
+    past_dx_pc              <= dx_pc;
     prev_reset             <= reset;
     prev_mtvec             <= mtvec_value;
     prev_mepc              <= mepc_value;
@@ -388,11 +407,114 @@ module traps #(
   assign settled = clocked && !prev_reset;
   assign settled2 = settled && !prev2_reset;
 
+  // `expected_trap`/`must_not_trap` above are read alongside `fetcher_out`, the word D
+  // is CURRENTLY looking at -- correct at the issuing cycle itself, but fetch keeps
+  // moving even on a cycle D does not issue, so that word is not what X is holding by
+  // the time it settles the instruction. `reg_rs1`/`reg_rs2` have the same shape: the
+  // regfile's synchronous answer belongs to the address D asked for one cycle back, so
+  // it is correctly timed only from the cycle after D issues onward, never at issue
+  // time itself. `dx_out` (D's own registered output, X's `in`) already holds both the
+  // right word and, combined with a same-cycle regfile read, the right address for as
+  // long as x_busy extends -- decoder.v's own `out <= x_busy ? out : ...` does the
+  // holding, so a second copy of that hold is not needed here. So the model X's
+  // trap_entry is actually checked against is rebuilt from `dx_out.instr` and the
+  // CURRENT `reg_rs1`/`reg_rs2`, evaluated fresh every cycle rather than latched once
+  // at issue and carried forward stale.
+  logic        dx_valid, dx_is_interrupt, dx_imem_fault;
+  logic [31:0] dx_instr;
+  assign dx_valid = dx_out.valid;
+  assign dx_is_interrupt = dx_out.is_interrupt;
+  assign dx_imem_fault = dx_out.imem_fault;
+  assign dx_instr = dx_out.instr;
+
+  logic        c_uncompressed;
+  logic [4:0]  c_opcode;
+  logic [2:0]  c_funct3;
+  assign c_uncompressed = dx_instr[1:0] == 2'b11;
+  assign c_opcode = dx_instr[6:2];
+  assign c_funct3 = dx_instr[14:12];
+
+  logic [31:0] c_i_immediate, c_s_immediate;
+  assign c_i_immediate = {{20{dx_instr[31]}}, dx_instr[31:20]};
+  assign c_s_immediate = {{20{dx_instr[31]}}, dx_instr[31:25], dx_instr[11:7]};
+
+  logic [31:0] c_load_addr, c_store_addr;
+  assign c_load_addr  = $signed(c_i_immediate) + $signed(reg_rs1);
+  assign c_store_addr = $signed(c_s_immediate) + $signed(reg_rs1);
+
+  logic c_is_load_op, c_is_store_op;
+  assign c_is_load_op  = c_uncompressed && c_opcode == 5'b00000;
+  assign c_is_store_op = c_uncompressed && c_opcode == 5'b01000;
+
+  logic c_lw_mis, c_lh_mis, c_sw_mis, c_sh_mis;
+  assign c_lw_mis = c_is_load_op && c_funct3 == 3'b010 && c_load_addr[1:0] != 2'b00;
+  assign c_lh_mis = c_is_load_op && (c_funct3 == 3'b001 || c_funct3 == 3'b101) && c_load_addr[0];
+  assign c_sw_mis = c_is_store_op && c_funct3 == 3'b010 && c_store_addr[1:0] != 2'b00;
+  assign c_sh_mis = c_is_store_op && c_funct3 == 3'b001 && c_store_addr[0];
+
+  logic [31:0] c_data_addr;
+  logic        c_data_mapped;
+  assign c_data_addr = c_is_store_op ? c_store_addr : c_load_addr;
+  assign c_data_mapped = c_data_addr < LS_TEXT_TOP ||
+                         (c_data_addr >= LS_RAM_BASE && c_data_addr < LS_RAM_TOP) ||
+                         (c_data_addr >= LS_TIMER_BASE && c_data_addr < LS_TIMER_TOP) ||
+                         (c_data_addr >= LS_UART_BASE && c_data_addr < LS_UART_TOP) ||
+                         (c_data_addr >= LS_FLASH_BASE && c_data_addr < LS_FLASH_TOP);
+
+  logic c_is_load, c_is_store;
+  assign c_is_load  = c_is_load_op && (c_funct3 == 3'b000 || c_funct3 == 3'b001 ||
+                       c_funct3 == 3'b010 || c_funct3 == 3'b100 || c_funct3 == 3'b101);
+  assign c_is_store = c_is_store_op && (c_funct3 == 3'b000 || c_funct3 == 3'b001 ||
+                       c_funct3 == 3'b010);
+
+  logic c_load_region_fault, c_store_region_fault;
+  assign c_load_region_fault  = c_is_load  && !c_data_mapped && !c_lw_mis && !c_lh_mis;
+  assign c_store_region_fault = c_is_store && !c_data_mapped && !c_sw_mis && !c_sh_mis;
+
+  logic c_is_amo_op, c_is_lr, c_is_sc, c_is_amo, c_is_atomic;
+  logic c_atomic_word_aligned, c_atomic_refused;
+  assign c_is_amo_op = c_uncompressed && c_opcode == 5'b01011 && c_funct3 == 3'b010;
+  assign c_is_lr = c_is_amo_op && dx_instr[31:27] == 5'b00010 && dx_instr[24:20] == 5'b0;
+  assign c_is_sc = c_is_amo_op && dx_instr[31:27] == 5'b00011;
+  assign c_is_amo = c_is_amo_op && (dx_instr[31:27] == 5'b00000 || dx_instr[31:27] == 5'b00001 ||
+                     dx_instr[31:27] == 5'b00100 || dx_instr[31:27] == 5'b01000 ||
+                     dx_instr[31:27] == 5'b01100 || dx_instr[31:27] == 5'b10000 ||
+                     dx_instr[31:27] == 5'b10100 || dx_instr[31:27] == 5'b11000 ||
+                     dx_instr[31:27] == 5'b11100);
+  assign c_is_atomic = c_is_amo || c_is_lr || c_is_sc;
+  assign c_atomic_word_aligned = reg_rs1[1:0] == 2'b00;
+  assign c_atomic_refused = !atomic_supported && c_atomic_word_aligned;
+
+  logic c_reserved_opcode, c_zero_halfword, c_is_illegal;
+  assign c_reserved_opcode = c_uncompressed && c_opcode == 5'b11111;
+  assign c_zero_halfword = dx_instr == 32'h0000_0000;
+  assign c_is_illegal = c_reserved_opcode || c_zero_halfword;
+
+  logic c_is_ecall, c_is_ebreak;
+  assign c_is_ecall  = dx_instr == 32'h0000_0073;
+  assign c_is_ebreak = dx_instr == 32'h0010_0073 || dx_instr == 32'h0000_9002;
+
+  logic c_expected_trap, c_must_not_trap;
+  assign c_expected_trap = c_is_illegal || c_is_ebreak || c_is_ecall ||
+                           c_lw_mis || c_lh_mis || c_sw_mis || c_sh_mis ||
+                           c_load_region_fault || c_store_region_fault ||
+                           (c_is_atomic && c_atomic_refused);
+  assign c_must_not_trap =
+      (c_uncompressed && c_opcode == 5'b01100 && dx_instr[31:25] == 7'b0 &&
+       c_funct3 == 3'b000) ||
+      (c_is_load_op && c_funct3 == 3'b010 && c_load_addr[1:0] == 2'b00 && c_data_mapped) ||
+      (c_is_store_op && c_funct3 == 3'b010 && c_store_addr[1:0] == 2'b00 && c_data_mapped) ||
+      (c_is_atomic && atomic_supported && c_atomic_word_aligned);
+
   // Named continuous assigns, not part-selects or struct-field reads inside the
   // always_* blocks below: iverilog cannot build a precise sensitivity entry for those
   // (ADR-0037's class of defect).
-  logic [30:0] past_fetch_pc_hi;
+  logic [30:0] past_fetch_pc_hi, past_dx_pc_hi;
   assign past_fetch_pc_hi = past_fetch_pc[31:1];
+  // mepc must save the trapping instruction's OWN pc -- dx_out.pc, captured at issue and
+  // held stable through any x_busy wait -- not `fetch_pc`, which keeps advancing to the
+  // next fetch window regardless of whether X is still working the held instruction.
+  assign past_dx_pc_hi = past_dx_pc[31:1];
   logic csr_rdata_bit3, csr_rdata_bit7, prev_rdata_bit3, prev2_rdata_bit7;
   logic [1:0] csr_rdata_hi;
   assign csr_rdata_bit3 = csr_rdata[3];
@@ -434,7 +556,10 @@ module traps #(
   assign decoder_out_is_lr = decoder_out.is_lr;
   assign decoder_out_is_sc = decoder_out.is_sc;
 
-  always_comb if (clocked && !issuing) assert(!csr_wen && !csr_ren && !mret_entry);
+  // Not "!issuing": commitment 5 holds D back (issuing=0) for the WHOLE cycle a
+  // serializing CSR/mret op is in X, which is exactly when csr_wen/csr_ren/mret_entry
+  // fire. What is actually invariant is that nothing commits from an empty slot.
+  always_comb if (clocked && !dx_valid) assert(!csr_wen && !csr_ren && !mret_entry);
 
   always_comb if (settled && !prev_csr_wen && !prev_trap_entry) begin
     assert(mtvec_value == prev_mtvec);
@@ -448,7 +573,7 @@ module traps #(
   always_comb if (settled && prev_trap_entry) assert(fetch_pc == prev_mtvec);
   always_comb if (settled && prev_mret_entry) assert(fetch_pc == prev_mepc);
 
-  always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_fetch_pc_hi, 1'b0});
+  always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_dx_pc_hi, 1'b0});
 
   always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
                   !prev_fetch_fault && prev_cause_modelled && csr_addr == MCAUSE)
@@ -501,9 +626,15 @@ module traps #(
 
   always_comb if (clocked) assert(!(trap_entry && (csr_wen || csr_ren)));
 
-  always_comb if (clocked && issuing && expected_trap) assert(trap_entry);
-  always_comb if (clocked && issuing && must_not_trap && !interrupt_pending && !fetch_fault)
-    assert(!trap_entry);
+  // held_* tracks the instruction X currently holds in `in`, across however many cycles
+  // x_busy takes to settle it; the fused decoder committed same-cycle, but D and X no
+  // longer share one, so this checks the settling cycle rather than a fixed delay.
+  always_comb
+    if (clocked && dx_valid && !x_busy && !dx_is_interrupt && !dx_imem_fault && c_expected_trap)
+      assert(trap_entry);
+  always_comb
+    if (clocked && dx_valid && !x_busy && !dx_is_interrupt && !dx_imem_fault && c_must_not_trap)
+      assert(!trap_entry);
 
   always_comb if (clocked && !irq_timer) assert(!interrupt_pending);
   always_comb if (clocked && csr_addr == MIE && !csr_rdata_bit7) assert(!interrupt_pending);
@@ -512,12 +643,16 @@ module traps #(
   always_comb if (clocked && csr_addr == MIP)
     assert(csr_rdata == {24'b0, irq_timer, 7'b0});
 
-  always_comb if (clocked && interrupt_pending)
-    assert(!instret && !csr_wen && !csr_ren && !mret_entry);
+  // NOT "interrupt_pending -> nothing commits this cycle": X can still be settling an
+  // instruction D captured before the interrupt went pending (D does not abort in-flight
+  // work), so a commit and a pending interrupt legitimately coincide. What is invariant
+  // -- an interrupt commits nothing of its own -- is covered by trap_entry's own launch
+  // flags (`assert(launch_rd==0)` et al on trap_entry, executor.v) and
+  // `assert(!(trap_entry && instret))` below.
   always_comb if (settled && prev_interrupt_entry) assert(!decoder_out_valid);
 
   always_comb if (settled && prev_interrupt_entry)
-    assert(mepc_value == {past_fetch_pc_hi, 1'b0});
+    assert(mepc_value == {past_dx_pc_hi, 1'b0});
 
   always_comb if (settled && prev_interrupt_entry && csr_addr == MCAUSE)
     assert(csr_rdata == CAUSE_TIMER_IRQ);
