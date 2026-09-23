@@ -3254,26 +3254,6 @@ probe "a declared bench with no UNIT_BENCH_SRC_* would build with no design unde
   "monitor_tb is in UNIT_BENCHES with no UNIT_BENCH_SRC_monitor_tb" \
   "$MB UNIT_BENCH_SRC_monitor_tb="
 
-begin_group "soc/fetch_ahead/*.patch"
-
-skid_fixture() {  # $1 = sed expression applied to a copy of skid.patch, or "" for the control
-  local d; d=$(new_case)
-  cp "$REPO/soc/fetch_ahead/skid.patch" "$d/skid.patch"
-  if [ -n "$1" ]; then mutate "$d/skid.patch" "$1"; fi
-  printf '%s' "$d"
-}
-
-probe "control: every tracked spike patch applies, and the skid bench passes" 0 \
-  "fetcher bench passes" "$REPO/soc/fetch_ahead/patches_check.sh"
-
-d=$(skid_fixture "s/^+  assign win_lo = skid_valid ? skid_lo : imem_data;/+  assign win_lo = imem_data;/")
-probe "a skid the window never reads is red at the first held instruction" 1 \
-  "MISMATCH" "$REPO/soc/fetch_ahead/patches_check.sh $d"
-
-d=$(skid_fixture "s/^ module fetcher(/ module fetcher_drifted(/")
-probe "a patch whose context no longer matches the tree is red rather than skipped" 1 \
-  "hunks failed" "$REPO/soc/fetch_ahead/patches_check.sh $d"
-
 begin_group "test/fetchqueue_tb.v"
 
 if ! command -v iverilog > /dev/null 2>&1; then

@@ -126,14 +126,21 @@ module littlecpu #(
   assign trap = decoder_trap_entry;
   logic  [31:0] pc;
   logic  [31:0] next_pc;
+  logic         decoder_issuing, decoder_redirect, fetch_wait, fetch_fault;
   fetcher_output fetcher_out;
   fetcher fetcher(
     .clk(clk),
     .reset(reset),
     .pc(pc),
     .next_pc(next_pc),
+    .issuing(decoder_issuing),
+    .redirect(decoder_redirect),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
+    .imem_stall(fetch_stall),
+    .imem_fault(imem_fault),
+    .fetch_stall(fetch_wait),
+    .fault(fetch_fault),
     .out(fetcher_out),
     .imem_addr(imem_addr),
     .imem_addr2(imem_addr2),
@@ -189,10 +196,10 @@ module littlecpu #(
     .reg_rs2(reg_rs2),
     .executor_out(executor_out),
     .divider_stall(divider_stalled),
-    .fetch_stall(fetch_stall),
+    .fetch_stall(fetch_wait),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
-    .imem_fault(imem_fault),
+    .imem_fault(fetch_fault),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
     .accessor_out_valid(accessor_out_valid),
@@ -213,6 +220,8 @@ module littlecpu #(
    `endif
     .pc(pc),
     .next_pc(next_pc),
+    .issuing(decoder_issuing),
+    .redirect(decoder_redirect),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .csr_addr(csr_addr),

@@ -451,7 +451,8 @@ lint-setup:
 	@'$(SVLINT_DIR)'/bin/svlint --version
 
 UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
-                timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb fetchqueue_tb
+                timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb fetchqueue_tb \
+                fetcher_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
@@ -467,6 +468,7 @@ UNIT_BENCH_SRC_spiflash_tb := rtl/spiflash.v test/spiflash_model.v
 UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
 UNIT_BENCH_SRC_miso_share_enable_tb := soc/miso_share_enable.v
 UNIT_BENCH_SRC_fetchqueue_tb := rtl/fetchqueue.v
+UNIT_BENCH_SRC_fetcher_tb := rtl/structs.v rtl/fetcher.v
 
 # `present` reads the directory in the recipe, not via $(wildcard) -- make caches that
 # and a stale listing could miss a bench that is really there.
@@ -582,10 +584,6 @@ adr-numbering-test:
 .PHONY: makefile-target-test
 makefile-target-test:
 	@./test/makefile_target_test.sh
-
-.PHONY: fetch-ahead-patches-test
-fetch-ahead-patches-test:
-	@./soc/fetch_ahead/patches_check.sh
 
 .PHONY: pll-clock-test
 pll-clock-test:
@@ -732,7 +730,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       nano-oneport-test nano-oneport-startup-test nano-oneport-latch-test nano-oneport-latch-startup-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
-      stall-sites-test pin-help-text-test fetch-ahead-patches-test
+      stall-sites-test pin-help-text-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
