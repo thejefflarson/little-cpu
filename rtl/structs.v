@@ -52,6 +52,86 @@ typedef struct packed {
 } rvfi_shadow;
 `endif
 
+// D's register into X: decode is done, but no register value has been read yet -- `rs1`
+// and `rs2` are register NUMBERS, not values, and `instr` rides along so X can pull the
+// CSR-immediate's raw uimm field and report RVFI's `insn`/illegal `trap_tval` without a
+// second copy of the field-extraction wires.
+typedef struct packed {
+  logic        valid;
+  // Set only for the one-cycle bubble D injects in place of the next instruction when
+  // the timer interrupt is pending. Every other field reads zero; X commits the trap
+  // straight off `pc`, since an interrupt needs no register value.
+  logic        is_interrupt;
+  logic        imem_fault;
+  logic [31:0] pc;
+  logic [31:0] instr;
+  logic [31:0] immediate;
+  logic [4:0]  rd;
+  logic [4:0]  rs1;
+  logic [4:0]  rs2;
+  logic        is_add;
+  logic        is_sub;
+  logic        is_xor;
+  logic        is_or;
+  logic        is_and;
+  logic        is_mul;
+  logic        is_mulh;
+  logic        is_mulhu;
+  logic        is_mulhsu;
+  logic        is_div;
+  logic        is_divu;
+  logic        is_rem;
+  logic        is_remu;
+  logic        is_sll;
+  logic        is_slt;
+  logic        is_sltu;
+  logic        is_srl;
+  logic        is_sra;
+  logic        is_lb;
+  logic        is_lbu;
+  logic        is_lhu;
+  logic        is_lh;
+  logic        is_lw;
+  logic        is_sb;
+  logic        is_sh;
+  logic        is_sw;
+  logic        is_amoswap;
+  logic        is_amoadd;
+  logic        is_amoxor;
+  logic        is_amoand;
+  logic        is_amoor;
+  logic        is_amomin;
+  logic        is_amomax;
+  logic        is_amominu;
+  logic        is_amomaxu;
+  logic        is_lr;
+  logic        is_sc;
+  logic        is_auipc;
+  logic        is_lui;
+  logic        is_jal;
+  logic        is_jalr;
+  logic        is_beq;
+  logic        is_bne;
+  logic        is_blt;
+  logic        is_bltu;
+  logic        is_bge;
+  logic        is_bgeu;
+  logic        is_ecall;
+  logic        is_ebreak;
+  logic        is_mret;
+  logic        is_wfi;
+  logic        is_fence;
+  logic        is_fencei;
+  logic        is_csrrw;
+  logic        is_csrrs;
+  logic        is_csrrc;
+  logic        is_csr_imm;
+  logic        is_csr_access;
+  // True for the nine `*i` math encodings (addi..srai and their compressed forms): `rs2`
+  // is not a register there, it is the shamt/immediate field regsel happened to land on.
+  logic        is_math_imm;
+} dx_output;
+
 typedef struct packed {
   logic        valid;
  `ifdef RISCV_FORMAL
