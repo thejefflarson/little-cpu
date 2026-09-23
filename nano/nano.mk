@@ -55,10 +55,11 @@ nano-liberty-setup:
 	fetch '$(NANO_LATCHMAP_URL)' '$(NANO_LATCHMAP)' '$(NANO_LATCHMAP_SHA256)' || rc=1; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped for the M-mode CSR/trap layer: mcycle/minstret at 64 bits, mtvec/mepc/mcause/mtval/mscratch, mstatus/mie/mip, the region/misalignment fault logic and the RVFI fault-channel reporting it needed, measure 76,982.6 um2 against the QSPI-front-end baseline's 60,859.6.
-override NANO_MAX_UM2 := 79000
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped for the real tt_um top: nano_bus's address decode plus the UART and GPIO peripherals it routes to, in place of area_top.v's synthesis-only pairing, measure 78,566.6 um2 against the CSR/trap layer's own 76,982.6.
+override NANO_MAX_UM2 := 80500
 
-NANO_SRCS := nano/nano.v nano/qspi.v nano/area_top.v
+NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
+             nano/tt/src/tt_um_thejefflarson_nanocpu.v
 
 .PHONY: nano-area
 nano-area:

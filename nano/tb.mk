@@ -202,6 +202,14 @@ nano-qspi-resume-probe:
 nano-qspi-resume-test: nano/tb/nano_qspi_resume.vvp nano-qspi-resume-probe
 	@out=$$(vvp nano/tb/nano_qspi_resume.vvp); echo "$$out"; printf '%s\n' "$$out" | grep -q '^PASS$$'
 
+.PHONY: nano-uio-oe-probe
+nano-uio-oe-probe:
+	@./nano/tb/nano_uio_oe_probe.sh '$(NANO_CFLAGS)'
+
+.PHONY: nano-tt-test
+nano-tt-test: nano-uio-oe-probe
+	@./nano/tb/run_nano_tt_test.sh '$(NANO_CFLAGS)'
+
 # nano-qspi-resume-test's reproduction, plus one clk of injected round-trip latency. On `make test`'s path.
 nano/tb/nano_qspi_latency.vvp: $(NANO_QSPI_RESUME_SRCS)
 	iverilog -g2012 -DQSPI_RESUME_TB_DELAY_CYCLES=1 -o $@ $(NANO_QSPI_RESUME_SRCS)

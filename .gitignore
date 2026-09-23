@@ -156,6 +156,8 @@ nano/tb/nano-qspi-resume-probe/
 nano/tb/nano-qspi-derived-clock-probe/
 nano/tb/nano_qspi_latency.vvp
 nano/tb/nano-qspi-latency-probe/
+nano/tb/nano-tt-test/
+nano/tb/nano-uio-oe-probe/
 tools/
 test/a.out.dSYM/
 .claude/worktrees/
