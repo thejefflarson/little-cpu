@@ -1,9 +1,6 @@
 #!/bin/bash
-# Forces meip.S's own OBSERVED_FLOOR line to catch a program that keeps reporting PASS
-# while skipping the verification between arming the interrupt and reporting it -- the
-# "stopped doing most of its work" regression a retire floor exists to catch, now that
-# the interrupt fires on a program marker rather than a fixed simulated cycle. NOT
-# HERMETIC -- runs the real cross compiler and nano-sim; prerequisite of `make nano-test`.
+# Requires meip.S's retire floor to catch a program that reports PASS while skipping its
+# checks. Not hermetic: runs the real cross compiler and nano-sim.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -44,10 +41,8 @@ fi
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR/asm"
 
-# Arms the interrupt exactly like the shipping test, then reports PASS immediately --
-# skipping the wait loop and both checks (that exactly one interrupt landed, and that
-# its cause is MEIP) the shipping test makes before it does. A regression that silently
-# drops that verification still says PASS; only the retire count tells the two apart.
+# Arms the interrupt, then reports PASS at once, skipping the wait and both checks: it
+# still says PASS, so only the retire count can tell it from the shipping test.
 cat > "$WORKDIR/asm/meip.S" <<'ASM'
 // nano-local, x0-x15. Probe-only mutant of meip.S: arms MEIP then reports PASS with
 // none of the shipping test's own verification, to show that retires fewer
