@@ -630,7 +630,14 @@ VexRiscv on both.
   that ABC folds into the decode reading it, and a register there forbids the sharing), the two
   parts disagree in sign, and the best product of clock against cycles is +0.4%. Redirects are
   7.15% of the suite's issues and 16.92% of Dhrystone's, the opposite ordering from the RAW share,
-  so no depth argument stands on the suite alone.
+  so no depth argument stands on the suite alone. **A register-only fetch address over a
+  one-window skid is `rtl/fetcher.v`, proven in `pcloop` and `traps`** (ADR-0207): it is −1.65%
+  of Dhrystone's cycles and +365 to +418 placed cells against `main`, which the up5k does not
+  hold with the flash controller back, and it moves the ECP5 clock nowhere at one placement — the
+  tail leaves the loop and the head is still the block RAM's output. The clock Stage A saw
+  (ADR-0201) came from a registered head, which is a second window register and a two-cycle
+  redirect: the four-word queue's price by another name. The up5k overrun is owed to a cell-trim
+  pass once the rest of the fetch refactor lands, an owner decision recorded in ADR-0207.
 - **yosys and ABC already do everything derivable from the expression** — dead bits, common
   subexpressions, duplicate adders — so an edit that restates the same arithmetic is a null
   (ADR-0088). **Redundant SOURCE TEXT is not redundant HARDWARE, and it predicts nothing about the

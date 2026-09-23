@@ -21,12 +21,12 @@ module traps #(
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    input logic fetch_stall,
+    input logic imem_stall,  // the ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`
     // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
     // trap is committed on that cycle either.
     input logic bus_wait,
     // Free, like everything else not instantiated here.
-    input logic imem_fault,
+    input logic rom_fault,
     // The platform's answer about the address an atomic in decode would use.
     input logic atomic_supported,
     input logic accessor_out_valid,
@@ -35,6 +35,7 @@ module traps #(
 );
   logic [31:0] pc, next_pc;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
+  logic        fetch_stall, imem_fault, decoder_issuing, redirect;
   // The address the decoder publishes for a platform to decode.
   logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
@@ -58,11 +59,17 @@ module traps #(
     .reset(reset),
     .pc(pc),
     .next_pc(next_pc),
+    .issuing(decoder_issuing),
+    .redirect(redirect),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
     .imem_data2(imem_data2),
     .imem_addr_next(imem_addr_next),
+    .imem_stall(imem_stall),
+    .imem_fault(rom_fault),
+    .fetch_stall(fetch_stall),
+    .fault(imem_fault),
     .out(fetcher_out)
   );
 
@@ -95,6 +102,8 @@ module traps #(
     .interrupt_pending(interrupt_pending),
     .pc(pc),
     .next_pc(next_pc),
+    .issuing(decoder_issuing),
+    .redirect(redirect),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .csr_addr(csr_addr),

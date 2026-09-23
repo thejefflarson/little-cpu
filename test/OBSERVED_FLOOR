@@ -71,7 +71,7 @@ sub.S               421    421
 sw.S                454    454
 textload.S          196    176
 trap.S              302    258
-uart.S             1381   1375   # poll loops around a 10-bit frame: how many times they go round is a CPI question, like mtimer.S. Re-derived when the region wait landed: each poll costs a cycle more, so fewer go round before the frame ends
+uart.S             1336   1330   # poll loops around a 10-bit frame: how many times they go round is a CPI question, like mtimer.S. Re-derived when the one-window skid landed: the poll loop's exit branch is a guessed-taken backward branch, and a guess formed off next_instr mispredicts once per frame, so fewer polls complete in the fixed window
 xor.S               450    450
 xori.S              171    171
 zicsr.S              224    184
