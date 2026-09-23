@@ -53,9 +53,9 @@ module executor #(
   ,
   input  rvfi_csr64   csr_rvfi_mcycle,
   input  rvfi_csr64   csr_rvfi_minstret,
-  input  rvfi_csr32   csr_rvfi_mscratch,
+  input  rvfi_csr32   csr_rvfi_mscratch
   `ifdef RISCV_FORMAL_CSR_MCAUSE
-  input  rvfi_csr32   csr_rvfi_mcause,
+  , input  rvfi_csr32   csr_rvfi_mcause
   `endif
  `endif
 );
