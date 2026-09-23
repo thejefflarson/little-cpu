@@ -640,16 +640,43 @@ module executor #(
   initial state = init;
   always_comb if (clocked) assume(!reset);
 
-  // `in_valid` is left out on purpose: it is not a result-producing class, and a bubble
-  // (every flag zero) is a legal, disjoint fourth case the onehot0 below already covers.
-  always_comb assume($onehot0({in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and,
+  // D writes the whole struct `'0` on every bubble path (reset, a redirect, a stall) --
+  // never just `valid`. Left unconstrained, a free `in` lets a bubble carry a garbage
+  // `imem_fault` or class flag that no real bubble ever has, manufacturing a trap the
+  // rest of this block gates on `in_valid` correctly rejecting.
+  always_comb if (!in_valid) assume(in == '0);
+
+  // `in_valid` is left out on purpose: it is not an instruction class, and a bubble
+  // (every flag zero) is a legal, disjoint case the onehot0 below already covers. This
+  // is decoder.v's own `one_of` set, restated here so the standalone proof gets the same
+  // mutual exclusion D actually guarantees rather than a subset that leaves room for a
+  // free `in_is_ecall`/`in_is_csrrw`/etc. to coincide with an unrelated result-producing
+  // flag and manufacture a spurious trap-cause conflict.
+  always_comb assume($onehot0({in_is_auipc, in_is_jal, in_is_jalr,
+    in_is_beq, in_is_bne, in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu,
+    in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and,
     in_is_sll, in_is_slt, in_is_sltu, in_is_srl, in_is_sra,
     in_is_mul, in_is_mulh, in_is_mulhu, in_is_mulhsu,
     in_is_div, in_is_divu, in_is_rem, in_is_remu,
+    in_is_lui,
     in_is_lb, in_is_lbu, in_is_lh, in_is_lhu, in_is_lw, in_is_sb, in_is_sh, in_is_sw,
+    in_is_ecall, in_is_ebreak,
+    in_is_csrrw, in_is_csrrs, in_is_csrrc,
+    in_is_mret, in_is_wfi, in_is_fence, in_is_fencei,
     in_is_amoswap, in_is_amoadd, in_is_amoxor, in_is_amoand, in_is_amoor,
     in_is_amomin, in_is_amomax, in_is_amominu, in_is_amomaxu,
     in_is_lr, in_is_sc}));
+
+  // `is_csr_access` is D's own registered copy of `instr_csrrw || instr_csrrs ||
+  // instr_csrrc`, not an independent class -- left free it could coincide with an
+  // unrelated flag and manufacture a spurious `csr_readonly_write`.
+  always_comb assume(in_is_csr_access == (in_is_csrrw || in_is_csrrs || in_is_csrrc));
+
+  // D's immediate generator sign-extends every I/S-type field and hands an atomic a
+  // zero immediate (its effective address is rs1 alone) -- properties of D's own
+  // encoding this module cannot derive from a free `in_immediate`.
+  always_comb if (ls_access) assume(in_immediate[31:12] == {20{in_immediate[11]}});
+  always_comb if (instr_atomic) assume(in_immediate == 32'b0);
 
   // Held across a hold cycle so the multi-cycle divide proof below sees the same operands
   // it started with; composed proofs drop this with `-formal -noassume` and check it
@@ -903,7 +930,9 @@ module executor #(
 
   always_comb if (trap_taken) assert(!instret && !csr_wen && !csr_ren);
   always_comb assert(!(trap_entry && mret_entry));
-  always_comb if (in_valid && in_is_interrupt) assert(trap_entry);
+  // NOT asserted here: "in_is_interrupt implies trap_entry" depends on D never handing X
+  // an interrupt while x_busy or region_stall holds -- a claim about D's own behavior this
+  // module cannot see standalone. formal/traps.sv checks it composed.
 
   logic signed [31:0] cmp_ref_x, cmp_ref_y;
   assign cmp_ref_x = reg_rs1;
