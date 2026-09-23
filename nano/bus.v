@@ -1,12 +1,7 @@
 `default_nettype none
-// Routes nano's picorv32-style bus between the QSPI front end (flash for fetch, PSRAM
-// for load/store) and the on-chip UART and GPIO registers. `riscv`'s own load/store
-// region check (RAM_BASE/RAM_WORDS, set by the integrator to PSRAM_BASE and this
-// module's whole window) already refuses anything outside that window before a
-// transaction ever reaches here -- what is left to decide is which sub-region inside it
-// answers. An address that lands inside the window but outside every named sub-region
-// (the space this module reserves for a future mtime/mtimecmp) reads zero and drops a
-// write, the same way an unimplemented CSR does.
+// The core's own region check refuses anything outside this window before it arrives, so
+// what is left is which sub-region answers. The reserved span reads zero and drops a
+// write, the way an unimplemented CSR does.
 module nano_bus #(
   parameter logic [31:0] PSRAM_BASE  = 32'h1000_0000,
   parameter logic [31:0] PSRAM_BYTES = 32'h0080_0000,
@@ -101,8 +96,6 @@ module nano_bus #(
   assign uart_sel = !mem_instr && mem_addr[31:3] == UART_BASE[31:3];
   assign gpio_sel = !mem_instr && mem_addr[31:3] == GPIO_BASE[31:3];
 
-  // Every non-instruction address either lands in exactly one of the three or is the
-  // reserved span, so a single-cycle response covers all four with no wait state.
   assign mem_ready = (mem_instr || psram_sel) ? ctrl_mem_ready : mem_valid;
   assign mem_rdata = mem_instr ? ctrl_mem_rdata :
                       psram_sel ? ctrl_mem_rdata :

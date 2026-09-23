@@ -1,6 +1,5 @@
 #!/bin/sh
-# Builds nano/tb/asm/tt_gpio_uart.S and runs it against the tt_um top through
-# nano/tb/nano_tt_tb.v -- pins only, no peek at the core's internal bus.
+# Builds tt_gpio_uart.S and runs it against the tt_um top through nano_tt_tb.v, pins only.
 set -eu
 
 CFLAGS=$1
@@ -34,8 +33,7 @@ mkdir -p "$WORKDIR"
   "$REPO/nano/tb/asm/tt_gpio_uart.S" -o "$WORKDIR/tt_gpio_uart.elf"
 "$OBJCOPY" -O verilog --verilog-data-width=4 --only-section=.text \
   "$WORKDIR/tt_gpio_uart.elf" "$WORKDIR/tt_gpio_uart.rom.hex"
-# nano_bus subtracts PSRAM_BASE before addressing the PSRAM model, so the model's own
-# array is indexed from zero; --adjust-vma rebases the RAM image to match.
+# nano_bus subtracts PSRAM_BASE, so --adjust-vma rebases the image to the model's zero.
 "$OBJCOPY" -O verilog --verilog-data-width=4 --remove-section=.text \
   --adjust-vma=-0x10000000 "$WORKDIR/tt_gpio_uart.elf" "$WORKDIR/tt_gpio_uart.ram.hex"
 

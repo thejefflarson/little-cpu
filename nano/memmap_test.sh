@@ -1,6 +1,5 @@
 #!/bin/sh
-# Reads nanocpu's memory map out of the RTL that declares it and refuses one region
-# landing inside another's span, the way test/memmap_test.sh does for littlecpu.
+# Reads the map out of the RTL that declares it; refuses one region inside another's span.
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -31,7 +30,6 @@ no_param() {  # $1 = file, $2 = parameter name
   exit 1
 }
 
-# `32'h1000_0000` -> 268435456.
 hex_param() {  # $1 = file, $2 = parameter name
   raw=$(sed -nE "s/.*(parameter|localparam)[[:space:]]+logic[[:space:]]*\[31:0\][[:space:]]*$2[[:space:]]*=[[:space:]]*32'h([0-9a-fA-F_]*).*/\2/p" \
           "$REPO/$1" | head -1 | tr -d _)
@@ -47,13 +45,9 @@ PSRAM_BASE=$(hex_param "$TOP" PSRAM_BASE)
 PSRAM_BYTES=$(hex_param "$TOP" PSRAM_BYTES)
 UART_BASE=$(hex_param nano/uart.v BASE)
 GPIO_BASE=$(hex_param nano/gpio.v BASE)
-# Two words the modules do not size with a parameter, written into their own range
-# tests -- stated here the same way test/memmap_test.sh states the UART's and the SPI
-# controller's.
 UART_BYTES=8
 GPIO_BYTES=8
-# Reserved for the mtime/mtimecmp a sibling change adds: two mtime words plus two
-# mtimecmp words, matching rtl/timer.v's one-hart shape.
+# Reserved for mtime/mtimecmp: four words, rtl/timer.v's one-hart shape.
 RESERVED_BYTES=16
 
 PSRAM_TOP=$((PSRAM_BASE + PSRAM_BYTES))
@@ -76,11 +70,8 @@ the same address from two peripherals at once, and nano_bus's select signals
 would both read true."
 fi
 
-# The core's own load/store region check (riscv's RAM_BASE/RAM_WORDS) is the ONLY
-# thing that faults an out-of-window access; it must cover exactly PSRAM+UART+GPIO+
-# the reserved span, or an address in the gap would either fault when nano_bus would
-# have answered it, or answer (reading zero, from nano_bus's own reserved arm) when
-# the core should have refused it with the address in mtval.
+# The core's own check is the only thing that faults an out-of-window access, so it must
+# cover exactly the span nano_bus routes -- no gap either way.
 RAM_WORDS_RAW=$(sed -nE "s/.*RAM_WORDS[[:space:]]*=[[:space:]]*\(MAP_TOP[[:space:]]*-[[:space:]]*PSRAM_BASE\)[[:space:]]*\/[[:space:]]*4;.*/present/p" "$REPO/$TOP" | head -1)
 if [ "$RAM_WORDS_RAW" != present ]; then
   fail "$TOP no longer derives RAM_WORDS as (MAP_TOP - PSRAM_BASE) / 4. This check
@@ -99,8 +90,6 @@ if [ "$MAP_TOP_RAW" = present ] && [ "$RESERVED_TOP" -eq 0 ]; then
   fail "internal error: RESERVED_TOP computed as zero."
 fi
 
-# alignment: a range test that reads the bits above a window admits any address at a
-# different alignment, matching test/memmap_test.sh's own aligned_window check.
 if [ $((PSRAM_BASE % PSRAM_BYTES)) -ne 0 ]; then
   fail "PSRAM's base $(hexfmt "$PSRAM_BASE") is not a multiple of its own
 $PSRAM_BYTES-byte window."

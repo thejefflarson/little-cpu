@@ -1,9 +1,5 @@
 `default_nettype none
-// A transmit-only UART, 8N1, copied from rtl/uart.v and adapted for nano's picorv32-style
-// valid/ready bus rather than littlecpu's pipelined one: the status word reads `busy`
-// combinationally instead of a cycle late, since nano has no later stage to absorb that
-// lag before the CPU acts on it. A byte written while `busy` is set is DROPPED, not
-// queued, so software polls the status register between bytes.
+// A byte written while `busy` is set is DROPPED, not queued: software polls between bytes.
 module nano_uart #(
   parameter logic [31:0] BASE     = 32'h1080_0000,
   parameter integer      CLOCK_HZ = 64_000_000,

@@ -1,7 +1,4 @@
-// Exercises the UART and GPIO through the tt_um top's own pins -- nano_tt_tb.v drives
-// ui_in and decodes uo_out, never peeking the core's internal bus -- so a wiring mistake
-// in nano/bus.v, nano/uart.v or nano/gpio.v fails here even where the core-only suite
-// cannot see it. x0-x15 only: this core is RV32E.
+// Exercises the UART and GPIO through the top's pins. x0-x15 only: this core is RV32E.
 #include "riscv_test.h"
 
 #define TT_UART_BASE 0x10800000

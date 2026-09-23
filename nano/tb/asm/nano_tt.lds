@@ -1,6 +1,4 @@
-/* Same shape as nano/asm/nano.lds, with ram moved to PSRAM_BASE: nano_bus subtracts that
-   base before indexing the PSRAM model's own array, so ram's origin here is what makes
-   the model's word 0 the program's first RAM word. */
+/* nano.lds with ram at PSRAM_BASE, which nano_bus subtracts to index the model's array. */
 MEMORY {
     rom(rx)  : ORIGIN = 0x00000000, LENGTH = 16K
     ram(!rx) : ORIGIN = 0x10000000, LENGTH = 16K

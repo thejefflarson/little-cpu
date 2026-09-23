@@ -1,7 +1,6 @@
 #!/bin/sh
-# Forces nano_tt_tb.v's uio_oe X check red: a mutant top that leaves one uio_oe bit
-# undriven must fail there, or the check that pad-tristate control is always defined has
-# never actually fired.
+# Forces nano_tt_tb.v's uio_oe X check red: a mutant leaving one bit undriven must fail
+# there, or that check has never fired.
 set -eu
 
 CFLAGS=$1

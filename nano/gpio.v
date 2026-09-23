@@ -1,8 +1,5 @@
 `default_nettype none
-// Two memory-mapped words: an output register the CPU writes and reads back, and an
-// input register reflecting the pad after a two-flop synchroniser. Reads are
-// combinational, unlike littlecpu's UART status byte, because nano's bus has no
-// pipeline stage to absorb a registered read's one-cycle lag.
+// Reads are combinational: this bus has no later stage to absorb a registered read's lag.
 module nano_gpio #(
   parameter logic [31:0] BASE = 32'h1080_0008
 ) (

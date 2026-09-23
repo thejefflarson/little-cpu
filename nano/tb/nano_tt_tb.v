@@ -1,9 +1,7 @@
 `timescale 1ns/1ps
-// Drives the tt_um_thejefflarson_nanocpu top by its own pins -- QSPI on uio, GPIO on
-// ui_in/uo_out[7:1], UART tx on uo_out[0] -- never the core's internal bus, so a wiring
-// mistake in nano/bus.v, nano/uart.v or nano/gpio.v is visible here even when the
-// core-only suite cannot see it. Single clock throughout: cxxrtl cannot fire an
-// `always @(posedge <a derived clock>)`, so every wait below counts real `clk` edges.
+// Drives the top by its pins alone, never the core's internal bus. Single clock
+// throughout: cxxrtl cannot fire `always @(posedge <a derived clock>)`, so every wait
+// below counts real `clk` edges.
 module nano_tt_tb;
   localparam int CLOCK_HZ = 64_000_000;
   localparam int BAUD     = 115_200;
@@ -79,9 +77,8 @@ module nano_tt_tb;
     if ($value$plusargs("RAM=%s", icarus_ram_path)) $readmemh(icarus_ram_path, psram.mem);
   end
 
-  // iverilog is the only leg that carries an X, so it is the only leg that can catch an
-  // undriven or mid-transition uio_oe -- two-state tools drive a free input arbitrarily
-  // and stay green either way.
+  // iverilog is the only leg carrying an X, so the only one that can catch an
+  // undriven uio_oe: a two-state tool drives it arbitrarily and stays green.
   always @(posedge clk) begin
     if (rst_n && $isunknown(uio_oe)) begin
       $display("FAIL: uio_oe is X: %b", uio_oe);

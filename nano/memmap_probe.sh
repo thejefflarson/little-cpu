@@ -24,8 +24,6 @@ if ! out=$("$MM" "$d" 2>&1); then
   red=1
 fi
 
-# The one that matters: GPIO's base moved onto the UART's own base -- still 8-byte
-# aligned, so only the overlap check can catch it.
 d=$(fixture)
 sed -i.bak "s/32'h1080_0008/32'h1080_0000/" "$d/nano/gpio.v"
 if out=$("$MM" "$d" 2>&1); then
@@ -38,8 +36,6 @@ elif ! printf '%s' "$out" | grep -q "GPIO starts at"; then
   red=1
 fi
 
-# The UART's base moved off PSRAM's own top, opening a gap the OR-of-selects design
-# cannot cover as "PSRAM."
 d=$(fixture)
 sed -i.bak "s/32'h1080_0000/32'h1080_1000/" "$d/nano/uart.v"
 if out=$("$MM" "$d" 2>&1); then
@@ -52,8 +48,6 @@ elif ! printf '%s' "$out" | grep -q "PSRAM ends at"; then
   red=1
 fi
 
-# A misaligned GPIO base: a range test on the bits above an 8-byte window admits any
-# address at a different alignment.
 d=$(fixture)
 sed -i.bak "s/32'h1080_0008/32'h1080_0009/" "$d/nano/gpio.v"
 if out=$("$MM" "$d" 2>&1); then
