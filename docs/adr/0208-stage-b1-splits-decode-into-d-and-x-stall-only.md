@@ -183,13 +183,24 @@ ticket's kill criterion asked for, and it reads as the plan predicted, not as a 
 
 ## Area: reported, not gated
 
-`make fit`: 4,677 `ICESTORM_LC` against `main`'s pin of 4,097 (+580) and the branch's own
-4,219-cell budget (over by 458). Both `make fit` and `make soc-timing` are expected red on
-`thejefflarson/fetch-refactor` by the owner's standing decision (ADR-0207) to finish the
-refactor before trimming cells; this stage's own contribution to that overrun — the wider
-D/X register, X's absorbed branch/address/trap/CSR logic, the deleted second `regsel`
-instance and guessed-pair machinery — is not separated out here, since the trim pass reads
-the tree Stage B leaves, not one stage's isolated delta.
+`make fit`: 4,658 `ICESTORM_LC` (after the `/simplify` pass below) against `main`'s pin of
+4,097 (+561) and the branch's own 4,219-cell budget (over by 439). Both `make fit` and
+`make soc-timing` are expected red on `thejefflarson/fetch-refactor` by the owner's
+standing decision (ADR-0207) to finish the refactor before trimming cells; this stage's
+own contribution to that overrun — the wider D/X register, X's absorbed branch/
+address/trap/CSR logic, the deleted second `regsel` instance and guessed-pair machinery —
+is not separated out here, since the trim pass reads the tree Stage B leaves, not one
+stage's isolated delta.
+
+## `/simplify` pass
+
+Four review angles (reuse, simplification, efficiency, altitude) over the diff found two
+genuine duplicate-expression cases in `rtl/executor.v`, both fixed: `instr_atomic`/
+`instr_atomic_write` each re-OR'd the same nine AMO flags `is_amo` computes a few lines
+later (hoisted and reused, `-19` `ICESTORM_LC`), and `redirect`'s comparison recomputed
+`in_pc + pc_inc` a second time next to `resolved_target`'s own copy (hoisted to
+`seq_pc`). `make test`'s cxxrtl leg and `make cosim-suite` both re-confirmed green after
+each change.
 
 ## Decision
 
