@@ -675,7 +675,11 @@ module executor #(
   // D's immediate generator sign-extends every I/S-type field and hands an atomic a
   // zero immediate (its effective address is rs1 alone) -- properties of D's own
   // encoding this module cannot derive from a free `in_immediate`.
-  always_comb if (ls_access) assume(in_immediate[31:12] == {20{in_immediate[11]}});
+  logic [19:0] assume_immediate_hi;
+  logic        assume_immediate_lo_sign;
+  assign assume_immediate_hi = in_immediate[31:12];
+  assign assume_immediate_lo_sign = in_immediate[11];
+  always_comb if (ls_access) assume(assume_immediate_hi == {20{assume_immediate_lo_sign}});
   always_comb if (instr_atomic) assume(in_immediate == 32'b0);
 
   // Held across a hold cycle so the multi-cycle divide proof below sees the same operands

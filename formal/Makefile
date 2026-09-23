@@ -82,8 +82,8 @@ imemcheck-cover-probe: memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby 
                        $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 	python3 $< --harness formal --check imemcheck --workdir memcheck-cover-probe/imemcheck
 
-pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
-              ../rtl/structs.v
+pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
+              ../rtl/regsel.v ../rtl/structs.v
 
 busarbiter_cover: busarbiter_cover.sby busarbiter.sv ../rtl/busarbiter.v
 
@@ -140,22 +140,22 @@ executor-zkt-probe: executor-zkt-probe.py ../rtl/executor.v components.sby
 components_accessor: components.sby ../rtl/accessor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< accessor
-components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
-                   ../rtl/structs.v pcloop.sv
+components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v \
+                   ../rtl/executor.v ../rtl/regsel.v ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
 components_traps: components.sby traps-region-probe traps-tval-probe check-solver-bitwuzla \
-                  ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/csrs.v \
-                  ../rtl/structs.v traps.sv
+                  ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v ../rtl/regsel.v \
+                  ../rtl/csrs.v ../rtl/structs.v traps.sv
 	rm -rf $@
 	sby -f $< traps
 
 .PHONY: traps-region-probe
-traps-region-probe: traps-region-probe.py traps.sv ../rtl/decoder.v
+traps-region-probe: traps-region-probe.py traps.sv ../rtl/executor.v
 	python3 $<
 
 .PHONY: traps-tval-probe
-traps-tval-probe: traps-tval-probe.py traps.sv ../rtl/decoder.v
+traps-tval-probe: traps-tval-probe.py traps.sv ../rtl/executor.v
 	python3 $<
 
 components_busarbiter: components.sby busarbiter_cover busarbiter-probe \

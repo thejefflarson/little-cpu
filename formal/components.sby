@@ -35,13 +35,13 @@ prep -top accessor
 
 pcloop:
 read -sv -formal -noassume structs.v fetcher.v
-read -sv structs.v decoder.v regsel.v
+read -sv structs.v decoder.v executor.v regsel.v
 read -sv -formal structs.v pcloop.sv
 prep -top pcloop
 
 traps:
 # The same split as pcloop and for the same reason, drawn one statement finer.
-read -sv -formal -noassume structs.v fetcher.v decoder.v regsel.v csrs.v
+read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
 read -sv -formal structs.v traps.sv
 prep -top traps
 
@@ -66,6 +66,7 @@ accessor:
 pcloop:
 ../rtl/fetcher.v
 ../rtl/decoder.v
+../rtl/executor.v
 ../rtl/regsel.v
 ../rtl/structs.v
 pcloop.sv
@@ -73,6 +74,7 @@ pcloop.sv
 traps:
 ../rtl/fetcher.v
 ../rtl/decoder.v
+../rtl/executor.v
 ../rtl/regsel.v
 ../rtl/csrs.v
 ../rtl/structs.v
