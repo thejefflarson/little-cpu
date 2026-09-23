@@ -415,12 +415,23 @@ module executor #(
     in_is_bge || in_is_bgeu || is_amo || in_is_sc;
   assign rvfi_rs2_valid = uses_rs2_rvfi;
 
+  // The interrupt bubble itself never retires (`launch.valid` excludes it), so nothing
+  // downstream would ever see `rvfi_intr` if it were reported only on that cycle. It
+  // latches here and reports on the FIRST real retire afterward instead -- the one whose
+  // `pc_rdata` is `mtvec`, where the RVFI pc chain would otherwise look discontinuous.
+  logic pending_intr;
+  always_ff @(posedge clk) begin
+    if (reset) pending_intr <= 1'b0;
+    else if (in_valid && in_is_interrupt) pending_intr <= 1'b1;
+    else if (launch.valid) pending_intr <= 1'b0;
+  end
+
   always_comb begin
     launch.rvfi.pc_wdata = resolved_target;
     launch.rvfi.insn = in_instr;
     launch.rvfi.pc_rdata = in_pc;
     launch.rvfi.trap = trap_pending;
-    launch.rvfi.intr = in_is_interrupt;
+    launch.rvfi.intr = pending_intr;
     launch.rvfi.mem_fault = in_imem_fault || load_access_fault || store_access_fault;
     launch.rvfi.mem_fault_rmask = {4{load_access_fault || (store_access_fault && is_amo)}};
     launch.rvfi.mem_fault_wmask = store_access_fault ? ls_fault_wstrb : 4'b0;
