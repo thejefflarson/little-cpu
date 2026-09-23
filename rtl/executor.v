@@ -273,8 +273,9 @@ module executor #(
     endcase
   end
 
-  logic [31:0] pc_inc, resolved_target;
+  logic [31:0] pc_inc, seq_pc, resolved_target;
   assign pc_inc = in_instr[1:0] == 2'b11 ? 4 : 2;
+  assign seq_pc = in_pc + pc_inc;
   always_comb begin
     case (1'b1)
       trap_taken:                resolved_target = mtvec;
@@ -282,11 +283,11 @@ module executor #(
       in_is_jalr:                resolved_target = ($signed(in_immediate) + $signed(reg_rs1)) &
                                                      32'hfffffffe;
       in_is_jal || branch_taken: resolved_target = in_pc + in_immediate;
-      default:                   resolved_target = in_pc + pc_inc;
+      default:                   resolved_target = seq_pc;
     endcase
   end
 
-  assign redirect = in_valid && !x_busy && !region_stall && (resolved_target != in_pc + pc_inc ||
+  assign redirect = in_valid && !x_busy && !region_stall && (resolved_target != seq_pc ||
     trap_taken || in_is_mret);
   assign redirect_target = resolved_target;
 
