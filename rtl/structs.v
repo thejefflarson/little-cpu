@@ -52,16 +52,11 @@ typedef struct packed {
 } rvfi_shadow;
 `endif
 
-// D's register into X: decode is done, but no register value has been read yet -- `rs1`
-// and `rs2` are register NUMBERS, not values, and `instr` rides along so X can pull the
-// CSR-immediate's raw uimm field and report RVFI's `insn`/illegal `trap_tval` without a
-// second copy of the field-extraction wires.
+// D's register into X: `rs1`/`rs2` are register NUMBERS, and `instr` rides along so X
+// can pull the CSR-immediate's uimm field and report RVFI's `insn`/`trap_tval`.
 typedef struct packed {
   logic        valid;
-  // Set only for the one-cycle bubble D injects in place of the next instruction when
-  // the timer interrupt is pending. Every other field reads zero; X commits the trap
-  // straight off `pc`, since an interrupt needs no register value.
-  logic        is_interrupt;
+  logic        is_interrupt;  // the one-cycle interrupt bubble D injects; else all zero
   logic        imem_fault;
   logic [31:0] pc;
   logic [31:0] instr;
@@ -127,8 +122,7 @@ typedef struct packed {
   logic        is_csrrc;
   logic        is_csr_imm;
   logic        is_csr_access;
-  // True for the nine `*i` math encodings (addi..srai and their compressed forms): `rs2`
-  // is not a register there, it is the shamt/immediate field regsel happened to land on.
+  // True for addi..srai and their compressed forms: `rs2` is a shamt/immediate, not a register.
   logic        is_math_imm;
 } dx_output;
 

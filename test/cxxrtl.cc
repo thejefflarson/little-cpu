@@ -19,13 +19,11 @@
 
 namespace {
 
-// test/asm/sections.lds' `ram` region starts here; the cxxrtl runner subtracts it back
-// out of the `--ram` image's word addresses so they land at the right index in
-// test/testbench.v's `memory` array.
+// test/asm/sections.lds' `ram` region starts here; the runner subtracts it back out of
+// the `--ram` image's word addresses so they land at the right index in `memory`.
 constexpr uint32_t kRamBase = 0x00010000;
 
-// A parsed `objcopy -O verilog --verilog-data-width=4` image: word address (byte address
-// / 4, per that format) -> 32-bit word.
+// A parsed `objcopy -O verilog --verilog-data-width=4` image: word address -> 32-bit word.
 using HexImage = std::map<uint32_t, uint32_t>;
 
 bool parse_verilog_hex(const std::string &path, HexImage &image) {
@@ -74,8 +72,7 @@ bool load_image(cxxrtl::debug_items &items, const std::string &name,
   return true;
 }
 
-// The instruction ROM is two INTERLEAVED BANKS: word W lives in `imem rom_even` at index
-// W/2 when W is even, and in `imem rom_odd` at the same index when it is odd.
+// The ROM is two INTERLEAVED BANKS: word W lives in `rom_even` at W/2 if even, else `rom_odd`.
 bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
   static const char *kBankName[2] = {"imem rom_even", "imem rom_odd"};
   const cxxrtl::debug_item *bank[2];
@@ -101,18 +98,14 @@ bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
   return true;
 }
 
-// The decoder's stall reasons, each read as the named signal rtl/decoder.v drives rather
-// than rebuilt here.
+// The stall reasons, each read as the named signal the RTL drives rather than rebuilt here.
 struct StallReason {
   const char *item;
   int bucket;
 };
 
-// The D/X split (stall-only) deletes the guessed-pair "operand" reason outright -- D
-// presents its own pair, so there is no guess to miss -- and moves the divider and the
-// region wait's deferred answer off decoder.v's own signals: both now report through
-// `x_busy`, X's single "still working `out`" input to D, so their cycles are read off
-// rtl/executor.v's own `divider_busy`/`region_stall` instead.
+// The D/X split deletes "operand" outright and moves the divider/region reasons to
+// rtl/executor.v's `divider_busy`/`region_stall`, both folded into `x_busy` for D.
 constexpr const char *kStallLabels[] = {"divider", "atomic",  "hazard",
                                         "serialize", "fetch", "bus",
                                         "region"};
@@ -141,9 +134,8 @@ struct Args {
   uint32_t console_addr = 0;
 };
 
-// Walks `ram_data` from `addr` and writes what it finds to stdout, stopping at the first
-// NUL or at the end of the simulated RAM. Bytes are taken out of the little-endian words
-// the array holds, which is the same order the core's `sb` writes them in.
+// Walks `ram_data` from `addr` to stdout, stopping at the first NUL or RAM's end, reading
+// bytes out of the little-endian words the array holds -- the order the core's `sb` writes.
 void print_console(const uint32_t *ram_data, size_t ram_words, uint32_t addr) {
   if (addr < kRamBase) {
     std::fprintf(stderr, "error: --console address 0x%08x is below RAM base 0x%08x\n",
@@ -253,8 +245,7 @@ int main(int argc, char **argv) {
     return 3;
   }
 
-  // The observation counters (test/testbench.v).
-  const cxxrtl::debug_item *retires = nullptr;
+  const cxxrtl::debug_item *retires = nullptr;  // observation counters, test/testbench.v
   const cxxrtl::debug_item *spec_retires = nullptr;
   try {
     retires = &all_debug_items.at("rvfi_retires").at(0);
@@ -391,10 +382,8 @@ int main(int argc, char **argv) {
         if (!charged)
           unattributed_cycles++;
 
-        // B1 is stall-only -- no forwarding exists yet to make a hazard's producer
-        // eligible or not -- so every hazard cycle is the same cause; hzA/hzB/hzC stay
-        // in the report format for test/stall_report.py, all folded into hzC, until B2
-        // adds forwarding and the eligibility split means something again.
+        // B1 is stall-only, so every hazard cycle is the same cause; hzA/hzB/hzC stay in
+        // the format for test/stall_report.py, folded into hzC until B2 adds forwarding.
         if (charged_item == hazard_rs1_item || charged_item == hazard_rs2_item)
           hazard_c++;
       }

@@ -53,10 +53,8 @@ does not close it, so this is measured, not proved.
 import argparse
 import sys
 
-# The seven the D/X split has, in the order test/cxxrtl.cc tries them. D presents its
-# own pair (no guess, so no "operand" cycle can exist); the divider and the region wait's
-# deferred answer both report through X's own signals now, since D no longer computes
-# either -- it just holds `out` while X's `x_busy` says so.
+# The seven the D/X split has, in the order test/cxxrtl.cc tries them. No guess exists
+# to miss ("operand" is gone); the divider and region wait report through X's own signals.
 REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus",
            "region"]
 

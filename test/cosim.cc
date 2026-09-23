@@ -166,9 +166,7 @@ int main(int argc, char **argv) {
   try {
     regs_item = &all_debug_items.at("uut regfile regs_a").at(0);
     regs_b_item = &all_debug_items.at("uut regfile regs_b").at(0);
-    // The fetch address register moved to littlecpu.v with the D/X split: decode no
-    // longer owns it, since X's redirect (a cycle behind D) is what corrects it now.
-    pc_item = &all_debug_items.at("uut fetch_pc").at(0);
+    pc_item = &all_debug_items.at("uut fetch_pc").at(0);  // moved out of decoder.v
   } catch (const std::out_of_range &) {
     std::fprintf(stderr,
                  "error: 'uut regfile regs_a' / 'uut regfile regs_b' / "

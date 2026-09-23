@@ -1,42 +1,31 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// D decodes the buffered word and presents the register file a pair -- its own, never a
-// guess -- so the answer X reads next cycle is exactly the pair this cycle's instruction
-// needs. No register value is read here; everything that needs one (branch compare,
-// address arithmetic, the region test, CSR access, every trap but the timer interrupt)
-// commits in X. Fetch-address ownership (`fetch_pc`, and the redirect/predict mux that
-// feeds it) lives in rtl/littlecpu.v, since it spans F and X and no longer belongs to one
-// stage the way the fused decoder owned it.
+// D decodes the buffered word and presents the register file its own pair, never a
+// guess, so X reads the right answer next cycle. Everything needing a register value
+// commits in X; fetch-address ownership lives in rtl/littlecpu.v, since it spans F and X.
 module decoder (
   input  logic clk,
   input  logic reset,
   input  fetcher_output in,
-  // X is still working the instruction it holds (the divider, or the region test's
-  // deferred answer): re-present the same word next cycle, and do not overwrite `out`.
-  input  logic x_busy,
+  input  logic x_busy,  // X still working `out` (the divider, or the region test's wait)
   input  executor_output executor_out,
-  // The fetch port went to a load or store this cycle, so `in.instr` holds a data word
-  // rather than an instruction.
-  input  logic fetch_stall,
+  input  logic fetch_stall,  // the fetch port went to a load/store; `in.instr` is data
   input  logic bus_wait,
-  // Decode's request for the data bus, a cycle before X launches the transaction. The
-  // platform ANDs it against its own grant; a grant term here would close the loop
-  // through the arbiter.
+  // Decode's request for the bus, a cycle before X launches; the platform ANDs it
+  // against its own grant, since a grant term here would close the loop through it.
   output logic bus_request,
   input  logic imem_fault,
   input  logic accessor_out_valid,
   output logic issuing,
-  // The sequential guess for the word after this one -- `+2` or `+4`, never a word-
-  // granular ROM address. X's redirect overrides it on every taken branch or jump; B1
-  // takes that bubble on every one rather than reusing F's own BTFN guess.
+  // The sequential guess `+2`/`+4`, never F's word-granular ROM address. B1 takes the
+  // redirect bubble on every taken branch rather than reusing F's own BTFN guess.
   output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
   input  logic interrupt_pending,
-  // X found the word currently in `in` was fetched down the wrong path (the resolved
-  // target differed from F's guess, a trap, or an `mret`): discard it, unconditionally.
-  // Nothing before X ever commits, so this is the whole kill -- no counter, no list.
+  // `in` was fetched down the wrong path (X's resolved target differed, a trap, or
+  // `mret`): discard it unconditionally. This is the whole kill -- no counter, no list.
   input  logic x_redirect,
   output dx_output out
 );
@@ -267,8 +256,8 @@ module decoder (
   assign instr_csr_access = instr_csrrw || instr_csrrs || instr_csrrc;
   assign is_csr_imm = instr_csrrwi || instr_csrrsi || instr_csrrci;
 
-  // Read off the raw instruction fields, not the muxed `rs1`/`rd`: those would put the
-  // compressed register-select decode in a trap arm.
+  // Raw instruction fields, not the muxed `rs1`/`rd`: those would put the compressed
+  // register-select decode in a trap arm.
   logic instr_error, instr_mret, instr_wfi, instr_cebreak;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 &&
     rs1_field == 5'b0 && rd_field == 5'b0;
@@ -309,10 +298,8 @@ module decoder (
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // No forwarding in this stage (B2 adds it): a RAW match against the instruction X is
-  // currently resolving, or the one it just resolved and has not yet unpacked, simply
-  // stalls. A match against `executor_out` covers the load/AMO case, where the retired
-  // value is still a cycle away through `accessor_out`.
+  // No forwarding (B2 adds it): a RAW match against `out` (X's current instruction) or
+  // `executor_out` (its still-unpacked result, e.g. a pending load) simply stalls.
   logic dx_match_rs1, dx_match_rs2, ex_match_rs1, ex_match_rs2;
   assign dx_match_rs1 = out.valid && out.rd == rs1;
   assign dx_match_rs2 = out.valid && out.rd == rs2;
@@ -324,37 +311,32 @@ module decoder (
   assign hazard_rs2 = uses_rs2 && rs2 != 0 && (dx_match_rs2 || ex_match_rs2);
   assign hazard = hazard_rs1 || hazard_rs2;
 
-  // Two reasons share one wait, and narrowing it to suit one breaks the other: a CSR
-  // access or `mret` must not interleave with older instructions, and `fence.i` waits
-  // because text is writable and the fetch address goes out a cycle early.
+  // Two reasons share one wait: a CSR access or `mret` must not interleave with older
+  // instructions, and `fence.i` waits because text is writable and fetch goes out early.
   logic pipe_drained, serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
   assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
 
-  // X has already consumed the AMO in `out`; re-presenting it would retire it twice, so
-  // this bubbles rather than holds.
+  // X already consumed the AMO in `out`; re-presenting it would retire it twice.
   logic out_is_amo, atomic_stall;
   assign out_is_amo = out.is_amoswap || out.is_amoadd || out.is_amoxor || out.is_amoand ||
     out.is_amoor || out.is_amomin || out.is_amomax || out.is_amominu || out.is_amomaxu;
   assign atomic_stall = out.valid && out_is_amo && !x_busy;
 
   logic stall_own, stall;
-  // X still working `out` holds the whole pipeline: nothing here may present a
-  // different pair (X needs `out`'s own answer to keep arriving) or let the fetch
-  // address race ahead of the word `out` is still waiting on.
+  // X still working `out` holds the whole pipeline: neither the presented pair nor the
+  // fetch address may move on while X still needs `out`'s own answer.
   assign stall_own = hazard || serialize || fetch_stall || atomic_stall || x_busy;
   assign stall = stall_own || bus_wait;
 
-  // Over-asking is deliberate: a store-conditional with no reservation makes no
-  // transaction, and X may yet find this instruction traps. Under-asking would put two
-  // initiators on the bus at once.
+  // Over-asking is deliberate (a store-conditional with no reservation makes no
+  // transaction, and X may yet find this instruction traps); under-asking is not.
   assign bus_request = !reset && !stall_own &&
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
-  // While X is still working `out`, keep presenting `out`'s own pair -- the regfile
-  // answers a cycle late, and X needs that answer to keep matching the instruction it is
-  // holding, not whatever the fetch stream now shows.
+  // While X works `out`, keep presenting `out`'s own pair: the regfile answers a cycle
+  // late, and X needs that answer to match what it holds, not the fetch stream now.
   assign read_rs1 = x_busy ? out.rs1 : rs1;
   assign read_rs2 = x_busy ? out.rs2 : rs2;
 

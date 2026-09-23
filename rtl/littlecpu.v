@@ -125,10 +125,7 @@ module littlecpu #(
   logic accessor_out_valid;
   logic decoder_trap_entry;
   assign trap = decoder_trap_entry;
-  // Fetch-address ownership: `fetch_pc` advances on F's own guess (the fetcher's own
-  // `imem_addr_next`) while D keeps issuing, and X's redirect -- one cycle behind D --
-  // overrides it exactly when the resolved target differs from what was guessed. A
-  // stalled D holds `fetch_pc`, so a re-presented word is not a new fetch.
+  // `fetch_pc` advances on D's own guess while issuing; a stalled D holds it instead.
   logic  [31:0] fetch_pc;
   logic  [31:0] fetch_pc_next;
   logic         decoder_issuing, fetch_wait, fetch_fault;
@@ -156,12 +153,7 @@ module littlecpu #(
     .imem_addr_next(fetcher_imem_addr_next)
   );
   assign imem_addr_next = fetcher_imem_addr_next;
-  // Never F's own word-granular `imem_addr_next`: a compressed instruction advances the
-  // architectural pc by 2, not by a whole 32-bit ROM word. F's own BTFN/jal guess still
-  // steers what it prefetches into the skid; B1 does not consume it for `fetch_pc`, so
-  // every taken branch or jump costs the same one-cycle redirect bubble as a miss would.
-  // The redirect always wins: it corrects a fetch already known wrong, independent of
-  // whatever D is doing with a different (older) word this same cycle.
+  // Never F's word-granular `imem_addr_next`. The redirect always wins over D's stall.
   assign fetch_pc_next = x_redirect        ? x_redirect_target :
                          !decoder_issuing  ? fetch_pc :
                                              decoder_predicted_pc;
@@ -296,15 +288,12 @@ module littlecpu #(
 
   accessor_output accessor_out;
   assign accessor_out_valid = accessor_out.valid;
-  // The bus transaction launches from X's own combinational view of the instruction it is
-  // resolving, the same cycle X registers `executor_out` for it, so a synchronous memory
-  // answers when `in` (below) arrives.
+  // The transaction launches from X's own view, the cycle it registers `executor_out`.
   accessor accessor(
     .clk(clk),
     .reset(reset),
     .launch(decoder_out),
-    // `launch.valid` already excludes a held (x_busy) cycle, so nothing re-presents.
-    .launch_taken(1'b1),
+    .launch_taken(1'b1),  // launch.valid already excludes a held (x_busy) cycle
     .in(executor_out),
     .mem_addr(mem_addr),
     .mem_wstrb(mem_wstrb),

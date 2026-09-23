@@ -1,12 +1,10 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// X is where a register value first exists in this pipeline, so everything that reads
-// one lands here: the ALU, the branch compare, the effective address and its region
-// test, every trap (a timer interrupt commits off `in_is_interrupt` alone, needing no
-// register), and CSR access. `launch` is X's own combinational view of the instruction it
-// is resolving this cycle -- mem_addr, the store/AMO data, the class flags -- read by the
-// accessor the same cycle so a synchronous memory answers when `out` (below) arrives.
+// X is where a register value first exists, so the ALU, the branch compare, the address
+// and its region test, every trap but the timer interrupt, and CSR access land here.
+// `launch` is X's combinational view of the instruction it resolves, read by the
+// accessor the same cycle so a synchronous memory answers when `out` below arrives.
 module executor #(
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
@@ -41,10 +39,7 @@ module executor #(
   input  logic [31:0] mtvec,
   input  logic [31:0] mepc,
 
-  // The redirect the fetch address arbitrates against a guess with: high exactly when
-  // the resolved target differs from what F already guessed, never merely because this
-  // instruction is a branch or jump.
-  output logic         redirect,
+  output logic         redirect,  // resolved target != D's guess, a trap, or mret
   output logic [31:0]  redirect_target,
 
   output decoder_output launch,
@@ -59,9 +54,8 @@ module executor #(
   `endif
  `endif
 );
-  // Named continuous assigns rather than part-selects inside the always_* blocks below,
-  // for which iverilog cannot build a precise sensitivity entry (ADR-0037's class of
-  // defect).
+  // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
+  // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
   logic        in_valid, in_is_interrupt, in_imem_fault;
   logic [31:0] in_pc, in_instr, in_immediate;
   logic [4:0]  in_rd, in_rs1, in_rs2;
@@ -91,8 +85,8 @@ module executor #(
   logic [31:0] csr_arg;
   assign csr_arg = in_is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
 
-  // Zicsr's suppression rules. Skipping the write is what makes `csrr` legal on a
-  // read-only CSR; `csr_read_op` exists only so RVFI reports the right read mask.
+  // Zicsr's suppression rules: skipping the write is what makes `csrr` legal on a
+  // read-only CSR. `csr_read_op` exists only so RVFI reports the right read mask.
   logic csr_src_zero, csr_write_op, csr_read_op;
   assign csr_src_zero = rs1_field == 5'b0;
   assign csr_write_op = in_is_csr_access && !((in_is_csrrs || in_is_csrrc) && csr_src_zero);
@@ -111,8 +105,6 @@ module executor #(
   assign instr_ls_store = in_is_sb || in_is_sh || in_is_sw;
   assign ls_access = instr_ls_load || instr_ls_store;
 
-  // Reads the whole sum, and drives only the flip-flop below, which keeps the carry chain
-  // out of a decision the fetch loop no longer waits on.
   localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
   logic ls_supported;
@@ -155,8 +147,7 @@ module executor #(
   assign region_stall = in_valid && ls_access && !ls_settled && !ls_answer_valid;
   assign ls_capture = region_stall;
 
-  // Held until X finishes with this instruction, not for one cycle: under a bus wait a
-  // one-cycle answer would expire before D can hand X a fresh grant to ask about.
+  // Held until X finishes, not one cycle: a one-cycle answer would expire under a wait.
   always_ff @(posedge clk) begin
     if (reset) begin
       ls_answer       <= 1'b0;
@@ -313,8 +304,6 @@ module executor #(
   assign divider_busy = state != init;
   assign x_busy = divider_busy || region_stall;
 
-  // The ALU's own inputs, overridden the same way the accessor's `launch.rs1/rs2` are
-  // not: those instructions never reach the accessor.
   logic [31:0] alu_rs1, alu_rs2;
   always_comb begin
     (* parallel_case *)
@@ -337,18 +326,13 @@ module executor #(
       end
       default: begin
         alu_rs1 = reg_rs1;
-        // addi/slti/sltiu/xori/ori/andi read the immediate, not a second register; a
-        // shift immediate's amount comes from `shift_amt` below instead, so this value
-        // is unused on that path.
-        alu_rs2 = in_is_math_imm ? in_immediate : reg_rs2;
+        alu_rs2 = in_is_math_imm ? in_immediate : reg_rs2;  // shift imm uses shift_amt below
       end
     endcase
   end
 
-  // A trapping instruction still retires -- RVFI must see it, with `rvfi_trap` set -- it
-  // just writes no register and starts no bus transaction. `executing` gates everything
-  // that would otherwise act on it; `launch.valid` does not, or the trap would vanish
-  // from the retire stream instead of reporting itself.
+  // A trap still retires (`rvfi_trap` set, no register write, no transaction);
+  // `executing` gates that, and `launch.valid` must not or the trap vanishes.
   logic executing;
   assign executing = in_valid && !in_is_interrupt && !region_stall && !x_busy && !trap_taken;
   assign launch.valid = in_valid && !in_is_interrupt && !region_stall && !x_busy;
@@ -384,11 +368,8 @@ module executor #(
   assign launch.is_sb = executing && in_is_sb;
   assign launch.is_sh = executing && in_is_sh;
   assign launch.is_sw = executing && in_is_sw;
-  // A local wire, not a read of `launch.is_amo`: yosys's dataflow analysis treats every
-  // field of a struct port as one node, so a later assign reading a field the way
-  // `launch.is_amo` is read below would appear as feedback through `launch` itself.
-  // Ungated by `executing` on purpose: the RVFI fault-mask logic below reads it for a
-  // TRAPPING amo, where `executing` is false by construction.
+  // Not a read of `launch.is_amo` (would read as feedback through the struct port);
+  // ungated by `executing`, since the RVFI fault mask below needs it for a trapping amo.
   logic is_amo;
   assign is_amo = in_is_amoswap || in_is_amoadd || in_is_amoxor || in_is_amoand ||
     in_is_amoor || in_is_amomin || in_is_amomax || in_is_amominu || in_is_amomaxu;
@@ -417,10 +398,8 @@ module executor #(
     in_is_bge || in_is_bgeu || is_amo || in_is_sc;
   assign rvfi_rs2_valid = uses_rs2_rvfi;
 
-  // The interrupt bubble itself never retires (`launch.valid` excludes it), so nothing
-  // downstream would ever see `rvfi_intr` if it were reported only on that cycle. It
-  // latches here and reports on the FIRST real retire afterward instead -- the one whose
-  // `pc_rdata` is `mtvec`, where the RVFI pc chain would otherwise look discontinuous.
+  // The interrupt bubble never retires, so `rvfi_intr` latches and reports on the first
+  // real retire afterward instead, at `mtvec`.
   logic pending_intr;
   always_ff @(posedge clk) begin
     if (reset) pending_intr <= 1'b0;
@@ -463,9 +442,8 @@ module executor #(
   assign alu_ltu = alu_sub[32];
   assign alu_lt  = (alu_rs1[31] ^ alu_rs2[31]) ? alu_rs1[31] : alu_sub[32];
 
-  // `in_rs2` is the shamt field's bits for an immediate shift (`regsel` extracts the same
-  // field position `rs2` would occupy), and `alu_rs2`'s low bits are the shift amount for
-  // a register shift.
+  // `in_rs2` is the shamt field for an immediate shift; a register shift's amount is
+  // `alu_rs2`'s low bits.
   logic [4:0] shift_amt;
   assign shift_amt = in_is_math_imm ? in_rs2 : alu_rs2[4:0];
 
@@ -487,15 +465,12 @@ module executor #(
   assign div_x = (in_is_div || in_is_rem) && reg_rs1[31] ? ~(reg_rs1 - 32'd1) : reg_rs1;
   assign div_y = (in_is_div || in_is_rem) && reg_rs2[31] ? ~(reg_rs2 - 32'd1) : reg_rs2;
 
-  // A dividend whose top half is zero would spend sixteen iterations shifting those zeros
-  // past the divisor, so the loop starts sixteen in, loaded with the state they would
-  // have left.
+  // A zero-top-half dividend skips the 16 iterations that would just shift zeros past it.
   logic div_skip;
   assign div_skip = div_x[31:16] == 16'b0;
 
   logic [6:0]  mul_div_counter;
-  // div_quot holds the dividend: a quotient bit shifts in at the bottom as each dividend
-  // bit leaves the top.
+  // div_quot holds the dividend; a quotient bit shifts in as each dividend bit leaves.
   logic [31:0] div_rem, div_quot, div_divisor_n;
   logic [31:0] div_divisor;
   assign div_divisor = ~div_divisor_n;
@@ -525,8 +500,7 @@ module executor #(
   assign mul_sign_x = reg_rs1[31] & (in_is_mulh | in_is_mulhsu);
   assign mul_sign_y = reg_rs2[31] & in_is_mulh;
 
-  // A negative operand contributes one subtraction of the other at bit 32, so the signed
-  // high half is the unsigned product's with two conditional subtracts.
+  // A negative operand contributes one subtraction at bit 32: two conditional subtracts.
   logic [63:0] mul_unsigned;
   logic [31:0] mul_lo, mul_hi;
   assign mul_unsigned = reg_rs1 * reg_rs2;
@@ -549,8 +523,7 @@ module executor #(
       op_sign_x <= 0;
       op_sign_y <= 0;
     end else if (region_stall) begin
-      // Still waiting on the deferred region answer: nothing resolves this cycle.
-      out.valid <= 1'b0;
+      out.valid <= 1'b0;  // still waiting on the deferred region answer
     end else begin
       // Assigned outside the case on purpose: the cycle a divide completes must publish
       // its own answer, not the one latched when it issued.
