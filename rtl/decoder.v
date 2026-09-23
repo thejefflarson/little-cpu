@@ -27,9 +27,17 @@ module decoder (
   input  logic imem_fault,
   input  logic accessor_out_valid,
   output logic issuing,
+  // The sequential guess for the word after this one -- `+2` or `+4`, never a word-
+  // granular ROM address. X's redirect overrides it on every taken branch or jump; B1
+  // takes that bubble on every one rather than reusing F's own BTFN guess.
+  output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
   input  logic interrupt_pending,
+  // X found the word currently in `in` was fetched down the wrong path (the resolved
+  // target differed from F's guess, a trap, or an `mret`): discard it, unconditionally.
+  // Nothing before X ever commits, so this is the whole kill -- no counter, no list.
+  input  logic x_redirect,
   output dx_output out
 );
   logic [31:0] instr;
@@ -331,7 +339,10 @@ module decoder (
   assign atomic_stall = out.valid && out_is_amo && !x_busy;
 
   logic stall_own, stall;
-  assign stall_own = hazard || serialize || fetch_stall || atomic_stall;
+  // X still working `out` holds the whole pipeline: nothing here may present a
+  // different pair (X needs `out`'s own answer to keep arriving) or let the fetch
+  // address race ahead of the word `out` is still waiting on.
+  assign stall_own = hazard || serialize || fetch_stall || atomic_stall || x_busy;
   assign stall = stall_own || bus_wait;
 
   // Over-asking is deliberate: a store-conditional with no reservation makes no
@@ -341,16 +352,22 @@ module decoder (
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
-  assign read_rs1 = rs1;
-  assign read_rs2 = rs2;
+  // While X is still working `out`, keep presenting `out`'s own pair -- the regfile
+  // answers a cycle late, and X needs that answer to keep matching the instruction it is
+  // holding, not whatever the fetch stream now shows.
+  assign read_rs1 = x_busy ? out.rs1 : rs1;
+  assign read_rs2 = x_busy ? out.rs2 : rs2;
 
   assign issuing = !reset && !stall;
+  assign predicted_pc = fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
 
   always_ff @(posedge clk) begin
     if (reset) begin
       out <= '0;
     end else if (x_busy) begin
       out <= out;
+    end else if (x_redirect) begin
+      out <= '0;
     end else if (stall) begin
       out <= '0;
     end else if (interrupt_pending) begin

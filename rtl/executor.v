@@ -335,7 +335,10 @@ module executor #(
       end
       default: begin
         alu_rs1 = reg_rs1;
-        alu_rs2 = reg_rs2;
+        // addi/slti/sltiu/xori/ori/andi read the immediate, not a second register; a
+        // shift immediate's amount comes from `shift_amt` below instead, so this value
+        // is unused on that path.
+        alu_rs2 = in_is_math_imm ? in_immediate : reg_rs2;
       end
     endcase
   end
@@ -373,8 +376,13 @@ module executor #(
   assign launch.is_sb = in_is_sb;
   assign launch.is_sh = in_is_sh;
   assign launch.is_sw = in_is_sw;
-  assign launch.is_amo = in_is_amoswap || in_is_amoadd || in_is_amoxor || in_is_amoand ||
+  // A local wire, not a read of `launch.is_amo`: yosys's dataflow analysis treats every
+  // field of a struct port as one node, so a later assign reading a field the way
+  // `launch.is_amo` is read below would appear as feedback through `launch` itself.
+  logic is_amo;
+  assign is_amo = in_is_amoswap || in_is_amoadd || in_is_amoxor || in_is_amoand ||
     in_is_amoor || in_is_amomin || in_is_amomax || in_is_amominu || in_is_amomaxu;
+  assign launch.is_amo = is_amo;
   assign launch.is_amoswap = in_is_amoswap;
   assign launch.is_amoadd = in_is_amoadd;
   assign launch.is_amoxor = in_is_amoxor;
@@ -395,7 +403,7 @@ module executor #(
     in_is_xor || in_is_srl || in_is_sra || in_is_or || in_is_and || in_is_mul || in_is_mulh ||
     in_is_mulhu || in_is_mulhsu || in_is_div || in_is_divu || in_is_rem || in_is_remu)) ||
     in_is_sb || in_is_sh || in_is_sw || in_is_beq || in_is_bne || in_is_blt || in_is_bltu ||
-    in_is_bge || in_is_bgeu || launch.is_amo || in_is_sc;
+    in_is_bge || in_is_bgeu || is_amo || in_is_sc;
   assign rvfi_rs2_valid = uses_rs2_rvfi;
 
   always_comb begin
@@ -405,7 +413,7 @@ module executor #(
     launch.rvfi.trap = trap_pending;
     launch.rvfi.intr = in_is_interrupt;
     launch.rvfi.mem_fault = in_imem_fault || load_access_fault || store_access_fault;
-    launch.rvfi.mem_fault_rmask = {4{load_access_fault || (store_access_fault && launch.is_amo)}};
+    launch.rvfi.mem_fault_rmask = {4{load_access_fault || (store_access_fault && is_amo)}};
     launch.rvfi.mem_fault_wmask = store_access_fault ? ls_fault_wstrb : 4'b0;
     launch.rvfi.mem_fault_addr = {mem_addr_calc[31:2], 2'b00};
     launch.rvfi.rs1_addr = rvfi_rs1_valid ? in_rs1 : 5'b0;

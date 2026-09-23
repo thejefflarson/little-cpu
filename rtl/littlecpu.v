@@ -134,6 +134,7 @@ module littlecpu #(
   logic         decoder_issuing, fetch_wait, fetch_fault;
   logic         x_redirect;
   logic  [31:0] x_redirect_target;
+  logic  [31:0] decoder_predicted_pc;
   fetcher_output fetcher_out;
   logic  [31:0] fetcher_imem_addr_next;
   fetcher fetcher(
@@ -155,9 +156,15 @@ module littlecpu #(
     .imem_addr_next(fetcher_imem_addr_next)
   );
   assign imem_addr_next = fetcher_imem_addr_next;
-  assign fetch_pc_next = !decoder_issuing ? fetch_pc :
-                         x_redirect       ? x_redirect_target :
-                                            fetcher_imem_addr_next;
+  // Never F's own word-granular `imem_addr_next`: a compressed instruction advances the
+  // architectural pc by 2, not by a whole 32-bit ROM word. F's own BTFN/jal guess still
+  // steers what it prefetches into the skid; B1 does not consume it for `fetch_pc`, so
+  // every taken branch or jump costs the same one-cycle redirect bubble as a miss would.
+  // The redirect always wins: it corrects a fetch already known wrong, independent of
+  // whatever D is doing with a different (older) word this same cycle.
+  assign fetch_pc_next = x_redirect        ? x_redirect_target :
+                         !decoder_issuing  ? fetch_pc :
+                                             decoder_predicted_pc;
   always_ff @(posedge clk) fetch_pc <= reset ? 32'b0 : fetch_pc_next;
 
   logic [31:0] reg_rs1, reg_rs2, wdata;
@@ -204,9 +211,11 @@ module littlecpu #(
     .imem_fault(fetch_fault),
     .accessor_out_valid(accessor_out_valid),
     .issuing(decoder_issuing),
+    .predicted_pc(decoder_predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .interrupt_pending(csr_interrupt_pending),
+    .x_redirect(x_redirect),
     .out(dx_out)
   );
 
