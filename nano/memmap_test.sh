@@ -34,7 +34,7 @@ hex_param() {  # $1 = file, $2 = parameter name
   raw=$(sed -nE "s/.*(parameter|localparam)[[:space:]]+logic[[:space:]]*\[31:0\][[:space:]]*$2[[:space:]]*=[[:space:]]*32'h([0-9a-fA-F_]*).*/\2/p" \
           "$REPO/$1" | head -1 | tr -d _)
   [ -n "$raw" ] || no_param "$1" "$2"
-  echo $((16#$raw))
+  echo $((0x$raw))
 }
 
 hexfmt() { printf '0x%08x' "$1"; }
