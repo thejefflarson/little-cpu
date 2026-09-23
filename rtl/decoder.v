@@ -572,7 +572,13 @@ module decoder (
     instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
-  always_comb if (clocked && out_valid && !out_is_interrupt)
+  // Not `&& !out_is_interrupt`: the interrupt bubble also zeroes every class flag below
+  // (`out <= '0` before the arm overrides only `valid`/`is_interrupt`/`pc`), so all of
+  // these hold trivially there too -- onehot0 of all-zero bits, both sides zero, the
+  // instr-match tests against a zeroed `out_instr`. Excluding it left the flags free
+  // during an interrupt bubble, which broke a check that reads them unconditionally
+  // (`in_is_srl`'s shift reference in executor.v, which is not gated on `!in_is_interrupt`).
+  always_comb if (clocked && out_valid)
     assert($onehot0({out_is_auipc, out_is_jal, out_is_jalr,
       out_is_beq, out_is_bne, out_is_blt, out_is_bltu, out_is_bge, out_is_bgeu,
       out_is_add, out_is_sub, out_is_xor, out_is_or, out_is_and,
@@ -594,7 +600,7 @@ module decoder (
   // for free, an assumption the composed traps proof drops with `-formal -noassume`, so
   // without an assert here `csr_readonly_write` could read a garbage `out.is_csr_access`
   // and manufacture a spurious `instr_illegal` alongside an unrelated class flag.
-  always_comb if (clocked && out_valid && !out_is_interrupt)
+  always_comb if (clocked && out_valid)
     assert(out_is_csr_access == (out_is_csrrw || out_is_csrrs || out_is_csrrc));
 
   // formal/traps.sv's reference model re-derives is_ebreak/is_ecall from `dx_instr`'s raw
@@ -602,9 +608,9 @@ module decoder (
   // `out.is_ebreak`/`out.is_ecall` -- so the composed proof needs the two to be provably
   // the same fact, which is true by construction (both captured from `instr` in the same
   // branch) but only for k-induction once it is an assert instead of implicit in the RTL.
-  always_comb if (clocked && out_valid && !out_is_interrupt)
+  always_comb if (clocked && out_valid)
     assert(out_is_ebreak == (out_instr == 32'h0010_0073 || out_instr == 32'h0000_9002));
-  always_comb if (clocked && out_valid && !out_is_interrupt)
+  always_comb if (clocked && out_valid)
     assert(out_is_ecall == (out_instr == 32'h0000_0073));
  `endif
 endmodule
