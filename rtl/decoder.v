@@ -441,6 +441,8 @@ module decoder (
   // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
   logic out_valid, out_is_interrupt;
   logic [4:0] out_rd;
+  logic [31:0] out_instr;
+  assign out_instr = out.instr;
   logic out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
     out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu;
   assign out_valid = out.valid;
@@ -594,5 +596,15 @@ module decoder (
   // and manufacture a spurious `instr_illegal` alongside an unrelated class flag.
   always_comb if (clocked && out_valid && !out_is_interrupt)
     assert(out_is_csr_access == (out_is_csrrw || out_is_csrrs || out_is_csrrc));
+
+  // formal/traps.sv's reference model re-derives is_ebreak/is_ecall from `dx_instr`'s raw
+  // bits directly, an oracle independent of D's own decode, rather than trusting
+  // `out.is_ebreak`/`out.is_ecall` -- so the composed proof needs the two to be provably
+  // the same fact, which is true by construction (both captured from `instr` in the same
+  // branch) but only for k-induction once it is an assert instead of implicit in the RTL.
+  always_comb if (clocked && out_valid && !out_is_interrupt)
+    assert(out_is_ebreak == (out_instr == 32'h0010_0073 || out_instr == 32'h0000_9002));
+  always_comb if (clocked && out_valid && !out_is_interrupt)
+    assert(out_is_ecall == (out_instr == 32'h0000_0073));
  `endif
 endmodule
