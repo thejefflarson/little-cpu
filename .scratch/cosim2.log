@@ -1,0 +1,116 @@
+./test/run_cosim.sh ./cosim test/asm test/COSIM_EXPECTED_FAIL test/OBSERVED_FLOOR
+Suite shape matches test/OBSERVED_FLOOR: 75 programs.
+
+cross compiler     : riscv-none-elf-gcc
+sail               : /Users/jeff/.cache/little-cpu/sail/bin/sail_riscv_sim
+sail provenance    : pinned: 0.13.1 sail-riscv-Mac-arm64 53d0c6fd84edd898728e7ba01c1575e66e5f17efd098847c5273690abbbd0737
+cosim runner       : ./cosim
+
+--- lrsclock.S ---
+INCONCLUSIVE lrsclock.S: sail hit --inst-limit 20000 without an HTIF verdict; raise it.
+COSIM-STATUS INCONCLUSIVE SAIL-LIMIT
+--- mtimer.S ---
+INCONCLUSIVE mtimer.S: sail hit --inst-limit 20000 without an HTIF verdict; raise it.
+COSIM-STATUS INCONCLUSIVE SAIL-LIMIT
+--- mtimermask.S ---
+INCONCLUSIVE mtimermask.S: sail hit --inst-limit 20000 without an HTIF verdict; raise it.
+COSIM-STATUS INCONCLUSIVE SAIL-LIMIT
+--- spiflash.S ---
+DISAGREE spiflash.S
+DIVERGENCE at architectural change #9
+  sail instruction #19  pc=0x0000003e  lw x10, 0x0(x5)                                   test_4+0
+  sail : x10=0x0000009f
+  core : x10=0x00000100   (cycle 43, decode pc=0x00000048)
+COSIM-STATUS DISAGREE AT 9
+--- spioverlay.S ---
+DISAGREE spioverlay.S
+DIVERGENCE at architectural change #22
+  sail instruction #37  pc=0x00000194  andi x6, x6, 0x100                                spi_read_bytes+48
+  sail : x6=0x00000000
+  core : x6=0x00000100   (cycle 89, decode pc=0x00000198)
+COSIM-STATUS DISAGREE AT 22
+--- uart.S ---
+DISAGREE uart.S
+DIVERGENCE at architectural change #7
+  sail instruction #17  pc=0x0000003a  c.li x9, 0x1                                          test_4+4
+  sail : x9=0x00000001
+  core : x10=0x00000001   (cycle 37, decode pc=0x0000003e)
+COSIM-STATUS DISAGREE AT 7
+add.S            AGREE
+addi.S           AGREE
+amo.S            AGREE
+amominmax.S      AGREE
+amoregion.S      AGREE
+amotrap.S        AGREE
+and.S            AGREE
+andi.S           AGREE
+auipc.S          AGREE
+beq.S            AGREE
+bge.S            AGREE
+bgeu.S           AGREE
+blt.S            AGREE
+bltu.S           AGREE
+bne.S            AGREE
+cebreak.S        AGREE
+contend.S        AGREE
+csr.S            AGREE
+csrset.S         AGREE
+div.S            AGREE
+divu.S           AGREE
+fencenop.S       AGREE
+hazard.S         AGREE
+hpm.S            AGREE
+ifault.S         AGREE
+jal.S            AGREE
+jalr.S           AGREE
+lb.S             AGREE
+lbu.S            AGREE
+lh.S             AGREE
+lhu.S            AGREE
+loadfault.S      AGREE
+lrsc.S           AGREE
+lrsclock.S       INCONCLUSIVE SAIL-LIMIT
+lui.S            AGREE
+lw.S             AGREE
+minstret.S       AGREE
+mtimer.S         INCONCLUSIVE SAIL-LIMIT
+mtimermask.S     INCONCLUSIVE SAIL-LIMIT
+mul.S            AGREE
+mulh.S           AGREE
+mulhsu.S         AGREE
+mulhu.S          AGREE
+or.S             AGREE
+ori.S            AGREE
+rem.S            AGREE
+remu.S           AGREE
+rvc.S            AGREE
+sb.S             AGREE
+selfmod.S        AGREE
+sh.S             AGREE
+simple.S         AGREE
+sll.S            AGREE
+slli.S           AGREE
+slt.S            AGREE
+slti.S           AGREE
+sltiu.S          AGREE
+sltu.S           AGREE
+spiflash.S       DISAGREE AT 9
+spioverlay.S     DISAGREE AT 22
+sra.S            AGREE
+srai.S           AGREE
+srl.S            AGREE
+srli.S           AGREE
+storefault.S     AGREE
+straddle.S       AGREE
+sub.S            AGREE
+sw.S             AGREE
+textload.S       AGREE
+trap.S           AGREE
+uart.S           DISAGREE AT 7
+xor.S            AGREE
+xori.S           AGREE
+zicsr.S          AGREE
+datainit.c       AGREE
+
+69/75 agreed
+Divergence list matches test/COSIM_EXPECTED_FAIL exactly (name and status).
