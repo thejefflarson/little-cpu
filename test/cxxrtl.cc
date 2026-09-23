@@ -108,23 +108,27 @@ struct StallReason {
   int bucket;
 };
 
+// The D/X split (stall-only) deletes the guessed-pair "operand" reason outright -- D
+// presents its own pair, so there is no guess to miss -- and moves the divider and the
+// region wait's deferred answer off decoder.v's own signals: both now report through
+// `x_busy`, X's single "still working `out`" input to D, so their cycles are read off
+// rtl/executor.v's own `divider_busy`/`region_stall` instead.
 constexpr const char *kStallLabels[] = {"divider", "atomic",  "hazard",
-                                        "serialize", "operand", "fetch", "bus",
+                                        "serialize", "fetch", "bus",
                                         "region"};
 constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
 
 constexpr StallReason kStallReasons[] = {
-    {"uut decoder divider_stall", 0},
+    {"uut executor divider_busy", 0},
     {"uut decoder atomic_stall", 1},
     {"uut decoder hazard_rs1", 2},
     {"uut decoder hazard_rs2", 2},
     {"uut decoder serialize", 3},
-    {"uut decoder operand_stall", 4},
-    {"uut decoder fetch_stall", 5},
+    {"uut decoder fetch_stall", 4},
     // The shared bus given to another initiator.
-    {"uut decoder bus_wait", 6},
+    {"uut decoder bus_wait", 5},
     // The load/store region wait.
-    {"uut decoder region_stall", 7},
+    {"uut executor region_stall", 6},
 };
 
 struct Args {
@@ -267,11 +271,6 @@ int main(int argc, char **argv) {
   const cxxrtl::debug_item *stall_any = nullptr;
   const cxxrtl::debug_item *hazard_rs1_item = nullptr;
   const cxxrtl::debug_item *hazard_rs2_item = nullptr;
-  const cxxrtl::debug_item *out_match_rs1 = nullptr;
-  const cxxrtl::debug_item *out_match_rs2 = nullptr;
-  const cxxrtl::debug_item *rs1_fwd_eligible = nullptr;
-  const cxxrtl::debug_item *rs2_fwd_eligible = nullptr;
-  const cxxrtl::debug_item *instr_csr_access = nullptr;
   // The load/store locality counters (rtl/littlecpu.v).
   const cxxrtl::debug_item *ls_issues = nullptr;
   const cxxrtl::debug_item *ls_edges = nullptr;
@@ -284,11 +283,6 @@ int main(int argc, char **argv) {
                                   reason.bucket);
       hazard_rs1_item = &all_debug_items.at("uut decoder hazard_rs1").at(0);
       hazard_rs2_item = &all_debug_items.at("uut decoder hazard_rs2").at(0);
-      out_match_rs1 = &all_debug_items.at("uut decoder out_match_rs1").at(0);
-      out_match_rs2 = &all_debug_items.at("uut decoder out_match_rs2").at(0);
-      rs1_fwd_eligible = &all_debug_items.at("uut decoder rs1_fwd_eligible").at(0);
-      rs2_fwd_eligible = &all_debug_items.at("uut decoder rs2_fwd_eligible").at(0);
-      instr_csr_access = &all_debug_items.at("uut decoder instr_csr_access").at(0);
     } catch (const std::out_of_range &) {
       std::fprintf(stderr,
                     "error: --stalls needs the decoder's stall signals as debug "
@@ -397,26 +391,12 @@ int main(int argc, char **argv) {
         if (!charged)
           unattributed_cycles++;
 
-        const cxxrtl::debug_item *out_match = nullptr;
-        const cxxrtl::debug_item *eligible = nullptr;
-        if (charged_item == hazard_rs1_item) {
-          out_match = out_match_rs1;
-          eligible = rs1_fwd_eligible;
-        } else if (charged_item == hazard_rs2_item) {
-          out_match = out_match_rs2;
-          eligible = rs2_fwd_eligible;
-        }
-        if (out_match != nullptr) {
-          if ((out_match->curr[0] & 1) != 0) {
-            hazard_a++;
-          } else if ((eligible->curr[0] & 1) != 0) {
-            hazard_b++;
-          } else {
-            hazard_c++;
-            if ((instr_csr_access->curr[0] & 1) != 0)
-              hazard_c_csr++;
-          }
-        }
+        // B1 is stall-only -- no forwarding exists yet to make a hazard's producer
+        // eligible or not -- so every hazard cycle is the same cause; hzA/hzB/hzC stay
+        // in the report format for test/stall_report.py, all folded into hzC, until B2
+        // adds forwarding and the eligibility split means something again.
+        if (charged_item == hazard_rs1_item || charged_item == hazard_rs2_item)
+          hazard_c++;
       }
     }
     sample(cycle * 2 + 0);

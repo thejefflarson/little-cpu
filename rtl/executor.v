@@ -309,7 +309,9 @@ module executor #(
   logic [1:0]  state;
   localparam init = 2'b00;
   localparam divide = 2'b10;
-  assign x_busy = (state != init) || region_stall;
+  logic divider_busy;
+  assign divider_busy = state != init;
+  assign x_busy = divider_busy || region_stall;
 
   // The ALU's own inputs, overridden the same way the accessor's `launch.rs1/rs2` are
   // not: those instructions never reach the accessor.

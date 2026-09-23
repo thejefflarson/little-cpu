@@ -53,9 +53,11 @@ does not close it, so this is measured, not proved.
 import argparse
 import sys
 
-# The eight the decoder has, in the order it tries them: it holds `decoder_out` for the
-# divider and bubbles for the other seven.
-REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",
+# The seven the D/X split has, in the order test/cxxrtl.cc tries them. D presents its
+# own pair (no guess, so no "operand" cycle can exist); the divider and the region wait's
+# deferred answer both report through X's own signals now, since D no longer computes
+# either -- it just holds `out` while X's `x_busy` says so.
+REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus",
            "region"]
 
 # What the CPI above it describes.
@@ -72,7 +74,6 @@ HEADINGS = {
     "atomic": "ATOMIC",
     "hazard": "HAZARD",
     "serialize": "SERIAL",
-    "operand": "OPERAND",
     "fetch": "FETCH",
     "bus": "BUS",
     "region": "REGION",
