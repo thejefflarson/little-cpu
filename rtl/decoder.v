@@ -666,6 +666,30 @@ module decoder (
       assert(out_immediate == {{20{out_instr[31]}}, out_instr[31:20]});
     if (out_is_sb || out_is_sh || out_is_sw)
       assert(out_immediate == {{20{out_instr[31]}}, out_instr[31:25], out_instr[11:7]});
+
+    // The eleven A encodings, same reasoning again: the reference model re-derives
+    // is_lr/is_sc/each AMO from dx_instr's own opcode/funct3/funct5 fields, and its
+    // atomic address check (`c_atomic_word_aligned = reg_rs1[1:0] == 2'b00`) trusts the
+    // effective address is rs1 VERBATIM -- true in the real RTL only because D hands an
+    // atomic a zero immediate, so `mem_addr_low = in_immediate[1:0] + reg_rs1[1:0]`
+    // reduces to `reg_rs1[1:0]` exactly when `out_immediate` is asserted zero here too.
+    if (out_instr[6:2] == 5'b01011 && out_instr[14:12] == 3'b010) begin
+      assert(out_is_amoswap == (out_instr[31:27] == 5'b00001));
+      assert(out_is_amoadd == (out_instr[31:27] == 5'b00000));
+      assert(out_is_amoxor == (out_instr[31:27] == 5'b00100));
+      assert(out_is_amoand == (out_instr[31:27] == 5'b01100));
+      assert(out_is_amoor == (out_instr[31:27] == 5'b01000));
+      assert(out_is_amomin == (out_instr[31:27] == 5'b10000));
+      assert(out_is_amomax == (out_instr[31:27] == 5'b10100));
+      assert(out_is_amominu == (out_instr[31:27] == 5'b11000));
+      assert(out_is_amomaxu == (out_instr[31:27] == 5'b11100));
+      assert(out_is_lr == (out_instr[31:27] == 5'b00010 && out_instr[24:20] == 5'b0));
+      assert(out_is_sc == (out_instr[31:27] == 5'b00011));
+    end
+    if (out_is_lr || out_is_sc || out_is_amoswap || out_is_amoadd || out_is_amoxor ||
+        out_is_amoand || out_is_amoor || out_is_amomin || out_is_amomax ||
+        out_is_amominu || out_is_amomaxu)
+      assert(out_immediate == 32'b0);
   end
  `endif
 endmodule
