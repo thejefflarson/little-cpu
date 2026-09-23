@@ -343,57 +343,65 @@ module executor #(
     endcase
   end
 
-  assign launch.valid = in_valid && !in_is_interrupt && !region_stall && !x_busy && !trap_taken;
-  assign launch.rd = in_rd;
+  // A trapping instruction still retires -- RVFI must see it, with `rvfi_trap` set -- it
+  // just writes no register and starts no bus transaction. `executing` gates everything
+  // that would otherwise act on it; `launch.valid` does not, or the trap would vanish
+  // from the retire stream instead of reporting itself.
+  logic executing;
+  assign executing = in_valid && !in_is_interrupt && !region_stall && !x_busy && !trap_taken;
+  assign launch.valid = in_valid && !in_is_interrupt && !region_stall && !x_busy;
+  assign launch.rd = executing ? in_rd : 5'b0;
   assign launch.rs1 = alu_rs1;
   assign launch.rs2 = reg_rs2;
   assign launch.mem_addr = mem_addr_calc;
   assign launch.is_valid_instr = instr_valid;
-  assign launch.is_add = in_is_add || in_is_auipc || in_is_lui || in_is_jal || in_is_jalr ||
-    in_is_csr_access;
-  assign launch.is_sub = in_is_sub;
-  assign launch.is_xor = in_is_xor;
-  assign launch.is_or = in_is_or;
-  assign launch.is_and = in_is_and;
-  assign launch.is_mul = in_is_mul;
-  assign launch.is_mulh = in_is_mulh;
-  assign launch.is_mulhu = in_is_mulhu;
-  assign launch.is_mulhsu = in_is_mulhsu;
-  assign launch.is_div = in_is_div;
-  assign launch.is_divu = in_is_divu;
-  assign launch.is_rem = in_is_rem;
-  assign launch.is_remu = in_is_remu;
-  assign launch.is_sll = in_is_sll;
-  assign launch.is_slt = in_is_slt;
-  assign launch.is_sltu = in_is_sltu;
-  assign launch.is_srl = in_is_srl;
-  assign launch.is_sra = in_is_sra;
-  assign launch.is_lb = in_is_lb;
-  assign launch.is_lbu = in_is_lbu;
-  assign launch.is_lhu = in_is_lhu;
-  assign launch.is_lh = in_is_lh;
-  assign launch.is_lw = in_is_lw;
-  assign launch.is_sb = in_is_sb;
-  assign launch.is_sh = in_is_sh;
-  assign launch.is_sw = in_is_sw;
+  assign launch.is_add = executing && (in_is_add || in_is_auipc || in_is_lui || in_is_jal ||
+    in_is_jalr || in_is_csr_access);
+  assign launch.is_sub = executing && in_is_sub;
+  assign launch.is_xor = executing && in_is_xor;
+  assign launch.is_or = executing && in_is_or;
+  assign launch.is_and = executing && in_is_and;
+  assign launch.is_mul = executing && in_is_mul;
+  assign launch.is_mulh = executing && in_is_mulh;
+  assign launch.is_mulhu = executing && in_is_mulhu;
+  assign launch.is_mulhsu = executing && in_is_mulhsu;
+  assign launch.is_div = executing && in_is_div;
+  assign launch.is_divu = executing && in_is_divu;
+  assign launch.is_rem = executing && in_is_rem;
+  assign launch.is_remu = executing && in_is_remu;
+  assign launch.is_sll = executing && in_is_sll;
+  assign launch.is_slt = executing && in_is_slt;
+  assign launch.is_sltu = executing && in_is_sltu;
+  assign launch.is_srl = executing && in_is_srl;
+  assign launch.is_sra = executing && in_is_sra;
+  assign launch.is_lb = executing && in_is_lb;
+  assign launch.is_lbu = executing && in_is_lbu;
+  assign launch.is_lhu = executing && in_is_lhu;
+  assign launch.is_lh = executing && in_is_lh;
+  assign launch.is_lw = executing && in_is_lw;
+  assign launch.is_sb = executing && in_is_sb;
+  assign launch.is_sh = executing && in_is_sh;
+  assign launch.is_sw = executing && in_is_sw;
   // A local wire, not a read of `launch.is_amo`: yosys's dataflow analysis treats every
   // field of a struct port as one node, so a later assign reading a field the way
   // `launch.is_amo` is read below would appear as feedback through `launch` itself.
+  // Ungated by `executing` on purpose: the RVFI fault-mask logic below reads it for a
+  // TRAPPING amo, where `executing` is false by construction.
   logic is_amo;
   assign is_amo = in_is_amoswap || in_is_amoadd || in_is_amoxor || in_is_amoand ||
     in_is_amoor || in_is_amomin || in_is_amomax || in_is_amominu || in_is_amomaxu;
-  assign launch.is_amo = is_amo;
-  assign launch.is_amoswap = in_is_amoswap;
-  assign launch.is_amoadd = in_is_amoadd;
-  assign launch.is_amoxor = in_is_amoxor;
-  assign launch.is_amoand = in_is_amoand;
-  assign launch.is_amoor = in_is_amoor;
-  assign launch.is_amomin = in_is_amomin;
-  assign launch.is_amomax = in_is_amomax;
-  assign launch.is_amominu = in_is_amominu;
-  assign launch.is_amomaxu = in_is_amomaxu;
-  assign launch.is_lr = in_is_lr;
-  assign launch.is_sc = in_is_sc;
+  assign launch.is_amo = executing && is_amo;
+  assign launch.is_amoswap = executing && in_is_amoswap;
+  assign launch.is_amoadd = executing && in_is_amoadd;
+  assign launch.is_amoxor = executing && in_is_amoxor;
+  assign launch.is_amoand = executing && in_is_amoand;
+  assign launch.is_amoor = executing && in_is_amoor;
+  assign launch.is_amomin = executing && in_is_amomin;
+  assign launch.is_amomax = executing && in_is_amomax;
+  assign launch.is_amominu = executing && in_is_amominu;
+  assign launch.is_amomaxu = executing && in_is_amomaxu;
+  assign launch.is_lr = executing && in_is_lr;
+  assign launch.is_sc = executing && in_is_sc;
 
  `ifdef RISCV_FORMAL
   logic rvfi_rs1_valid, rvfi_rs2_valid;
@@ -540,7 +548,7 @@ module executor #(
          `ifdef RISCV_FORMAL
           out.rvfi <= launch.rvfi;
          `endif
-          out.rd <= in_rd;
+          out.rd <= launch.rd;
           out.rd_data <= 0;
           (* parallel_case, full_case *)
           case (1'b1)
