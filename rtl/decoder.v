@@ -456,7 +456,78 @@ module decoder (
   assign out_is_amominu = out.is_amominu;
   assign out_is_amomaxu = out.is_amomaxu;
 
-  always_comb if (clocked && !out_valid) assert(out_rd == 0);
+  // The rest of `out`'s class flags, named the same way for the same iverilog-sensitivity
+  // reason: composed with X (formal/traps.sv reads this module `-formal -noassume`), this
+  // module is the only one that can prove they stay mutually exclusive past capture --
+  // executor.v's own onehot0 assumption over `in_is_*` is dropped in that composition, so
+  // without an assert here a k-induction step is free to pick an unreachable `out` where,
+  // say, `is_mulh` and `is_divu` are both set, which breaks the `(* parallel_case *)` case
+  // executor.v selects an operation with (ADR-0068's rule: legal only where a matching
+  // onehot0 check covers the exact arm list).
+  logic out_is_auipc, out_is_jal, out_is_jalr, out_is_beq, out_is_bne, out_is_blt,
+    out_is_bltu, out_is_bge, out_is_bgeu, out_is_add, out_is_sub, out_is_xor, out_is_or,
+    out_is_and, out_is_sll, out_is_slt, out_is_sltu, out_is_srl, out_is_sra, out_is_mul,
+    out_is_mulh, out_is_mulhu, out_is_mulhsu, out_is_div, out_is_divu, out_is_rem,
+    out_is_remu, out_is_lui, out_is_lb, out_is_lbu, out_is_lh, out_is_lhu, out_is_lw,
+    out_is_sb, out_is_sh, out_is_sw, out_is_ecall, out_is_ebreak, out_is_csrrw,
+    out_is_csrrs, out_is_csrrc, out_is_mret, out_is_wfi, out_is_fence, out_is_fencei,
+    out_is_lr, out_is_sc, out_is_csr_access;
+  assign out_is_auipc = out.is_auipc;
+  assign out_is_jal = out.is_jal;
+  assign out_is_jalr = out.is_jalr;
+  assign out_is_beq = out.is_beq;
+  assign out_is_bne = out.is_bne;
+  assign out_is_blt = out.is_blt;
+  assign out_is_bltu = out.is_bltu;
+  assign out_is_bge = out.is_bge;
+  assign out_is_bgeu = out.is_bgeu;
+  assign out_is_add = out.is_add;
+  assign out_is_sub = out.is_sub;
+  assign out_is_xor = out.is_xor;
+  assign out_is_or = out.is_or;
+  assign out_is_and = out.is_and;
+  assign out_is_sll = out.is_sll;
+  assign out_is_slt = out.is_slt;
+  assign out_is_sltu = out.is_sltu;
+  assign out_is_srl = out.is_srl;
+  assign out_is_sra = out.is_sra;
+  assign out_is_mul = out.is_mul;
+  assign out_is_mulh = out.is_mulh;
+  assign out_is_mulhu = out.is_mulhu;
+  assign out_is_mulhsu = out.is_mulhsu;
+  assign out_is_div = out.is_div;
+  assign out_is_divu = out.is_divu;
+  assign out_is_rem = out.is_rem;
+  assign out_is_remu = out.is_remu;
+  assign out_is_lui = out.is_lui;
+  assign out_is_lb = out.is_lb;
+  assign out_is_lbu = out.is_lbu;
+  assign out_is_lh = out.is_lh;
+  assign out_is_lhu = out.is_lhu;
+  assign out_is_lw = out.is_lw;
+  assign out_is_sb = out.is_sb;
+  assign out_is_sh = out.is_sh;
+  assign out_is_sw = out.is_sw;
+  assign out_is_ecall = out.is_ecall;
+  assign out_is_ebreak = out.is_ebreak;
+  assign out_is_csrrw = out.is_csrrw;
+  assign out_is_csrrs = out.is_csrrs;
+  assign out_is_csrrc = out.is_csrrc;
+  assign out_is_mret = out.is_mret;
+  assign out_is_wfi = out.is_wfi;
+  assign out_is_fence = out.is_fence;
+  assign out_is_fencei = out.is_fencei;
+  assign out_is_lr = out.is_lr;
+  assign out_is_sc = out.is_sc;
+  assign out_is_csr_access = out.is_csr_access;
+
+  // A bubble is the whole struct zeroed, never just `valid` -- reset, a redirect and a
+  // stall all write `out <= '0` -- so a stale flag cannot survive into a cycle nothing
+  // issued. executor.v's own standalone FORMAL block assumes this for free
+  // (`!in_valid -> in == '0`); the composed traps proof drops that assumption with
+  // `-formal -noassume`, so without an assert here a bubble is free to carry a garbage
+  // `in_imem_fault` or class flag and manufacture a trap `trap_taken` never agrees with.
+  always_comb if (clocked && !out_valid) assert(out == '0);
   always_comb if (clocked && out_is_interrupt) assert(out_rd == 0);
 
   always_comb if (rs1 == 0) assert(!hazard_rs1);
@@ -500,7 +571,28 @@ module decoder (
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
   always_comb if (clocked && out_valid && !out_is_interrupt)
-    assert($onehot0({out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
-      out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu}));
+    assert($onehot0({out_is_auipc, out_is_jal, out_is_jalr,
+      out_is_beq, out_is_bne, out_is_blt, out_is_bltu, out_is_bge, out_is_bgeu,
+      out_is_add, out_is_sub, out_is_xor, out_is_or, out_is_and,
+      out_is_sll, out_is_slt, out_is_sltu, out_is_srl, out_is_sra,
+      out_is_mul, out_is_mulh, out_is_mulhu, out_is_mulhsu,
+      out_is_div, out_is_divu, out_is_rem, out_is_remu,
+      out_is_lui,
+      out_is_lb, out_is_lbu, out_is_lh, out_is_lhu, out_is_lw,
+      out_is_sb, out_is_sh, out_is_sw,
+      out_is_ecall, out_is_ebreak,
+      out_is_csrrw, out_is_csrrs, out_is_csrrc,
+      out_is_mret, out_is_wfi, out_is_fence, out_is_fencei,
+      out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
+      out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu,
+      out_is_lr, out_is_sc}));
+
+  // `is_csr_access` is a derived flag (`instr_csrrw || instr_csrrs || instr_csrrc`),
+  // never an independent one -- executor.v's own standalone FORMAL block assumes this
+  // for free, an assumption the composed traps proof drops with `-formal -noassume`, so
+  // without an assert here `csr_readonly_write` could read a garbage `out.is_csr_access`
+  // and manufacture a spurious `instr_illegal` alongside an unrelated class flag.
+  always_comb if (clocked && out_valid && !out_is_interrupt)
+    assert(out_is_csr_access == (out_is_csrrw || out_is_csrrs || out_is_csrrc));
  `endif
 endmodule
