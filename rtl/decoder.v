@@ -444,6 +444,8 @@ module decoder (
   logic [31:0] out_instr, out_immediate;
   assign out_instr = out.instr;
   assign out_immediate = out.immediate;
+  logic out_uncompressed;
+  assign out_uncompressed = out_instr[1:0] == 2'b11;
   logic out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
     out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu;
   assign out_valid = out.valid;
@@ -596,6 +598,35 @@ module decoder (
       out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu,
       out_is_lr, out_is_sc}));
 
+  // formal/traps.sv's reference model also re-derives is_illegal from dx_instr's raw bits
+  // (a reserved opcode or an all-zero word), independent of D's own decode, so the
+  // composed proof needs the converse of the onehot0 property above: not just that at
+  // most one class flag is set, but that NONE is set for a word neither D nor the
+  // reference recognizes. True by construction (D's own case statements never produce a
+  // flag for opcode 5'b11111 or a zero word) but, like every fact above, only provable to
+  // k-induction once it is an assert.
+  logic out_any_class;
+  assign out_any_class =
+    out_is_auipc || out_is_jal || out_is_jalr ||
+    out_is_beq || out_is_bne || out_is_blt || out_is_bltu || out_is_bge || out_is_bgeu ||
+    out_is_add || out_is_sub || out_is_xor || out_is_or || out_is_and ||
+    out_is_sll || out_is_slt || out_is_sltu || out_is_srl || out_is_sra ||
+    out_is_mul || out_is_mulh || out_is_mulhu || out_is_mulhsu ||
+    out_is_div || out_is_divu || out_is_rem || out_is_remu ||
+    out_is_lui ||
+    out_is_lb || out_is_lbu || out_is_lh || out_is_lhu || out_is_lw ||
+    out_is_sb || out_is_sh || out_is_sw ||
+    out_is_ecall || out_is_ebreak ||
+    out_is_csrrw || out_is_csrrs || out_is_csrrc ||
+    out_is_mret || out_is_wfi || out_is_fence || out_is_fencei ||
+    out_is_amoswap || out_is_amoadd || out_is_amoxor || out_is_amoand || out_is_amoor ||
+    out_is_amomin || out_is_amomax || out_is_amominu || out_is_amomaxu ||
+    out_is_lr || out_is_sc;
+  always_comb if (clocked && out_valid && out_uncompressed && out_instr[6:2] == 5'b11111)
+    assert(!out_any_class);
+  always_comb if (clocked && out_valid && out_instr == 32'b0)
+    assert(!out_any_class);
+
   // `is_csr_access` is a derived flag (`instr_csrrw || instr_csrrs || instr_csrrc`),
   // never an independent one -- executor.v's own standalone FORMAL block assumes this
   // for free, an assumption the composed traps proof drops with `-formal -noassume`, so
@@ -622,8 +653,6 @@ module decoder (
   // and `out_is_sw` alone are not equivalent to the uncompressed bit pattern (both also
   // cover a compressed form), but conjoined with `out_uncompressed` they are, since a
   // compressed encoding's own quadrant bits rule out that disjunct.
-  logic out_uncompressed;
-  assign out_uncompressed = out_instr[1:0] == 2'b11;
   always_comb if (clocked && out_valid && out_uncompressed) begin
     assert(out_is_lb == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b000));
     assert(out_is_lbu == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b100));
