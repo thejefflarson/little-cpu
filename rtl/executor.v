@@ -98,6 +98,10 @@ module executor #(
 
   logic [31:0] mem_addr_calc;
   assign mem_addr_calc = $signed(in_immediate) + $signed(reg_rs1);
+ `ifdef RISCV_FORMAL
+  logic [31:0] mem_fault_word_addr;
+  assign mem_fault_word_addr = {mem_addr_calc[31:2], 2'b00};
+ `endif
   assign atomic_addr = reg_rs1;
 
   logic instr_ls_load, instr_ls_store, ls_access;
@@ -414,7 +418,7 @@ module executor #(
     launch.rvfi.mem_fault = in_imem_fault || load_access_fault || store_access_fault;
     launch.rvfi.mem_fault_rmask = {4{load_access_fault || (store_access_fault && is_amo)}};
     launch.rvfi.mem_fault_wmask = store_access_fault ? ls_fault_wstrb : 4'b0;
-    launch.rvfi.mem_fault_addr = {mem_addr_calc[31:2], 2'b00};
+    launch.rvfi.mem_fault_addr = mem_fault_word_addr;
     launch.rvfi.rs1_addr = rvfi_rs1_valid ? in_rs1 : 5'b0;
     launch.rvfi.rs2_addr = rvfi_rs2_valid ? in_rs2 : 5'b0;
     launch.rvfi.rs1_rdata = rvfi_rs1_valid ? reg_rs1 : 32'b0;
@@ -626,4 +630,287 @@ module executor #(
       endcase
     end
   end
+
+ `ifdef FORMAL
+  logic clocked;
+  initial clocked = 0;
+  always_ff @(posedge clk) clocked <= 1;
+  initial assume(reset);
+  always_comb if(!clocked) assume(reset);
+  initial state = init;
+  always_comb if (clocked) assume(!reset);
+
+  // `in_valid` is left out on purpose: it is not a result-producing class, and a bubble
+  // (every flag zero) is a legal, disjoint fourth case the onehot0 below already covers.
+  always_comb assume($onehot0({in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and,
+    in_is_sll, in_is_slt, in_is_sltu, in_is_srl, in_is_sra,
+    in_is_mul, in_is_mulh, in_is_mulhu, in_is_mulhsu,
+    in_is_div, in_is_divu, in_is_rem, in_is_remu,
+    in_is_lb, in_is_lbu, in_is_lh, in_is_lhu, in_is_lw, in_is_sb, in_is_sh, in_is_sw,
+    in_is_amoswap, in_is_amoadd, in_is_amoxor, in_is_amoand, in_is_amoor,
+    in_is_amomin, in_is_amomax, in_is_amominu, in_is_amomaxu,
+    in_is_lr, in_is_sc}));
+
+  // Held across a hold cycle so the multi-cycle divide proof below sees the same operands
+  // it started with; composed proofs drop this with `-formal -noassume` and check it
+  // against the real D and regfile instead.
+  dx_output prev_in;
+  logic [31:0] prev_reg_rs1, prev_reg_rs2;
+  logic        prev_x_busy;
+  always_ff @(posedge clk) begin
+    prev_in      <= in;
+    prev_reg_rs1 <= reg_rs1;
+    prev_reg_rs2 <= reg_rs2;
+    prev_x_busy  <= x_busy;
+  end
+  always_comb if (clocked && prev_x_busy) begin
+    assume(in == prev_in);
+    assume(reg_rs1 == prev_reg_rs1);
+    assume(reg_rs2 == prev_reg_rs2);
+  end
+
+  // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
+  // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
+  logic [31:0] alu_sub_lo;
+  assign alu_sub_lo = alu_sub[31:0];
+  logic rem_sub_hi, rem_shifted_hi;
+  assign rem_sub_hi = rem_sub[32];
+  assign rem_shifted_hi = rem_shifted[32];
+  logic [1:0] mem_addr_calc_lo;
+  assign mem_addr_calc_lo = mem_addr_calc[1:0];
+  logic [19:0] in_immediate_hi;
+  logic        in_immediate_sign;
+  assign in_immediate_hi = in_immediate[31:12];
+  assign in_immediate_sign = in_immediate[31];
+  logic launch_valid, launch_is_amo;
+  logic [4:0] launch_rd;
+  logic launch_is_amoswap, launch_is_amoadd, launch_is_amoxor, launch_is_amoand,
+    launch_is_amoor, launch_is_amomin, launch_is_amomax, launch_is_amominu, launch_is_amomaxu,
+    launch_is_lb, launch_is_lbu, launch_is_lh, launch_is_lhu, launch_is_lw,
+    launch_is_sb, launch_is_sh, launch_is_sw, launch_is_lr, launch_is_sc,
+    launch_is_mul, launch_is_mulh, launch_is_mulhu, launch_is_mulhsu;
+  assign launch_valid = launch.valid;
+  assign launch_is_amo = launch.is_amo;
+  assign launch_rd = launch.rd;
+  assign launch_is_amoswap = launch.is_amoswap;
+  assign launch_is_amoadd = launch.is_amoadd;
+  assign launch_is_amoxor = launch.is_amoxor;
+  assign launch_is_amoand = launch.is_amoand;
+  assign launch_is_amoor = launch.is_amoor;
+  assign launch_is_amomin = launch.is_amomin;
+  assign launch_is_amomax = launch.is_amomax;
+  assign launch_is_amominu = launch.is_amominu;
+  assign launch_is_amomaxu = launch.is_amomaxu;
+  assign launch_is_lb = launch.is_lb;
+  assign launch_is_lbu = launch.is_lbu;
+  assign launch_is_lh = launch.is_lh;
+  assign launch_is_lhu = launch.is_lhu;
+  assign launch_is_lw = launch.is_lw;
+  assign launch_is_sb = launch.is_sb;
+  assign launch_is_sh = launch.is_sh;
+  assign launch_is_sw = launch.is_sw;
+  assign launch_is_lr = launch.is_lr;
+  assign launch_is_sc = launch.is_sc;
+  assign launch_is_mul = launch.is_mul;
+  assign launch_is_mulh = launch.is_mulh;
+  assign launch_is_mulhu = launch.is_mulhu;
+  assign launch_is_mulhsu = launch.is_mulhsu;
+  logic [31:0] out_rd_data;
+  assign out_rd_data = out.rd_data;
+
+  logic signed [31:0] alu_ref_x, alu_ref_y;
+  assign alu_ref_x = alu_rs1;
+  assign alu_ref_y = alu_rs2;
+  always_comb assert(alu_sub_lo == alu_rs1 - alu_rs2);
+  always_comb assert(alu_ltu == (alu_rs1 < alu_rs2));
+  always_comb assert(alu_lt == (alu_ref_x < alu_ref_y));
+
+  logic [31:0] shift_sll_ref, shift_srl_ref;
+  logic signed [31:0] shift_sra_ref;
+  assign shift_sll_ref = alu_rs1 << shift_amt;
+  assign shift_srl_ref = alu_rs1 >> shift_amt;
+  assign shift_sra_ref = alu_ref_x >>> shift_amt;
+  always_comb if (in_is_sll) assert(shift_rev == shift_sll_ref);
+  always_comb if (in_is_srl) assert(shift_res == shift_srl_ref);
+  always_comb if (in_is_sra) assert(shift_res == shift_sra_ref);
+
+  always_comb
+    if (div_rem < div_divisor) assert(rem_sub_hi == (rem_shifted < {1'b0, div_divisor}));
+  always_comb
+    if (div_rem < div_divisor && rem_sub_hi) assert(rem_shifted_hi == 1'b0);
+
+  logic [32:0] rs1_sext33, rs2_sext33, rs1_zext33, rs2_zext33;
+  assign rs1_sext33 = $signed(reg_rs1);
+  assign rs2_sext33 = $signed(reg_rs2);
+  assign rs1_zext33 = {1'b0, reg_rs1};
+  assign rs2_zext33 = {1'b0, reg_rs2};
+  logic [32:0] mul_op_x_ref, mul_op_y_ref;
+  assign mul_op_x_ref = (in_is_mulh || in_is_mulhsu) ? rs1_sext33 : rs1_zext33;
+  assign mul_op_y_ref = in_is_mulh ? rs2_sext33 : rs2_zext33;
+  always_comb assert({mul_sign_x, reg_rs1} == mul_op_x_ref);
+  always_comb assert({mul_sign_y, reg_rs2} == mul_op_y_ref);
+
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mul))
+      assert(out_rd_data == $past(mul_lo));
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mulh))
+      assert(out_rd_data == $past(mul_hi));
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mulhu))
+      assert(out_rd_data == $past(mul_hi));
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mulhsu))
+      assert(out_rd_data == $past(mul_hi));
+
+  // The Zkt constant-latency claim for the four multiplies: no operand-dependent second
+  // cycle. formal/executor-zkt-probe.py is this assertion's forced-red prerequisite.
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(state) == init &&
+        $past(launch_is_mul || launch_is_mulh || launch_is_mulhu || launch_is_mulhsu))
+      assert(state == init);
+
+  logic [63:0] mul_result;
+  assign mul_result = {mul_hi, mul_lo};
+  always_comb if (reg_rs1 == 32'b0) assert(mul_result == 64'b0);
+  always_comb if (reg_rs2 == 32'b0) assert(mul_result == 64'b0);
+  always_comb if (reg_rs2 == 32'h1 && !mul_sign_y)
+    assert(mul_result == {{32{mul_sign_x}}, reg_rs1});
+  always_comb if (reg_rs1 == 32'h1 && !mul_sign_x)
+    assert(mul_result == {{32{mul_sign_y}}, reg_rs2});
+
+  logic [31:0] div_ghost_rs1, div_ghost_rs2;
+  logic div_ghost_rs1_sign, div_ghost_rs2_sign;
+  assign div_ghost_rs1_sign = div_ghost_rs1[31];
+  assign div_ghost_rs2_sign = div_ghost_rs2[31];
+  always_ff @(posedge clk)
+    if (!reset && state == init) begin
+      div_ghost_rs1 <= reg_rs1;
+      div_ghost_rs2 <= reg_rs2;
+    end
+
+  logic [31:0] div_mag_x, div_mag_y;
+  assign div_mag_x = (op_is_div || op_is_rem) && div_ghost_rs1_sign ? -div_ghost_rs1 : div_ghost_rs1;
+  assign div_mag_y = (op_is_div || op_is_rem) && div_ghost_rs2_sign ? -div_ghost_rs2 : div_ghost_rs2;
+
+  always_comb
+    if (state == divide) assert($onehot({op_is_div, op_is_divu, op_is_rem, op_is_remu}));
+  always_comb if (state == divide) assert(op_sign_x == div_ghost_rs1_sign);
+  always_comb if (state == divide) assert(op_sign_y == div_ghost_rs2_sign);
+  always_comb if (state == divide) assert(div_divisor == div_mag_y);
+
+  always_comb if (state == divide) assert(mul_div_counter <= 32);
+  always_comb if (state == divide) assert(mul_div_counter != 0);
+
+  localparam [31:0] div_proof_cap = 32'h000000ff;
+  always_comb if (state == divide) assume(div_mag_x <= div_proof_cap);
+  always_comb if (state == divide) assume(div_mag_y <= div_proof_cap);
+
+  logic [5:0]  div_done;
+  logic [63:0] div_quot_done, div_quot_left, div_mag_x_done, div_mag_x_left;
+  assign div_done       = 6'd32 - mul_div_counter[5:0];
+  assign div_quot_done  = {32'b0, div_quot} & ((64'b1 << div_done) - 64'b1);
+  assign div_quot_left  = {32'b0, div_quot} >> div_done;
+  assign div_mag_x_done = {32'b0, div_mag_x} >> mul_div_counter;
+  assign div_mag_x_left = {32'b0, div_mag_x} & ((64'b1 << mul_div_counter) - 64'b1);
+  always_comb
+    if (state == divide)
+      assert(div_quot_done * {32'b0, div_divisor} + {32'b0, div_rem} == div_mag_x_done);
+  always_comb if (state == divide) assert(div_rem < div_divisor);
+  always_comb if (state == divide) assert(div_quot_left == div_mag_x_left);
+
+  logic signed [31:0] div_srs1, div_srs2;
+  assign div_srs1 = $signed(div_ghost_rs1);
+  assign div_srs2 = $signed(div_ghost_rs2);
+  logic signed [31:0] div_q, div_r;
+  assign div_q = div_srs1 / div_srs2;
+  assign div_r = div_srs1 % div_srs2;
+
+  logic [31:0] divu_ref, remu_ref, div_ref, rem_ref;
+  assign divu_ref = (div_ghost_rs2 == 0) ? 32'hffffffff : (div_ghost_rs1 / div_ghost_rs2);
+  assign remu_ref = (div_ghost_rs2 == 0) ? div_ghost_rs1 : (div_ghost_rs1 % div_ghost_rs2);
+  assign div_ref  = (div_ghost_rs2 == 0) ? 32'hffffffff : div_q;
+  assign rem_ref  = (div_ghost_rs2 == 0) ? div_ghost_rs1 : div_r;
+
+  always_ff @(posedge clk)
+    if (clocked && !reset && $past(state) == divide && state == init && $past(op_is_divu))
+      assert(out_rd_data == divu_ref);
+  always_ff @(posedge clk)
+    if (clocked && !reset && $past(state) == divide && state == init && $past(op_is_remu))
+      assert(out_rd_data == remu_ref);
+  always_ff @(posedge clk)
+    if (clocked && !reset && $past(state) == divide && state == init && $past(op_is_div))
+      assert(out_rd_data == div_ref);
+  always_ff @(posedge clk)
+    if (clocked && !reset && $past(state) == divide && state == init && $past(op_is_rem))
+      assert(out_rd_data == rem_ref);
+
+  // The Zkt isolation claim's other half: region_stall is the one stall reason allowed to
+  // read a register value, and only for the eight base load/store encodings.
+  // formal/decoder-zkt-probe.py is these two assertions' forced-red prerequisite.
+  always_comb if (clocked) assert(!region_stall || ls_access);
+  always_comb if (clocked)
+    assert(ls_access == (in_is_lb || in_is_lbu || in_is_lh || in_is_lhu ||
+      in_is_lw || in_is_sb || in_is_sh || in_is_sw));
+
+  always_comb if (clocked && !launch_valid) assert(launch_rd == 0);
+  always_comb if (clocked)
+    assert(launch_is_amo == (launch_is_amoswap || launch_is_amoadd || launch_is_amoxor ||
+      launch_is_amoand || launch_is_amoor || launch_is_amomin || launch_is_amomax ||
+      launch_is_amominu || launch_is_amomaxu));
+
+  always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
+
+  always_comb if (ls_access) begin
+    assert(in_immediate_hi == {20{in_immediate_sign}});
+    if (ls_settled) assert(ls_supported);
+  end
+
+  logic prev_answer_valid;
+  always_ff @(posedge clk) prev_answer_valid <= ls_answer_valid;
+  always_comb if (clocked && prev_answer_valid && !prev_x_busy)
+    assert(!ls_answer_valid);
+
+  always_comb if (clocked && ls_answer_valid) assert(ls_answer == ls_supported);
+
+  // The trap-cause priority chain: exactly one arm decides, in this order, whenever the
+  // word alone (no interrupt, no fetch fault) is what is deciding.
+  logic word_decides;
+  assign word_decides = !in_is_interrupt && !in_imem_fault;
+  always_comb if (in_is_interrupt) assert(trap_cause == CAUSE_MACHINE_TIMER);
+  always_comb if (!in_is_interrupt && in_imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
+  always_comb if (word_decides && instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
+  always_comb if (word_decides && in_is_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
+  always_comb if (word_decides && in_is_ecall)      assert(trap_cause == CAUSE_ECALL_M);
+  always_comb if (word_decides && load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
+  always_comb if (word_decides && store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
+  always_comb if (word_decides && load_access_fault)
+    assert(trap_cause == CAUSE_LOAD_ACCESS_FAULT);
+  always_comb if (word_decides && store_access_fault)
+    assert(trap_cause == CAUSE_STORE_ACCESS_FAULT);
+  always_comb if (!trap_taken) assert(trap_cause == 32'b0);
+
+  // X is the single commit point: a trap redirects to mtvec and an mret to mepc, both
+  // same-cycle claims (X owns no registered pc of its own for a $past version to check).
+  always_comb if (trap_entry) assert(redirect_target == mtvec);
+  always_comb if (mret_entry) assert(redirect_target == mepc);
+  always_comb if (trap_entry) begin
+    assert(launch_rd == 5'b0);
+    assert(!launch_is_lb && !launch_is_lbu && !launch_is_lh && !launch_is_lhu && !launch_is_lw);
+    assert(!launch_is_sb && !launch_is_sh && !launch_is_sw);
+    assert(!launch_is_amo && !launch_is_lr && !launch_is_sc);
+  end
+
+  always_comb if (trap_taken) assert(!instret && !csr_wen && !csr_ren);
+  always_comb assert(!(trap_entry && mret_entry));
+  always_comb if (in_valid && in_is_interrupt) assert(trap_entry);
+
+  logic signed [31:0] cmp_ref_x, cmp_ref_y;
+  assign cmp_ref_x = reg_rs1;
+  assign cmp_ref_y = reg_rs2;
+  always_comb assert(cmp_eq == (reg_rs1 == reg_rs2));
+  always_comb assert(cmp_ltu == (reg_rs1 < reg_rs2));
+  always_comb assert(cmp_lt == (cmp_ref_x < cmp_ref_y));
+  always_comb assert(mem_addr_low == mem_addr_calc_lo);
+ `endif
 endmodule
