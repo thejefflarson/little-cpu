@@ -441,8 +441,9 @@ module decoder (
   // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
   logic out_valid, out_is_interrupt;
   logic [4:0] out_rd;
-  logic [31:0] out_instr;
+  logic [31:0] out_instr, out_immediate;
   assign out_instr = out.instr;
+  assign out_immediate = out.immediate;
   logic out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
     out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu;
   assign out_valid = out.valid;
@@ -612,5 +613,30 @@ module decoder (
     assert(out_is_ebreak == (out_instr == 32'h0010_0073 || out_instr == 32'h0000_9002));
   always_comb if (clocked && out_valid)
     assert(out_is_ecall == (out_instr == 32'h0000_0073));
+
+  // Same reasoning for the reference model's misalignment/region checks: they re-derive
+  // load_addr/store_addr as an I-/S-type immediate plus reg_rs1, computed fresh from
+  // `dx_instr`'s bits, and read only the twelve uncompressed load/store encodings
+  // (`c_is_load_op`/`c_is_store_op` both require `c_uncompressed`) -- compressed
+  // lw/sw/lwsp/swsp are outside what it checks, so this is gated the same way. `out_is_lw`
+  // and `out_is_sw` alone are not equivalent to the uncompressed bit pattern (both also
+  // cover a compressed form), but conjoined with `out_uncompressed` they are, since a
+  // compressed encoding's own quadrant bits rule out that disjunct.
+  logic out_uncompressed;
+  assign out_uncompressed = out_instr[1:0] == 2'b11;
+  always_comb if (clocked && out_valid && out_uncompressed) begin
+    assert(out_is_lb == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b000));
+    assert(out_is_lbu == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b100));
+    assert(out_is_lh == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b001));
+    assert(out_is_lhu == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b101));
+    assert(out_is_lw == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b010));
+    assert(out_is_sb == (out_instr[6:2] == 5'b01000 && out_instr[14:12] == 3'b000));
+    assert(out_is_sh == (out_instr[6:2] == 5'b01000 && out_instr[14:12] == 3'b001));
+    assert(out_is_sw == (out_instr[6:2] == 5'b01000 && out_instr[14:12] == 3'b010));
+    if (out_is_lb || out_is_lbu || out_is_lh || out_is_lhu || out_is_lw)
+      assert(out_immediate == {{20{out_instr[31]}}, out_instr[31:20]});
+    if (out_is_sb || out_is_sh || out_is_sw)
+      assert(out_immediate == {{20{out_instr[31]}}, out_instr[31:25], out_instr[11:7]});
+  end
  `endif
 endmodule
