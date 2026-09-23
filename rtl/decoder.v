@@ -499,7 +499,7 @@ module decoder (
     instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
-  always_comb if (out_valid && !out_is_interrupt)
+  always_comb if (clocked && out_valid && !out_is_interrupt)
     assert($onehot0({out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
       out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu}));
  `endif

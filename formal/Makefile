@@ -119,16 +119,18 @@ nonperturbation: check-nonperturbation.py
 
 .PHONY: components_decoder components_executor components_accessor components_pcloop components_traps \
         components_busarbiter
-components_decoder: components.sby decoder-zkt-probe ../rtl/decoder.v ../rtl/regsel.v \
+components_decoder: components.sby ../rtl/decoder.v ../rtl/regsel.v \
                      ../rtl/structs.v
 	rm -rf $@
 	sby -f $< decoder
 
+# The Zkt isolation gate (region_stall/ls_access) moved to executor.v with the D/X split,
+# so both probes now build against it and both gate components_executor.
 .PHONY: decoder-zkt-probe
-decoder-zkt-probe: decoder-zkt-probe.py ../rtl/decoder.v components.sby
+decoder-zkt-probe: decoder-zkt-probe.py ../rtl/executor.v components.sby
 	python3 $<
-components_executor: components.sby executor-zkt-probe check-solver-bitwuzla ../rtl/executor.v \
-                      ../rtl/structs.v
+components_executor: components.sby decoder-zkt-probe executor-zkt-probe check-solver-bitwuzla \
+                      ../rtl/executor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< executor
 
