@@ -112,6 +112,7 @@ nano/formal/traps
 nano/formal/region-probe/
 nano/formal/tval-probe/
 nano/tb/nano-x-probe/
+nano/tb/nano-meip-floor-probe/
 __pycache__/
 test/rtl.cc
 test/dual_rtl.cc
