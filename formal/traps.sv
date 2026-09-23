@@ -21,8 +21,7 @@ module traps #(
     input logic [31:0] reg_rs2,
     input executor_output executor_out,
     input logic divider_stall,
-    // The ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`.
-    input logic imem_stall,
+    input logic imem_stall,  // the ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`
     // Free, like the other two: a hart waiting for the shared bus issues nothing, so no
     // trap is committed on that cycle either.
     input logic bus_wait,

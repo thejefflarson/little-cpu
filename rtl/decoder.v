@@ -29,7 +29,6 @@ module decoder #(
   input  logic       accessor_out_valid,
   output logic [31:0] pc,
   output logic [31:0] next_pc,
-  // Fetch's view of this cycle: an instruction leaves decode, and not to its successor.
   output logic        issuing,
   output logic        redirect,
   output logic [4:0] rs1,
