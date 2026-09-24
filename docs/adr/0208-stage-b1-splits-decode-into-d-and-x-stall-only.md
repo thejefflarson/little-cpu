@@ -133,30 +133,73 @@ latch now carries it to the first real retire afterward, the one landing at `mtv
 - **`make -C formal nonperturbation`: PASS** (structurally identical netlist with and
   without RVFI instrumentation).
 
-## Not yet done — the largest piece of Stage B, by the brief's own estimate
+## Closed in the follow-up commits: `components_traps` and its neighbors
 
-`formal/pcloop.sv` and `formal/traps.sv` wire `fetcher` and `decoder` together by hand,
-reproducing `rtl/littlecpu.v`'s OLD topology (`decoder`'s port list included `reg_rs1`,
-`reg_rs2`, `executor_out`, `csr_rdata`, `mtvec`, `mepc` directly) rather than
-instantiating `littlecpu` as a whole the way `remeasure-fg`'s generic checks do. Both
-need rewiring to compose `decoder` and `executor` the way the new `littlecpu.v` does,
-and `pcloop`'s own properties need the redesign the brief itself flagged as its riskiest
-piece: `pc == $past(next_pc)` no longer holds architecturally once `fetch_pc` can guess
-sequentially and be corrected a cycle later by X. `rtl/executor.v` also has no `` `ifdef
-FORMAL `` block yet — the ALU/branch/trap assertions that lived in the fused decoder's
-own block need to move and be re-targeted at X's new signal names, or `components_executor`
-proves nothing. `test/decoder_tb.v` (1345 lines) and `test/exec_tb.v` (571 lines) still
-carry the fused decoder's port list and vector set; splitting them is not a rename, since
-several of the OLD decoder's per-cycle behaviors (the guessed pair, the operand-fetch
-stall, same-cycle branch resolution) no longer exist to test. `test/zkt_isolation_test.py`
-and both `-zkt-probe.py` scripts still name `region_stall`'s old site inside decoder.v
-and fail their own probe rather than pass vacuously (`decoder-zkt-probe.py` reports the
-stale assertion by name rather than silently green). `test/MUTATION_DETECTORS`'s patches
-are keyed to line numbers in the region-test logic that moved to executor.v and no
-longer apply — `make mutation-check` refuses to run rather than mutate blind. None of
-these five are graded on `make test`'s own path except `zkt-isolation-test` and
-`mutation-probe` (the forced-red prerequisite, not the check itself); all five are real,
-open work for the PR that follows this one.
+`formal/pcloop.sv` and `formal/traps.sv` are rewired to compose `fetcher`, `decoder`,
+`executor` (and, for `traps.sv`, `csrs`) the way `rtl/littlecpu.v` actually does, in place
+of the old hand-wired topology this ADR originally shipped with. `rtl/executor.v` has its
+own `` `ifdef FORMAL `` block (the ALU/branch/trap assertions the fused decoder's block
+used to carry, re-targeted at X's own signal names). `components_pcloop` and
+`components_decoder` closed without further work; `components_traps` did not, and closing
+it is the substance of this update.
+
+**The gap was not in the RTL.** `formal/traps.sv` reads D and X with `-formal -noassume`,
+which drops every standalone-only `assume` the two modules' own `` `ifdef FORMAL `` blocks
+state about their inputs, and turns their own `assert`s into required properties of the
+composed proof instead. `rtl/executor.v`'s standalone block assumed several structural
+facts about `in` (its dx_output input) for free — its class flags are mutually exclusive
+(onehot0), `is_csr_access` is derived from `is_csrrw`/`is_csrrs`/`is_csrrc`, a bubble is the
+struct zeroed — and `formal/traps.sv`'s own reference model independently re-derives
+`is_ebreak`/`is_ecall`, every load/store's immediate, the eleven A encodings, and one
+positive case (a plain `add`) straight from `dx_instr`'s raw bits, trusting none of D's
+decode. Every one of these is true by construction — `rtl/decoder.v` captures `out`'s
+fields together, from the same `instr`, in the same branch — but k-induction cannot use a
+fact that is merely true in the RTL text; it needs the fact stated as an `assert` on `out`
+itself, in the module that owns that state (`rtl/decoder.v`), read into the composition
+with `-formal -noassume` the same way `formal/components.sby`'s `traps` task already reads
+`decoder`'s and `executor`'s own asserts. Six such asserts were missing (onehot0 over the
+full class-flag set, `is_csr_access`'s derivation, the reserved-opcode/zero-word converse,
+is_ebreak/is_ecall, the twelve load/store encodings' class-flag-and-immediate equivalence,
+the eleven A encodings' equivalence and zero immediate, and the one `add` case) and each was
+found the same way: an induction counterexample at `rtl/executor.v`'s own line, read back
+through the VCD to the exact unreachable `out` combination the induction's free starting
+state had picked, then closed with the matching assert. One of the six additions
+(`!out_is_interrupt` excluding the onehot0/derivation asserts) was itself a bug in the fix,
+not the RTL: the interrupt bubble zeroes every class flag too, so excluding it left them
+free during an interrupt cycle and broke a check unrelated to interrupts entirely
+(`in_is_srl`'s shift reference in `rtl/executor.v`, gated on `in_is_srl` alone). No
+assertion, probe, or proof mode was weakened to close this; `components_traps` is still
+`mode prove`, still k-induction, still unbounded.
+
+`traps-tval-probe` (retargeted at `rtl/executor.v`, not yet re-run when this ADR was first
+written) and `traps-region-probe` both fail at their own named assertion against the
+shipping RTL's own mutations, confirming the composed proof did not lose its own red
+direction while these six facts were added.
+
+`test/exec_tb.v` is rebuilt against `rtl/executor.v`'s real ports — operand values ride the
+separate `reg_rs1`/`reg_rs2` ports now, not `in.rs1`/`in.rs2` (which carry register NUMBERS
+in the split, not values) — and passes with its full required coverage.
+`test/zkt_isolation_test.py` is retargeted at `rtl/executor.v`: D's own nine former stall
+reasons no longer read a bit of register-file data at all, so the whole structural argument
+moved to X's one timing output (`x_busy`), gated by `region_stall` and the divider's own
+`divider_busy` — Zkt's own two named exclusions — rather than a blanket ban.
+
+## Not yet done
+
+`test/decoder_tb.v` (1345 lines) still carries the fused decoder's port list and its whole
+vector set is built on the two-cycle guess-then-fetch protocol B1 deleted (the guessed
+pair, the operand-fetch stall, same-cycle branch resolution) — not a rename, a rewrite
+against D's actual single-cycle present-then-issue shape, and larger than the rest of this
+closure combined. `test/stall_sites_test.py` (and, with it, `test/decoder_tb.v`'s OR-identity
+check, `CLAUDE.md`'s own stall-broadcast list, and every other of the six declared sites)
+needs re-deriving against `x_busy` folding two reasons into one bit at D's level and the
+operand reason's deletion; `CLAUDE.md`'s prose for this is rewritten in this same PR but the
+grading script that would catch it drifting is not. `test/MUTATION_DETECTORS`'s five
+patches keyed to the region-test logic that moved into `rtl/executor.v` still do not apply;
+re-keying and re-measuring each is blocked on `test/decoder_tb.v` for the two whose detector
+is that bench. None of these three is graded on `make test`'s own path except
+`zkt-isolation-test` (now closed) and `mutation-probe` (the forced-red prerequisite, not the
+check itself).
 
 ## Measured: cycles moved the direction the ticket's kill criterion predicted
 
@@ -204,13 +247,16 @@ each change.
 
 ## Decision
 
-Land Stage B1 with the five formal/test-harness items above as explicitly open work,
-rather than block this PR on completing them. The evidence available without them —
-three independent oracles (cxxrtl's per-retire RVFI monitor, Sail cosim reading raw
-`regs_a`, and 86 generated riscv-formal per-instruction proofs) all agreeing, plus
-`imemcheck`/`dmemcheck`/`nonperturbation`/`remeasure-fg` all passing against the new
-topology unmodified — is real, independent, and substantial; the remaining five items
-test the SAME architectural change from angles those oracles cannot reach (component-
-level k-induction, mutation coverage, the standing Zkt isolation claim under the new
-signal names) and are owed before Stage B is declared complete, not before this stage
-ships.
+Land Stage B1 with `test/decoder_tb.v`, `test/stall_sites_test.py` and
+`test/MUTATION_DETECTORS`'s five region-test patches as explicitly open work, rather than
+block this PR on completing them. `components_pcloop`, `components_decoder`,
+`components_traps` and `zkt-isolation-test` — the four items this ADR originally left open
+alongside those three — are now closed, k-induction unbounded and unweakened throughout.
+The evidence available for the remaining three — three independent oracles (cxxrtl's
+per-retire RVFI monitor, Sail cosim reading raw `regs_a`, and 86 generated riscv-formal
+per-instruction proofs) all agreeing, `imemcheck`/`dmemcheck`/`nonperturbation`/
+`remeasure-fg` all passing, and every unit bench but `decoder_tb` passing against the new
+topology — is real, independent, and substantial; the remaining three test the SAME
+architectural change from an angle those oracles cannot reach (a vector-level bench built
+on D's own new single-cycle protocol) and are owed before Stage B is declared complete, not
+before this stage ships.
