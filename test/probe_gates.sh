@@ -2559,79 +2559,68 @@ probe "a tree with no source file at all is red rather than vacuously green" 1 \
 
 begin_group "test/zkt_isolation_test.py"
 
-# The script takes a path argument directly, so a fixture is just a mutated COPY of the
-# shipping rtl/decoder.v plus its two dependencies -- no git init needed, unlike the
+# The D/X split (ADR-0208) moved every signal this script grades off rtl/decoder.v --
+# whose own stall reasons no longer read a bit of register-file DATA at all -- onto
+# rtl/executor.v, whose one TIMING output is x_busy, gated by region_stall (a load/store
+# region wait) and divider_busy (DIV/REM's own operand-magnitude-dependent length). The
+# script takes a path argument directly, so a fixture is just a mutated COPY of the
+# shipping rtl/executor.v plus its one dependency -- no git init needed, unlike the
 # checks above that enumerate tracked files.
 ZKT="python3 $HERE/zkt_isolation_test.py"
 
 zkt_fixture() {
   local d; d=$(new_case)
-  cp "$REPO/rtl/decoder.v" "$d/decoder.v"
+  cp "$REPO/rtl/executor.v" "$d/executor.v"
   cp "$REPO/rtl/structs.v" "$d/structs.v"
-  cp "$REPO/rtl/regsel.v" "$d/regsel.v"
   printf '%s' "$d"
 }
 
-# This control is also the only thing that exercises CONTROL_FIELDS: emptying that table
-# makes live_rs1/live_rs2's real reads of out.rd/out.valid and executor_out.rd/valid show
-# up as reachable on the SHIPPING RTL, no mutation needed, because out.valid's own bubble
-# condition genuinely depends on region_stall and trap_pending genuinely depends on
-# reg_rs1 (misalignment).
 d=$(zkt_fixture)
-probe "control: the shipping decoder reaches region_stall only, gated" 0 \
-  "reach only region_stall" "$ZKT $d/decoder.v"
+probe "control: the shipping executor reaches x_busy only through its two gates" 0 \
+  "reach x_busy only" "$ZKT $d/executor.v"
 
 # FORWARD REACHABILITY, the plain case: a register-file DATA bit routed straight into
-# hazard, the way a forwarding path or a data-dependent early-out might be added by
+# x_busy, the way a forwarding path or a data-dependent early-out might be added by
 # someone who never meant to touch Zkt's claim.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || reg_rs1[0];/'
-probe "a reg_rs1 bit routed into hazard is red, at hazard's own site" 1 \
-  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+mutate "$d/executor.v" \
+  's/assign x_busy = divider_busy || region_stall;/assign x_busy = divider_busy || region_stall || reg_rs1[0];/'
+probe "a reg_rs1 bit routed into x_busy is red, at x_busy's own site" 1 \
+  "\`x_busy\` is reachable" "$ZKT $d/executor.v"
 
 # FORWARD REACHABILITY THROUGH A REGISTER: reg_rs1 laundered through the publish block's
-# own `out.rs1 <= reg_rs1` before reaching hazard.
+# own `out.rd_data <= ...` before reaching x_busy.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || out.rs1[0];/'
-probe "reg_rs1 laundered through out.rs1's own register is still red" 1 \
-  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+mutate "$d/executor.v" \
+  's/assign x_busy = divider_busy || region_stall;/assign x_busy = divider_busy || region_stall || out.rd_data[0];/'
+probe "reg_rs1 laundered through out.rd_data's own register is still red" 1 \
+  "\`x_busy\` is reachable" "$ZKT $d/executor.v"
 
-# FORWARD REACHABILITY THROUGH A COMPARATOR: branch_taken depends on
-# cmp_eq/cmp_lt/cmp_ltu, which are reg_rs1/reg_rs2 through a subtraction --every bit of
-# it real dataflow, computed in an always_comb block.
+# FORWARD REACHABILITY THROUGH A COMPARATOR: cmp_eq is reg_rs1/reg_rs2 through a
+# subtraction -- every bit of it real dataflow, computed in an always_comb block.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || branch_taken;/'
-probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
-  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+mutate "$d/executor.v" \
+  's/assign x_busy = divider_busy || region_stall;/assign x_busy = divider_busy || region_stall || cmp_eq;/'
+probe "cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red" 1 \
+  "\`x_busy\` is reachable" "$ZKT $d/executor.v"
 
-# FORWARD REACHABILITY, the other seed: a register-file DATA output STRUCT_FIELD_SEEDS
-# never named.
+# FINDING 1: x_busy reading region_stall's own captured state directly, bypassing the
+# name and reading ls_answer_valid instead.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/'
-probe "an executor_out.rd_data bit routed into a stall reason is red" 1 \
-  "\`atomic_stall\` is reachable" "$ZKT $d/decoder.v"
-
-# FINDING 1: a stall reason reading region_stall's own captured state directly, bypassing
-# the ls_access gate rather than going through it.
-d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;/'
-probe "hazard reading ls_answer_valid directly is red (finding 1)" 1 \
-  "region_stall's own captured answer" "$ZKT $d/decoder.v"
+mutate "$d/executor.v" \
+  's/assign x_busy = divider_busy || region_stall;/assign x_busy = divider_busy || region_stall || ls_answer_valid;/'
+probe "x_busy reading ls_answer_valid directly is red (finding 1)" 1 \
+  "region_stall's own captured answer" "$ZKT $d/executor.v"
 
 # FINDING 2: the same leak, behind a decoy.
 d=$(zkt_fixture)
-python3 - "$d/decoder.v" <<'PYEOF'
+python3 - "$d/executor.v" <<'PYEOF'
 import sys
 p = sys.argv[1]
 s = open(p).read()
 s = s.replace(
-    'assign hazard = hazard_rs1 || hazard_rs2 || serialize;',
-    'assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;\n'
+    'assign x_busy = divider_busy || region_stall;',
+    'assign x_busy = divider_busy || region_stall || ls_answer_valid;\n'
     '  generate\n'
     '    if (0) begin : dead_gen\n'
     "      assign ls_answer_valid = 1'b0;\n"
@@ -2641,80 +2630,70 @@ s = s.replace(
 open(p, 'w').write(s)
 PYEOF
 probe "a dead generate-if(0) decoy does not hide the same leak (finding 2)" 1 \
-  "region_stall's own captured answer" "$ZKT $d/decoder.v"
+  "region_stall's own captured answer" "$ZKT $d/executor.v"
 
-# FINDING 3: a new decoder input wider than a register NUMBER, added with no Zkt
+# FINDING 3: a new executor input wider than a register NUMBER, added with no Zkt
 # classification at all.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
+mutate "$d/executor.v" \
   's/  input  logic \[31:0\] reg_rs1,/  input  logic [31:0] reg_rs1,\n  input  logic [9:0] probe_wide_input,/'
 probe "a new wide input port with no classification is red (finding 3)" 2 \
-  "no Zkt classification" "$ZKT $d/decoder.v"
+  "no Zkt classification" "$ZKT $d/executor.v"
 
-# FINDING 5: CONTROL_FIELDS' own written justification is entirely a width argument, and
-# nothing checked it.
+# CONTROL_FIELDS is empty for X on purpose -- no wide struct field is read back into its
+# own timing computation the way D's out/executor_out used to be -- but the mechanism
+# behind it must still catch a future entry that is too wide, the same bound
+# classify_inputs already enforces for a plain input port.
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
-python3 - "$d/zkt_isolation_test.py" <<'PYEOF'
-import sys
-p = sys.argv[1]
-s = open(p).read()
-old = ("CONTROL_FIELDS = {\n"
-       "    'out': ('decoder_output', ['valid', 'rd', 'is_amo']),\n"
-       "    'executor_out': ('executor_output', ['valid', 'rd', 'rd_ready']),\n"
-       "}")
-assert s.count(old) == 1
-open(p, 'w').write(s.replace(old, 'CONTROL_FIELDS = {}'))
-PYEOF
-probe "CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)" 1 \
-  "is reachable" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
+mutate "$d/zkt_isolation_test.py" \
+  "s/CONTROL_FIELDS = {}/CONTROL_FIELDS = {'in': ('dx_output', ['instr'])}/"
+probe "a CONTROL_FIELDS entry wider than a register NUMBER is red" 2 \
+  "wider than a register NUMBER" "python3 $d/zkt_isolation_test.py $REPO/rtl/executor.v"
 
-# FINDING 5, the width bound: control_field_bits asserted no width, even though the
-# written justification for the whole table is entirely one -- "rd is [4:0], the same
-# width SEED_PORTS/NON_VALUE_PORTS draw the line at." Widening decoder_output's own `rd`
-# field past 5 bits must be caught here, the same bound classify_inputs already enforces
-# for input ports.
+# dx_output.rs1, currently a register NUMBER at [4:0] and so exempt from classification
+# on width alone, widened past the point where that exemption holds -- caught the same
+# way a brand new wide field would be, not silently still skipped.
 d=$(zkt_fixture)
 python3 - "$d/structs.v" <<'PYEOF'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-marker = '} decoder_output;'
+marker = '} dx_output;'
 idx = s.index(marker)
 head, tail = s[:idx], s[idx:]
-old = '  logic [4:0]  rd;'
+old = '  logic [4:0]  rs1;'
 assert head.count(old) == 1
-open(p, 'w').write(head.replace(old, '  logic [31:0]  rd;', 1) + tail)
+open(p, 'w').write(head.replace(old, '  logic [31:0]  rs1;', 1) + tail)
 PYEOF
-probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
-  "wider than a register NUMBER" "$ZKT $d/decoder.v"
+probe "dx_output.rs1 widened past 5 bits is red, unclassified" 2 \
+  "no Zkt classification" "$ZKT $d/executor.v"
 
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
 mutate "$d/zkt_isolation_test.py" \
   "s/NON_VALUE_PORTS = {/NON_VALUE_PORTS = {\n    'totally_fake_port',/"
 probe "a classification naming a port the netlist has never seen is red" 2 \
-  "Remove the stale entry" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
+  "Remove the stale entry" "python3 $d/zkt_isolation_test.py $REPO/rtl/executor.v"
 
-# A stall-reason name with no driving cell at all -- a deleted \`assign hazard = ...;\`
-# with the declaration left behind -- would make reachability through it vacuously true
-# (nothing flows out of a wire nothing drives) rather than the missing stall reason it
-# is.
+# A signal with no driving cell at all -- a deleted \`assign x_busy = ...;\` with the
+# declaration left behind -- would make reachability through it vacuously true (nothing
+# flows out of a wire nothing drives) rather than the missing signal it is.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d'
+mutate "$d/executor.v" '/assign x_busy = divider_busy || region_stall;/d'
 probe "a stall reason with no driving cell stops the run" 2 \
-  "hazard has no driving cell" "$ZKT $d/decoder.v"
+  "x_busy has no driving cell" "$ZKT $d/executor.v"
 
 # The anti-vacuity control: if the RTL stopped carrying reg_rs1 into region_stall at all,
 # every PASS above would be a check of nothing, and this is what says so instead of
 # staying green.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
+mutate "$d/executor.v" \
   's/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/'
 probe "a graph with no edges out of reg_rs1 is red, not a vacuous pass" 1 \
-  "found no edges at all" "$ZKT $d/decoder.v"
+  "found no edges at all" "$ZKT $d/executor.v"
 
-probe "wrong argument count is exit 2" 2 "Usage:" "$ZKT $d/decoder.v extra"
+probe "wrong argument count is exit 2" 2 "Usage:" "$ZKT $d/executor.v extra"
 
 probe "a decoder.v that does not exist is exit 2, not a vacuous pass" 2 \
   "cannot read" "$ZKT $d/nonexistent.v"
