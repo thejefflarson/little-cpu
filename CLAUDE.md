@@ -921,8 +921,8 @@ make -C nano/formal components_qspi  # nano_qspi_ctrl's three invariants (CS0/CS
                     # its forced-red prerequisite
 make -C nano/formal all-latch  # nano's five hand-written proofs (ill_e, dmemcheck,
                     # imemcheck, traps, and their _cover twins) against NANO_LATCH_RF,
-                    # each with clk2fflogic and doubled depth; the genchecks-generated
-                    # ladder and remeasure-fg stay flop-only, a pinned genchecks-local.py
+                    # each with clk2fflogic and doubled depth; the generated riscv-formal
+                    # checks and remeasure-fg stay flop-only, a pinned genchecks-local.py
                     # forbids the decoupling clk2fflogic needs there (docs/adr/0207)
 ```
 

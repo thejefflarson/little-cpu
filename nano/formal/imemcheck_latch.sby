@@ -2,9 +2,7 @@
 mode bmc
 append 0
 tbtop testbench.uut
-# clk2fflogic turns one clock cycle into two BMC steps (needed for the $dlatch cells
-# NANO_LATCH_RF adds), so imemcheck.sby's depth 15 becomes 2*15+1 here to search the
-# same span of real cycles. check-memcheck-depth.py's --clk2fflogic flag grades it.
+# 2*15+1: imemcheck.sby's depth doubled for clk2fflogic, graded by --clk2fflogic.
 depth 31
 
 [engines]

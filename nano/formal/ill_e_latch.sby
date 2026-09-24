@@ -1,8 +1,6 @@
 [options]
 mode bmc
-# clk2fflogic turns one clock cycle into two BMC steps (needed for the $dlatch cells
-# NANO_LATCH_RF adds), so ill_e.sby's depth 40 becomes 2*40+1 here to search the same
-# span of real cycles.
+# 2*40+1: ill_e.sby's depth doubled for clk2fflogic's two-BMC-steps-per-cycle model.
 depth 81
 
 [engines]

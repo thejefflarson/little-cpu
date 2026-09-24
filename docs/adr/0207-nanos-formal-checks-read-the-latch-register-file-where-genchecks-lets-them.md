@@ -92,10 +92,12 @@ and passes:
 - `ill_e_latch.sby`: PASS, depth 81, ~2 minutes.
 - `imemcheck_latch.sby`: PASS, depth 31, ~3.5 minutes.
 - `traps_latch.sby`: PASS, depth 51, **2h23m19s**.
-- `dmemcheck_latch.sby`: PASS, depth 49, several hours —
-  `smtbmc --presat --unroll boolector`'s per-step cost grows sharply past step ~35, the
-  same shape ADR-0040 measured (13-14x per check at a correctly configured depth, there on
-  a much shallower one).
+- `dmemcheck_latch.sby`: reached step 44 of 49 clean (no counterexample) over roughly six
+  hours before the session that ran it ended; `smtbmc --presat --unroll boolector`'s
+  per-step cost grows sharply past step ~35, the same shape ADR-0040 measured (13-14x per
+  check at a correctly configured depth, there on a much shallower one). **Not yet a
+  completed PASS** — the last five steps are owed, and are exactly the kind of run a
+  scheduled CI job, not an interactive session, should carry.
 
 **Only `ill_e_latch` was also proved against a real mutant in this session.**
 `ill-e-probe.py --sby-file ill_e_latch.sby` runs the shipping core (PASS, above) and the
@@ -121,11 +123,12 @@ repository that needs a real solver. `traps_latch` alone costs more real time th
 other check in this ticket combined, and `dmemcheck_latch` more still.
 
 `check-memcheck-depth.py` gained `--clk2fflogic`, which grades `2*floor+1` instead of
-`floor` (`nano/formal/Makefile`'s `memcheck-depth` target now checks all four memchecks);
-`formal/memcheck-cover-probe.py` gained `dmemcheck_latch`/`imemcheck_latch` as `--check`
-choices, reading the same unmodified `dmemcheck.sv`/`imemcheck.sv` a `_latch` variant's
-`.sby` already does (`NANO_LATCH_RF` lives in `nano.v`, never in the checker), and was run
-for real against the stalled-bus mutant for both.
+`floor` (`nano/formal/Makefile`'s `memcheck-depth` target now checks all four memchecks,
+against the unrun `dmemcheck_latch.sby` too); `formal/memcheck-cover-probe.py` gained
+`dmemcheck_latch`/`imemcheck_latch` as `--check` choices, reading the same unmodified
+`dmemcheck.sv`/`imemcheck.sv` a `_latch` variant's `.sby` already does (`NANO_LATCH_RF`
+lives in `nano.v`, never in the checker) — unit-tested with a stub `sby`, not yet run for
+real against the stalled-bus mutant.
 
 ### F and G
 
@@ -179,7 +182,9 @@ resolved — not on either alone.
   Makefile targets) is unchanged, and `make probe-gates` covers each new argument's own
   error path.
 - `complete.sby`/`complete_cover.sby` staying flop-only is a known gap, not a silent one:
-  `NANO_LATCH_RF` is proved against the illegal-instruction rule, both memory buses, and
-  the whole trap/mtval path, but not against the ISA-completeness sweep.
+  `NANO_LATCH_RF`'s illegal-instruction rule is proved against a real mutant;
+  `imemcheck_latch`'s shipping core passes for real; `traps_latch`'s shipping core passes
+  for real but its region/mtval mutants and `dmemcheck_latch`'s own shipping run are owed
+  (above), and none is proved against the ISA-completeness sweep.
 - `NANO_LATCH_RF` remains off by default. Flipping it needs a second ADR closing the
   setup-timing question this one deliberately leaves open.
