@@ -17,13 +17,55 @@ module exec_tb;
   always #5 clk = ~clk;
 
   logic reset;
-  decoder_output in;
+  dx_output in;
+  logic [31:0] reg_rs1, reg_rs2;
+  logic x_busy;
+  logic [31:0] atomic_addr;
+  // Neither read nor exercised by this bench's vectors (none of them is an atomic), so a
+  // fixed stub matches rtl/decoder_tb.v's convention for the same signal.
+  logic atomic_supported = 1'b1;
+  logic [11:0] csr_addr;
+  logic csr_ren, csr_wen;
+  logic [31:0] csr_wdata;
+  logic [31:0] csr_rdata = 32'b0;
+  logic csr_implemented = 1'b0;
+  logic instret;
+  logic trap_entry;
+  logic [31:0] trap_cause, trap_epc, trap_tval;
+  logic mret_entry;
+  logic [31:0] mtvec = 32'h0000_0100;
+  logic [31:0] mepc  = 32'h0000_0244;
+  logic redirect;
+  logic [31:0] redirect_target;
+  decoder_output launch;
   executor_output out;
 
   executor dut (
     .clk(clk),
     .reset(reset),
     .in(in),
+    .reg_rs1(reg_rs1),
+    .reg_rs2(reg_rs2),
+    .x_busy(x_busy),
+    .atomic_addr(atomic_addr),
+    .atomic_supported(atomic_supported),
+    .csr_addr(csr_addr),
+    .csr_ren(csr_ren),
+    .csr_wen(csr_wen),
+    .csr_wdata(csr_wdata),
+    .csr_rdata(csr_rdata),
+    .csr_implemented(csr_implemented),
+    .instret(instret),
+    .trap_entry(trap_entry),
+    .trap_cause(trap_cause),
+    .trap_epc(trap_epc),
+    .trap_tval(trap_tval),
+    .mret_entry(mret_entry),
+    .mtvec(mtvec),
+    .mepc(mepc),
+    .redirect(redirect),
+    .redirect_target(redirect_target),
+    .launch(launch),
     .out(out)
   );
 
@@ -249,7 +291,14 @@ module exec_tb;
   task automatic clear_in;
     begin
       in = '0;
+      in.valid = 1'b1;
       in.rd = 5'd1;
+      // Register NUMBERS, not values -- X reads the value off reg_rs1/reg_rs2 below, so
+      // any non-x0 pair works and stays fixed across every vector this bench drives.
+      in.rs1 = 5'd2;
+      in.rs2 = 5'd3;
+      reg_rs1 = 32'b0;
+      reg_rs2 = 32'b0;
     end
   endtask
 
@@ -333,8 +382,8 @@ module exec_tb;
         $fatal(1);
       end
       clear_in();
-      in.rs1 = rs1_v;
-      in.rs2 = rs2_v;
+      reg_rs1 = rs1_v;
+      reg_rs2 = rs2_v;
       case (id)
         OP_MUL:    in.is_mul    = 1'b1;
         OP_MULH:   in.is_mulh   = 1'b1;
