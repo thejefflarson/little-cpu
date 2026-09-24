@@ -59,8 +59,9 @@ references still resolve.
   the same rule wrong-path register writes already kept. This keeps the BMC depths small and
   derivable, retire unfiltered, and `pcloop`'s induction free of speculative state (ADR-0207,
   ADR-0208). Enforced by `formal/pcloop.sv` (rebuilt on the fetcher/D/X/littlecpu topology) and
-  `rtl/decoder.v`'s `FORMAL` block; `test/decoder_tb.v`'s own `pc`/`next_pc` check moved out of
-  decoder.v's scope along with `fetch_pc` and is not yet rebuilt.
+  `rtl/decoder.v`'s `FORMAL` block; `test/decoder_tb.v` checks D's own `predicted_pc` guess
+  directly, but `fetch_pc` itself now lives in `rtl/littlecpu.v`, which has no unit bench of its
+  own, so the closed `pcloop` proof is the only check of the whole address chain.
 - **All traps are detected by D and committed by X, one cycle later** (2). Nothing faults after X
   settles; a trap is a branch to `mtvec` on the same override the jumps use, which is what makes
   CSR commit precise with no reorder buffer. A refusal counts as committed only when it arrives
@@ -77,9 +78,9 @@ references still resolve.
   period is a null at sixteen paired placements; the price was +13.79% of Dhrystone's cycles on the
   fused decoder (ADR-0129) — B1's own cost of moving this test into X is the D/X split's own
   measurement, ADR-0208. Enforced by `components_traps` over `formal/traps.sv` (rebuilt on the D/X
-  topology) and `rtl/executor.v`'s `FORMAL` block; `test/decoder_tb.v`'s region vectors moved out
-  of decoder.v's scope along with the region test and are not yet rebuilt against
-  `rtl/executor.v`.
+  topology) and `rtl/executor.v`'s `FORMAL` block; `test/executor_tb.v` is the region test's and
+  the trap-cause priority chain's own directed bench, driving `rtl/executor.v` the way
+  `test/exec_tb.v` drives its arithmetic.
   **So this core has a layout preference, and the shipping linker scripts pay it** (ADR-0158). A
   64 KB window is 32 blocks and 30 of them are deep, so a program whose stack and `.data` sit one
   2 KB block clear of the edges reaches the fast arm on essentially every access, and one that does
@@ -140,13 +141,21 @@ references still resolve.
   OR — there is no `stall_other` tier anymore. **The region wait now holds rather than bubbles**:
   folded into `x_busy`, it takes the same branch the divider always did, and correctly so — `out`
   does not need to go invisible to the scoreboard during the wait, it needs to keep naming the same
-  still-in-flight register, which holding does and a bubble would not. A reason is declared in the
-  decoder's signal, its OR and its publish arm; `test/cxxrtl.cc`'s bucket, now split across
-  `uut decoder` and `uut executor` since `divider_busy` and `region_stall` live in X;
-  `test/stall_report.py`'s `REASONS` and `HEADINGS`; `formal/pcloop.sv`'s `f_may_stall`; and this
-  list. `test/stall_sites_test.py`, `test/decoder_tb.v`'s OR-identity check and its counterpart
-  inside X (`test/exec_tb.v`) are not yet rebuilt against this shape and are open work. The
-  cycle-accounting identity itself (`test/stall_report.py`'s `unattributed` column) still runs on
+  still-in-flight register, which holding does and a bubble would not. Two related vocabularies are
+  graded against each other, not one: D's own composition (the raw signals `stall`'s OR is built
+  from -- `hazard_rs1`/`hazard_rs2`, `serialize`, `fetch_stall`, `atomic_stall`, `x_busy`,
+  `bus_wait`) declared in the decoder's signal, its OR, its publish arm and its `FORMAL` hold-assert,
+  and vectored both ways (hold, bubble) in `test/decoder_tb.v`'s OR-identity check; and the
+  CPI-accounting taxonomy (`divider`, `atomic`, `hazard`, `serialize`, `fetch`, `bus`, `region`,
+  `x_busy` split back into its two causes for reporting) in `test/cxxrtl.cc`'s bucket, now split
+  across `uut decoder` and `uut executor` since `divider_busy` and `region_stall` live in X, and
+  `test/stall_report.py`'s `REASONS` and `HEADINGS`. `formal/pcloop.sv` no longer carries a
+  separate `f_may_stall` over-approximation: the D/X rebuild (ADR-0208) composes the real
+  fetcher/decoder/executor instances, so pcloop's induction reads their actual `issuing`/`redirect`
+  outputs directly and has nothing left to declare here. `rtl/executor.v`'s own `x_busy` composition
+  (`divider_busy || region_stall`) is graded the same way, vectored in `test/executor_tb.v`'s
+  OR-identity check. `test/stall_sites_test.py` grades all of it; the cycle-accounting identity
+  itself (`test/stall_report.py`'s `unattributed` column) still runs on
   every `make test`, not only under `make cycles`. The **atomic write cycle** still bubbles because
   X has already consumed the AMO and a hold would retire it twice (ADR-0106); the **ungranted bus**
   still bubbles because X publishes `stalled` and takes no input that freezes it, so a held
@@ -174,12 +183,16 @@ free. `test/exec_tb.v` is rebuilt against `rtl/executor.v`'s real ports (operand
 `reg_rs1`/`reg_rs2`, not `in.rs1`/`in.rs2`) and passes with full coverage.
 `test/zkt_isolation_test.py` is retargeted at `rtl/executor.v`, whose one timing output (`x_busy`)
 is gated by `region_stall` and the divider's own `divider_busy` — Zkt's own two named exclusions —
-rather than decoder.v's nine now-data-blind stall reasons. **Still open**: `test/decoder_tb.v`
-(1345 lines built on the fused decoder's two-cycle guess-then-fetch protocol, which no longer
-exists to test — not a rename), `test/stall_sites_test.py` and its six declared sites (this list
-included) now that `x_busy` folds two reasons into one bit at D's level, and
-`test/MUTATION_DETECTORS`'s five patches keyed to the region-test logic that moved into
-`rtl/executor.v`.
+rather than decoder.v's nine now-data-blind stall reasons. `test/decoder_tb.v` is rebuilt against
+D's real single-cycle present-then-issue shape (decode, the RAW-only scoreboard, serialization, the
+atomic write cycle, the `x_busy` hold/bubble split, `x_redirect`'s unconditional kill,
+`bus_request`'s over-asking, and the one-cycle interrupt bubble), and `test/executor_tb.v` is new:
+branch and jump resolution, the trap-cause priority chain and `trap_tval`, CSR read/write
+suppression, atomic address and fault, the region test's deferred-answer protocol, and the
+interrupt bubble's commit all moved there with the RTL they test. `test/stall_sites_test.py` is
+rebuilt for the two vocabularies above. `test/MUTATION_DETECTORS`'s five patches are re-keyed to
+where their term now lives; `atomic-region-ignored` and `loadstore-region-ignored` are caught by
+`executor_tb` now that `decoder_tb` no longer sees the region test.
 
 ## ISA target
 

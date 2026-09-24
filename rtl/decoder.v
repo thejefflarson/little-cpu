@@ -519,6 +519,9 @@ module decoder (
   always_comb if (clocked && !out_valid) assert(out == '0);
   always_comb if (clocked && out_is_interrupt) assert(out_rd == 0);
 
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(x_busy)) assert(out == $past(out));
+
   always_comb if (rs1 == 0) assert(!hazard_rs1);
   always_comb if (rs2 == 0) assert(!hazard_rs2);
 

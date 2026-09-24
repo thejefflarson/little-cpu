@@ -1,32 +1,28 @@
 #!/usr/bin/env python3
-"""Asserts that every place declaring a decoder stall reason names the same eight, the
-way test/march_test.sh already does for the ISA string's seven sites.
+"""Asserts that every place declaring a stall reason names the same set, the way
+test/march_test.sh already does for the ISA string's seven sites.
 
 Usage: stall_sites_test.py [repo-root]     # defaults to this script's parent
 
-WHY THIS EXISTS. `stall` is built by rtl/decoder.v out of eight named reasons and
-CLAUDE.md's stall-broadcast paragraph says a reason is declared in six places. Nothing
-checked that the six agreed with each other; a reason dropped from one site, or a new
-signal ORed into `stall` that nobody taught the other five, went unnoticed until someone
-read a CPI number and wondered why it changed.
+WHY THIS EXISTS. Nothing checked that the sites agreed with each other; a reason dropped
+from one site, or a new signal ORed into `stall` that nobody taught the other sites, went
+unnoticed until someone read a CPI number and wondered why it changed.
 
-THE TRAP THIS SCRIPT IS BUILT NOT TO FALL INTO: test/decoder_tb.v's OR-identity check ORs
-NINE signals for EIGHT reasons, because hazard_rs1 and hazard_rs2 are the two halves of
-one reason ("hazard"). Counting signals rather than the reasons they cover would read
-that site as having a phantom ninth reason. SIGNAL_TO_REASON maps every raw signal name
-onto the reason it covers -- both hazard_rs1 and hazard_rs2 land on "hazard" -- and every
-site below is graded on the SET of reasons its signals cover, never on how many signals
-it took to cover them.
+TWO VOCABULARIES, BOTH SEVEN LONG, AND THEY ARE NOT THE SAME LIST. The D/X split folded
+the divider and the load/store region wait into one opaque bit, `x_busy`, at D's own
+level (D cannot tell them apart and does not need to: both mean "hold `out`"). But
+test/cxxrtl.cc's cycle accounting reaches inside the executor instance and still charges
+a stalled cycle to `divider_busy` or `region_stall` separately, because that distinction
+is what makes `make cycles`' CPI table useful. So there are two canonical lists, not one:
+DECODER_REASONS (what actually gates `stall`, at the raw-signal granularity `stall`'s own
+OR is built from -- hazard_rs1 and hazard_rs2 are two signals here, since that is the
+literal shape of test/decoder_tb.v's OR-identity check) and CPI_REASONS (what a stalled
+cycle is charged to for reporting, where hazard_rs1/hazard_rs2 collapse to one "hazard"
+bucket but divider and region stay apart). x_busy is the union of CPI_REASONS' "divider"
+and "region"; that relationship is asserted directly rather than assumed.
 
-A SIGNAL THIS SCRIPT DOES NOT RECOGNIZE IS RED, NOT SILENT. rtl/decoder.v's own stall
-composition and publish arm, test/decoder_tb.v's OR-identity check, test/cxxrtl.cc's
-bucket table and formal/pcloop.sv's f_may_stall are all read back through
-SIGNAL_TO_REASON; a name absent from that table is reported rather than ignored, whether
-it is a genuinely new stall reason nobody taught this script yet, or the future non-stall
-"kill" bubble a pipeline restructure is expected to add. Either way it must not join any
-of those ORs undetected: a new stall reason belongs in SIGNAL_TO_REASON and every site
-below, and kill belongs only in the cycle-accounting identity test/stall_report.py
-already keeps (as a column beside `issue`, never inside `stall`).
+A SIGNAL THIS SCRIPT DOES NOT RECOGNIZE IS RED, NOT SILENT, in whichever vocabulary the
+site is graded against.
 
 Hermetic: file reads only. No toolchain, so this runs inside `make test` anywhere.
 """
@@ -35,40 +31,31 @@ import pathlib
 import re
 import sys
 
-CANONICAL_REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch",
-                      "bus", "region"]
-
-SIGNAL_TO_REASON = {
-    "divider_stall": "divider",
+DECODER_REASONS = ["hazard_rs1", "hazard_rs2", "serialize", "fetch", "atomic", "x_busy", "bus"]
+SIGNAL_TO_DECODER_REASON = {
+    "hazard_rs1": "hazard_rs1",
+    "hazard_rs2": "hazard_rs2",
+    "serialize": "serialize",
+    "fetch_stall": "fetch",
     "atomic_stall": "atomic",
-    "hazard": "hazard",
+    "x_busy": "x_busy",
+    "bus_wait": "bus",
+}
+
+CPI_REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus", "region"]
+SIGNAL_TO_CPI_REASON = {
+    "divider_busy": "divider",
+    "atomic_stall": "atomic",
     "hazard_rs1": "hazard",
     "hazard_rs2": "hazard",
     "serialize": "serialize",
-    "operand_stall": "operand",
     "fetch_stall": "fetch",
     "bus_wait": "bus",
     "region_stall": "region",
 }
 
-# f_may_stall cannot name a decoder-internal signal at all (a harness cannot reach inside
-# an instance), so it is graded as its own fixed vocabulary rather than through
-# SIGNAL_TO_REASON.
-PCLOOP_MAY_STALL_TERMS = {
-    "divider_stall", "fetch_stall", "bus_wait", "f_live_rs1", "f_live_rs2", "f_system",
-    "f_fencei", "f_operand_fetch", "f_amo_wait", "f_load_store",
-}
-
-CLAUDE_PHRASES = {
-    "divider": "the divider",
-    "atomic": "the atomic write cycle",
-    "hazard": "the decode scoreboard",
-    "serialize": "serialization",
-    "operand": "the operand-fetch cycle",
-    "fetch": "the stolen fetch window",
-    "bus": "the ungranted bus",
-    "region": "the load/store region wait",
-}
+CLAUDE_STALL_OWN = "stall_own = hazard || serialize || fetch_stall || atomic_stall || x_busy"
+CLAUDE_STALL = "stall = stall_own || bus_wait"
 
 
 def read(path):
@@ -86,27 +73,26 @@ def assign_rhs(text, name):
     return m.group(1) if m else None
 
 
-def unknown_and_missing(label, tokens, required_reasons, allowed_extra=frozenset()):
+def unknown_and_missing(label, tokens, signal_to_reason, required_reasons):
     """Grades a site by the SET of reasons its raw signal tokens cover, never by how
-    many tokens it took -- the fix for the hazard_rs1/hazard_rs2 trap."""
+    many tokens it took."""
     errors = []
-    unknown = sorted({t for t in tokens if t not in SIGNAL_TO_REASON and t not in allowed_extra})
+    unknown = sorted({t for t in tokens if t not in signal_to_reason})
     for tok in unknown:
         errors.append(
-            f"error: {label} names '{tok}', which SIGNAL_TO_REASON in this script does "
-            f"not recognize as one of the eight declared stall reasons.\n"
-            f"  If '{tok}' is a new stall reason: teach it to SIGNAL_TO_REASON here, then "
-            f"to every other site -- rtl/decoder.v's signal, its stall composition, its "
-            f"publish arm and its FORMAL asserts; test/decoder_tb.v's OR-identity check; "
-            f"test/cxxrtl.cc's kStallLabels and kStallReasons; test/stall_report.py's "
-            f"REASONS and HEADINGS; formal/pcloop.sv's f_may_stall; and CLAUDE.md's "
-            f"stall-broadcast list.\n"
-            f"  If '{tok}' is the future non-stall kill bubble: it must stay OUT of every "
-            f"one of those ORs -- kill belongs in the cycle-accounting identity "
-            f"test/stall_report.py already keeps, as its own column beside `issue`, "
-            f"never folded into `stall`."
+            f"error: {label} names '{tok}', which this script does not recognize in "
+            f"that vocabulary.\n"
+            f"  If '{tok}' is a new stall reason: teach it to the right SIGNAL_TO_*_REASON "
+            f"table here, then to every site it belongs in -- rtl/decoder.v's signal, its "
+            f"OR, its publish arm and its FORMAL hold-assert; test/decoder_tb.v's "
+            f"OR-identity check; test/cxxrtl.cc's kStallLabels/kStallReasons; "
+            f"test/stall_report.py's REASONS and HEADINGS; and CLAUDE.md's commitment 8.\n"
+            f"  If '{tok}' is a non-stall kill bubble: it must stay OUT of every one of "
+            f"those ORs -- a kill belongs in the cycle-accounting identity "
+            f"test/stall_report.py already keeps, as its own column beside `issue`, never "
+            f"folded into `stall`."
         )
-    covered = {SIGNAL_TO_REASON[t] for t in tokens if t in SIGNAL_TO_REASON}
+    covered = {signal_to_reason[t] for t in tokens if t in signal_to_reason}
     for reason in sorted(set(required_reasons) - covered):
         errors.append(f"error: {label} is missing reason '{reason}'.")
     return errors
@@ -114,50 +100,73 @@ def unknown_and_missing(label, tokens, required_reasons, allowed_extra=frozenset
 
 def check_decoder_v(text):
     errors = []
-    label = "rtl/decoder.v's stall composition (stall_own/stall_other/stall)"
+    label = "rtl/decoder.v's stall composition (stall_own/stall)"
+
+    hazard_rhs = assign_rhs(text, "hazard")
+    if hazard_rhs is None:
+        errors.append("error: rtl/decoder.v has no 'assign hazard = ...;' to read.")
+        hazard_terms = []
+    else:
+        hazard_terms = split_or_terms(hazard_rhs)
+
     top_terms = []
-    for name, skip in (("stall_own", set()), ("stall_other", {"stall_own"}),
-                       ("stall", {"stall_other"})):
+    for name, skip in (("stall_own", set()), ("stall", {"stall_own"})):
         rhs = assign_rhs(text, name)
         if rhs is None:
             errors.append(f"error: {label} has no 'assign {name} = ...;' to read.")
             return errors
-        top_terms += [t for t in split_or_terms(rhs) if t not in skip]
-    errors += unknown_and_missing(label, top_terms, set(CANONICAL_REASONS) - {"serialize"})
+        for t in split_or_terms(rhs):
+            if t in skip:
+                continue
+            if t == "hazard":
+                top_terms += hazard_terms
+            else:
+                top_terms.append(t)
+    errors += unknown_and_missing(label, top_terms, SIGNAL_TO_DECODER_REASON, DECODER_REASONS)
 
-    label = "rtl/decoder.v's hazard composition (assign hazard = ...)"
-    hazard_rhs = assign_rhs(text, "hazard")
-    if hazard_rhs is None:
-        errors.append(f"error: {label} has no 'assign hazard = ...;' to read.")
-    else:
-        errors += unknown_and_missing(label, split_or_terms(hazard_rhs),
-                                      {"hazard", "serialize"})
-
-    label = "rtl/decoder.v's publish arm (the always_ff bubble condition)"
-    m = re.search(
-        r"end else if \(divider_stall\) begin\s*\n\s*out <= out;\s*\n"
-        r"\s*end else if \((.*?)\) begin", text, re.DOTALL)
+    label = "rtl/decoder.v's publish arm (the hold branch)"
+    m = re.search(r"end else if \((.*?)\) begin\s*\n\s*out <= out;", text, re.DOTALL)
     if m is None:
-        errors.append(f"error: {label} could not be found (divider hold then bubble arm).")
-    else:
-        bubble_terms = split_or_terms(m.group(1))
-        errors += unknown_and_missing(label, bubble_terms,
-                                      set(CANONICAL_REASONS) - {"serialize", "divider"},
-                                      allowed_extra={"interrupt_pending"})
-
-    label = "rtl/decoder.v's FORMAL asserts (the hold/bubble combo block)"
-    start = text.find("logic prev_hold_and_steal")
-    end_marker = "prev_region_only)     assert(out == '0);"
-    end = text.find(end_marker, start) if start != -1 else -1
-    if start == -1 or end == -1:
         errors.append(f"error: {label} could not be found.")
-    else:
-        block = text[start:end + len(end_marker)]
-        for sig in ("divider_stall", "fetch_stall", "bus_wait", "region_stall",
-                    "atomic_stall"):
-            if not re.search(r"\b" + re.escape(sig) + r"\b", block):
-                errors.append(f"error: {label} no longer names '{sig}'.")
+    elif m.group(1).strip() != "x_busy":
+        errors.append(
+            f"error: {label} holds on '{m.group(1).strip()}', not exactly 'x_busy'. "
+            f"Commitment 8 says x_busy is the only reason that holds; every other "
+            f"reason bubbles.")
+
+    label = "rtl/decoder.v's FORMAL hold-assert"
+    if not re.search(r"\$past\(x_busy\)\)\s*assert\(out == \$past\(out\)\)", text):
+        errors.append(
+            f"error: {label} could not be found -- expected an "
+            f"'if (... $past(x_busy)) assert(out == $past(out));' temporal check.")
+
     return errors
+
+
+def check_executor_v(text):
+    label = "rtl/executor.v's x_busy composition"
+    rhs = assign_rhs(text, "x_busy")
+    if rhs is None:
+        return [f"error: {label} has no 'assign x_busy = ...;' to read."]
+    terms = split_or_terms(rhs)
+    errors = []
+    if sorted(terms) != ["divider_busy", "region_stall"]:
+        errors.append(
+            f"error: {label} is {terms}, not exactly ['divider_busy', 'region_stall'] "
+            f"(the two reasons x_busy folds together for D).")
+    return errors
+
+
+def check_executor_tb(text):
+    label = "test/executor_tb.v's x_busy OR-identity check"
+    m = re.search(r"if \(x_busy !== \((.*?)\)\) begin", text, re.DOTALL)
+    if m is None:
+        return [f"error: {label} could not be found."]
+    terms = [t[len("dut."):] if t.startswith("dut.") else t for t in split_or_terms(m.group(1))]
+    if sorted(terms) != ["divider_busy", "region_stall"]:
+        errors_txt = f"error: {label} is {terms}, not exactly ['divider_busy', 'region_stall']."
+        return [errors_txt]
+    return []
 
 
 def check_decoder_tb(text):
@@ -168,7 +177,25 @@ def check_decoder_tb(text):
     terms = []
     for t in split_or_terms(m.group(1)):
         terms.append(t[len("dut."):] if t.startswith("dut.") else t)
-    return unknown_and_missing(label, terms, set(CANONICAL_REASONS))
+    return unknown_and_missing(label, terms, SIGNAL_TO_DECODER_REASON, DECODER_REASONS)
+
+
+def cpi_signals_from_reasons_items(pairs, label):
+    errors = []
+    sigs = []
+    for item, _bucket in pairs:
+        sig = None
+        for prefix in ("uut decoder ", "uut executor "):
+            if item.startswith(prefix):
+                sig = item[len(prefix):]
+                break
+        if sig is None:
+            errors.append(
+                f"error: {label} has an item '{item}' not shaped "
+                f"'uut decoder <signal>' or 'uut executor <signal>'.")
+            continue
+        sigs.append(sig)
+    return sigs, errors
 
 
 def check_cxxrtl(text):
@@ -177,33 +204,27 @@ def check_cxxrtl(text):
     if m is None:
         return ["error: test/cxxrtl.cc's kStallLabels could not be found."]
     labels = re.findall(r'"([^"]*)"', m.group(1))
-    if labels != CANONICAL_REASONS:
+    if labels != CPI_REASONS:
         errors.append(
-            f"error: test/cxxrtl.cc's kStallLabels is {labels}, not {CANONICAL_REASONS}.")
+            f"error: test/cxxrtl.cc's kStallLabels is {labels}, not {CPI_REASONS}.")
 
     m = re.search(r"kStallReasons\[\]\s*=\s*\{(.*?)\};", text, re.DOTALL)
     if m is None:
         return errors + ["error: test/cxxrtl.cc's kStallReasons could not be found."]
     pairs = re.findall(r'\{"([^"]*)",\s*(\d+)\}', m.group(1))
-    prefix = "uut decoder "
-    sigs = []
-    for item, bucket in pairs:
-        if not item.startswith(prefix):
-            errors.append(
-                f"error: test/cxxrtl.cc's kStallReasons has an item '{item}' not shaped "
-                f"'{prefix}<signal>'.")
-            continue
-        sig = item[len(prefix):]
-        sigs.append(sig)
-        reason = SIGNAL_TO_REASON.get(sig)
+    label = "test/cxxrtl.cc's kStallReasons"
+    sigs, prefix_errors = cpi_signals_from_reasons_items(pairs, label)
+    errors += prefix_errors
+    for (item, bucket), sig in zip(
+            [p for p in pairs if p[0].startswith(("uut decoder ", "uut executor "))], sigs):
+        reason = SIGNAL_TO_CPI_REASON.get(sig)
         if reason is not None and reason in labels:
             want = labels.index(reason)
             if int(bucket) != want:
                 errors.append(
-                    f"error: test/cxxrtl.cc's kStallReasons buckets '{sig}' at {bucket}, "
-                    f"not {want} (kStallLabels' index for '{reason}').")
-    errors += unknown_and_missing("test/cxxrtl.cc's kStallReasons", sigs,
-                                  set(CANONICAL_REASONS))
+                    f"error: {label} buckets '{sig}' at {bucket}, not {want} "
+                    f"(kStallLabels' index for '{reason}').")
+    errors += unknown_and_missing(label, sigs, SIGNAL_TO_CPI_REASON, CPI_REASONS)
     return errors
 
 
@@ -213,56 +234,39 @@ def check_stall_report(text):
     if m is None:
         return ["error: test/stall_report.py's REASONS could not be found."]
     reasons = re.findall(r'"([^"]*)"', m.group(1))
-    if reasons != CANONICAL_REASONS:
+    if reasons != CPI_REASONS:
         errors.append(
-            f"error: test/stall_report.py's REASONS is {reasons}, not {CANONICAL_REASONS}.")
+            f"error: test/stall_report.py's REASONS is {reasons}, not {CPI_REASONS}.")
 
     m = re.search(r"HEADINGS\s*=\s*\{(.*?)\}", text, re.DOTALL)
     if m is None:
         return errors + ["error: test/stall_report.py's HEADINGS could not be found."]
     keys = re.findall(r'"([^"]+)":', m.group(1))
-    missing = set(CANONICAL_REASONS) - set(keys)
-    extra = set(keys) - set(CANONICAL_REASONS)
+    missing = set(CPI_REASONS) - set(keys)
+    extra = set(keys) - set(CPI_REASONS)
     for reason in sorted(missing):
         errors.append(f"error: test/stall_report.py's HEADINGS is missing reason '{reason}'.")
     for key in sorted(extra):
         errors.append(f"error: test/stall_report.py's HEADINGS names '{key}', not one of "
-                       f"the eight declared stall reasons.")
-    return errors
-
-
-def check_pcloop(text):
-    rhs = assign_rhs(text, "f_may_stall")
-    if rhs is None:
-        return ["error: formal/pcloop.sv's f_may_stall could not be found."]
-    terms = set(split_or_terms(rhs))
-    errors = []
-    for missing in sorted(PCLOOP_MAY_STALL_TERMS - terms):
-        errors.append(f"error: formal/pcloop.sv's f_may_stall no longer names '{missing}'.")
-    for extra in sorted(terms - PCLOOP_MAY_STALL_TERMS):
-        errors.append(
-            f"error: formal/pcloop.sv's f_may_stall names '{extra}', which this script "
-            f"does not expect there. f_may_stall is a deliberate over-approximation built "
-            f"from signals pcloop can read from outside the decoder instance, never the "
-            f"decoder's own named reasons (a harness cannot reach inside an instance); if "
-            f"this widens the approximation on purpose, teach PCLOOP_MAY_STALL_TERMS.")
+                       f"the seven CPI-accounting reasons.")
     return errors
 
 
 def check_claude_md(text):
     flat = re.sub(r"\s+", " ", text)
-    m = re.search(
-        r"reasons raise `stall`, and it is exactly their OR:(.*?)\.", flat)
-    if m is None:
-        return ["error: CLAUDE.md's 'reasons raise `stall`...' sentence could not be found."]
-    sentence = m.group(1)
     errors = []
-    for reason in CANONICAL_REASONS:
-        phrase = CLAUDE_PHRASES[reason]
-        if phrase not in sentence:
-            errors.append(
-                f"error: CLAUDE.md's stall-broadcast sentence no longer names '{phrase}' "
-                f"({reason}).")
+    if CLAUDE_STALL_OWN not in flat:
+        errors.append(
+            f"error: CLAUDE.md no longer states rtl/decoder.v's stall_own composition "
+            f"verbatim ('{CLAUDE_STALL_OWN}').")
+    if CLAUDE_STALL not in flat:
+        errors.append(
+            f"error: CLAUDE.md no longer states rtl/decoder.v's stall composition "
+            f"verbatim ('{CLAUDE_STALL}').")
+    if "Seven" not in flat and "seven" not in flat:
+        errors.append(
+            "error: CLAUDE.md's commitment 8 no longer says how many reasons raise "
+            "`stall`.")
     return errors
 
 
@@ -275,17 +279,19 @@ def main(argv):
     errors = []
     errors += check_decoder_v(read(repo / "rtl" / "decoder.v"))
     errors += check_decoder_tb(read(repo / "test" / "decoder_tb.v"))
+    errors += check_executor_v(read(repo / "rtl" / "executor.v"))
+    errors += check_executor_tb(read(repo / "test" / "executor_tb.v"))
     errors += check_cxxrtl(read(repo / "test" / "cxxrtl.cc"))
     errors += check_stall_report(read(repo / "test" / "stall_report.py"))
-    errors += check_pcloop(read(repo / "formal" / "pcloop.sv"))
     errors += check_claude_md(read(repo / "CLAUDE.md"))
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
 
-    print(f"the eight stall reasons ({', '.join(CANONICAL_REASONS)}) agree across all "
-          f"six declared sites.")
+    print(f"the decoder's seven raw stall signals ({', '.join(DECODER_REASONS)}) and the "
+          f"seven CPI-accounting reasons ({', '.join(CPI_REASONS)}) each agree across "
+          f"their declared sites.")
     return 0
 
 

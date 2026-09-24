@@ -450,11 +450,12 @@ lint-setup:
 	mv $$tmp '$(SVLINT_DIR)'
 	@'$(SVLINT_DIR)'/bin/svlint --version
 
-UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
-                timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb fetchqueue_tb \
-                fetcher_tb
+UNIT_BENCHES := exec_tb executor_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb \
+                monitor_tb timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb \
+                fetchqueue_tb fetcher_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
+UNIT_BENCH_SRC_executor_tb := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
 UNIT_BENCH_SRC_imem_tb     := rtl/imemory.v
 UNIT_BENCH_SRC_decoder_tb  := rtl/structs.v rtl/decoder.v rtl/regsel.v
