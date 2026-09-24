@@ -690,6 +690,14 @@ module decoder (
         out_is_amoand || out_is_amoor || out_is_amomin || out_is_amomax ||
         out_is_amominu || out_is_amomaxu)
       assert(out_immediate == 32'b0);
+
+    // The reference model's must-not-trap side has one positive case of its own: a plain
+    // `add` (R-type, funct7 zero) must never fault. Unlike the equalities above, this is
+    // one direction only -- `out_is_add` also covers addi/c.add/c.mv, which the reference
+    // does not check -- so only "these bits force the flag" needs to be provable, not the
+    // converse.
+    if (out_instr[6:2] == 5'b01100 && out_instr[14:12] == 3'b000 && out_instr[31:25] == 7'b0)
+      assert(out_is_add);
   end
  `endif
 endmodule
