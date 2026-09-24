@@ -3,8 +3,7 @@
 `default_nettype none
 
 module traps #(
-    // The data bus's map: the addresses at which some memory on it answers a plain load
-    // or store.
+    // The data bus's map: the addresses a plain load or store answers at.
     parameter integer      LS_TEXT_WORDS = 2048,
     parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
     parameter integer      LS_RAM_WORDS  = 16384,
@@ -18,17 +17,12 @@ module traps #(
     input logic [31:0] imem_data2,
     input logic [31:0] reg_rs1,
     input logic [31:0] reg_rs2,
-    input logic imem_stall,  // the ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`
-    // Free, like the others: a hart waiting for the shared bus issues nothing, so no
-    // trap is committed on that cycle either.
-    input logic bus_wait,
-    // Free, like everything else not instantiated here.
-    input logic rom_fault,
-    // The platform's answer about the address an atomic in decode would use.
-    input logic atomic_supported,
+    input logic imem_stall,  // the ROM's stolen-read flag, free; turned into fetch_stall
+    input logic bus_wait,  // free; an ungranted hart issues nothing, so it commits no trap either
+    input logic rom_fault,  // free, like everything else not instantiated here
+    input logic atomic_supported,  // the platform's answer about an atomic's address
     input logic accessor_out_valid,
-    // The platform's timer line, free every cycle.
-    input logic irq_timer
+    input logic irq_timer  // the platform's timer line, free every cycle
 );
   logic [31:0] fetch_pc, fetch_pc_next;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
@@ -189,8 +183,7 @@ module traps #(
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
 
-  // Build every guard from this module's own signals -- never a hierarchical read into
-  // an instance, which yosys resolves as a free undriven wire on a warning nothing grades.
+  // Every guard below reads this module's own signals, never a hierarchical instance read.
   logic [31:0] instr;
   assign instr = (fetcher_out.instr[1:0] == 2'b11) ? fetcher_out.instr
                                                    : {16'b0, fetcher_out.instr[15:0]};
@@ -201,14 +194,10 @@ module traps #(
   assign opcode = instr[6:2];
   assign funct3 = instr[14:12];
 
-  // Decode's own `issuing` output already folds in every stall reason, X's x_busy
-  // included, so it is read directly rather than hand-reconstructed.
   logic issuing;
-  assign issuing = decoder_issuing;
+  assign issuing = decoder_issuing;  // already folds in every stall reason, x_busy included
 
-  // The trapping instruction's own pc, stable from capture through commit (unlike
-  // fetch_pc, which keeps advancing to the next window underneath a held instruction).
-  logic [31:0] dx_pc;
+  logic [31:0] dx_pc;  // the trapping instruction's own pc, stable through commit
   assign dx_pc = dx_out.pc;
 
   logic [31:0] prev_reg_rs1, prev_reg_rs2;
@@ -227,13 +216,8 @@ module traps #(
     prev_dx_rs2      <= dx_out_rs2;
   end
   always_comb if (clocked && !reset && !prev_issuing) assume(fetcher_out == prev_fetcher_out);
-  // The regfile read is synchronous, so the value X reads for reg_rs1 belongs to
-  // whichever register `in.rs1` (== dx_out.rs1, a real captured field, not a guess)
-  // names -- not to whatever D is presenting as its speculative guess for the NEXT
-  // instruction's pair, which keeps moving even while X still holds this one. As long
-  // as dx_out.rs1 itself hasn't changed (D has not issued something new over it),
-  // reg_rs1 must not either -- true for the whole window from issue through commit,
-  // x_busy or not, which a guess-based comparison does not cover.
+  // reg_rs1 belongs to whichever register dx_out.rs1 (a captured field, not a guess)
+  // names, and must not change while dx_out.rs1 itself has not, issue through commit.
   always_comb if (clocked && !reset && dx_out_rs1 == prev_dx_rs1) assume(reg_rs1 == prev_reg_rs1);
   always_comb if (clocked && !reset && dx_out_rs2 == prev_dx_rs2) assume(reg_rs2 == prev_reg_rs2);
 
@@ -407,19 +391,10 @@ module traps #(
   assign settled = clocked && !prev_reset;
   assign settled2 = settled && !prev2_reset;
 
-  // `expected_trap`/`must_not_trap` above are read alongside `fetcher_out`, the word D
-  // is CURRENTLY looking at -- correct at the issuing cycle itself, but fetch keeps
-  // moving even on a cycle D does not issue, so that word is not what X is holding by
-  // the time it settles the instruction. `reg_rs1`/`reg_rs2` have the same shape: the
-  // regfile's synchronous answer belongs to the address D asked for one cycle back, so
-  // it is correctly timed only from the cycle after D issues onward, never at issue
-  // time itself. `dx_out` (D's own registered output, X's `in`) already holds both the
-  // right word and, combined with a same-cycle regfile read, the right address for as
-  // long as x_busy extends -- decoder.v's own `out <= x_busy ? out : ...` does the
-  // holding, so a second copy of that hold is not needed here. So the model X's
-  // trap_entry is actually checked against is rebuilt from `dx_out.instr` and the
-  // CURRENT `reg_rs1`/`reg_rs2`, evaluated fresh every cycle rather than latched once
-  // at issue and carried forward stale.
+  // `expected_trap`/`must_not_trap` above are stale once fetch has moved past the word
+  // D issued, so the model X's trap_entry is checked against is rebuilt below from
+  // `dx_out.instr` (X's own held `in`) and the CURRENT `reg_rs1`/`reg_rs2`, fresh every
+  // cycle rather than latched once at issue.
   logic        dx_valid, dx_is_interrupt, dx_imem_fault;
   logic [31:0] dx_instr;
   assign dx_valid = dx_out.valid;
@@ -506,15 +481,10 @@ module traps #(
       (c_is_store_op && c_funct3 == 3'b010 && c_store_addr[1:0] == 2'b00 && c_data_mapped) ||
       (c_is_atomic && atomic_supported && c_atomic_word_aligned);
 
-  // Named continuous assigns, not part-selects or struct-field reads inside the
-  // always_* blocks below: iverilog cannot build a precise sensitivity entry for those
-  // (ADR-0037's class of defect).
+  // Named continuous assigns, not struct-field reads inside always_* below (ADR-0037).
   logic [30:0] past_fetch_pc_hi, past_dx_pc_hi;
   assign past_fetch_pc_hi = past_fetch_pc[31:1];
-  // mepc must save the trapping instruction's OWN pc -- dx_out.pc, captured at issue and
-  // held stable through any x_busy wait -- not `fetch_pc`, which keeps advancing to the
-  // next fetch window regardless of whether X is still working the held instruction.
-  assign past_dx_pc_hi = past_dx_pc[31:1];
+  assign past_dx_pc_hi = past_dx_pc[31:1];  // mepc saves dx_out.pc, not the advancing fetch_pc
   logic csr_rdata_bit3, csr_rdata_bit7, prev_rdata_bit3, prev2_rdata_bit7;
   logic [1:0] csr_rdata_hi;
   assign csr_rdata_bit3 = csr_rdata[3];
@@ -556,9 +526,8 @@ module traps #(
   assign decoder_out_is_lr = decoder_out.is_lr;
   assign decoder_out_is_sc = decoder_out.is_sc;
 
-  // Not "!issuing": commitment 5 holds D back (issuing=0) for the WHOLE cycle a
-  // serializing CSR/mret op is in X, which is exactly when csr_wen/csr_ren/mret_entry
-  // fire. What is actually invariant is that nothing commits from an empty slot.
+  // Not "!issuing": D holds back for a whole serializing CSR/mret cycle in X. What's
+  // invariant is that nothing commits from an empty slot.
   always_comb if (clocked && !dx_valid) assert(!csr_wen && !csr_ren && !mret_entry);
 
   always_comb if (settled && !prev_csr_wen && !prev_trap_entry) begin
@@ -626,9 +595,7 @@ module traps #(
 
   always_comb if (clocked) assert(!(trap_entry && (csr_wen || csr_ren)));
 
-  // held_* tracks the instruction X currently holds in `in`, across however many cycles
-  // x_busy takes to settle it; the fused decoder committed same-cycle, but D and X no
-  // longer share one, so this checks the settling cycle rather than a fixed delay.
+  // held_* tracks the instruction X holds in `in`, checked on its settling cycle.
   always_comb
     if (clocked && dx_valid && !x_busy && !dx_is_interrupt && !dx_imem_fault && c_expected_trap)
       assert(trap_entry);
@@ -643,12 +610,9 @@ module traps #(
   always_comb if (clocked && csr_addr == MIP)
     assert(csr_rdata == {24'b0, irq_timer, 7'b0});
 
-  // NOT "interrupt_pending -> nothing commits this cycle": X can still be settling an
-  // instruction D captured before the interrupt went pending (D does not abort in-flight
-  // work), so a commit and a pending interrupt legitimately coincide. What is invariant
-  // -- an interrupt commits nothing of its own -- is covered by trap_entry's own launch
-  // flags (`assert(launch_rd==0)` et al on trap_entry, executor.v) and
-  // `assert(!(trap_entry && instret))` below.
+  // Not "interrupt_pending -> nothing commits": X may still be settling a pre-pending
+  // instruction. What's invariant -- an interrupt commits nothing of its own -- is
+  // covered by trap_entry's own launch flags in executor.v and the instret check below.
   always_comb if (settled && prev_interrupt_entry) assert(!decoder_out_valid);
 
   always_comb if (settled && prev_interrupt_entry)

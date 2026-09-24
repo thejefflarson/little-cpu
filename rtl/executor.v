@@ -1,10 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// X is where a register value first exists, so the ALU, the branch compare, the address
-// and its region test, every trap but the timer interrupt, and CSR access land here.
-// `launch` is X's combinational view of the instruction it resolves, read by the
-// accessor the same cycle so a synchronous memory answers when `out` below arrives.
+// X is where a register value first exists: the ALU, branch compare, address/region
+// test, every trap but the timer interrupt, and CSR access land here.
 module executor #(
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
@@ -119,9 +117,8 @@ module executor #(
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
-  // Whether that answer can depend on the immediate at all, asked of `reg_rs1` alone. A
-  // 12-bit offset reaches 2 KB, so a base block with a whole block of the same window on
-  // each side answers the same whatever the immediate is.
+  // Asked of `reg_rs1` alone: a 12-bit offset reaches 2 KB, so a block clear on each
+  // side answers the same whatever the immediate is.
   localparam int LS_BLOCK_BITS = 11;
   localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
@@ -337,8 +334,7 @@ module executor #(
     endcase
   end
 
-  // A trap still retires (`rvfi_trap` set, no register write, no transaction);
-  // `executing` gates that, and `launch.valid` must not or the trap vanishes.
+  // A trap still retires; `executing` gates that, and `launch.valid` must not.
   logic executing;
   assign executing = in_valid && !in_is_interrupt && !region_stall && !x_busy && !trap_taken;
   assign launch.valid = in_valid && !in_is_interrupt && !region_stall && !x_busy;
@@ -400,8 +396,7 @@ module executor #(
     in_is_bge || in_is_bgeu || is_amo || in_is_sc;
   assign rvfi_rs2_valid = uses_rs2_rvfi;
 
-  // The interrupt bubble never retires, so `rvfi_intr` latches and reports on the first
-  // real retire afterward instead, at `mtvec`.
+  // The interrupt bubble never retires, so rvfi_intr latches for the next real retire.
   logic pending_intr;
   always_ff @(posedge clk) begin
     if (reset) pending_intr <= 1'b0;
@@ -640,18 +635,11 @@ module executor #(
   initial state = init;
   always_comb if (clocked) assume(!reset);
 
-  // D writes the whole struct `'0` on every bubble path (reset, a redirect, a stall) --
-  // never just `valid`. Left unconstrained, a free `in` lets a bubble carry a garbage
-  // `imem_fault` or class flag that no real bubble ever has, manufacturing a trap the
-  // rest of this block gates on `in_valid` correctly rejecting.
+  // D writes the whole struct `'0` on every bubble path, never just `valid`.
   always_comb if (!in_valid) assume(in == '0);
 
-  // `in_valid` is left out on purpose: it is not an instruction class, and a bubble
-  // (every flag zero) is a legal, disjoint case the onehot0 below already covers. This
-  // is decoder.v's own `one_of` set, restated here so the standalone proof gets the same
-  // mutual exclusion D actually guarantees rather than a subset that leaves room for a
-  // free `in_is_ecall`/`in_is_csrrw`/etc. to coincide with an unrelated result-producing
-  // flag and manufacture a spurious trap-cause conflict.
+  // decoder.v's own `one_of` set, restated so a free `in` cannot manufacture a spurious
+  // trap-cause conflict by coinciding two unrelated class flags.
   always_comb assume($onehot0({in_is_auipc, in_is_jal, in_is_jalr,
     in_is_beq, in_is_bne, in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu,
     in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and,
@@ -667,14 +655,9 @@ module executor #(
     in_is_amomin, in_is_amomax, in_is_amominu, in_is_amomaxu,
     in_is_lr, in_is_sc}));
 
-  // `is_csr_access` is D's own registered copy of `instr_csrrw || instr_csrrs ||
-  // instr_csrrc`, not an independent class -- left free it could coincide with an
-  // unrelated flag and manufacture a spurious `csr_readonly_write`.
   always_comb assume(in_is_csr_access == (in_is_csrrw || in_is_csrrs || in_is_csrrc));
 
-  // D's immediate generator sign-extends every I/S-type field and hands an atomic a
-  // zero immediate (its effective address is rs1 alone) -- properties of D's own
-  // encoding this module cannot derive from a free `in_immediate`.
+  // D sign-extends every I/S-type immediate and hands an atomic a zero one (rs1 alone).
   logic [19:0] assume_immediate_hi;
   logic        assume_immediate_lo_sign;
   assign assume_immediate_hi = in_immediate[31:12];
@@ -682,9 +665,8 @@ module executor #(
   always_comb if (ls_access) assume(assume_immediate_hi == {20{assume_immediate_lo_sign}});
   always_comb if (instr_atomic) assume(in_immediate == 32'b0);
 
-  // Held across a hold cycle so the multi-cycle divide proof below sees the same operands
-  // it started with; composed proofs drop this with `-formal -noassume` and check it
-  // against the real D and regfile instead.
+  // Held so the divide proof below sees stable operands; composed proofs drop this
+  // with `-formal -noassume` and check the real D and regfile instead.
   dx_output prev_in;
   logic [31:0] prev_reg_rs1, prev_reg_rs2;
   logic        prev_x_busy;

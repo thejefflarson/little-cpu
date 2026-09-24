@@ -1,6 +1,5 @@
-// The fetcher, D and X, wired together the way rtl/littlecpu.v wires them -- including the
-// fetch_pc register itself, which the split moved out of both stages into the integrator
-// because it spans F and X (redirect is X's, the guess is D's).
+// The fetcher, D and X, wired the way rtl/littlecpu.v wires them, fetch_pc register
+// included (the split moved it into the integrator, since it spans F and X).
 `default_nettype none
 
 module pcloop (
@@ -10,24 +9,16 @@ module pcloop (
     input logic [31:0] imem_data2,
     input logic [31:0] reg_rs1,
     input logic [31:0] reg_rs2,
-    // The ROM's stolen-read flag, free; the fetcher turns it into `fetch_stall`.
-    input logic imem_stall,
-    // Free, like every other stall input here: a hart that has not been granted the
-    // shared bus holds fetch_pc, and the increment assertion has to skip that cycle the
-    // same way it skips a stolen fetch window.
-    input logic bus_wait,
-    // Free, like everything else not instantiated here.
-    input logic rom_fault,
-    // Free for the same reason and with the same effect: an atomic the platform does not
-    // answer redirects fetch_pc, and X's own `redirect` names that trap too.
-    input logic atomic_supported,
+    input logic imem_stall,  // the ROM's stolen-read flag; the fetcher turns it into fetch_stall
+    input logic bus_wait,  // free, like every stall input here: an ungranted hart holds fetch_pc
+    input logic rom_fault,  // free, like everything else not instantiated here
+    input logic atomic_supported,  // free; an unanswered atomic redirects fetch_pc too
     input logic accessor_out_valid,
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
     input logic [31:0] mtvec,
     input logic [31:0] mepc,
-    // Free, like everything else not instantiated here.
-    input logic interrupt_pending
+    input logic interrupt_pending  // free, like everything else not instantiated here
 );
   logic [31:0] fetch_pc, fetch_pc_next;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
@@ -46,10 +37,7 @@ module pcloop (
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] atomic_addr;
   logic [31:0] x_redirect_target;
-  // Unread here, and declared anyway: an output connected to an undeclared identifier is
-  // an implicit net, which `default_nettype none` makes an error in iverilog and a
-  // warning in yosys.
-  logic        bus_request;
+  logic        bus_request;  // unread; an undeclared output net is an error under default_nettype none
 
   fetcher fetcher (
     .clk(clk),
@@ -69,8 +57,7 @@ module pcloop (
     .fault(fetch_fault),
     .out(fetcher_out)
   );
-  // fetch_pc ownership lives in the integrator, not in either stage: the guess is D's
-  // (`decoder_predicted_pc`) and the override is X's (`x_redirect`/`x_redirect_target`).
+  // fetch_pc ownership: the guess is D's, the override is X's.
   assign fetch_pc_next = x_redirect      ? x_redirect_target :
                          !decoder_issuing ? fetch_pc :
                                             decoder_predicted_pc;
