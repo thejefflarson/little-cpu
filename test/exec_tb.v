@@ -21,9 +21,7 @@ module exec_tb;
   logic [31:0] reg_rs1, reg_rs2;
   logic x_busy;
   logic [31:0] atomic_addr;
-  // Neither read nor exercised by this bench's vectors (none of them is an atomic), so a
-  // fixed stub matches rtl/decoder_tb.v's convention for the same signal.
-  logic atomic_supported = 1'b1;
+  logic atomic_supported = 1'b1;  // unread here; fixed stub, no vector is an atomic
   logic [11:0] csr_addr;
   logic csr_ren, csr_wen;
   logic [31:0] csr_wdata;
@@ -293,8 +291,7 @@ module exec_tb;
       in = '0;
       in.valid = 1'b1;
       in.rd = 5'd1;
-      // Register NUMBERS, not values -- X reads the value off reg_rs1/reg_rs2 below, so
-      // any non-x0 pair works and stays fixed across every vector this bench drives.
+      // Register NUMBERS; X reads the value off reg_rs1/reg_rs2 below.
       in.rs1 = 5'd2;
       in.rs2 = 5'd3;
       reg_rs1 = 32'b0;

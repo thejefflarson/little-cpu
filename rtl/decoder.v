@@ -12,20 +12,17 @@ module decoder (
   input  executor_output executor_out,
   input  logic fetch_stall,  // the fetch port went to a load/store; `in.instr` is data
   input  logic bus_wait,
-  // Decode's request for the bus, a cycle before X launches; the platform ANDs it
-  // against its own grant, since a grant term here would close the loop through it.
+  // Decode's request for the bus; the platform ANDs it against its own grant.
   output logic bus_request,
   input  logic imem_fault,
   input  logic accessor_out_valid,
   output logic issuing,
-  // The sequential guess `+2`/`+4`, never F's word-granular ROM address. B1 takes the
-  // redirect bubble on every taken branch rather than reusing F's own BTFN guess.
+  // The sequential guess `+2`/`+4`, never F's word-granular ROM address.
   output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
   input  logic interrupt_pending,
-  // `in` was fetched down the wrong path (X's resolved target differed, a trap, or
-  // `mret`): discard it unconditionally. This is the whole kill -- no counter, no list.
+  // `in` was fetched down the wrong path: discard it unconditionally, no counter or list.
   input  logic x_redirect,
   output dx_output out
 );
@@ -298,8 +295,7 @@ module decoder (
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // No forwarding (B2 adds it): a RAW match against `out` (X's current instruction) or
-  // `executor_out` (its still-unpacked result, e.g. a pending load) simply stalls.
+  // No forwarding (B2 adds it): a RAW match against `out` or `executor_out` stalls.
   logic dx_match_rs1, dx_match_rs2, ex_match_rs1, ex_match_rs2;
   assign dx_match_rs1 = out.valid && out.rd == rs1;
   assign dx_match_rs2 = out.valid && out.rd == rs2;
@@ -311,8 +307,7 @@ module decoder (
   assign hazard_rs2 = uses_rs2 && rs2 != 0 && (dx_match_rs2 || ex_match_rs2);
   assign hazard = hazard_rs1 || hazard_rs2;
 
-  // Two reasons share one wait: a CSR access or `mret` must not interleave with older
-  // instructions, and `fence.i` waits because text is writable and fetch goes out early.
+  // A CSR access/`mret`/`fence.i` must not interleave with older instructions.
   logic pipe_drained, serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
   assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
@@ -324,8 +319,7 @@ module decoder (
   assign atomic_stall = out.valid && out_is_amo && !x_busy;
 
   logic stall_own, stall;
-  // X still working `out` holds the whole pipeline: neither the presented pair nor the
-  // fetch address may move on while X still needs `out`'s own answer.
+  // X still working `out` holds the whole pipeline, presented pair included.
   assign stall_own = hazard || serialize || fetch_stall || atomic_stall || x_busy;
   assign stall = stall_own || bus_wait;
 
@@ -335,8 +329,7 @@ module decoder (
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
-  // While X works `out`, keep presenting `out`'s own pair: the regfile answers a cycle
-  // late, and X needs that answer to match what it holds, not the fetch stream now.
+  // While X works `out`, keep presenting `out`'s own pair; the regfile answers late.
   assign read_rs1 = x_busy ? out.rs1 : rs1;
   assign read_rs2 = x_busy ? out.rs2 : rs2;
 
@@ -461,14 +454,10 @@ module decoder (
   assign out_is_amominu = out.is_amominu;
   assign out_is_amomaxu = out.is_amomaxu;
 
-  // The rest of `out`'s class flags, named the same way for the same iverilog-sensitivity
-  // reason: composed with X (formal/traps.sv reads this module `-formal -noassume`), this
-  // module is the only one that can prove they stay mutually exclusive past capture --
-  // executor.v's own onehot0 assumption over `in_is_*` is dropped in that composition, so
-  // without an assert here a k-induction step is free to pick an unreachable `out` where,
-  // say, `is_mulh` and `is_divu` are both set, which breaks the `(* parallel_case *)` case
-  // executor.v selects an operation with (ADR-0068's rule: legal only where a matching
-  // onehot0 check covers the exact arm list).
+  // formal/traps.sv composes this module `-formal -noassume`, dropping executor.v's own
+  // standalone-only assumes about `in` and everything its reference model re-derives
+  // from `dx_instr`'s bits instead of trusting D's decode; the asserts below restate
+  // each as a fact about `out` k-induction can use.
   logic out_is_auipc, out_is_jal, out_is_jalr, out_is_beq, out_is_bne, out_is_blt,
     out_is_bltu, out_is_bge, out_is_bgeu, out_is_add, out_is_sub, out_is_xor, out_is_or,
     out_is_and, out_is_sll, out_is_slt, out_is_sltu, out_is_srl, out_is_sra, out_is_mul,
@@ -526,12 +515,7 @@ module decoder (
   assign out_is_sc = out.is_sc;
   assign out_is_csr_access = out.is_csr_access;
 
-  // A bubble is the whole struct zeroed, never just `valid` -- reset, a redirect and a
-  // stall all write `out <= '0` -- so a stale flag cannot survive into a cycle nothing
-  // issued. executor.v's own standalone FORMAL block assumes this for free
-  // (`!in_valid -> in == '0`); the composed traps proof drops that assumption with
-  // `-formal -noassume`, so without an assert here a bubble is free to carry a garbage
-  // `in_imem_fault` or class flag and manufacture a trap `trap_taken` never agrees with.
+  // A bubble is the whole struct zeroed, never just `valid`.
   always_comb if (clocked && !out_valid) assert(out == '0);
   always_comb if (clocked && out_is_interrupt) assert(out_rd == 0);
 
@@ -575,12 +559,7 @@ module decoder (
     instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
-  // Not `&& !out_is_interrupt`: the interrupt bubble also zeroes every class flag below
-  // (`out <= '0` before the arm overrides only `valid`/`is_interrupt`/`pc`), so all of
-  // these hold trivially there too -- onehot0 of all-zero bits, both sides zero, the
-  // instr-match tests against a zeroed `out_instr`. Excluding it left the flags free
-  // during an interrupt bubble, which broke a check that reads them unconditionally
-  // (`in_is_srl`'s shift reference in executor.v, which is not gated on `!in_is_interrupt`).
+  // Not `&& !out_is_interrupt`: that bubble zeroes every class flag too.
   always_comb if (clocked && out_valid)
     assert($onehot0({out_is_auipc, out_is_jal, out_is_jalr,
       out_is_beq, out_is_bne, out_is_blt, out_is_bltu, out_is_bge, out_is_bgeu,
@@ -598,13 +577,7 @@ module decoder (
       out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu,
       out_is_lr, out_is_sc}));
 
-  // formal/traps.sv's reference model also re-derives is_illegal from dx_instr's raw bits
-  // (a reserved opcode or an all-zero word), independent of D's own decode, so the
-  // composed proof needs the converse of the onehot0 property above: not just that at
-  // most one class flag is set, but that NONE is set for a word neither D nor the
-  // reference recognizes. True by construction (D's own case statements never produce a
-  // flag for opcode 5'b11111 or a zero word) but, like every fact above, only provable to
-  // k-induction once it is an assert.
+  // The converse of the onehot0 above: no flag survives a reserved opcode or a zero word.
   logic out_any_class;
   assign out_any_class =
     out_is_auipc || out_is_jal || out_is_jalr ||
@@ -627,32 +600,16 @@ module decoder (
   always_comb if (clocked && out_valid && out_instr == 32'b0)
     assert(!out_any_class);
 
-  // `is_csr_access` is a derived flag (`instr_csrrw || instr_csrrs || instr_csrrc`),
-  // never an independent one -- executor.v's own standalone FORMAL block assumes this
-  // for free, an assumption the composed traps proof drops with `-formal -noassume`, so
-  // without an assert here `csr_readonly_write` could read a garbage `out.is_csr_access`
-  // and manufacture a spurious `instr_illegal` alongside an unrelated class flag.
   always_comb if (clocked && out_valid)
     assert(out_is_csr_access == (out_is_csrrw || out_is_csrrs || out_is_csrrc));
 
-  // formal/traps.sv's reference model re-derives is_ebreak/is_ecall from `dx_instr`'s raw
-  // bits directly, an oracle independent of D's own decode, rather than trusting
-  // `out.is_ebreak`/`out.is_ecall` -- so the composed proof needs the two to be provably
-  // the same fact, which is true by construction (both captured from `instr` in the same
-  // branch) but only for k-induction once it is an assert instead of implicit in the RTL.
   always_comb if (clocked && out_valid)
     assert(out_is_ebreak == (out_instr == 32'h0010_0073 || out_instr == 32'h0000_9002));
   always_comb if (clocked && out_valid)
     assert(out_is_ecall == (out_instr == 32'h0000_0073));
 
-  // Same reasoning for the reference model's misalignment/region checks: they re-derive
-  // load_addr/store_addr as an I-/S-type immediate plus reg_rs1, computed fresh from
-  // `dx_instr`'s bits, and read only the twelve uncompressed load/store encodings
-  // (`c_is_load_op`/`c_is_store_op` both require `c_uncompressed`) -- compressed
-  // lw/sw/lwsp/swsp are outside what it checks, so this is gated the same way. `out_is_lw`
-  // and `out_is_sw` alone are not equivalent to the uncompressed bit pattern (both also
-  // cover a compressed form), but conjoined with `out_uncompressed` they are, since a
-  // compressed encoding's own quadrant bits rule out that disjunct.
+  // Gated on out_uncompressed throughout: is_lw/is_sw also cover a compressed form the
+  // reference does not check, ruled out here by the quadrant bits.
   always_comb if (clocked && out_valid && out_uncompressed) begin
     assert(out_is_lb == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b000));
     assert(out_is_lbu == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b100));
@@ -667,12 +624,8 @@ module decoder (
     if (out_is_sb || out_is_sh || out_is_sw)
       assert(out_immediate == {{20{out_instr[31]}}, out_instr[31:25], out_instr[11:7]});
 
-    // The eleven A encodings, same reasoning again: the reference model re-derives
-    // is_lr/is_sc/each AMO from dx_instr's own opcode/funct3/funct5 fields, and its
-    // atomic address check (`c_atomic_word_aligned = reg_rs1[1:0] == 2'b00`) trusts the
-    // effective address is rs1 VERBATIM -- true in the real RTL only because D hands an
-    // atomic a zero immediate, so `mem_addr_low = in_immediate[1:0] + reg_rs1[1:0]`
-    // reduces to `reg_rs1[1:0]` exactly when `out_immediate` is asserted zero here too.
+    // The eleven A encodings, zero immediate included: X's atomic address check trusts
+    // rs1 verbatim, true only because D hands an atomic a zero immediate.
     if (out_instr[6:2] == 5'b01011 && out_instr[14:12] == 3'b010) begin
       assert(out_is_amoswap == (out_instr[31:27] == 5'b00001));
       assert(out_is_amoadd == (out_instr[31:27] == 5'b00000));
@@ -691,11 +644,8 @@ module decoder (
         out_is_amominu || out_is_amomaxu)
       assert(out_immediate == 32'b0);
 
-    // The reference model's must-not-trap side has one positive case of its own: a plain
-    // `add` (R-type, funct7 zero) must never fault. Unlike the equalities above, this is
-    // one direction only -- `out_is_add` also covers addi/c.add/c.mv, which the reference
-    // does not check -- so only "these bits force the flag" needs to be provable, not the
-    // converse.
+    // A plain `add` must never fault. One direction only: out_is_add also covers
+    // addi/c.add/c.mv, which the reference does not check.
     if (out_instr[6:2] == 5'b01100 && out_instr[14:12] == 3'b000 && out_instr[31:25] == 7'b0)
       assert(out_is_add);
   end
