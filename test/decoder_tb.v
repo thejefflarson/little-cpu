@@ -409,7 +409,10 @@ module decoder_tb;
     @(posedge clk);
     #1;
     check_bit("reset zeroes out.valid", out.valid, 1'b0);
-    check_hex("...and the whole struct with it", out, '0);
+    if (out !== '0) begin
+      $display("MISMATCH reset does not zero the whole out struct");
+      errors++;
+    end
     reset = 0;
 
     if (errors != 0) begin
