@@ -29,13 +29,13 @@ def mutate(nano_v, mutations, case):
     return nano_v.replace(old, new, 1)
 
 
-def build_case(repo, root, nano_v):
-    """A copy of nano/formal deep enough that traps.sby's own relative paths
+def build_case(repo, root, nano_v, sby_file):
+    """A copy of nano/formal deep enough that sby_file's own relative paths
     (../nano.v, ../../formal/riscv-formal) resolve, with nano.v replaced."""
     shutil.rmtree(root, ignore_errors=True)
     nano_formal = root / "nano" / "formal"
     nano_formal.mkdir(parents=True)
-    shutil.copy(repo / "nano" / "formal" / "traps.sby", nano_formal / "traps.sby")
+    shutil.copy(repo / "nano" / "formal" / sby_file, nano_formal / sby_file)
     shutil.copy(repo / "nano" / "formal" / "traps.sv", nano_formal / "traps.sv")
     (root / "nano" / "nano.v").write_text(nano_v)
     riscv_formal = repo / "formal" / "riscv-formal"
@@ -49,12 +49,12 @@ def build_case(repo, root, nano_v):
     return nano_formal
 
 
-def run_case(repo, workdir, sby, case, nano_v):
-    nano_formal = build_case(repo, workdir / case, nano_v)
+def run_case(repo, workdir, sby, case, nano_v, sby_file):
+    nano_formal = build_case(repo, workdir / case, nano_v, sby_file)
     proc = subprocess.run(
-        [sby, "-f", "traps.sby"], cwd=nano_formal, capture_output=True, text=True
+        [sby, "-f", sby_file], cwd=nano_formal, capture_output=True, text=True
     )
-    status_file = nano_formal / "traps" / "status"
+    status_file = nano_formal / sby_file[: -len(".sby")] / "status"
     if not status_file.is_file():
         stop(
             f"sby wrote no status for the {case} case, so nothing was proved or\n"
@@ -76,10 +76,11 @@ def main(doc, mutations, workdir_name, arm_noun, success_message):
     )
     parser.add_argument("--workdir", default=str(here / workdir_name))
     parser.add_argument("--sby", default="sby")
+    parser.add_argument("--sby-file", default="traps.sby")
     args = parser.parse_args()
 
     repo = pathlib.Path(args.repo).resolve()
-    for name in ("nano/formal/traps.sby", "nano/formal/traps.sv", "nano/nano.v"):
+    for name in (f"nano/formal/{args.sby_file}", "nano/formal/traps.sv", "nano/nano.v"):
         if not (repo / name).is_file():
             stop(f"{name} is missing from {repo}, so there is nothing to probe.")
     workdir = pathlib.Path(args.workdir).resolve()
@@ -88,7 +89,7 @@ def main(doc, mutations, workdir_name, arm_noun, success_message):
     nano_v = (repo / "nano" / "nano.v").read_text()
     red = []
 
-    status = run_case(repo, workdir, args.sby, "shipping", nano_v)
+    status = run_case(repo, workdir, args.sby, "shipping", nano_v, args.sby_file)
     print(f"shipping: {status}")
     if status != "PASS":
         red.append(
@@ -98,7 +99,9 @@ def main(doc, mutations, workdir_name, arm_noun, success_message):
         )
 
     for case in mutations:
-        status = run_case(repo, workdir, args.sby, case, mutate(nano_v, mutations, case))
+        status = run_case(
+            repo, workdir, args.sby, case, mutate(nano_v, mutations, case), args.sby_file
+        )
         print(f"{case}: {status}")
         if status != "FAIL":
             red.append(

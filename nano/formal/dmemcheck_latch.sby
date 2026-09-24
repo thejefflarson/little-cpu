@@ -1,0 +1,26 @@
+[options]
+mode bmc
+append 0
+tbtop testbench.uut
+# clk2fflogic turns one clock cycle into two BMC steps (needed for the $dlatch cells
+# NANO_LATCH_RF adds), so dmemcheck.sby's depth 24 becomes 2*24+1 here to search the
+# same span of real cycles. check-memcheck-depth.py's --clk2fflogic flag grades it.
+depth 49
+
+[engines]
+smtbmc --presat --unroll boolector
+
+[script]
+read_verilog -sv dmemcheck.sv
+verilog_defines -D NANO_LATCH_RF
+read_verilog -sv nano.v
+prep -nordff -top testbench
+clk2fflogic
+
+[files]
+../nano.v
+dmemcheck.sv
+../../formal/riscv-formal/checks/rvfi_macros.vh
+../../formal/riscv-formal/checks/rvfi_channel.sv
+../../formal/riscv-formal/checks/rvfi_testbench.sv
+../../formal/riscv-formal/checks/rvfi_dmem_check.sv

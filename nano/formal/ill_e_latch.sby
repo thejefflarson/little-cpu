@@ -1,0 +1,28 @@
+[options]
+mode bmc
+# clk2fflogic turns one clock cycle into two BMC steps (needed for the $dlatch cells
+# NANO_LATCH_RF adds), so ill_e.sby's depth 40 becomes 2*40+1 here to search the same
+# span of real cycles.
+depth 81
+
+[engines]
+btor btormc
+
+[script]
+verilog_defines -D RISCV_FORMAL
+verilog_defines -D RISCV_FORMAL_NRET=1
+verilog_defines -D RISCV_FORMAL_XLEN=32
+verilog_defines -D RISCV_FORMAL_ILEN=32
+verilog_defines -D RISCV_FORMAL_COMPRESSED
+verilog_defines -D RISCV_FORMAL_ALIGNED_MEM
+verilog_defines -D NANO_LATCH_RF
+read_verilog -sv rvfi_macros.vh
+read_verilog -sv nano.v
+read_verilog -sv ill_e.sv
+prep -nordff -top rvfi_testbench
+clk2fflogic
+
+[files]
+ill_e.sv
+../nano.v
+../../formal/riscv-formal/checks/rvfi_macros.vh

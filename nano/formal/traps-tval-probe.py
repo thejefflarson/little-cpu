@@ -4,6 +4,10 @@ arm rather than as anything else.
 
 Usage: traps-tval-probe.py [--repo DIR] [--workdir DIR] [--sby SBY]
 
+--sby-file names which .sby to run, traps.sby by default; traps_latch.sby proves
+the same mutants against the NANO_LATCH_RF build. Both read the mutated lines from
+the same nano.v, so one mutation table covers either.
+
 WHY THIS EXISTS. mtval is the one thing a trap saves that no self-reporting oracle
 in this tree looks at: riscv-formal ships no spec model for SYSTEM at the pin, so
 the generated checks never read it, and the two sim legs see only what a program

@@ -919,6 +919,11 @@ make -C nano/formal components_qspi  # nano_qspi_ctrl's three invariants (CS0/CS
                     # PSRAM_CS_LOW_LIMIT clocks; the prefetch buffer holds exactly the
                     # parcels at [fetch_pc, fetch_pc+N)) by k-induction; qspi-probe is
                     # its forced-red prerequisite
+make -C nano/formal all-latch  # nano's five hand-written proofs (ill_e, dmemcheck,
+                    # imemcheck, traps, and their _cover twins) against NANO_LATCH_RF,
+                    # each with clk2fflogic and doubled depth; the genchecks-generated
+                    # ladder and remeasure-fg stay flop-only, a pinned genchecks-local.py
+                    # forbids the decoupling clk2fflogic needs there (docs/adr/0207)
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves

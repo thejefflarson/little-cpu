@@ -1,0 +1,26 @@
+# The anti-vacuity control for imemcheck_latch: proves its own cover goal reachable
+# at the SAME depth imemcheck_latch.sby (mode bmc) searches, not a deeper one.
+
+[options]
+mode cover
+append 0
+tbtop testbench.uut
+depth 31
+
+[engines]
+smtbmc boolector
+
+[script]
+read_verilog -sv imemcheck.sv
+verilog_defines -D NANO_LATCH_RF
+read_verilog -sv nano.v
+prep -nordff -top testbench
+clk2fflogic
+
+[files]
+../nano.v
+imemcheck.sv
+../../formal/riscv-formal/checks/rvfi_macros.vh
+../../formal/riscv-formal/checks/rvfi_channel.sv
+../../formal/riscv-formal/checks/rvfi_testbench.sv
+../../formal/riscv-formal/checks/rvfi_imem_check.sv
