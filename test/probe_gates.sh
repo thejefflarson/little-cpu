@@ -6421,6 +6421,14 @@ d=$(mcd_fixture 8)
 probe "control: a one-retire floor is F+2, not F+G+2" 0 \
   "depth 8 >= F+2 = 8 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
 
+d=$(mcd_fixture 29)
+probe "control: --clk2fflogic doubles the floor and adds one" 0 \
+  "depth 29 >= 2*(F+G+2)+1 = 29 (F=6, G=6)" "$MCD $d dmemcheck.sby 2 --clk2fflogic"
+
+d=$(mcd_fixture 28)
+probe "--clk2fflogic still rejects a depth short of the doubled floor" 1 \
+  "depth 28 is below 2*(F+G+2)+1 = 29 (F=6, G=6)" "$MCD $d dmemcheck.sby 2 --clk2fflogic"
+
 d=$(new_case)
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
   "does not exist" "$MCD $d dmemcheck.sby 2"
@@ -6674,6 +6682,25 @@ d=$(mcp_fixture nano/formal imemcheck)
 probe "control: nano's imemcheck reaches its goal and the stalled-bus mutant does not" 0 \
   "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal imemcheck)"
 
+mcp_latch_fixture() {  # $1 = dmemcheck|imemcheck -- the base check a _latch variant still reads
+  local d; d=$(new_case) check=$1
+  mkdir -p "$d/nano/formal" "$d/nano" "$d/formal/riscv-formal"
+  cp "$REPO/nano/formal/$check.sv" "$d/nano/formal/"
+  cp "$REPO/nano/formal/${check}_latch_cover.sby" "$d/nano/formal/${check}_latch_cover.sby"
+  cp "$REPO/nano/nano.v" "$d/nano/"
+  printf '%s' "$d"
+}
+
+d=$(mcp_latch_fixture dmemcheck)
+probe "control: a _latch check reads the same base .sv the flop check does" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" \
+  "$(mcps "$d" nano/formal dmemcheck_latch)"
+
+d=$(mcp_latch_fixture imemcheck)
+probe "control: imemcheck_latch is the same tie, over imemcheck.sv" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" \
+  "$(mcps "$d" nano/formal imemcheck_latch)"
+
 d=$(mcp_fixture formal dmemcheck)
 probe "a shipping harness that cannot reach its own cover goal is red" 1 \
   "the shipping harness does not reach its own cover goal" \
@@ -6762,6 +6789,23 @@ probe "a cover run that left no log is exit 2" 2 "logfile.txt does not exist" "$
 
 probe "wrong argument count is exit 2" 2 "usage:" "$CDT onearg"
 
+begin_group "nano/formal/probe_common.py"
+
+PC="python3 $REPO/nano/formal/traps-region-probe.py"
+
+pc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/formal" "$d/formal/riscv-formal"
+  cp "$REPO/nano/nano.v" "$d/nano/"
+  cp "$REPO/nano/formal/traps.sby" "$REPO/nano/formal/traps.sv" "$d/nano/formal/"
+  printf '%s' "$d"
+}
+
+d=$(pc_fixture)
+probe "--sby-file names the NANO_LATCH_RF variant, and a default-only fixture is caught" 2 \
+  "nano/formal/traps_latch.sby is missing from" \
+  "$PC --repo $d --workdir $d/work --sby /nonexistent --sby-file traps_latch.sby"
+
 begin_group "nano/formal/ill-e-probe.py"
 
 IE="python3 $REPO/nano/formal/ill-e-probe.py"
@@ -6820,6 +6864,10 @@ probe "a respelled rule line stops rather than pinning nothing" 2 \
 d=$(ie_fixture); rm "$d/nano/formal/ill_e.sby"
 probe "the sby script moving away takes the ill_e probe with it, loudly" 2 \
   "nano/formal/ill_e.sby is missing from" "$(ies "$d")"
+
+d=$(ie_fixture)
+probe "--sby-file names the NANO_LATCH_RF variant, and a default-only fixture is caught" 2 \
+  "nano/formal/ill_e_latch.sby is missing from" "$(ies "$d") --sby-file ill_e_latch.sby"
 
 d=$(ie_fixture); rm "$d/nano/formal/ill_e.sv"
 probe "the check moving away takes the ill_e probe with it, loudly" 2 \

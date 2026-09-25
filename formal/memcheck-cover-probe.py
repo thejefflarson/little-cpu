@@ -4,8 +4,14 @@ the matching *_cover.sby to fail because of it rather than pass regardless of th
 environment -- complete-cover-probe.py's shape, generalised over both memchecks and
 both cores.
 
-Usage: memcheck-cover-probe.py --harness {formal,nano/formal} --check {imemcheck,dmemcheck}
+Usage: memcheck-cover-probe.py --harness {formal,nano/formal}
+                                --check {imemcheck,dmemcheck,imemcheck_latch,dmemcheck_latch}
                                 [--repo DIR] [--workdir DIR] [--sby SBY]
+
+A `_latch` check runs {check}_cover.sby (its own clk2fflogic script and doubled
+depth) against the same {base}.sv the flop check reads unmodified -- NANO_LATCH_RF
+lives in nano.v, not in the checker -- so the mutation and the cover-log parse both
+key off the base name.
 
 WHY THIS EXISTS. Neither memcheck states a cover goal proving it ever reaches the
 property it names, so an over-constraining assume edit could pass vacuously with CI
@@ -55,6 +61,11 @@ def stop(message):
     sys.exit(2)
 
 
+def base_check(check):
+    """The checker .sv a `_latch` variant still reads unmodified."""
+    return check[: -len("_latch")] if check.endswith("_latch") else check
+
+
 def mutate(sv_text, is_nano):
     if ANCHOR not in sv_text:
         stop(
@@ -78,13 +89,15 @@ def mutate(sv_text, is_nano):
 
 def build_case(repo, root, harness, check, sv_text):
     """A copy of `harness`, deep enough that {check}_cover.sby's own relative paths
-    resolve, with {check}.sv replaced. Returns the directory sby must be run from."""
+    resolve, with {base}.sv replaced (the checker source the .sby actually reads --
+    see base_check)."""
     is_nano = harness == "nano/formal"
+    base = base_check(check)
     shutil.rmtree(root, ignore_errors=True)
     harness_dir = root / harness
     harness_dir.mkdir(parents=True)
     shutil.copy(repo / harness / f"{check}_cover.sby", harness_dir / f"{check}_cover.sby")
-    (harness_dir / f"{check}.sv").write_text(sv_text)
+    (harness_dir / f"{base}.sv").write_text(sv_text)
     if is_nano:
         (root / "nano").mkdir(exist_ok=True)
         shutil.copy(repo / "nano" / "nano.v", root / "nano" / "nano.v")
@@ -124,13 +137,17 @@ def run_case(repo, workdir, sby, harness, check, case, sv_text):
     log_file = harness_dir / job / "logfile.txt"
     if not log_file.is_file():
         stop(f"sby wrote no log for the {case} case, so no goal can be read.")
-    return status[0], cover_log.parse(log_file.read_text(), f"{check}.sv")
+    return status[0], cover_log.parse(log_file.read_text(), f"{base_check(check)}.sv")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--harness", required=True, choices=("formal", "nano/formal"))
-    parser.add_argument("--check", required=True, choices=("imemcheck", "dmemcheck"))
+    parser.add_argument(
+        "--check",
+        required=True,
+        choices=("imemcheck", "dmemcheck", "imemcheck_latch", "dmemcheck_latch"),
+    )
     here = pathlib.Path(__file__).resolve().parent
     parser.add_argument("--repo", default=str(here.parent), help="tree to read formal/ and nano/ from")
     parser.add_argument("--workdir", default=str(here / "memcheck-cover-probe"))
@@ -139,8 +156,9 @@ def main():
 
     repo = pathlib.Path(args.repo).resolve()
     harness, check = args.harness, args.check
+    base = base_check(check)
     is_nano = harness == "nano/formal"
-    names = [f"{harness}/{check}_cover.sby", f"{harness}/{check}.sv"]
+    names = [f"{harness}/{check}_cover.sby", f"{harness}/{base}.sv"]
     names.append("nano/nano.v" if is_nano else "formal/arbiter.v")
     for name in names:
         if not (repo / name).is_file():
@@ -148,7 +166,7 @@ def main():
     workdir = pathlib.Path(args.workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
-    sv_text = (repo / harness / f"{check}.sv").read_text()
+    sv_text = (repo / harness / f"{base}.sv").read_text()
     mutant = mutate(sv_text, is_nano)
 
     red = []

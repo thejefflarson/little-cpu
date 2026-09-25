@@ -1,0 +1,24 @@
+[options]
+mode bmc
+append 0
+tbtop testbench.uut
+# 2*15+1: imemcheck.sby's depth doubled for clk2fflogic, graded by --clk2fflogic.
+depth 31
+
+[engines]
+smtbmc --presat --unroll boolector
+
+[script]
+read_verilog -sv imemcheck.sv
+verilog_defines -D NANO_LATCH_RF
+read_verilog -sv nano.v
+prep -nordff -top testbench
+clk2fflogic
+
+[files]
+../nano.v
+imemcheck.sv
+../../formal/riscv-formal/checks/rvfi_macros.vh
+../../formal/riscv-formal/checks/rvfi_channel.sv
+../../formal/riscv-formal/checks/rvfi_testbench.sv
+../../formal/riscv-formal/checks/rvfi_imem_check.sv

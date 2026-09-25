@@ -4,6 +4,10 @@ shipping core to pass first.
 
 Usage: traps-region-probe.py [--repo DIR] [--workdir DIR] [--sby SBY]
 
+--sby-file names which .sby to run, traps.sby by default; traps_latch.sby proves
+the same mutants against the NANO_LATCH_RF build. Both read the mutated lines from
+the same nano.v, so one mutation table covers either.
+
 WHY THIS EXISTS. traps.sv states two things about a plain load or store whose
 effective address lands outside the RAM window: that nano.v must trap, and that the
 cause must be 5 for a load and 7 for a store. Both are arms of a proof that passes,

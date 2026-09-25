@@ -2,6 +2,7 @@
 # TWO IDENTICAL LABELS ARE TWO LINES: some fixtures share a description on purpose.
 # Hand-edit in LC_ALL=C order. Never regenerate from a run: it launders a dropped probe.
 --allow-mismatch does not cover the seed-count refusal either
+--clk2fflogic still rejects a depth short of the doubled floor
 --clock-ns and --cycle-factor naming different core sets is refused
 --cores naming no CoreMark core at all is red before anything is parsed
 --cores naming no core at all is red before anything is parsed
@@ -12,6 +13,8 @@
 --require-news is news the moment rtl/ moved under the older stamp too
 --require-news refuses on its own status, not on "no news"
 --require-news's own artifact does not make itself the news
+--sby-file names the NANO_LATCH_RF variant, and a default-only fixture is caught
+--sby-file names the NANO_LATCH_RF variant, and a default-only fixture is caught
 --step-mhz refuses a core whose worst placement is under the step
 --step-mhz replaces each core's own placed clock with one fixed step in its product
 ...and a margin under the floor writes no pin file at all
@@ -697,6 +700,7 @@ columns that no longer add up to the cycle count are red
 complete.sby moving away leaves the depth tie with nothing to read
 complete.sby stating depth twice stops the tie rather than grading the first
 components_executor still lists check-solver-bitwuzla as a prerequisite
+control: --clk2fflogic doubles the floor and adds one
 control: .PHONY declaring netlist-digest is not a dependency edge
 control: PASS with a real retire count exits 0
 control: PATH resolving only the pinned install is green
@@ -707,6 +711,7 @@ control: TEST_CASE_D32 with ordinary testregs still assembles
 control: TIMEOUT is a real verdict and IS baselineable
 control: a QSPI timing log whose buckets sum to its cycle count reports a row
 control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite
+control: a _latch check reads the same base .sv the flop check does
 control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
@@ -787,6 +792,7 @@ control: fixture_anchor finds its literal in the real file
 control: formal/Makefile also puts the cached suite first
 control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
+control: imemcheck_latch is the same tie, over imemcheck.sv
 control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not
 control: mutate on a real match rewrites the file and returns 0
