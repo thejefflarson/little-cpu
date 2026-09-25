@@ -1,5 +1,4 @@
-# nanocpu's cxxrtl harness. NANO_CFLAGS is the one place its -march/-mabi is stated;
-# test/march_test.sh's exception list names this line by its exact count.
+# nanocpu's cxxrtl harness. NANO_CFLAGS is the one place its -march/-mabi is stated; test/march_test.sh's exception list names this line by its exact count.
 NANO_CFLAGS := -march=rv32ec_zicsr -mabi=ilp32e
 
 NANO_RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED_MEM \
@@ -36,26 +35,6 @@ nano-test: nano-sim nano/tb/nano_icarus.vvp nano-x-probe nano-meip-floor-probe
 nano-startup-test: nano-sim
 	@./nano/bench/run_startup_test.sh ./nano-sim '$(NANO_CFLAGS)'
 
-nano/tb/nano_latch_rtl.cc: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
-	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_LATCH_RF $^; hierarchy -top nano_testbench; write_cxxrtl $@'
-
-nano-latch-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_latch_rtl.cc
-	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_latch_rtl.cc"' \
-	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" $< -o $@
-
-nano/tb/nano_icarus_latch.vvp: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
-	iverilog -I./rtl/ -DICARUS -DNANO_LATCH_RF $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
-
-.PHONY: nano-latch-test
-nano-latch-test: nano-latch-sim nano/tb/nano_icarus_latch.vvp
-	@NANO_VVP_IMAGE="$(CURDIR)/nano/tb/nano_icarus_latch.vvp" \
-	  ./nano/tb/nano_dual_leg_test.sh ./nano-latch-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
-	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
-
-.PHONY: nano-latch-startup-test
-nano-latch-startup-test: nano-latch-sim
-	@./nano/bench/run_startup_test.sh ./nano-latch-sim '$(NANO_CFLAGS)'
-
 nano/tb/nano_oneport_rtl.cc: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
 	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_ONE_PORT_RF $^; hierarchy -top nano_testbench; write_cxxrtl $@'
 
@@ -75,26 +54,6 @@ nano-oneport-test: nano-oneport-sim nano/tb/nano_icarus_oneport.vvp
 .PHONY: nano-oneport-startup-test
 nano-oneport-startup-test: nano-oneport-sim
 	@./nano/bench/run_startup_test.sh ./nano-oneport-sim '$(NANO_CFLAGS)'
-
-nano/tb/nano_oneport_latch_rtl.cc: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
-	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_ONE_PORT_RF -D NANO_LATCH_RF $^; hierarchy -top nano_testbench; write_cxxrtl $@'
-
-nano-oneport-latch-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_oneport_latch_rtl.cc
-	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_oneport_latch_rtl.cc"' \
-	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" $< -o $@
-
-nano/tb/nano_icarus_oneport_latch.vvp: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
-	iverilog -I./rtl/ -DICARUS -DNANO_ONE_PORT_RF -DNANO_LATCH_RF $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
-
-.PHONY: nano-oneport-latch-test
-nano-oneport-latch-test: nano-oneport-latch-sim nano/tb/nano_icarus_oneport_latch.vvp
-	@NANO_VVP_IMAGE="$(CURDIR)/nano/tb/nano_icarus_oneport_latch.vvp" \
-	  ./nano/tb/nano_dual_leg_test.sh ./nano-oneport-latch-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
-	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
-
-.PHONY: nano-oneport-latch-startup-test
-nano-oneport-latch-startup-test: nano-oneport-latch-sim
-	@./nano/bench/run_startup_test.sh ./nano-oneport-latch-sim '$(NANO_CFLAGS)'
 
 .PHONY: nano-littlecpu-test
 nano-littlecpu-test: nano-sim
@@ -148,8 +107,7 @@ nano-qspi-loop-probe: rvfi_macros.vh test/monitor.sim.v
 nano-qspi-loop-test: nano-qspi-loop-probe
 	@./nano/bench/run_qspi_loop_buffer_test.sh '$(NANO_CFLAGS)'
 
-# nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio
-# rather than the abstract bus nano_qspi_memory.v times. On `make test`'s path.
+# nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio rather than the abstract bus nano_qspi_memory.v times. On `make test`'s path.
 NANO_QSPI_PINS_RTL_SRCS := nano/nano.v nano/qspi.v nano/tb/nano_qspi_flash_model.v \
                            nano/tb/nano_qspi_psram_model.v soc/compare/dhry_monitor.v
 

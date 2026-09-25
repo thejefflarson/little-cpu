@@ -1,6 +1,6 @@
 #!/bin/sh
 # Prints `make nano-area`'s yosys -p script, quoting every path (an unquoted `;` opens a
-# second command). No `techmap -map`: NANO_LATCH_RF's latches would map to nothing and price at zero here silently -- nano/timing_script.sh carries that fix.
+# second command).
 liberty=$1
 shift
 srcs=""

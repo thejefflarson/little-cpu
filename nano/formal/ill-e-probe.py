@@ -2,11 +2,7 @@
 """Forces nano/formal/ill_e.sby to fail against a core that gets the RV32E rule wrong,
 and requires the shipping core to pass first.
 
-Usage: ill-e-probe.py [--repo DIR] [--workdir DIR] [--sby SBY] [--sby-file NAME]
-
---sby-file names which .sby to run, ill_e.sby by default; ill_e_latch.sby proves the
-same mutant against the NANO_LATCH_RF build. Both read is_e_illegal from the same
-nano.v, so one mutation table covers either.
+Usage: ill-e-probe.py [--repo DIR] [--workdir DIR] [--sby SBY]
 
 WHY THIS EXISTS. The first ill_e checked a hand-written reference against itself, so
 every mutation probe it had could only show its OWN assign/assert pair could be broken,
@@ -99,11 +95,11 @@ def main():
     )
     parser.add_argument("--workdir", default=str(here / "ill-e-probe"))
     parser.add_argument("--sby", default="sby")
-    parser.add_argument("--sby-file", default="ill_e.sby")
     args = parser.parse_args()
+    sby_file = "ill_e.sby"
 
     repo = pathlib.Path(args.repo).resolve()
-    for name in (f"nano/formal/{args.sby_file}", "nano/formal/ill_e.sv", "nano/nano.v"):
+    for name in (f"nano/formal/{sby_file}", "nano/formal/ill_e.sv", "nano/nano.v"):
         if not (repo / name).is_file():
             stop(f"{name} is missing from {repo}, so there is nothing to probe.")
     workdir = pathlib.Path(args.workdir).resolve()
@@ -112,7 +108,7 @@ def main():
     nano_v = (repo / "nano" / "nano.v").read_text()
     red = []
 
-    status = run_case(repo, workdir, args.sby, "shipping", nano_v, args.sby_file)
+    status = run_case(repo, workdir, args.sby, "shipping", nano_v, sby_file)
     print(f"shipping: {status}")
     if status != "PASS":
         red.append(
@@ -121,7 +117,7 @@ def main():
             "starts red proves nothing about a wrong-rule mutant."
         )
 
-    status = run_case(repo, workdir, args.sby, "wrong-rule", mutate(nano_v), args.sby_file)
+    status = run_case(repo, workdir, args.sby, "wrong-rule", mutate(nano_v), sby_file)
     print(f"wrong-rule (bit 4 -> bit 3): {status}")
     if status != "FAIL":
         red.append(

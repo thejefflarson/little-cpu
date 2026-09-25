@@ -731,10 +731,10 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
                     # compare-product-schedule-publish, stall-sites, pin-help-text)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
-                    # dual-build, nano-test, nano-latch-test, nano-startup-test,
-                    # nano-latch-startup-test, nano-littlecpu-test and nano-qspi-loop-test;
-                    # graded against EXPECTED_FAIL / OBSERVED_FLOOR, with STALL_REPORT=1 so the
-                    # cycle-accounting identity runs on every call, not only `make cycles`
+                    # dual-build, nano-test, nano-startup-test, nano-littlecpu-test and
+                    # nano-qspi-loop-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
+                    # with STALL_REPORT=1 so the cycle-accounting identity runs on every
+                    # call, not only `make cycles`
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
@@ -879,10 +879,6 @@ make nano-test      # nano/asm's six hand-written x0-x15 programs under BOTH sim
                     # a skipped memory-zeroing loop leaves behind. On `make test`'s path
 make nano-startup-test # the shared nano/bench/start.S initializes gp before any
                     # gp-relative reference runs; PASS/FAIL over tohost. On `make test`'s path
-make nano-latch-test # nano-test's same suite and baselines against the NANO_LATCH_RF
-                    # register file (nano-latch-sim, nano/tb/nano_icarus_latch.vvp).
-                    # On `make test`'s path
-make nano-latch-startup-test # nano-startup-test's check, same variant. On `make test`'s path
 make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,
                     # 80 KB flat memory (nano/tb/nano_memory.v). Not on `make test`'s path
 make nano-coremark  # CoreMark on nanocpu, same memory model and standing as nano-dhrystone
@@ -919,11 +915,6 @@ make -C nano/formal components_qspi  # nano_qspi_ctrl's three invariants (CS0/CS
                     # PSRAM_CS_LOW_LIMIT clocks; the prefetch buffer holds exactly the
                     # parcels at [fetch_pc, fetch_pc+N)) by k-induction; qspi-probe is
                     # its forced-red prerequisite
-make -C nano/formal all-latch  # nano's five hand-written proofs (ill_e, dmemcheck,
-                    # imemcheck, traps, and their _cover twins) against NANO_LATCH_RF,
-                    # each with clk2fflogic and doubled depth; the generated riscv-formal
-                    # checks and remeasure-fg stay flop-only, a pinned genchecks-local.py
-                    # forbids the decoupling clk2fflogic needs there (docs/adr/0207)
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves
