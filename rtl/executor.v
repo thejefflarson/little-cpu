@@ -404,27 +404,29 @@ module executor #(
     else if (launch.valid) pending_intr <= 1'b0;
   end
 
-  always_comb begin
-    launch.rvfi.pc_wdata = resolved_target;
-    launch.rvfi.insn = in_instr;
-    launch.rvfi.pc_rdata = in_pc;
-    launch.rvfi.trap = trap_pending;
-    launch.rvfi.intr = pending_intr;
-    launch.rvfi.mem_fault = in_imem_fault || load_access_fault || store_access_fault;
-    launch.rvfi.mem_fault_rmask = {4{load_access_fault || (store_access_fault && is_amo)}};
-    launch.rvfi.mem_fault_wmask = store_access_fault ? ls_fault_wstrb : 4'b0;
-    launch.rvfi.mem_fault_addr = mem_fault_word_addr;
-    launch.rvfi.rs1_addr = rvfi_rs1_valid ? in_rs1 : 5'b0;
-    launch.rvfi.rs2_addr = rvfi_rs2_valid ? in_rs2 : 5'b0;
-    launch.rvfi.rs1_rdata = rvfi_rs1_valid ? reg_rs1 : 32'b0;
-    launch.rvfi.rs2_rdata = rvfi_rs2_valid ? reg_rs2 : 32'b0;
-    launch.rvfi.csr_mcycle   = csr_rvfi_mcycle;
-    launch.rvfi.csr_minstret = csr_rvfi_minstret;
-    launch.rvfi.csr_mscratch = csr_rvfi_mscratch;
-   `ifdef RISCV_FORMAL_CSR_MCAUSE
-    launch.rvfi.csr_mcause   = csr_rvfi_mcause;
-   `endif
-  end
+  // Plain `assign`, not `always_comb`: every other `launch.*` field in this file is
+  // continuously assigned, and Icarus treats a packed struct's procedural and continuous
+  // drivers as conflicting at the whole-variable level even where the fields themselves
+  // do not overlap.
+  assign launch.rvfi.pc_wdata = resolved_target;
+  assign launch.rvfi.insn = in_instr;
+  assign launch.rvfi.pc_rdata = in_pc;
+  assign launch.rvfi.trap = trap_pending;
+  assign launch.rvfi.intr = pending_intr;
+  assign launch.rvfi.mem_fault = in_imem_fault || load_access_fault || store_access_fault;
+  assign launch.rvfi.mem_fault_rmask = {4{load_access_fault || (store_access_fault && is_amo)}};
+  assign launch.rvfi.mem_fault_wmask = store_access_fault ? ls_fault_wstrb : 4'b0;
+  assign launch.rvfi.mem_fault_addr = mem_fault_word_addr;
+  assign launch.rvfi.rs1_addr = rvfi_rs1_valid ? in_rs1 : 5'b0;
+  assign launch.rvfi.rs2_addr = rvfi_rs2_valid ? in_rs2 : 5'b0;
+  assign launch.rvfi.rs1_rdata = rvfi_rs1_valid ? reg_rs1 : 32'b0;
+  assign launch.rvfi.rs2_rdata = rvfi_rs2_valid ? reg_rs2 : 32'b0;
+  assign launch.rvfi.csr_mcycle   = csr_rvfi_mcycle;
+  assign launch.rvfi.csr_minstret = csr_rvfi_minstret;
+  assign launch.rvfi.csr_mscratch = csr_rvfi_mscratch;
+ `ifdef RISCV_FORMAL_CSR_MCAUSE
+  assign launch.rvfi.csr_mcause   = csr_rvfi_mcause;
+ `endif
  `endif
 
   logic in_has_result;

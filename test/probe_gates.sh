@@ -3288,13 +3288,13 @@ begin_group "test/stall_report.py"
 
 SR="python3 $REPO/test/stall_report.py"
 
-# add.S issues 10 of its 40 cycles and spends 20 waiting on the scoreboard and 10
-# fetching operands; lw.S is the other way round, so the two programs disagree about
-# which reason dominates and the total has to decide.
+# add.S issues 10 of its 40 cycles and spends 20 on the hazard scoreboard and 10 on the
+# region wait; lw.S is the other way round, so the two programs disagree about which
+# reason dominates and the total has to decide.
 sr_fixture() {
   local d; d=$(new_case)
   fixture_anchor "$REPO/test/stall_report.py" \
-    'REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",'
+    'REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus",'
   fixture_anchor "$REPO/test/stall_report.py" '"region"]'
   fixture_anchor "$REPO/test/stall_report.py" \
     'REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +'
@@ -3306,8 +3306,8 @@ sr_fixture() {
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=0 bus=0 region=10 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=0 bus=0 region=25 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -3317,7 +3317,7 @@ probe "control: an accounting that adds up prints the table" 0 \
   "cycle accounting" "$SR $d/counts"
 
 probe "the dominant reason is the suite's, not the first program's" 0 \
-  "The largest single reason is operand" "$SR $d/counts"
+  "The largest single reason is region" "$SR $d/counts"
 
 d=$(sr_fixture); mutate "$d/counts" 's/^add.S cycles=40/add.S cycles=41/'
 probe "columns that do not add up blame the report, not the core" 1 \
@@ -3328,9 +3328,9 @@ mutate "$d/counts" 's/^add.S cycles=40/add.S cycles=42/'
 probe "a stall nothing in the list explains is a reason nobody wrote down" 1 \
   "2 cycles stalled for a reason this report does not name" "$SR $d/counts"
 
-d=$(sr_fixture); mutate "$d/counts" 's/ operand=10//'
+d=$(sr_fixture); mutate "$d/counts" 's/ region=10//'
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
-  "is missing operand" "$SR $d/counts"
+  "is missing region" "$SR $d/counts"
 
 # A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its `else if (eligible)` arm
 # and leaving the cycle uncounted is enough -- moves a cycle out of hzB without moving it
@@ -5217,7 +5217,7 @@ tr_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/formal"
   cp "$REPO"/rtl/structs.v "$REPO"/rtl/fetcher.v "$REPO"/rtl/decoder.v \
-     "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$d/rtl/"
+     "$REPO"/rtl/executor.v "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$d/rtl/"
   cp "$REPO"/formal/traps.sv "$REPO"/formal/components.sby "$d/formal/"
   printf '%s' "$d"
 }
@@ -5262,12 +5262,12 @@ d=$(tr_fixture); mutate "$d/formal/traps.sv" \
 probe "a respelled must-trap assertion stops rather than pinning nothing" 2 \
   "assert(trap_entry);\` 0 times" "$(trs "$d")"
 
-d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
   's/assign load_access_fault  = (atomic_fault/assign load_access_fault = (atomic_fault/'
 probe "a respelled fault site stops rather than building the shipping core twice" 2 \
   "no longer spells what the wrong-cause mutation replaces" "$(trs "$d")"
 
-d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
   's/assign ls_fault = ls_access \&\& ls_answer_valid/assign ls_fault = ls_access\&\& ls_answer_valid/'
 probe "a respelled ls_fault stops: a core that still faults proves nothing" 2 \
   "no longer spells what the no-trap mutation replaces" "$(trs "$d")"
@@ -5291,7 +5291,7 @@ DZ="python3 $REPO/formal/decoder-zkt-probe.py"
 cat > "$tmp/sby-dz-stub" <<'STUB'
 #!/bin/sh
 # Stands in for sby. The case being run is the name of the directory it is run
-# in, and the assertion line is read out of the copy of decoder.v it was
+# in, and the assertion line is read out of the copy of executor.v it was
 # handed, so PASS and FAIL land where the real solver puts them.
 # STUB_SBY_REGION_LEG/STUB_SBY_ENCODING_LEG pick which engine leg the log
 # attributes the failure to -- basecase by default, the one over a
@@ -5300,11 +5300,11 @@ cat > "$tmp/sby-dz-stub" <<'STUB'
 mkdir -p probe
 case $(basename "$PWD") in
   region-stall-ungated)
-    line=$(grep -n 'assert(!region_stall || ls_access);' src/decoder.v | cut -d: -f1)
+    line=$(grep -n 'assert(!region_stall || ls_access);' src/executor.v | cut -d: -f1)
     status=${STUB_SBY_REGION:-FAIL}; line=${STUB_SBY_REGION_LINE:-$line}
     leg=${STUB_SBY_REGION_LEG:-engine_0.basecase} ;;
   ls-access-extra)
-    line=$(grep -n 'assert(ls_access == (instr_lb ||' src/decoder.v | cut -d: -f1)
+    line=$(grep -n 'assert(ls_access == (in_is_lb ||' src/executor.v | cut -d: -f1)
     status=${STUB_SBY_ENCODING:-FAIL}; line=${STUB_SBY_ENCODING_LINE:-$line}
     leg=${STUB_SBY_ENCODING_LEG:-engine_0.basecase} ;;
 esac
@@ -5313,7 +5313,7 @@ if [ "$status" = FAIL ]; then
   # `##   0:00:00  ` is what real sby interposes between the engine leg and the
   # engine's own output. Reproduced so the probes' `engine_N.basecase:.*Assert`
   # regexes are exercised across the same gap they must span in a real log.
-  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in decoder: decoder.v:$line.5-$line.36" \
+  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in executor: executor.v:$line.5-$line.36" \
     > probe/logfile.txt
 fi
 [ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
@@ -5325,7 +5325,7 @@ chmod +x "$tmp/sby-dz-stub"
 dz_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/formal"
-  cp "$REPO"/rtl/structs.v "$REPO"/rtl/decoder.v "$REPO"/rtl/regsel.v "$d/rtl/"
+  cp "$REPO"/rtl/structs.v "$REPO"/rtl/executor.v "$d/rtl/"
   cp "$REPO"/formal/components.sby "$d/formal/"
   printf '%s' "$d"
 }
@@ -5370,32 +5370,32 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "STUB_SBY_EMPTY_STATUS=1 $(dzs "$d")"
 
 d=$(dz_fixture)
-mutate "$d/rtl/decoder.v" \
+mutate "$d/rtl/executor.v" \
   's/assert(!region_stall || ls_access);/assert(!region_stall || ls_access == 1);/'
 probe "a respelled gate assertion stops rather than pinning nothing" 2 \
   "states \`assert(!region_stall || ls_access);\` 0 times" "$(dzs "$d")"
 
 d=$(dz_fixture)
-mutate "$d/rtl/decoder.v" \
-  "s/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled\&\& !ls_answer_valid;/"
+mutate "$d/rtl/executor.v" \
+  "s/assign region_stall = in_valid && ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = in_valid \&\& ls_access \&\& !ls_settled\&\& !ls_answer_valid;/"
 probe "a respelled region_stall site stops rather than building the shipping core twice" 2 \
   "no longer spells what the region-stall-ungated mutation replaces" "$(dzs "$d")"
 
 d=$(dz_fixture)
-mutate "$d/rtl/decoder.v" \
+mutate "$d/rtl/executor.v" \
   "s/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = instr_ls_load||instr_ls_store;/"
 probe "a respelled ls_access site stops rather than building the shipping core twice" 2 \
   "no longer spells what the ls-access-extra mutation replaces" "$(dzs "$d")"
 
-d=$(dz_fixture); rm "$d/rtl/decoder.v"
+d=$(dz_fixture); rm "$d/rtl/executor.v"
 probe "the RTL moving away takes the probe with it, loudly" 2 \
-  "rtl/decoder.v is missing from" "$(dzs "$d")"
+  "rtl/executor.v is missing from" "$(dzs "$d")"
 
 d=$(dz_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2, not a probe against an invented script" 2 \
   "formal/components.sby is missing" "$(dzs "$d")"
 
-d=$(dz_fixture); mutate "$d/formal/components.sby" 's/^decoder:$/decoderx:/'
+d=$(dz_fixture); mutate "$d/formal/components.sby" 's/^executor:$/executorx:/'
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(dzs "$d")"
 
@@ -5470,18 +5470,18 @@ probe "a respelled constant-latency assertion stops rather than pinning nothing"
 
 d=$(ez_fixture)
 mutate "$d/rtl/executor.v" \
-  's/in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin/in.is_mul || in.is_mulh || in.is_mulhu ||in.is_mulhsu: begin/'
+  's/launch.is_mul || launch.is_mulh || launch.is_mulhu || launch.is_mulhsu: begin/launch.is_mul || launch.is_mulh || launch.is_mulhu ||launch.is_mulhsu: begin/'
 probe "a respelled mul case item stops rather than building the shipping core" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
 d=$(ez_fixture)
 mutate "$d/rtl/executor.v" \
-  's/in.is_div || in.is_divu || in.is_rem || in.is_remu: begin/in.is_div || in.is_divu || in.is_rem ||in.is_remu: begin/'
+  's/launch.is_div || launch.is_divu || launch.is_rem || launch.is_remu: begin/launch.is_div || launch.is_divu || launch.is_rem ||launch.is_remu: begin/'
 probe "a respelled divide case item stops the same way" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
 d=$(ez_fixture)
-mutate "$d/rtl/executor.v" 's/op_is_divu <= in.is_divu;/op_is_divu <= in.is_divu ;/'
+mutate "$d/rtl/executor.v" 's/op_is_divu <= launch.is_divu;/op_is_divu <= launch.is_divu ;/'
 probe "a respelled op_is_divu latch stops the same way too" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
@@ -5563,13 +5563,13 @@ d=$(tr_fixture); mutate "$d/formal/traps.sv" \
 probe "a respelled mtval comparison stops rather than pinning nothing" 2 \
   "0 times" "$(tts "$d")"
 
-d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
-  "s/      data_fault:        trap_tval = mem_addr_calc;/      data_fault: trap_tval = mem_addr_calc;/"
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
+  "s/      data_fault:      trap_tval = mem_addr_calc;/      data_fault: trap_tval = mem_addr_calc;/"
 probe "a respelled address arm stops rather than proving the shipping core" 2 \
   "no longer spells its mtval mux" "$(tts "$d")"
 
-d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
-  "s/      instr_illegal:     trap_tval = instr;/      instr_illegal: trap_tval = instr;/"
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
+  "s/      instr_illegal:   trap_tval = in_instr;/      instr_illegal: trap_tval = in_instr;/"
 probe "a respelled word arm stops the same way" 2 \
   "no longer spells its mtval mux" "$(tts "$d")"
 
