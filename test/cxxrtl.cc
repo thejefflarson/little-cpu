@@ -260,8 +260,10 @@ int main(int argc, char **argv) {
 
   std::vector<std::pair<const cxxrtl::debug_item *, int>> stall_probes;
   const cxxrtl::debug_item *stall_any = nullptr;
-  const cxxrtl::debug_item *hazard_rs1_item = nullptr;
-  const cxxrtl::debug_item *hazard_rs2_item = nullptr;
+  const cxxrtl::debug_item *hazard_rs1_dx_item = nullptr;
+  const cxxrtl::debug_item *hazard_rs1_ex_item = nullptr;
+  const cxxrtl::debug_item *hazard_rs2_dx_item = nullptr;
+  const cxxrtl::debug_item *hazard_rs2_ex_item = nullptr;
   // The load/store locality counters (rtl/littlecpu.v).
   const cxxrtl::debug_item *ls_issues = nullptr;
   const cxxrtl::debug_item *ls_edges = nullptr;
@@ -272,8 +274,10 @@ int main(int argc, char **argv) {
       for (const StallReason &reason : kStallReasons)
         stall_probes.emplace_back(&all_debug_items.at(reason.item).at(0),
                                   reason.bucket);
-      hazard_rs1_item = &all_debug_items.at("uut decoder hazard_rs1").at(0);
-      hazard_rs2_item = &all_debug_items.at("uut decoder hazard_rs2").at(0);
+      hazard_rs1_dx_item = &all_debug_items.at("uut decoder hazard_rs1_dx").at(0);
+      hazard_rs1_ex_item = &all_debug_items.at("uut decoder hazard_rs1_ex").at(0);
+      hazard_rs2_dx_item = &all_debug_items.at("uut decoder hazard_rs2_dx").at(0);
+      hazard_rs2_ex_item = &all_debug_items.at("uut decoder hazard_rs2_ex").at(0);
     } catch (const std::out_of_range &) {
       std::fprintf(stderr,
                     "error: --stalls needs the decoder's stall signals as debug "
@@ -371,21 +375,35 @@ int main(int argc, char **argv) {
       } else {
         bool charged = false;
         const cxxrtl::debug_item *charged_item = nullptr;
+        int charged_bucket = -1;
         for (const auto &[item, bucket] : stall_probes) {
           if ((item->curr[0] & 1) != 0) {
             stall_cycles[bucket]++;
             charged = true;
             charged_item = item;
+            charged_bucket = bucket;
             break;
           }
         }
         if (!charged)
           unattributed_cycles++;
+        (void)charged_item;
 
-        // B1 is stall-only, so every hazard cycle is the same cause; hzA/hzB/hzC stay in
-        // the format for test/stall_report.py, folded into hzC until B2 adds forwarding.
-        if (charged_item == hazard_rs1_item || charged_item == hazard_rs2_item)
-          hazard_c++;
+        // hzA: dx_match without a forward select -- the producer sitting in `out` will
+        // not publish a ready result next cycle. hzB: ex_match whose producer is in
+        // executor_out but not yet unpacked. A ready ex_match no longer stalls at all
+        // (the regfile's write-through bypass reaches it), so hzC reads zero except the
+        // CSR carve-out this split does not reintroduce.
+        if (charged_bucket == 2) {
+          bool dx = (hazard_rs1_dx_item->curr[0] & 1) != 0 ||
+                    (hazard_rs2_dx_item->curr[0] & 1) != 0;
+          bool ex = (hazard_rs1_ex_item->curr[0] & 1) != 0 ||
+                    (hazard_rs2_ex_item->curr[0] & 1) != 0;
+          if (dx)
+            hazard_a++;
+          else if (ex)
+            hazard_b++;
+        }
       }
     }
     sample(cycle * 2 + 0);

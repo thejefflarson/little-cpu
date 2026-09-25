@@ -324,12 +324,21 @@ module decoder (
   assign fwd_rs1 = dx_match_rs1 && out_has_result && !instr_csr_access;
   assign fwd_rs2 = dx_match_rs2 && out_has_result;
 
+  // hzA: dx_match without a forward select -- the producer will not publish a ready
+  // result next cycle (a load/AMO/LR/SC, a div/rem just starting, or a CSR access's own
+  // excluded rs1). hzB: ex_match whose producer is in the executor but not yet unpacked.
+  // A ready ex_match (the old hzC) needs no stall at all: the regfile's write-through
+  // bypass reaches it on its own, so that population is exactly the cycles this split
+  // over hazard_rs1_dx/hazard_rs1_ex no longer counts.
+  logic hazard_rs1_dx, hazard_rs1_ex, hazard_rs2_dx, hazard_rs2_ex;
+  assign hazard_rs1_dx = uses_rs1 && rs1 != 0 && dx_match_rs1 && !fwd_rs1;
+  assign hazard_rs1_ex = uses_rs1 && rs1 != 0 && ex_match_rs1 && !executor_out.rd_ready;
+  assign hazard_rs2_dx = uses_rs2 && rs2 != 0 && dx_match_rs2 && !fwd_rs2;
+  assign hazard_rs2_ex = uses_rs2 && rs2 != 0 && ex_match_rs2 && !executor_out.rd_ready;
+
   logic hazard_rs1, hazard_rs2, hazard;
-  assign hazard_rs1 = uses_rs1 && rs1 != 0 &&
-    ((dx_match_rs1 && !(out_has_result && !instr_csr_access)) ||
-     (ex_match_rs1 && !executor_out.rd_ready));
-  assign hazard_rs2 = uses_rs2 && rs2 != 0 &&
-    ((dx_match_rs2 && !out_has_result) || (ex_match_rs2 && !executor_out.rd_ready));
+  assign hazard_rs1 = hazard_rs1_dx || hazard_rs1_ex;
+  assign hazard_rs2 = hazard_rs2_dx || hazard_rs2_ex;
   assign hazard = hazard_rs1 || hazard_rs2;
 
   // A CSR access/`mret`/`fence.i` must not interleave with older instructions.
