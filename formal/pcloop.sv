@@ -166,15 +166,27 @@ module pcloop (
     end
 
   always_ff @(posedge clk)
-    if (f_settled && !prev_issuing && !prev_x_redirect) assert(fetch_pc == past_fetch_pc);
+    if (f_settled && !prev_issuing && !prev_x_redirect) begin
+      assert(fetch_pc == past_fetch_pc);
+      hold_reached: cover (1'b1);
+    end
 
   always_ff @(posedge clk)
-    if (f_settled && prev_x_redirect) assert(fetch_pc == prev_redirect_target);
+    if (f_settled && prev_x_redirect) begin
+      assert(fetch_pc == prev_redirect_target);
+      redirect_reached: cover (1'b1);
+    end
 
   always_ff @(posedge clk)
-    if (f_settled && prev_trap_entry) assert(fetch_pc == prev_mtvec);
+    if (f_settled && prev_trap_entry) begin
+      assert(fetch_pc == prev_mtvec);
+      trap_reached: cover (1'b1);
+    end
   always_ff @(posedge clk)
-    if (f_settled && prev_mret_entry) assert(fetch_pc == prev_mepc);
+    if (f_settled && prev_mret_entry) begin
+      assert(fetch_pc == prev_mepc);
+      mret_reached: cover (1'b1);
+    end
  `endif
 endmodule
 
