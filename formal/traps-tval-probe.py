@@ -50,7 +50,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 
 # The comparison being probed, found in traps.sv by its text.
-MTVAL_ASSERT = "assert(csr_rdata == prev_tval);"
+MTVAL_ASSERT = "assert(csr_rdata == prev2_tval);"
 
 # One arm of rtl/executor.v's mtval mux per case, matched in full so a respelling stops
 # this file rather than silently probing nothing.

@@ -62,7 +62,7 @@ from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 # The two comparisons being probed, found in traps.sv by their text.
 ASSERTS = {
     "no-trap": "assert(trap_entry);",
-    "wrong-cause": "assert(csr_rdata == prev_cause);",
+    "wrong-cause": "assert(csr_rdata == prev2_cause);",
 }
 
 # The lines of rtl/executor.v each mutation replaces, matched in full so a respelling
