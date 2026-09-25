@@ -1,4 +1,4 @@
-# ADR-0209: slim the QSPI controller -- one prefetch slot and 23-bit flash tags
+# ADR-0210: slim the QSPI controller -- one prefetch slot and 23-bit flash tags
 
 **Status:** Accepted · 2026-09-24
 
