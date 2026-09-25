@@ -94,7 +94,12 @@ module riscv #(
   localparam logic [31:0] CAUSE_MACHINE_EXTERNAL    = 32'h8000_000B;
 
   logic [63:0] mcycle, minstret;
-  logic [31:0] mscratch, mtvec, mepc, mcause, mtval;
+  // WARL: mtvec.MODE, mepc[0] and mcause's unimplemented codes are hardwired zero.
+  logic [31:0] mscratch, mtval;
+  logic [29:0] mtvec_base;
+  logic [30:0] mepc_msbs;
+  logic [3:0]  mcause_code;
+  logic        mcause_interrupt;
   logic        mstatus_mie, mstatus_mpie, mie_meie;
   logic        irq_meip_sync1, irq_meip_sync2;
 
@@ -412,6 +417,11 @@ module riscv #(
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
   assign mie_value = {20'b0, mie_meie, 11'b0};
   assign mip_value = {20'b0, irq_meip_sync2, 11'b0};
+
+  logic [31:0] mtvec_value, mepc_value, mcause_value;
+  assign mtvec_value  = {mtvec_base, 2'b00};
+  assign mepc_value   = {mepc_msbs, 1'b0};
+  assign mcause_value = {mcause_interrupt, 27'b0, mcause_code};
   assign interrupt_pending = irq_meip_sync2 && mie_meie && mstatus_mie;
 
   // Sliced here, not inside the case below: a constant part-select of a wider signal
@@ -431,10 +441,10 @@ module riscv #(
       CSR_MSTATUSH:  csr_rdata = 32'b0;
       CSR_MISA:      csr_rdata = MISA_VALUE;
       CSR_MIE:       csr_rdata = mie_value;
-      CSR_MTVEC:     csr_rdata = mtvec;
+      CSR_MTVEC:     csr_rdata = mtvec_value;
       CSR_MSCRATCH:  csr_rdata = mscratch;
-      CSR_MEPC:      csr_rdata = mepc;
-      CSR_MCAUSE:    csr_rdata = mcause;
+      CSR_MEPC:      csr_rdata = mepc_value;
+      CSR_MCAUSE:    csr_rdata = mcause_value;
       CSR_MTVAL:     csr_rdata = mtval;
       CSR_MIP:       csr_rdata = mip_value;
       CSR_MCYCLE:    csr_rdata = mcycle_lo;
@@ -489,7 +499,7 @@ module riscv #(
           if (take_interrupt) begin
             // Nothing issues this cycle: next_pc becomes mtvec, and mstatus_mie
             // reads already cleared next cycle, so the fetch below runs then.
-            next_pc <= mtvec;
+            next_pc <= mtvec_value;
           end else begin
             mem_wstrb <= 4'b0000;
             mem_instr <= 1;
@@ -560,7 +570,7 @@ module riscv #(
         execute_instr: begin
           if (take_trap) begin
             skip_reg_write <= 1;
-            next_pc <= mtvec;
+            next_pc <= mtvec_value;
             cpu_state <= fetch_instr;
           end else begin
             (* parallel_case, full_case *)
@@ -676,7 +686,7 @@ module riscv #(
 
               is_mret: begin
                 skip_reg_write <= 1;
-                next_pc <= mepc;
+                next_pc <= mepc_value;
                 cpu_state <= fetch_instr;
               end
 
@@ -770,18 +780,19 @@ module riscv #(
 
   always_ff @(posedge clk) begin
     if (reset) begin
-      mcycle         <= 64'b0;
-      minstret       <= 64'b0;
-      mscratch       <= 32'b0;
-      mtvec          <= 32'b0;
-      mepc           <= 32'b0;
-      mcause         <= 32'b0;
-      mtval          <= 32'b0;
-      mstatus_mie    <= 1'b0;
-      mstatus_mpie   <= 1'b0;
-      mie_meie       <= 1'b0;
-      irq_meip_sync1 <= 1'b0;
-      irq_meip_sync2 <= 1'b0;
+      mcycle           <= 64'b0;
+      minstret         <= 64'b0;
+      mscratch         <= 32'b0;
+      mtvec_base       <= 30'b0;
+      mepc_msbs        <= 31'b0;
+      mcause_code      <= 4'b0;
+      mcause_interrupt <= 1'b0;
+      mtval            <= 32'b0;
+      mstatus_mie      <= 1'b0;
+      mstatus_mpie     <= 1'b0;
+      mie_meie         <= 1'b0;
+      irq_meip_sync1   <= 1'b0;
+      irq_meip_sync2   <= 1'b0;
     end else begin
       irq_meip_sync1 <= irq_meip;
       irq_meip_sync2 <= irq_meip_sync1;
@@ -801,25 +812,30 @@ module riscv #(
             mstatus_mpie <= csr_new_value[7];
           end
           CSR_MIE:      mie_meie <= csr_new_value[11];
-          CSR_MTVEC:    mtvec    <= {csr_new_value[31:2], 2'b00};
-          CSR_MSCRATCH: mscratch <= csr_new_value;
-          CSR_MEPC:     mepc     <= {csr_new_value[31:1], 1'b0};
-          CSR_MCAUSE:   mcause   <= csr_new_value;
-          CSR_MTVAL:    mtval    <= csr_new_value;
+          CSR_MTVEC:    mtvec_base <= csr_new_value[31:2];
+          CSR_MSCRATCH: mscratch   <= csr_new_value;
+          CSR_MEPC:     mepc_msbs  <= csr_new_value[31:1];
+          CSR_MCAUSE: begin
+            mcause_interrupt <= csr_new_value[31];
+            mcause_code      <= csr_new_value[3:0];
+          end
+          CSR_MTVAL:    mtval      <= csr_new_value;
           default: ;
         endcase
       end else if (take_interrupt) begin
-        mepc         <= next_pc;
-        mcause       <= CAUSE_MACHINE_EXTERNAL;
-        mtval        <= 32'b0;
-        mstatus_mpie <= mstatus_mie;
-        mstatus_mie  <= 1'b0;
+        mepc_msbs        <= next_pc[31:1];
+        mcause_interrupt <= 1'b1;
+        mcause_code      <= CAUSE_MACHINE_EXTERNAL[3:0];
+        mtval            <= 32'b0;
+        mstatus_mpie     <= mstatus_mie;
+        mstatus_mie      <= 1'b0;
       end else if (cpu_state == execute_instr && take_trap) begin
-        mepc         <= pc;
-        mcause       <= trap_cause_value;
-        mtval        <= trap_tval_value;
-        mstatus_mpie <= mstatus_mie;
-        mstatus_mie  <= 1'b0;
+        mepc_msbs        <= pc[31:1];
+        mcause_interrupt <= 1'b0;
+        mcause_code      <= trap_cause_value[3:0];
+        mtval            <= trap_tval_value;
+        mstatus_mpie     <= mstatus_mie;
+        mstatus_mie      <= 1'b0;
       end else if (cpu_state == execute_instr && is_mret) begin
         mstatus_mie  <= mstatus_mpie;
         mstatus_mpie <= 1'b1;
@@ -828,9 +844,9 @@ module riscv #(
   end
 
  `ifdef RISCV_FORMAL
-  assign rvfi_dbg_mtvec   = mtvec;
-  assign rvfi_dbg_mepc    = mepc;
-  assign rvfi_dbg_mcause  = mcause;
+  assign rvfi_dbg_mtvec   = mtvec_value;
+  assign rvfi_dbg_mepc    = mepc_value;
+  assign rvfi_dbg_mcause  = mcause_value;
   assign rvfi_dbg_mtval   = mtval;
   assign rvfi_dbg_mstatus = mstatus_value;
 
