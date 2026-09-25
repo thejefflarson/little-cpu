@@ -35,7 +35,10 @@ TEMPLATE = """[options]
 mode prove
 
 [engines]
-smtbmc
+# Hardcoded here, not read from components.sby: an independent match to the
+# traps task's own choice, not an inherited one -- the drift this file's own
+# docstring warns against is in parsing [engines], never in stating a fact twice.
+smtbmc bitwuzla
 
 [script]
 {script}
