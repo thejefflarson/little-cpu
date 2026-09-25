@@ -117,8 +117,7 @@ module executor #(
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
-  // Asked of `reg_rs1` alone: a 12-bit offset reaches 2 KB, so a block clear on each
-  // side answers the same whatever the immediate is.
+  // Asked of `reg_rs1` alone: a 12-bit offset reaches 2 KB, so a block clear either side answers the same.
   localparam int LS_BLOCK_BITS = 11;
   localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
@@ -212,9 +211,8 @@ module executor #(
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
  `ifdef RISCV_FORMAL
-  // A plain `assign`, not `always_comb`: a constant select read inside an always_*
-  // process is Icarus's own over-sensitivity "sorry" (allowlisted nowhere but
-  // rtl/writeback.v), and a continuous assign does not go through that path.
+  // A plain `assign`: a constant select in an always_* process is Icarus's own
+  // over-sensitivity "sorry", allowlisted nowhere but rtl/writeback.v.
   logic [3:0] ls_fault_wstrb;
   assign ls_fault_wstrb = in_is_sb ? (4'b0001 << mem_addr_calc[1:0]) :
                            in_is_sh ? (4'b0011 << mem_addr_calc[1:0]) :
@@ -405,10 +403,8 @@ module executor #(
     else if (launch.valid) pending_intr <= 1'b0;
   end
 
-  // Plain `assign`, not `always_comb`: every other `launch.*` field in this file is
-  // continuously assigned, and Icarus treats a packed struct's procedural and continuous
-  // drivers as conflicting at the whole-variable level even where the fields themselves
-  // do not overlap.
+  // Plain `assign`, matching every other `launch.*` field: Icarus treats a packed
+  // struct's procedural and continuous drivers as conflicting even on disjoint fields.
   assign launch.rvfi.pc_wdata = resolved_target;
   assign launch.rvfi.insn = in_instr;
   assign launch.rvfi.pc_rdata = in_pc;
@@ -442,8 +438,7 @@ module executor #(
   assign alu_ltu = alu_sub[32];
   assign alu_lt  = (alu_rs1[31] ^ alu_rs2[31]) ? alu_rs1[31] : alu_sub[32];
 
-  // `in_rs2` is the shamt field for an immediate shift; a register shift's amount is
-  // `alu_rs2`'s low bits.
+  // `in_rs2` is an immediate shift's shamt field; a register shift's amount is alu_rs2's low bits.
   logic [4:0] shift_amt;
   assign shift_amt = in_is_math_imm ? in_rs2 : alu_rs2[4:0];
 
@@ -459,8 +454,7 @@ module executor #(
   assign shift_wide = $signed({shift_fill, shift_src}) >>> shift_amt;
   assign shift_res  = shift_wide[31:0];
 
-  // The divider is unsigned, so signed div and rem hand it magnitudes and restore the
-  // sign on completion.
+  // The divider is unsigned; signed div/rem hand it magnitudes and restore the sign on completion.
   logic [31:0] div_x, div_y;
   assign div_x = (in_is_div || in_is_rem) && reg_rs1[31] ? ~(reg_rs1 - 32'd1) : reg_rs1;
   assign div_y = (in_is_div || in_is_rem) && reg_rs2[31] ? ~(reg_rs2 - 32'd1) : reg_rs2;
@@ -525,8 +519,7 @@ module executor #(
     end else if (region_stall) begin
       out.valid <= 1'b0;  // still waiting on the deferred region answer
     end else begin
-      // Assigned outside the case on purpose: the cycle a divide completes must publish
-      // its own answer, not the one latched when it issued.
+      // Assigned outside the case: a divide's completing cycle must publish its own answer.
       out.rd_ready <= in_has_result;
       (* parallel_case, full_case *)
       case (state)
@@ -668,8 +661,7 @@ module executor #(
   always_comb if (ls_access) assume(assume_immediate_hi == {20{assume_immediate_lo_sign}});
   always_comb if (instr_atomic) assume(in_immediate == 32'b0);
 
-  // Held so the divide proof below sees stable operands; composed proofs drop this
-  // with `-formal -noassume` and check the real D and regfile instead.
+  // Held so the divide proof sees stable operands; composed proofs drop this via `-formal -noassume`.
   dx_output prev_in;
   logic [31:0] prev_reg_rs1, prev_reg_rs2;
   logic        prev_x_busy;

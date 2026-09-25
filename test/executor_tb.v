@@ -120,8 +120,6 @@ module executor_tb;
     #1;
     reset = 0;
 
-    // --- Branch and jump resolution: both arms of the chain that add to the fetched pc,
-    // and the one that adds neither. ---
     clear_in();
     in.is_add = 1'b1;
     in.pc = 32'h0000_00a0;
@@ -175,8 +173,6 @@ module executor_tb;
     check_hex("bltu compares unsigned, so the same operands do not take it",
               redirect_target, 32'h0000_00a4);
 
-    // --- mret and a trap both redirect off the resolved-target chain, mret to mepc and a
-    // trap to mtvec, both same-cycle claims (X owns no registered pc of its own). ---
     clear_in();
     in.is_mret = 1'b1;
     #1;
@@ -194,7 +190,6 @@ module executor_tb;
     check_bit("...as a redirect", redirect, 1'b1);
     check_bit("...and a trap entry", trap_entry, 1'b1);
 
-    // --- The trap-cause priority chain, one term isolated at a time. ---
     clear_in();
     in.imem_fault = 1'b1;
     in.instr = 32'h0000_0073;   // looks like ecall, but the fetch itself was refused
@@ -269,7 +264,6 @@ module executor_tb;
     #1;
     check_bit("a byte load never traps on alignment", trap_entry, 1'b0);
 
-    // --- fence, fence.i and wfi are valid and never trap on their own. ---
     clear_in();
     in.is_fence = 1'b1;
     #1;
@@ -283,9 +277,6 @@ module executor_tb;
     #1;
     check_bit("wfi does not trap", trap_entry, 1'b0);
 
-    // --- CSR read/write suppression: Zicsr's own rules make csrr(ci) legal on a
-    // read-only register by skipping the write, and csrw legal with no destination by
-    // skipping the read. ---
     clear_in();
     in.is_csr_access = 1'b1;
     in.is_csrrs = 1'b1;
@@ -326,8 +317,6 @@ module executor_tb;
     check_hex("a register-form CSR sets bits with the read value ORed against rs1",
               csr_wdata, 32'h0000caff);
 
-    // --- Atomics: the effective address is rs1 verbatim, no adder, and the platform's
-    // refusal is a same-cycle fault since it arrives with the address. ---
     clear_in();
     in.is_amoadd = 1'b1;
     reg_rs1 = 32'h0001_0000;
@@ -388,8 +377,6 @@ module executor_tb;
     check_bit("...raising no AMO or atomic flag", launch.is_amo || launch.is_lr ||
               launch.is_sc, 1'b0);
 
-    // --- Region test: the fast arm answers same-cycle deep inside text or RAM; a block
-    // within 2 KB of an edge waits a cycle for the deferred answer instead. ---
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0001_1000;   // deep inside the 64 KB RAM
@@ -476,9 +463,6 @@ module executor_tb;
     #1;
     check_bit("...and the SPI controller", trap_entry, 1'b0);
 
-    // --- The interrupt bubble commits exactly like any other trap, off `in.is_interrupt`
-    // alone: no register value is needed, so this is the one trap D can raise with no
-    // help from X's operand ports. ---
     clear_in();
     in.is_interrupt = 1'b1;
     in.pc = 32'h0000_0300;
@@ -492,9 +476,6 @@ module executor_tb;
     check_bit("...and it is not an mret", mret_entry, 1'b0);
     check_hex("...and reporting no tval", trap_tval, 32'h0);
 
-    // --- x_busy is exactly the divider or the region wait, nothing else; this is the
-    // structural half of the Zkt isolation claim (formal covers it as an assertion, this
-    // is the same fact read off simulation). ---
     clear_in();
     #1;
     check_bit("an ordinary instruction raises neither", x_busy, 1'b0);
