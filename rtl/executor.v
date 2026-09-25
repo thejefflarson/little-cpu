@@ -212,12 +212,13 @@ module executor #(
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
  `ifdef RISCV_FORMAL
+  // A plain `assign`, not `always_comb`: a constant select read inside an always_*
+  // process is Icarus's own over-sensitivity "sorry" (allowlisted nowhere but
+  // rtl/writeback.v), and a continuous assign does not go through that path.
   logic [3:0] ls_fault_wstrb;
-  always_comb begin
-    if (in_is_sb)      ls_fault_wstrb = 4'b0001 << mem_addr_calc[1:0];
-    else if (in_is_sh) ls_fault_wstrb = 4'b0011 << mem_addr_calc[1:0];
-    else               ls_fault_wstrb = 4'b1111;
-  end
+  assign ls_fault_wstrb = in_is_sb ? (4'b0001 << mem_addr_calc[1:0]) :
+                           in_is_sh ? (4'b0011 << mem_addr_calc[1:0]) :
+                           4'b1111;
  `endif
 
   logic data_fault, trap_pending, trap_taken;
