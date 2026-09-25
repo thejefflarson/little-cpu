@@ -225,8 +225,7 @@ jobs:
             summary_line "cgroup memory.max_usage_in_bytes: $(cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes) bytes"
           fi
 
-      # A cancelled or failed run is exactly the case the earlier single-file copy
-      # missed reports for, so this walks every step directory rather than naming one.
+      # A cancelled or failed run is exactly the case the earlier single-file copy missed reports for, so this walks every step directory rather than naming one.
       - name: Collect the run directory's reports and logs
         if: always()
         run: |

@@ -1,5 +1,4 @@
-# nanocpu's cxxrtl harness. NANO_CFLAGS is the one place its -march/-mabi is stated;
-# test/march_test.sh's exception list names this line by its exact count.
+# nanocpu's cxxrtl harness. NANO_CFLAGS is the one place its -march/-mabi is stated; test/march_test.sh's exception list names this line by its exact count.
 NANO_CFLAGS := -march=rv32ec_zicsr -mabi=ilp32e
 
 NANO_RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED_MEM \
@@ -108,8 +107,7 @@ nano-qspi-loop-probe: rvfi_macros.vh test/monitor.sim.v
 nano-qspi-loop-test: nano-qspi-loop-probe
 	@./nano/bench/run_qspi_loop_buffer_test.sh '$(NANO_CFLAGS)'
 
-# nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio
-# rather than the abstract bus nano_qspi_memory.v times. On `make test`'s path.
+# nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio rather than the abstract bus nano_qspi_memory.v times. On `make test`'s path.
 NANO_QSPI_PINS_RTL_SRCS := nano/nano.v nano/qspi.v nano/tb/nano_qspi_flash_model.v \
                            nano/tb/nano_qspi_psram_model.v soc/compare/dhry_monitor.v
 

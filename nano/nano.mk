@@ -66,8 +66,7 @@ nano-area:
 	python3 nano/area_report.py nano/area.json --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --max-um2 '$(NANO_MAX_UM2)'
 
-# Area and delay both come out of one synthesis run; no ratchet, since this ranks RTL
-# versions against each other rather than gating either figure.
+# Area and delay both come out of one synthesis run; no ratchet, since this ranks RTL versions against each other rather than gating either figure.
 .PHONY: nano-timing
 nano-timing:
 	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
