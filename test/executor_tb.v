@@ -429,10 +429,15 @@ module executor_tb;
     check_bit("...and it faults", trap_entry, 1'b1);
     check_hex("...as a LOAD access fault", trap_cause, 32'd5);
 
+    // A settled answer's latch decays only once X stops being busy -- the same cycle a new
+    // instruction would be presented in the real pipeline -- so every vector below spends
+    // one such cycle before its own wait can start clean of the previous vector's answer.
     clear_in();
     in.is_sw = 1'b1;
     reg_rs1 = 32'h0004_0000;
+    @(posedge clk);
     #1;
+    check_bit("an out-of-map store waits for its own region answer", dut.region_stall, 1'b1);
     @(posedge clk);
     #1;
     check_hex("the same address STORES as a STORE/AMO access fault", trap_cause, 32'd7);
@@ -440,6 +445,7 @@ module executor_tb;
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0001_0000;   // the RAM's own base -- answered
+    @(posedge clk);
     #1;
     @(posedge clk);
     #1;
@@ -448,6 +454,7 @@ module executor_tb;
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0002_0000;   // the timer's reserved window
+    @(posedge clk);
     #1;
     @(posedge clk);
     #1;
@@ -455,6 +462,7 @@ module executor_tb;
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0002_0020;   // the UART
+    @(posedge clk);
     #1;
     @(posedge clk);
     #1;
@@ -462,6 +470,7 @@ module executor_tb;
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0002_0028;   // the SPI controller
+    @(posedge clk);
     #1;
     @(posedge clk);
     #1;

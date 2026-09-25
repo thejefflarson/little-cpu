@@ -223,7 +223,7 @@ module decoder_tb;
     check_bit("...and NOT rs2: that field is an encoding constant", dut.uses_rs2, 1'b0);
 
     present(32'h340515f3);   // csrrw a1, mscratch, a0 -- the write-data mux is X's job now
-    check_hex("csrrw's address field", {20'b0, dut.csr_addr}, 32'h340);
+    check_hex("csrrw's address field", {20'b0, dut.instr[31:20]}, 32'h340);
     check_bit("csrrw is not an immediate form", dut.is_csr_imm, 1'b0);
     check_bit("csrrw uses rs1", dut.uses_rs1, 1'b1);
     present(32'h340fe573);   // csrrsi a0, mscratch, 0x1f
@@ -273,6 +273,14 @@ module decoder_tb;
     #1;
     check_bit("a math-immediate's rs2 field is never a hazard", dut.hazard_rs2, 1'b0);
     executor_out = '0;
+
+    // `out` still holds "add x1, x2, x0" from the hazard vectors above; drain it so the
+    // serialize checks below start from a genuinely empty pipe, matching their own comment.
+    x_redirect = 1'b1;
+    @(posedge clk);
+    #1;
+    x_redirect = 1'b0;
+    check_bit("out is drained ahead of the serialize block", out.valid, 1'b0);
 
     executor_out.valid = 1'b1;   // serialize waits for out/executor_out/accessor all empty
     present(32'h340515f3);   // csrrw a1, mscratch, a0
@@ -344,8 +352,9 @@ module decoder_tb;
     check_bit("...for as long as x_busy stays asserted", out.valid, 1'b1);
     check_hex("...still the same rd", {27'b0, out.rd}, 32'd1);
     x_busy = 1'b0;
+    in.instr = 32'h00008233;      // add x4, x1, x0 -- hazards on out.rd once x_busy clears
     #1;
-    check_bit("the same instruction is still presented once x_busy clears", issuing, 1'b0);
+    check_bit("a hazard against the just-released out.rd is a plain stall", issuing, 1'b0);
     @(posedge clk);
     #1;
     check_bit("...and a plain stall bubbles instead: out.rd's instruction has left",
