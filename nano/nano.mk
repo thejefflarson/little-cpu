@@ -49,8 +49,8 @@ nano-liberty-setup:
 	fetch '$(NANO_LIBERTY_URL)' '$(NANO_LIBERTY)' '$(NANO_LIBERTY_SHA256)' || rc=1; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped down for the QSPI controller's one-slot prefetch queue and 23-bit flash parcel tags, which together measure 75,067.0 um2 against the prior ceiling's 78,382.7.
-override NANO_MAX_UM2 := 77000
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped down for mcause/mtvec/mepc narrowed to their WARL-legal bit widths: the tt_um top measures 74,574.0 um2 against the prior step's 75,067.0.
+override NANO_MAX_UM2 := 76500
 
 NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
              nano/tt/src/tt_um_thejefflarson_nanocpu.v
