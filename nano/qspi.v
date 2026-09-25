@@ -6,7 +6,8 @@ module nano_qspi_ctrl #(
   parameter int FLASH_DUMMY_SCK = 4,
   parameter int PSRAM_DUMMY_SCK = 4,
   // Proved, not conventional: no PSRAM transaction may hold psram_cs_n low longer than this.
-  parameter int PSRAM_CS_LOW_LIMIT = 512
+  parameter int PSRAM_CS_LOW_LIMIT = 512,
+  parameter int FLASH_WINDOW_BYTES = 32'h0100_0000
 ) (
   input  logic        clk,
   input  logic        reset,
@@ -31,6 +32,12 @@ module nano_qspi_ctrl #(
     if (FLASH_DUMMY_SCK < 1) $fatal(1, "FLASH_DUMMY_SCK must be at least 1");
     if (PSRAM_DUMMY_SCK < 1) $fatal(1, "PSRAM_DUMMY_SCK must be at least 1");
   end
+
+  localparam int FLASH_TAG_BITS = 23;
+  if (FLASH_WINDOW_BYTES > (32'd1 << (FLASH_TAG_BITS + 1))) begin : l_flash_window_fits_tag
+    $fatal(1, "nano_qspi_ctrl: FLASH_WINDOW_BYTES exceeds what FLASH_TAG_BITS parcel tags can address");
+  end
+  localparam logic [FLASH_TAG_BITS-1:0] PARCEL_STEP = FLASH_TAG_BITS'(1);
 
   // Flash stays in Fast Read Quad I/O via the mode byte's continuation pattern (M[7:6]==2'b10).
   localparam logic [7:0] FLASH_CMD_FAST_READ_QIO = 8'hEB;
@@ -64,10 +71,13 @@ module nano_qspi_ctrl #(
 
   logic in_continuous_mode;
 
-  logic        slot0_valid, slot1_valid;
-  logic [15:0] slot0_data,  slot1_data;
-  logic [30:0] slot0_addr,  slot1_addr;    // parcel address: mem_addr[31:1]
-  logic [30:0] stream_next_addr;           // the parcel address the flash delivers next
+  logic        slot0_valid;
+  logic [15:0] slot0_data;
+  logic [FLASH_TAG_BITS-1:0] slot0_addr;          // parcel address: mem_addr[FLASH_TAG_BITS:1]
+  logic [FLASH_TAG_BITS-1:0] stream_next_addr;    // the parcel address the flash delivers next
+
+  logic        second_parcel_pending;
+  logic [15:0] second_parcel_first_data;
 
   logic        psram_is_write;
   logic        psram_rmw_pending;
@@ -88,24 +98,17 @@ module nano_qspi_ctrl #(
   assign spare_cs_n = 1'b1;
   assign sio_out = tx_shift[39:36];
 
-  logic [30:0] req_parcel_addr;
-  assign req_parcel_addr = mem_addr[31:1];
+  logic [FLASH_TAG_BITS-1:0] req_parcel_addr;
+  assign req_parcel_addr = mem_addr[FLASH_TAG_BITS:1];
   logic fetch_hit0, fetch_needs_second_parcel, fetch_hit_ready;
   assign fetch_hit0 = slot0_valid && slot0_addr == req_parcel_addr;
   assign fetch_needs_second_parcel = fetch_hit0 && slot0_data[1:0] == 2'b11;
-  assign fetch_hit_ready = fetch_hit0 &&
-      (!fetch_needs_second_parcel || (slot1_valid && slot1_addr == slot0_addr + 31'd1));
+  assign fetch_hit_ready = fetch_hit0 && !fetch_needs_second_parcel;
 
-  // mem_rdata is registered: a hit's retire moves slot0/slot1 the same cycle mem_ready decides.
+  // mem_rdata is registered: a hit's retire moves slot0 the same cycle mem_ready decides.
 
-  logic queue_full;
-  assign queue_full = slot0_valid && slot1_valid;
-
-  logic retire_one, retire_two;
-  assign retire_one = state == ST_IDLE && mem_valid && mem_instr && fetch_hit_ready &&
-                       !fetch_needs_second_parcel;
-  assign retire_two = state == ST_IDLE && mem_valid && mem_instr && fetch_hit_ready &&
-                       fetch_needs_second_parcel;
+  logic retire_one;
+  assign retire_one = state == ST_IDLE && mem_valid && mem_instr && fetch_hit_ready;
 
   // Invariant 2's own counter: cycles psram_cs_n has read low, without a break.
   logic [9:0] psram_cs_low_count;
@@ -123,7 +126,7 @@ module nano_qspi_ctrl #(
       active_dev         <= DEV_NONE;
       in_continuous_mode <= 1'b0;
       slot0_valid        <= 1'b0;
-      slot1_valid        <= 1'b0;
+      second_parcel_pending <= 1'b0;
       mem_ready          <= 1'b0;
       mem_rdata          <= '0;
       nibbles_left       <= 4'd0;
@@ -133,15 +136,7 @@ module nano_qspi_ctrl #(
     end else begin
       mem_ready <= 1'b0;
 
-      if (retire_one) begin
-        slot0_valid <= slot1_valid;
-        slot0_data  <= slot1_data;
-        slot0_addr  <= slot1_addr;
-        slot1_valid <= 1'b0;
-      end else if (retire_two) begin
-        slot0_valid <= 1'b0;
-        slot1_valid <= 1'b0;
-      end
+      if (retire_one) slot0_valid <= 1'b0;
 
       if (sck_run) sio_phase <= !sio_phase;
 
@@ -177,23 +172,28 @@ module nano_qspi_ctrl #(
           end else if (mem_valid && mem_instr) begin
             if (fetch_hit_ready) begin
               mem_ready <= 1'b1;
-              mem_rdata <= {slot1_data, slot0_data};
-            end else if (fetch_hit0 && !queue_full) begin
-              // The first parcel is in hand and the second is owed: let the stream continue.
+              mem_rdata <= {16'b0, slot0_data};
+              slot0_valid <= 1'b0;
+            end else if (fetch_needs_second_parcel) begin
+              // The second parcel is owed and has nowhere to wait: stream it and complete.
+              second_parcel_pending    <= 1'b1;
+              second_parcel_first_data <= slot0_data;
+              slot0_valid <= 1'b0;
               active_dev <= DEV_FLASH;
               sck_run    <= 1'b1;
               sio_phase  <= 1'b0;
               nibbles_left <= 4'd4;
               state      <= ST_FLASH_STREAM;
-            end else if (!slot0_valid && !slot1_valid && active_dev == DEV_FLASH &&
+            end else if (!slot0_valid && active_dev == DEV_FLASH &&
                          req_parcel_addr == stream_next_addr) begin
+              second_parcel_pending <= 1'b0;
               sck_run      <= 1'b1;
               sio_phase    <= 1'b0;
               nibbles_left <= 4'd4;
               state        <= ST_FLASH_STREAM;
             end else begin
               slot0_valid      <= 1'b0;
-              slot1_valid      <= 1'b0;
+              second_parcel_pending <= 1'b0;
               stream_next_addr <= req_parcel_addr;
               state            <= ST_FLASH_REOPEN;
             end
@@ -205,7 +205,6 @@ module nano_qspi_ctrl #(
             psram_wdata_pending <= mem_wdata;
             psram_wstrb_pending <= mem_wstrb;
             slot0_valid <= 1'b0;
-            slot1_valid <= 1'b0;
             state <= ST_PSRAM_REOPEN;
           end
         end
@@ -214,10 +213,10 @@ module nano_qspi_ctrl #(
           active_dev <= DEV_NONE;
           sck_run    <= 1'b0;
           if (in_continuous_mode) begin
-            tx_shift     <= {stream_next_addr[22:0], 1'b0, FLASH_MODE_CONTINUE, 8'b0};
+            tx_shift     <= {stream_next_addr, 1'b0, FLASH_MODE_CONTINUE, 8'b0};
             nibbles_left <= 4'd8;
           end else begin
-            tx_shift     <= {FLASH_CMD_FAST_READ_QIO, stream_next_addr[22:0], 1'b0,
+            tx_shift     <= {FLASH_CMD_FAST_READ_QIO, stream_next_addr, 1'b0,
                               FLASH_MODE_CONTINUE};
             nibbles_left <= 4'd10;
             in_continuous_mode <= 1'b1;
@@ -258,17 +257,18 @@ module nano_qspi_ctrl #(
           if (sio_phase) begin
             rx_shift[15:0] <= {rx_shift[11:0], sio_in};
             if (nibbles_left == 4'd1) begin
-              // A parcel arrived: push it, then keep streaming or pause -- CS stays asserted.
-              stream_next_addr <= stream_next_addr + 31'd1;
-              if (!slot0_valid) begin
-                slot0_valid  <= 1'b1;
-                slot0_data   <= {rx_shift[11:0], sio_in};
-                slot0_addr   <= stream_next_addr;
-                nibbles_left <= 4'd4;
+              // A parcel arrived: complete the pending fetch, or cache it and pause.
+              stream_next_addr <= stream_next_addr + PARCEL_STEP;
+              if (second_parcel_pending) begin
+                mem_ready <= 1'b1;
+                mem_rdata <= {rx_shift[11:0], sio_in, second_parcel_first_data};
+                second_parcel_pending <= 1'b0;
+                sck_run   <= 1'b0;
+                state     <= ST_IDLE;
               end else begin
-                slot1_valid <= 1'b1;
-                slot1_data  <= {rx_shift[11:0], sio_in};
-                slot1_addr  <= stream_next_addr;
+                slot0_valid <= 1'b1;
+                slot0_data  <= {rx_shift[11:0], sio_in};
+                slot0_addr  <= stream_next_addr;
                 sck_run     <= 1'b0;
                 state       <= ST_IDLE;
               end
@@ -384,15 +384,9 @@ module nano_qspi_ctrl #(
   // Invariant 2: psram_cs_n never reads low for PSRAM_CS_LOW_LIMIT clocks or more.
   always_comb if (clocked) assert(psram_cs_low_count < PSRAM_CS_LOW_LIMIT[9:0]);
 
-  // Invariant 3: the prefetch buffer holds exactly the parcels just behind stream_next_addr,
-  // stated as modular-subtraction equalities since parcel_addr is 31 bits and wraps.
-  always_comb if (clocked && !slot0_valid) assert(!slot1_valid);
-  always_comb if (clocked && slot0_valid && !slot1_valid)
-    assert(stream_next_addr - slot0_addr == 31'd1);
-  always_comb if (clocked && slot0_valid && slot1_valid) begin
-    assert(slot1_addr == slot0_addr + 31'd1);
-    assert(stream_next_addr - slot1_addr == 31'd1);
-  end
+  // Invariant 3: the one prefetch slot, when valid, holds the parcel just behind stream_next_addr.
+  always_comb if (clocked && slot0_valid)
+    assert(stream_next_addr - slot0_addr == PARCEL_STEP);
 `endif
 endmodule
 

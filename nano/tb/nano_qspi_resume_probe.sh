@@ -1,7 +1,7 @@
 #!/bin/bash
-# Forces nano_qspi_resume_tb.v to catch a broken resume: shrinks the "fetch_hit0 &&
-# !queue_full" resume's own nibble count by one, requiring the shipping test to PASS
-# first (the control) and the mutant to FAIL.
+# Forces nano_qspi_resume_tb.v to catch a broken resume: shrinks the second-parcel
+# resume's own nibble count by one, requiring the shipping test to PASS first (the
+# control) and the mutant to FAIL.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -20,9 +20,12 @@ mutant="$WORKDIR/qspi.mutant.v"
 python3 - "$REPO/nano/qspi.v" "$mutant" <<'PYEOF'
 import sys
 src = open(sys.argv[1]).read()
-old = ("            end else if (fetch_hit0 && !queue_full) begin\n"
-       "              // The first parcel is in hand and the second is owed: let the stream"
-       " continue.\n"
+old = ("            end else if (fetch_needs_second_parcel) begin\n"
+       "              // The second parcel is owed and has nowhere to wait: stream it"
+       " and complete.\n"
+       "              second_parcel_pending    <= 1'b1;\n"
+       "              second_parcel_first_data <= slot0_data;\n"
+       "              slot0_valid <= 1'b0;\n"
        "              active_dev <= DEV_FLASH;\n"
        "              sck_run    <= 1'b1;\n"
        "              sio_phase  <= 1'b0;\n"

@@ -49,8 +49,8 @@ nano-liberty-setup:
 	fetch '$(NANO_LIBERTY_URL)' '$(NANO_LIBERTY)' '$(NANO_LIBERTY_SHA256)' || rc=1; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped for the real tt_um top: nano_bus's address decode plus the UART and GPIO peripherals it routes to, in place of area_top.v's synthesis-only pairing, measure 78,566.6 um2 against the CSR/trap layer's own 76,982.6.
-override NANO_MAX_UM2 := 80500
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped down for the QSPI controller's one-slot prefetch queue and 23-bit flash parcel tags, which together measure 75,067.0 um2 against the prior ceiling's 78,382.7.
+override NANO_MAX_UM2 := 77000
 
 NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
              nano/tt/src/tt_um_thejefflarson_nanocpu.v
