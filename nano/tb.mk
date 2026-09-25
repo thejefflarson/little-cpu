@@ -221,3 +221,7 @@ nano-qspi-latency-probe:
 .PHONY: nano-qspi-latency-test
 nano-qspi-latency-test: nano/tb/nano_qspi_latency.vvp nano-qspi-latency-probe
 	@out=$$(vvp nano/tb/nano_qspi_latency.vvp); echo "$$out"; printf '%s\n' "$$out" | grep -q '^PASS$$'
+
+.PHONY: nano-qspi-window-test
+nano-qspi-window-test:
+	@./nano/tb/nano_qspi_window_probe.sh
