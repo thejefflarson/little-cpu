@@ -5199,7 +5199,7 @@ case $(basename "$PWD") in
     line=$(grep -n 'assert(trap_entry);' src/traps.sv | cut -d: -f1)
     status=${STUB_SBY_NOTRAP:-FAIL}; line=${STUB_SBY_NOTRAP_LINE:-$line} ;;
   wrong-cause)
-    line=$(grep -n 'assert(csr_rdata == prev_cause);' src/traps.sv | cut -d: -f1)
+    line=$(grep -n 'assert(csr_rdata == prev2_cause);' src/traps.sv | cut -d: -f1)
     status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
 esac
 : > probe/logfile.txt
@@ -5253,9 +5253,9 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the no-trap core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  's/assert(csr_rdata == prev_cause);/assert(csr_rdata == prev_cause2);/'
+  's/assert(csr_rdata == prev2_cause);/assert(csr_rdata == prev2_cause2);/'
 probe "a respelled cause comparison stops rather than pinning nothing" 2 \
-  "prev_cause);\` 0 times" "$(trs "$d")"
+  "prev2_cause);\` 0 times" "$(trs "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
   's/assert(trap_entry);/assert(trap_entry != 1'"'"'b0);/'
@@ -5507,7 +5507,7 @@ cat > "$tmp/sby-tval-stub" <<'STUB'
 # of the directory it runs in, and the assertion line is read out of the copy of
 # traps.sv it was handed, so PASS and FAIL land where the real solver puts them.
 mkdir -p probe
-line=$(grep -n 'assert(csr_rdata == prev_tval);' src/traps.sv | cut -d: -f1)
+line=$(grep -n 'assert(csr_rdata == prev2_tval);' src/traps.sv | cut -d: -f1)
 case $(basename "$PWD") in
   control)    status=${STUB_TVAL_CONTROL:-PASS} ;;
   wrong-addr) status=${STUB_TVAL_ADDR:-FAIL}; line=${STUB_TVAL_ADDR_LINE:-$line} ;;
@@ -5559,7 +5559,7 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the control core is empty" "STUB_TVAL_EMPTY_STATUS=1 $(tts "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  's/assert(csr_rdata == prev_tval);/assert(csr_rdata == prev_tval2);/'
+  's/assert(csr_rdata == prev2_tval);/assert(csr_rdata == prev2_tval2);/'
 probe "a respelled mtval comparison stops rather than pinning nothing" 2 \
   "0 times" "$(tts "$d")"
 
