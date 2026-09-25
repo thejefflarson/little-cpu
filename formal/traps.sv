@@ -153,6 +153,14 @@ module traps #(
   );
 
  `ifdef FORMAL
+  // A split task defines TRAPS_SPLIT plus one TRAPS_CHECK_*; every other consumer gets all four.
+ `ifndef TRAPS_SPLIT
+  `define TRAPS_CHECK_PC
+  `define TRAPS_CHECK_CAUSE
+  `define TRAPS_CHECK_STATUS
+  `define TRAPS_CHECK_QUIESCENCE
+ `endif
+
   localparam logic [11:0] MSTATUS   = 12'h300;
   localparam logic [11:0] MIE       = 12'h304;
   localparam logic [11:0] MEPC      = 12'h341;
@@ -576,6 +584,7 @@ module traps #(
   assign decoder_out_is_lr = decoder_out.is_lr;
   assign decoder_out_is_sc = decoder_out.is_sc;
 
+ `ifdef TRAPS_CHECK_PC
   // Not "!issuing": D holds back for a whole serializing CSR/mret cycle in X. What's
   // invariant is that nothing commits from an empty slot.
   always_comb if (clocked && !dx_valid) assert(!csr_wen && !csr_ren && !mret_entry);
@@ -593,7 +602,9 @@ module traps #(
   always_comb if (settled && prev_mret_entry) assert(fetch_pc == prev_mepc);
 
   always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_dx_pc_hi, 1'b0});
+ `endif
 
+ `ifdef TRAPS_CHECK_CAUSE
   always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
                   !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MCAUSE)
     assert(csr_rdata == prev2_cause);
@@ -631,7 +642,9 @@ module traps #(
     mtval_interrupt_reached: cover(1'b1);
   always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MCAUSE)
     mcause_interrupt_reached: cover(1'b1);
+ `endif
 
+ `ifdef TRAPS_CHECK_STATUS
   always_comb if (settled && prev_trap_entry && prev_mstatus_addressed && mstatus_addressed) begin
     assert(csr_rdata_bit3 == 1'b0);
     assert(csr_rdata_bit7 == prev_rdata_bit3);
@@ -642,7 +655,9 @@ module traps #(
     if (settled2 && prev2_mstatus_addressed && prev2_mstatus_static)
       assert(csr_rdata_bit3 == prev2_rdata_bit7);
   end
+ `endif
 
+ `ifdef TRAPS_CHECK_QUIESCENCE
   always_comb if (settled && prev_trap_entry) begin
     assert(decoder_out_rd == 5'b0);
     assert(!decoder_out_is_lb && !decoder_out_is_lbu && !decoder_out_is_lh &&
@@ -659,11 +674,15 @@ module traps #(
   always_comb if (settled && prev_trap_entry && addr_held &&
                   (csr_addr == MINSTRET || csr_addr == MINSTRETH))
     assert(csr_rdata == prev_rdata);
+ `endif
 
+ `ifdef TRAPS_CHECK_PC
   always_comb if (clocked) assert(!(trap_entry && mret_entry));
 
   always_comb if (clocked) assert(!(trap_entry && (csr_wen || csr_ren)));
+ `endif
 
+ `ifdef TRAPS_CHECK_QUIESCENCE
   // held_* tracks the instruction X holds in `in`, checked on its settling cycle.
   always_comb
     if (clocked && dx_valid && !x_busy && !dx_is_interrupt && !dx_imem_fault && c_expected_trap)
@@ -671,14 +690,18 @@ module traps #(
   always_comb
     if (clocked && dx_valid && !x_busy && !dx_is_interrupt && !dx_imem_fault && c_must_not_trap)
       assert(!trap_entry);
+ `endif
 
+ `ifdef TRAPS_CHECK_STATUS
   always_comb if (clocked && !irq_timer) assert(!interrupt_pending);
   always_comb if (clocked && csr_addr == MIE && !csr_rdata_bit7) assert(!interrupt_pending);
   always_comb if (clocked && mstatus_addressed && !csr_rdata_bit3) assert(!interrupt_pending);
 
   always_comb if (clocked && csr_addr == MIP)
     assert(csr_rdata == {24'b0, irq_timer, 7'b0});
+ `endif
 
+ `ifdef TRAPS_CHECK_QUIESCENCE
   // Not "interrupt_pending -> nothing commits": X may still be settling a pre-pending
   // instruction. What's invariant -- an interrupt commits nothing of its own -- is
   // covered by trap_entry's own launch flags in executor.v and the instret check below.
@@ -686,15 +709,22 @@ module traps #(
 
   always_comb if (settled && prev_interrupt_entry)
     assert(mepc_value == {past_dx_pc_hi, 1'b0});
+ `endif
 
+ `ifdef TRAPS_CHECK_CAUSE
   always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MCAUSE)
     assert(csr_rdata == CAUSE_TIMER_IRQ);
+ `endif
 
+ `ifdef TRAPS_CHECK_STATUS
   always_comb if (settled && prev_trap_entry) assert(!interrupt_pending);
+ `endif
 
+ `ifdef TRAPS_CHECK_PC
   always_comb if (clocked) assert(mtvec_lo == 2'b00);
   always_comb if (clocked) assert(mepc_bit0 == 1'b0);
   always_comb if (clocked && mstatus_addressed) assert(csr_rdata_hi == 2'b11);
+ `endif
  `endif
 endmodule
 
