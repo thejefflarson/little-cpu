@@ -154,6 +154,19 @@ components_traps: components.sby traps_cover traps-region-probe traps-tval-probe
 	rm -rf $@
 	sby -f $< traps
 
+.PHONY: traps-groups
+traps-groups: traps-groups-test.py traps-groups-probe.py traps.sv TRAPS_GROUPS
+	python3 traps-groups-probe.py
+	python3 traps-groups-test.py
+
+components_traps_pc components_traps_cause components_traps_status \
+components_traps_quiescence: components_traps_%: components.sby traps-groups \
+                              check-solver-bitwuzla \
+                              ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
+                              ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
+	rm -rf $@
+	sby -f $< traps_$*
+
 .PHONY: traps-region-probe
 traps-region-probe: traps-region-probe.py traps.sv ../rtl/executor.v
 	python3 $<

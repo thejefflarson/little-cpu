@@ -4,6 +4,10 @@ decoder all
 accessor all
 pcloop all
 traps all
+traps_pc all
+traps_cause all
+traps_status all
+traps_quiescence all
 busarbiter all
 
 [options]
@@ -14,6 +18,13 @@ all: mode prove
 decoder: smtbmc
 accessor: smtbmc
 traps: smtbmc bitwuzla
+# Each traps_* task proves a disjoint subset of traps.sv's own assertions (see
+# TRAPS_CHECK_* in traps.sv and formal/TRAPS_GROUPS); same engine as traps itself,
+# since each is the same composed environment with fewer goals, not a smaller one.
+traps_pc: smtbmc bitwuzla
+traps_cause: smtbmc bitwuzla
+traps_status: smtbmc bitwuzla
+traps_quiescence: smtbmc bitwuzla
 pcloop: smtbmc boolector
 # executor is most of this job's clock; bitwuzla proves it in 101s against 245s.
 executor: smtbmc bitwuzla
@@ -45,6 +56,26 @@ read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csr
 read -sv -formal structs.v traps.sv
 prep -top traps
 
+traps_pc:
+read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_PC -formal structs.v traps.sv
+prep -top traps
+
+traps_cause:
+read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_CAUSE -formal structs.v traps.sv
+prep -top traps
+
+traps_status:
+read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_STATUS -formal structs.v traps.sv
+prep -top traps
+
+traps_quiescence:
+read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_QUIESCENCE -formal structs.v traps.sv
+prep -top traps
+
 busarbiter:
 read -sv -formal busarbiter.v busarbiter.sv
 prep -top busarbiter_check
@@ -72,6 +103,42 @@ pcloop:
 pcloop.sv
 
 traps:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv
+
+traps_pc:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv
+
+traps_cause:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv
+
+traps_status:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv
+
+traps_quiescence:
 ../rtl/fetcher.v
 ../rtl/decoder.v
 ../rtl/executor.v
