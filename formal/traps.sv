@@ -221,6 +221,13 @@ module traps #(
   always_comb if (clocked && !reset && dx_out_rs1 == prev_dx_rs1) assume(reg_rs1 == prev_reg_rs1);
   always_comb if (clocked && !reset && dx_out_rs2 == prev_dx_rs2) assume(reg_rs2 == prev_reg_rs2);
 
+ `ifdef PROBE_ENV_HINT
+  // Only defined by the region/tval probes' own throwaway build, never by
+  // components_traps' real proof: a fixed, known-unmapped address collapses the
+  // 32-bit search over reg_rs1 that made those probes' basecase cost minutes a step.
+  always_comb assume(reg_rs1 == 32'h0004_0000);
+ `endif
+
   logic [31:0] i_immediate, s_immediate;
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
   assign s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
@@ -323,8 +330,9 @@ module traps #(
     end
   end
 
+  // Tracks c_expected_trap (dx_out-anchored, see below), not expected_trap.
   logic cause_modelled;
-  assign cause_modelled = expected_trap;
+  assign cause_modelled = c_expected_trap;
 
   logic must_not_trap;
   assign must_not_trap =
@@ -354,8 +362,10 @@ module traps #(
   logic prev_cause_modelled, prev_counter_ticking, prev_written_by_trap;
   logic prev_mstatus_addressed, prev_mstatus_static;
   logic prev_interrupt_pending, prev_interrupt_entry, prev_fetch_fault;
-  logic [31:0] prev2_rdata;
+  logic [31:0] prev2_rdata, past2_dx_pc, prev2_cause, prev2_tval;
   logic prev2_reset, prev2_mstatus_addressed, prev2_mstatus_static;
+  logic prev2_trap_entry, prev2_interrupt_pending, prev2_fetch_fault, prev2_cause_modelled;
+  logic prev2_interrupt_entry;
   always_ff @(posedge clk) begin
     past_fetch_pc          <= fetch_pc;
     past_dx_pc              <= dx_pc;
@@ -367,21 +377,31 @@ module traps #(
     prev_csr_wen            <= csr_wen;
     prev_trap_entry        <= trap_entry;
     prev_mret_entry         <= mret_entry;
-    prev_cause              <= expected_cause;
-    prev_tval                <= expected_tval;
+    prev_cause              <= c_expected_cause;
+    prev_tval                <= c_expected_tval;
     prev_cause_modelled    <= cause_modelled;
     prev_counter_ticking   <= counter_ticking;
     prev_written_by_trap   <= csr_written_by_trap;
     prev_mstatus_addressed <= mstatus_addressed;
     prev_mstatus_static    <= mstatus_static;
-    prev_interrupt_pending <= interrupt_pending;
-    prev_fetch_fault        <= fetch_fault;
-    prev_interrupt_entry   <= trap_entry && interrupt_pending;
+    // Both read dx_out.is_interrupt, X's own captured decision, not CSRs' live interrupt_pending.
+    prev_interrupt_pending <= dx_is_interrupt;
+    prev_fetch_fault        <= dx_imem_fault;
+    prev_interrupt_entry   <= trap_entry && dx_is_interrupt;
 
     prev2_rdata             <= prev_rdata;
     prev2_reset             <= prev_reset;
     prev2_mstatus_addressed <= prev_mstatus_addressed;
     prev2_mstatus_static    <= prev_mstatus_static;
+    // A second tap: a CSR-read instruction reaches X a cycle behind trap_entry itself.
+    past2_dx_pc              <= past_dx_pc;
+    prev2_cause              <= prev_cause;
+    prev2_tval                <= prev_tval;
+    prev2_trap_entry        <= prev_trap_entry;
+    prev2_interrupt_pending <= prev_interrupt_pending;
+    prev2_fetch_fault        <= prev_fetch_fault;
+    prev2_cause_modelled    <= prev_cause_modelled;
+    prev2_interrupt_entry   <= prev_interrupt_entry;
   end
 
   logic addr_held;
@@ -391,10 +411,7 @@ module traps #(
   assign settled = clocked && !prev_reset;
   assign settled2 = settled && !prev2_reset;
 
-  // `expected_trap`/`must_not_trap` above are stale once fetch has moved past the word
-  // D issued, so the model X's trap_entry is checked against is rebuilt below from
-  // `dx_out.instr` (X's own held `in`) and the CURRENT `reg_rs1`/`reg_rs2`, fresh every
-  // cycle rather than latched once at issue.
+  // Below, X's trap_entry is checked against a model rebuilt fresh every cycle from `dx_out.instr`.
   logic        dx_valid, dx_is_interrupt, dx_imem_fault;
   logic [31:0] dx_instr;
   assign dx_valid = dx_out.valid;
@@ -481,6 +498,39 @@ module traps #(
       (c_is_store_op && c_funct3 == 3'b010 && c_store_addr[1:0] == 2'b00 && c_data_mapped) ||
       (c_is_atomic && atomic_supported && c_atomic_word_aligned);
 
+  // Mirrors expected_cause/expected_tval's case statement against dx_instr, not `instr`.
+  logic [31:0] c_expected_cause, c_expected_tval;
+  always_comb begin
+    if (c_is_illegal) begin
+      c_expected_cause = CAUSE_ILLEGAL;
+      c_expected_tval  = dx_instr;
+    end else if (c_is_ebreak) begin
+      c_expected_cause = CAUSE_BREAKPOINT;
+      c_expected_tval  = 32'b0;
+    end else if (c_is_ecall) begin
+      c_expected_cause = CAUSE_ECALL_M;
+      c_expected_tval  = 32'b0;
+    end else if (c_lw_mis || c_lh_mis) begin
+      c_expected_cause = CAUSE_LOAD_MIS;
+      c_expected_tval  = c_load_addr;
+    end else if (c_sw_mis || c_sh_mis) begin
+      c_expected_cause = CAUSE_STORE_MIS;
+      c_expected_tval  = c_store_addr;
+    end else if (c_load_region_fault) begin
+      c_expected_cause = CAUSE_LOAD_FAULT;
+      c_expected_tval  = c_data_addr;
+    end else if (c_store_region_fault) begin
+      c_expected_cause = CAUSE_STORE_FAULT;
+      c_expected_tval  = c_data_addr;
+    end else if (c_is_lr) begin
+      c_expected_cause = CAUSE_LOAD_FAULT;
+      c_expected_tval  = reg_rs1;
+    end else begin
+      c_expected_cause = CAUSE_STORE_FAULT;
+      c_expected_tval  = reg_rs1;
+    end
+  end
+
   // Named continuous assigns, not struct-field reads inside always_* below (ADR-0037).
   logic [30:0] past_fetch_pc_hi, past_dx_pc_hi;
   assign past_fetch_pc_hi = past_fetch_pc[31:1];
@@ -544,24 +594,43 @@ module traps #(
 
   always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_dx_pc_hi, 1'b0});
 
-  always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  !prev_fetch_fault && prev_cause_modelled && csr_addr == MCAUSE)
-    assert(csr_rdata == prev_cause);
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
+                  !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MCAUSE)
+    assert(csr_rdata == prev2_cause);
 
-  always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  prev_fetch_fault && csr_addr == MCAUSE)
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
+                  prev2_fetch_fault && csr_addr == MCAUSE)
     assert(csr_rdata == 32'd1);
 
-  always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  !prev_fetch_fault && prev_cause_modelled && csr_addr == MTVAL)
-    assert(csr_rdata == prev_tval);
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
+                  !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MTVAL)
+    assert(csr_rdata == prev2_tval);
 
-  always_comb if (settled && prev_trap_entry && !prev_interrupt_pending &&
-                  prev_fetch_fault && csr_addr == MTVAL)
-    assert(csr_rdata == past_fetch_pc);
+  // past2_dx_pc, not fetch_pc's own tap: fetch has moved past the word that faulted.
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
+                  prev2_fetch_fault && csr_addr == MTVAL)
+    assert(csr_rdata == past2_dx_pc);
 
-  always_comb if (settled && prev_interrupt_entry && csr_addr == MTVAL)
+  always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MTVAL)
     assert(csr_rdata == 32'b0);
+
+  // Each guard below was unreachable under prev_; traps_cover.sby proves prev2_ isn't.
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
+                  !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MCAUSE)
+    mcause_normal_reached: cover(1'b1);
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
+                  prev2_fetch_fault && csr_addr == MCAUSE)
+    mcause_fetch_fault_reached: cover(1'b1);
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
+                  !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MTVAL)
+    mtval_normal_reached: cover(1'b1);
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
+                  prev2_fetch_fault && csr_addr == MTVAL)
+    mtval_fetch_fault_reached: cover(1'b1);
+  always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MTVAL)
+    mtval_interrupt_reached: cover(1'b1);
+  always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MCAUSE)
+    mcause_interrupt_reached: cover(1'b1);
 
   always_comb if (settled && prev_trap_entry && prev_mstatus_addressed && mstatus_addressed) begin
     assert(csr_rdata_bit3 == 1'b0);
@@ -618,7 +687,7 @@ module traps #(
   always_comb if (settled && prev_interrupt_entry)
     assert(mepc_value == {past_dx_pc_hi, 1'b0});
 
-  always_comb if (settled && prev_interrupt_entry && csr_addr == MCAUSE)
+  always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MCAUSE)
     assert(csr_rdata == CAUSE_TIMER_IRQ);
 
   always_comb if (settled && prev_trap_entry) assert(!interrupt_pending);
