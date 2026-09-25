@@ -76,11 +76,11 @@ def main(doc, mutations, workdir_name, arm_noun, success_message):
     )
     parser.add_argument("--workdir", default=str(here / workdir_name))
     parser.add_argument("--sby", default="sby")
-    parser.add_argument("--sby-file", default="traps.sby")
     args = parser.parse_args()
+    sby_file = "traps.sby"
 
     repo = pathlib.Path(args.repo).resolve()
-    for name in (f"nano/formal/{args.sby_file}", "nano/formal/traps.sv", "nano/nano.v"):
+    for name in (f"nano/formal/{sby_file}", "nano/formal/traps.sv", "nano/nano.v"):
         if not (repo / name).is_file():
             stop(f"{name} is missing from {repo}, so there is nothing to probe.")
     workdir = pathlib.Path(args.workdir).resolve()
@@ -89,7 +89,7 @@ def main(doc, mutations, workdir_name, arm_noun, success_message):
     nano_v = (repo / "nano" / "nano.v").read_text()
     red = []
 
-    status = run_case(repo, workdir, args.sby, "shipping", nano_v, args.sby_file)
+    status = run_case(repo, workdir, args.sby, "shipping", nano_v, sby_file)
     print(f"shipping: {status}")
     if status != "PASS":
         red.append(
@@ -100,7 +100,7 @@ def main(doc, mutations, workdir_name, arm_noun, success_message):
 
     for case in mutations:
         status = run_case(
-            repo, workdir, args.sby, case, mutate(nano_v, mutations, case), args.sby_file
+            repo, workdir, args.sby, case, mutate(nano_v, mutations, case), sby_file
         )
         print(f"{case}: {status}")
         if status != "FAIL":
