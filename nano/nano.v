@@ -485,9 +485,7 @@ module riscv #(
       case (cpu_state)
         fetch_instr: begin
           skip_reg_write <= 0;
-`ifndef NANO_LATCH_RF
           regs[0] <= 0;
-`endif
           if (take_interrupt) begin
             // Nothing issues this cycle: next_pc becomes mtvec, and mstatus_mie
             // reads already cleared next cycle, so the fetch below runs then.
@@ -699,9 +697,7 @@ module riscv #(
         end
 
         reg_write: begin
-`ifndef NANO_LATCH_RF
           regs[rd[3:0]] <= reg_wdata;
-`endif
           cpu_state <= fetch_instr;
         end
 
@@ -831,38 +827,6 @@ module riscv #(
     end
   end
 
-`ifdef NANO_LATCH_RF
-  // Latches open only while clk is LOW, on a select/data pair captured a period earlier.
-  logic [15:0] we, we_q;
-  logic [31:0] wdata_q;
-
-  assign we[0] = cpu_state == fetch_instr;
-  genvar gw;
-  generate
-    for (gw = 1; gw < 16; gw = gw + 1) begin : g_we
-      assign we[gw] = cpu_state == reg_write && rd[3:0] == gw[3:0];
-    end
-  endgenerate
-
-  always_ff @(posedge clk) begin
-    we_q <= we;
-    wdata_q <= reg_wdata;
-  end
-
-  genvar gi;
-  generate
-    for (gi = 0; gi < 16; gi = gi + 1) begin : g_regs_latch
-      logic sel_q;
-      assign sel_q = we_q[gi];
-      if (gi == 0) begin : g_zero
-        always_latch if (!clk && sel_q) regs[0] = 32'b0;
-      end else begin : g_write
-        always_latch if (!clk && sel_q) regs[gi] = wdata_q;
-      end
-    end
-  endgenerate
-`endif
-
  `ifdef RISCV_FORMAL
   assign rvfi_dbg_mtvec   = mtvec;
   assign rvfi_dbg_mepc    = mepc;
@@ -975,14 +939,8 @@ module riscv #(
 
     // RVFI requires a trapping retirement to report no destination register.
     rvfi_rd_addr_q <= (is_fetch_entry && captured_take_trap) ? 5'b0 : rd;
-`ifdef NANO_LATCH_RF
-    // A retiring write's latch has not opened yet; reg_wdata already holds the value.
-    rvfi_rd_wdata_q <=
-      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd ? reg_wdata : 0);
-`else
     rvfi_rd_wdata_q <=
       (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd ? regs[rd[3:0]] : 0);
-`endif
     rvfi_trap_q <= (is_fetch_entry && captured_take_trap) || trap;
     rvfi_halt_q <= trap;
 `ifdef RISCV_FORMAL_MEM_FAULT
