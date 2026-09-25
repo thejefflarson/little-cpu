@@ -18,12 +18,7 @@ searches deeper than complete; a memcheck's cover job has no reason to
 search deeper than its own bmc sibling, so a plain depth equality is the
 same tie in its simplest form.
 
---clk2fflogic doubles the floor and adds one: clk2fflogic turns one clock cycle
-into two BMC steps, so a script that runs it (nano's *_latch.sby variants, for
-NANO_LATCH_RF's $dlatch cells) needs 2*floor+1 steps to search the same span of
-real cycles a plain floor searches without it.
-
-Usage: check-memcheck-depth.py <harness-dir> <sby-file> <retires:1|2> [--clk2fflogic]
+Usage: check-memcheck-depth.py <harness-dir> <sby-file> <retires:1|2>
 """
 
 import os
@@ -33,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import depth_rules
 
 
-def grade(harness_dir, sby_name, retires, clk2fflogic=False):
+def grade(harness_dir, sby_name, retires):
     cfg = os.path.join(harness_dir, "checks.cfg")
     if not os.path.isfile(cfg):
         print(f"error: {cfg} does not exist.", file=sys.stderr)
@@ -51,9 +46,6 @@ def grade(harness_dir, sby_name, retires, clk2fflogic=False):
 
     label = "F+2" if retires == "1" else "F+G+2"
     floor = depth_rules.evaluate(label, derived, start=None, trig=None)
-    if clk2fflogic:
-        label = f"2*({label})+1"
-        floor = 2 * floor + 1
 
     if depth < floor:
         print(
@@ -91,12 +83,9 @@ def grade(harness_dir, sby_name, retires, clk2fflogic=False):
 
 def main():
     args = sys.argv[1:]
-    clk2fflogic = "--clk2fflogic" in args
-    if clk2fflogic:
-        args = [a for a in args if a != "--clk2fflogic"]
     if len(args) != 3:
         print(
-            f"usage: {sys.argv[0]} <harness-dir> <sby-file> <retires:1|2> [--clk2fflogic]",
+            f"usage: {sys.argv[0]} <harness-dir> <sby-file> <retires:1|2>",
             file=sys.stderr,
         )
         return 2
@@ -105,7 +94,7 @@ def main():
         print(f"error: <retires> must be 1 or 2, not {retires!r}", file=sys.stderr)
         return 2
     try:
-        return grade(harness_dir, sby_name, retires, clk2fflogic)
+        return grade(harness_dir, sby_name, retires)
     except ValueError as err:
         print(f"error: {err}", file=sys.stderr)
         return 1
