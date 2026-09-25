@@ -1,6 +1,11 @@
 # ADR-0207: nano's formal checks read the latch register file where genchecks lets them
 
-**Status:** Accepted · 2026-09-23 · *Amends ADR-0189*
+**Status:** Superseded by [ADR-0209](0209-the-latch-register-file-is-removed-flip-flops-only.md) · 2026-09-23 · *Amends ADR-0189*
+
+> **Superseded 2026-09-25.** The owner decided to remove `NANO_LATCH_RF` and keep the
+> flip-flop register file — see ADR-0209. The seven `_latch`/`_latch_cover` harnesses this
+> ADR added, and the reasoning about why the generated riscv-formal ladder cannot take the
+> same fix, remain the record.
 
 ## Context
 

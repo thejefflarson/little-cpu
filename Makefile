@@ -732,8 +732,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
       pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
-      nano-latch-test nano-latch-startup-test \
-      nano-oneport-test nano-oneport-startup-test nano-oneport-latch-test nano-oneport-latch-startup-test \
+      nano-oneport-test nano-oneport-startup-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-memmap-test nano-tt-test \
