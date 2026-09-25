@@ -295,16 +295,41 @@ module decoder (
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // No forwarding (B2 adds it): a RAW match against `out` or `executor_out` stalls.
+  // `out`'s producer is read by X the cycle after this decode, exactly when its own
+  // result lands in executor_out -- forwardable, IF X will actually compute a same-cycle
+  // result for it. `executor_out`'s producer is two instructions behind: by the time this
+  // instruction reaches X, that producer's value has already landed in the regfile through
+  // the write-through bypass (commitment 6), so a match there needs no forwarding path --
+  // only a pending unpacked result (a load, AMO, `lr.w`, `sc.w`) is still a genuine stall.
   logic dx_match_rs1, dx_match_rs2, ex_match_rs1, ex_match_rs2;
   assign dx_match_rs1 = out.valid && out.rd == rs1;
   assign dx_match_rs2 = out.valid && out.rd == rs2;
   assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
   assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
 
+  // Mirrors executor.v's `in_has_result`: true for every op X computes in the same cycle
+  // it reads `out` -- the base ALU ops, the four multiplies, and auipc/lui/jal/jalr/csr
+  // access, which alias onto the same adder. False for a load/store/AMO/LR/SC (needs the
+  // accessor) and for div/rem (needs the divider's iterations).
+  logic out_has_result;
+  assign out_has_result = out.is_add || out.is_sub || out.is_xor || out.is_or || out.is_and ||
+    out.is_sll || out.is_slt || out.is_sltu || out.is_srl || out.is_sra ||
+    out.is_mul || out.is_mulh || out.is_mulhu || out.is_mulhsu ||
+    out.is_auipc || out.is_lui || out.is_jal || out.is_jalr || out.is_csr_access;
+
+  // A CSR access's own rs1 feeds `csr_arg` in X, which reads `reg_rs1` verbatim -- it is
+  // never a forwarding consumer, so a dx_match against it still stalls even when `out`
+  // would otherwise be forwardable. rs2 has no such use (a CSR access never reads rs2).
+  logic fwd_rs1, fwd_rs2;
+  assign fwd_rs1 = dx_match_rs1 && out_has_result && !instr_csr_access;
+  assign fwd_rs2 = dx_match_rs2 && out_has_result;
+
   logic hazard_rs1, hazard_rs2, hazard;
-  assign hazard_rs1 = uses_rs1 && rs1 != 0 && (dx_match_rs1 || ex_match_rs1);
-  assign hazard_rs2 = uses_rs2 && rs2 != 0 && (dx_match_rs2 || ex_match_rs2);
+  assign hazard_rs1 = uses_rs1 && rs1 != 0 &&
+    ((dx_match_rs1 && !(out_has_result && !instr_csr_access)) ||
+     (ex_match_rs1 && !executor_out.rd_ready));
+  assign hazard_rs2 = uses_rs2 && rs2 != 0 &&
+    ((dx_match_rs2 && !out_has_result) || (ex_match_rs2 && !executor_out.rd_ready));
   assign hazard = hazard_rs1 || hazard_rs2;
 
   // A CSR access/`mret`/`fence.i` must not interleave with older instructions.
@@ -419,6 +444,8 @@ module decoder (
       out.is_csr_imm <= is_csr_imm;
       out.is_csr_access <= instr_csr_access;
       out.is_math_imm <= instr_math_immediate;
+      out.fwd_rs1 <= fwd_rs1;
+      out.fwd_rs2 <= fwd_rs2;
     end
   end
 
@@ -466,6 +493,8 @@ module decoder (
     out_is_sb, out_is_sh, out_is_sw, out_is_ecall, out_is_ebreak, out_is_csrrw,
     out_is_csrrs, out_is_csrrc, out_is_mret, out_is_wfi, out_is_fence, out_is_fencei,
     out_is_lr, out_is_sc, out_is_csr_access;
+  logic out_fwd_rs1;
+  assign out_fwd_rs1 = out.fwd_rs1;
   assign out_is_auipc = out.is_auipc;
   assign out_is_jal = out.is_jal;
   assign out_is_jalr = out.is_jalr;
@@ -605,6 +634,10 @@ module decoder (
 
   always_comb if (clocked && out_valid)
     assert(out_is_csr_access == (out_is_csrrw || out_is_csrrs || out_is_csrrc));
+
+  // The Zkt-adjacent forwarding claim: a CSR access's own rs1 never forwards, since
+  // `csr_arg` in X reads `reg_rs1` verbatim.
+  always_comb if (clocked && out_is_csr_access) assert(!out_fwd_rs1);
 
   always_comb if (clocked && out_valid)
     assert(out_is_ebreak == (out_instr == 32'h0010_0073 || out_instr == 32'h0000_9002));

@@ -65,7 +65,7 @@ module executor #(
     in_is_lr, in_is_sc, in_is_auipc, in_is_lui, in_is_jal, in_is_jalr, in_is_beq, in_is_bne,
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
-    in_is_csr_access, in_is_math_imm;
+    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2;
   assign {in_valid, in_is_interrupt, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
     in_rs1, in_rs2, in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
     in_is_mulhu, in_is_mulhsu, in_is_div, in_is_divu, in_is_rem, in_is_remu, in_is_sll,
@@ -75,11 +75,20 @@ module executor #(
     in_is_lr, in_is_sc, in_is_auipc, in_is_lui, in_is_jal, in_is_jalr, in_is_beq, in_is_bne,
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
-    in_is_csr_access, in_is_math_imm} = in;
+    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2} = in;
+
+  // D precomputed and registered these selects from register NUMBERS alone (`dx_match`
+  // against `out.rd`, gated on the producer having a same-cycle result): the one case the
+  // regfile's own write-through bypass reaches too late. A match two instructions back
+  // reaches the bypass in time on its own and needs no mux here (commitment 4).
+  logic [31:0] fwd_rs1_val, fwd_rs2_val;
+  assign fwd_rs1_val = in_fwd_rs1 ? out.rd_data : reg_rs1;
+  assign fwd_rs2_val = in_fwd_rs2 ? out.rd_data : reg_rs2;
 
   logic [4:0] rs1_field;
   assign rs1_field = in_instr[19:15];
 
+  // Never forwarded: `csr_arg` is the one X operand D's own select excludes.
   logic [31:0] csr_arg;
   assign csr_arg = in_is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
 
@@ -95,12 +104,12 @@ module executor #(
                                    (csr_rdata & ~csr_arg);
 
   logic [31:0] mem_addr_calc;
-  assign mem_addr_calc = $signed(in_immediate) + $signed(reg_rs1);
+  assign mem_addr_calc = $signed(in_immediate) + $signed(fwd_rs1_val);
  `ifdef RISCV_FORMAL
   logic [31:0] mem_fault_word_addr;
   assign mem_fault_word_addr = {mem_addr_calc[31:2], 2'b00};
  `endif
-  assign atomic_addr = reg_rs1;
+  assign atomic_addr = fwd_rs1_val;
 
   logic instr_ls_load, instr_ls_store, ls_access;
   assign instr_ls_load  = in_is_lb || in_is_lbu || in_is_lh || in_is_lhu || in_is_lw;
@@ -117,7 +126,7 @@ module executor #(
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
-  // Asked of `reg_rs1` alone: a 12-bit offset reaches 2 KB, so a block clear either side answers the same.
+  // Asked of the forwarded rs1 alone: a 12-bit offset reaches 2 KB, so a block clear either side answers the same.
   localparam int LS_BLOCK_BITS = 11;
   localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
   localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
@@ -129,7 +138,7 @@ module executor #(
     LS_BLOCK_NUM'((LS_RAM_BYTES - 32'd1) >> LS_BLOCK_BITS);
 
   logic [LS_BLOCK_NUM-1:0] ls_block;
-  assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
+  assign ls_block = fwd_rs1_val[31:LS_BLOCK_BITS];
 
   logic ls_text_deep, ls_ram_deep, ls_settled;
   assign ls_text_deep = ((ls_block ^ LS_TEXT_BLOCK) & ~LS_TEXT_BMASK) == '0 &&
@@ -141,7 +150,7 @@ module executor #(
   assign ls_settled = ls_text_deep || ls_ram_deep;
 
   logic [1:0] mem_addr_low;
-  assign mem_addr_low = in_immediate[1:0] + reg_rs1[1:0];
+  assign mem_addr_low = in_immediate[1:0] + fwd_rs1_val[1:0];
 
   logic ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
   assign region_stall = in_valid && ls_access && !ls_settled && !ls_answer_valid;
@@ -254,10 +263,10 @@ module executor #(
 
   logic [32:0] cmp_sub;
   logic        cmp_eq, cmp_ltu, cmp_lt;
-  assign cmp_sub = {1'b0, reg_rs1} - {1'b0, reg_rs2};
+  assign cmp_sub = {1'b0, fwd_rs1_val} - {1'b0, fwd_rs2_val};
   assign cmp_eq  = ~|cmp_sub[31:0];
   assign cmp_ltu = cmp_sub[32];
-  assign cmp_lt  = (reg_rs1[31] ^ reg_rs2[31]) ? reg_rs1[31] : cmp_sub[32];
+  assign cmp_lt  = (fwd_rs1_val[31] ^ fwd_rs2_val[31]) ? fwd_rs1_val[31] : cmp_sub[32];
 
   logic branch_taken;
   always_comb begin
@@ -280,7 +289,7 @@ module executor #(
     case (1'b1)
       trap_taken:                resolved_target = mtvec;
       in_is_mret:                resolved_target = mepc;
-      in_is_jalr:                resolved_target = ($signed(in_immediate) + $signed(reg_rs1)) &
+      in_is_jalr:                resolved_target = ($signed(in_immediate) + $signed(fwd_rs1_val)) &
                                                      32'hfffffffe;
       in_is_jal || branch_taken: resolved_target = in_pc + in_immediate;
       default:                   resolved_target = seq_pc;
@@ -327,8 +336,8 @@ module executor #(
         alu_rs2 = pc_inc;
       end
       default: begin
-        alu_rs1 = reg_rs1;
-        alu_rs2 = in_is_math_imm ? in_immediate : reg_rs2;  // shift imm uses shift_amt below
+        alu_rs1 = fwd_rs1_val;
+        alu_rs2 = in_is_math_imm ? in_immediate : fwd_rs2_val;  // shift imm uses shift_amt below
       end
     endcase
   end
@@ -339,7 +348,7 @@ module executor #(
   assign launch.valid = in_valid && !in_is_interrupt && !region_stall && !x_busy;
   assign launch.rd = executing ? in_rd : 5'b0;
   assign launch.rs1 = alu_rs1;
-  assign launch.rs2 = reg_rs2;
+  assign launch.rs2 = fwd_rs2_val;
   assign launch.mem_addr = mem_addr_calc;
   assign launch.is_valid_instr = instr_valid;
   assign launch.is_add = executing && (in_is_add || in_is_auipc || in_is_lui || in_is_jal ||
@@ -416,8 +425,11 @@ module executor #(
   assign launch.rvfi.mem_fault_addr = mem_fault_word_addr;
   assign launch.rvfi.rs1_addr = rvfi_rs1_valid ? in_rs1 : 5'b0;
   assign launch.rvfi.rs2_addr = rvfi_rs2_valid ? in_rs2 : 5'b0;
-  assign launch.rvfi.rs1_rdata = rvfi_rs1_valid ? reg_rs1 : 32'b0;
-  assign launch.rvfi.rs2_rdata = rvfi_rs2_valid ? reg_rs2 : 32'b0;
+  // The forwarded value, not the regfile's own answer: the monitor checks rd_wdata
+  // against exactly these two fields, so reporting the unforwarded operand would make
+  // every forwarded retire self-contradictory.
+  assign launch.rvfi.rs1_rdata = rvfi_rs1_valid ? fwd_rs1_val : 32'b0;
+  assign launch.rvfi.rs2_rdata = rvfi_rs2_valid ? fwd_rs2_val : 32'b0;
   assign launch.rvfi.csr_mcycle   = csr_rvfi_mcycle;
   assign launch.rvfi.csr_minstret = csr_rvfi_minstret;
   assign launch.rvfi.csr_mscratch = csr_rvfi_mscratch;
@@ -456,8 +468,8 @@ module executor #(
 
   // The divider is unsigned; signed div/rem hand it magnitudes and restore the sign on completion.
   logic [31:0] div_x, div_y;
-  assign div_x = (in_is_div || in_is_rem) && reg_rs1[31] ? ~(reg_rs1 - 32'd1) : reg_rs1;
-  assign div_y = (in_is_div || in_is_rem) && reg_rs2[31] ? ~(reg_rs2 - 32'd1) : reg_rs2;
+  assign div_x = (in_is_div || in_is_rem) && fwd_rs1_val[31] ? ~(fwd_rs1_val - 32'd1) : fwd_rs1_val;
+  assign div_y = (in_is_div || in_is_rem) && fwd_rs2_val[31] ? ~(fwd_rs2_val - 32'd1) : fwd_rs2_val;
 
   // A zero-top-half dividend skips the 16 iterations that would just shift zeros past it.
   logic div_skip;
@@ -491,16 +503,16 @@ module executor #(
  `endif
 
   logic mul_sign_x, mul_sign_y;
-  assign mul_sign_x = reg_rs1[31] & (in_is_mulh | in_is_mulhsu);
-  assign mul_sign_y = reg_rs2[31] & in_is_mulh;
+  assign mul_sign_x = fwd_rs1_val[31] & (in_is_mulh | in_is_mulhsu);
+  assign mul_sign_y = fwd_rs2_val[31] & in_is_mulh;
 
   // A negative operand contributes one subtraction at bit 32: two conditional subtracts.
   logic [63:0] mul_unsigned;
   logic [31:0] mul_lo, mul_hi;
-  assign mul_unsigned = reg_rs1 * reg_rs2;
+  assign mul_unsigned = fwd_rs1_val * fwd_rs2_val;
   assign mul_lo = mul_unsigned[31:0];
-  assign mul_hi = mul_unsigned[63:32] - (mul_sign_x ? reg_rs2 : 32'b0)
-                                      - (mul_sign_y ? reg_rs1 : 32'b0);
+  assign mul_hi = mul_unsigned[63:32] - (mul_sign_x ? fwd_rs2_val : 32'b0)
+                                      - (mul_sign_y ? fwd_rs1_val : 32'b0);
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -551,10 +563,10 @@ module executor #(
              `else
               (* parallel_case, full_case *)
               case (1'b1)
-                launch.is_mul: out.rd_data <= (reg_rs1 + reg_rs2) ^ 32'h5876063e;
-                launch.is_mulh: out.rd_data <= (reg_rs1 + reg_rs2) ^ 32'hf6583fb7;
-                launch.is_mulhu: out.rd_data <= (reg_rs1 + reg_rs2) ^ 32'h949ce5e8;
-                launch.is_mulhsu: out.rd_data <= (reg_rs1 - reg_rs2) ^ 32'hecfbe137;
+                launch.is_mul: out.rd_data <= (fwd_rs1_val + fwd_rs2_val) ^ 32'h5876063e;
+                launch.is_mulh: out.rd_data <= (fwd_rs1_val + fwd_rs2_val) ^ 32'hf6583fb7;
+                launch.is_mulhu: out.rd_data <= (fwd_rs1_val + fwd_rs2_val) ^ 32'h949ce5e8;
+                launch.is_mulhsu: out.rd_data <= (fwd_rs1_val - fwd_rs2_val) ^ 32'hecfbe137;
               endcase
              `endif
             end
@@ -564,14 +576,14 @@ module executor #(
               op_is_divu <= launch.is_divu;
               op_is_rem <= launch.is_rem;
               op_is_remu <= launch.is_remu;
-              op_sign_x <= reg_rs1[31];
-              op_sign_y <= reg_rs2[31];
+              op_sign_x <= fwd_rs1_val[31];
+              op_sign_y <= fwd_rs2_val[31];
              `ifndef RISCV_FORMAL_ALTOPS
-              if (reg_rs2 == 0) begin
-                if (launch.is_rem || launch.is_remu) out.rd_data <= reg_rs1;
+              if (fwd_rs2_val == 0) begin
+                if (launch.is_rem || launch.is_remu) out.rd_data <= fwd_rs1_val;
                 else out.rd_data <= 32'hffffffff;
               end else if ((launch.is_div || launch.is_rem) &&
-                           reg_rs1 == 32'h80000000 && reg_rs2 == 32'hffffffff) begin
+                           fwd_rs1_val == 32'h80000000 && fwd_rs2_val == 32'hffffffff) begin
                 if (launch.is_div) out.rd_data <= 32'h80000000;
                 else out.rd_data <= 32'b0;
               end else begin
@@ -586,8 +598,8 @@ module executor #(
               mul_div_counter <= 32;
               state <= divide;
               div_rem <= 0;
-              div_quot <= reg_rs1;
-              div_divisor_n <= ~reg_rs2;
+              div_quot <= fwd_rs1_val;
+              div_divisor_n <= ~fwd_rs2_val;
               out.valid <= 1'b0;
              `endif
             end
@@ -663,18 +675,22 @@ module executor #(
 
   // Held so the divide proof sees stable operands; composed proofs drop this via `-formal -noassume`.
   dx_output prev_in;
-  logic [31:0] prev_reg_rs1, prev_reg_rs2;
+  logic [31:0] prev_reg_rs1, prev_reg_rs2, prev_fwd_rs1_val, prev_fwd_rs2_val;
   logic        prev_x_busy;
   always_ff @(posedge clk) begin
-    prev_in      <= in;
-    prev_reg_rs1 <= reg_rs1;
-    prev_reg_rs2 <= reg_rs2;
-    prev_x_busy  <= x_busy;
+    prev_in          <= in;
+    prev_reg_rs1     <= reg_rs1;
+    prev_reg_rs2     <= reg_rs2;
+    prev_fwd_rs1_val <= fwd_rs1_val;
+    prev_fwd_rs2_val <= fwd_rs2_val;
+    prev_x_busy      <= x_busy;
   end
   always_comb if (clocked && prev_x_busy) begin
     assume(in == prev_in);
     assume(reg_rs1 == prev_reg_rs1);
     assume(reg_rs2 == prev_reg_rs2);
+    assume(fwd_rs1_val == prev_fwd_rs1_val);
+    assume(fwd_rs2_val == prev_fwd_rs2_val);
   end
 
   // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
@@ -749,15 +765,15 @@ module executor #(
     if (clocked && div_rem < div_divisor && rem_sub_hi) assert(rem_shifted_hi == 1'b0);
 
   logic [32:0] rs1_sext33, rs2_sext33, rs1_zext33, rs2_zext33;
-  assign rs1_sext33 = $signed(reg_rs1);
-  assign rs2_sext33 = $signed(reg_rs2);
-  assign rs1_zext33 = {1'b0, reg_rs1};
-  assign rs2_zext33 = {1'b0, reg_rs2};
+  assign rs1_sext33 = $signed(fwd_rs1_val);
+  assign rs2_sext33 = $signed(fwd_rs2_val);
+  assign rs1_zext33 = {1'b0, fwd_rs1_val};
+  assign rs2_zext33 = {1'b0, fwd_rs2_val};
   logic [32:0] mul_op_x_ref, mul_op_y_ref;
   assign mul_op_x_ref = (in_is_mulh || in_is_mulhsu) ? rs1_sext33 : rs1_zext33;
   assign mul_op_y_ref = in_is_mulh ? rs2_sext33 : rs2_zext33;
-  always_comb if (clocked) assert({mul_sign_x, reg_rs1} == mul_op_x_ref);
-  always_comb if (clocked) assert({mul_sign_y, reg_rs2} == mul_op_y_ref);
+  always_comb if (clocked) assert({mul_sign_x, fwd_rs1_val} == mul_op_x_ref);
+  always_comb if (clocked) assert({mul_sign_y, fwd_rs2_val} == mul_op_y_ref);
 
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mul))
@@ -781,12 +797,12 @@ module executor #(
 
   logic [63:0] mul_result;
   assign mul_result = {mul_hi, mul_lo};
-  always_comb if (clocked && reg_rs1 == 32'b0) assert(mul_result == 64'b0);
-  always_comb if (clocked && reg_rs2 == 32'b0) assert(mul_result == 64'b0);
-  always_comb if (clocked && reg_rs2 == 32'h1 && !mul_sign_y)
-    assert(mul_result == {{32{mul_sign_x}}, reg_rs1});
-  always_comb if (clocked && reg_rs1 == 32'h1 && !mul_sign_x)
-    assert(mul_result == {{32{mul_sign_y}}, reg_rs2});
+  always_comb if (clocked && fwd_rs1_val == 32'b0) assert(mul_result == 64'b0);
+  always_comb if (clocked && fwd_rs2_val == 32'b0) assert(mul_result == 64'b0);
+  always_comb if (clocked && fwd_rs2_val == 32'h1 && !mul_sign_y)
+    assert(mul_result == {{32{mul_sign_x}}, fwd_rs1_val});
+  always_comb if (clocked && fwd_rs1_val == 32'h1 && !mul_sign_x)
+    assert(mul_result == {{32{mul_sign_y}}, fwd_rs2_val});
 
   logic [31:0] div_ghost_rs1, div_ghost_rs2;
   logic div_ghost_rs1_sign, div_ghost_rs2_sign;
@@ -794,8 +810,8 @@ module executor #(
   assign div_ghost_rs2_sign = div_ghost_rs2[31];
   always_ff @(posedge clk)
     if (!reset && state == init) begin
-      div_ghost_rs1 <= reg_rs1;
-      div_ghost_rs2 <= reg_rs2;
+      div_ghost_rs1 <= fwd_rs1_val;
+      div_ghost_rs2 <= fwd_rs2_val;
     end
 
   logic [31:0] div_mag_x, div_mag_y;
@@ -917,10 +933,10 @@ module executor #(
   // module cannot see standalone. formal/traps.sv checks it composed.
 
   logic signed [31:0] cmp_ref_x, cmp_ref_y;
-  assign cmp_ref_x = reg_rs1;
-  assign cmp_ref_y = reg_rs2;
-  always_comb if (clocked) assert(cmp_eq == (reg_rs1 == reg_rs2));
-  always_comb if (clocked) assert(cmp_ltu == (reg_rs1 < reg_rs2));
+  assign cmp_ref_x = fwd_rs1_val;
+  assign cmp_ref_y = fwd_rs2_val;
+  always_comb if (clocked) assert(cmp_eq == (fwd_rs1_val == fwd_rs2_val));
+  always_comb if (clocked) assert(cmp_ltu == (fwd_rs1_val < fwd_rs2_val));
   always_comb if (clocked) assert(cmp_lt == (cmp_ref_x < cmp_ref_y));
   always_comb if (clocked) assert(mem_addr_low == mem_addr_calc_lo);
  `endif
