@@ -258,6 +258,49 @@ choice was cheap against a vacuous property and is not cheap against a real one.
 `components_traps` itself clears CI's window, and whether `traps-tval-probe`'s control case
 needs its own engine override now that its property is real, are both undecided.
 
+## Splitting `components_traps` by property group did not close the timing question
+
+Two runs of the real `components_traps` task (`mode prove`, `bitwuzla`, the full composed
+environment, no narrowing, no time limit) each ran roughly an hour without either leg
+reaching a verdict — a proof that cannot be bounded is not something to wait out in a PR
+gate. `formal/traps.sv`'s 44 assertions and covers were split into four `TRAPS_CHECK_*`
+groups (`PC`: the mtvec/mepc/fetch_pc redirect chain and the WARL bit masks; `CAUSE`: the
+six mcause/mtval read-back checks the section above fixed, with their covers; `STATUS`:
+mstatus's bit3/bit7 dance and the MIE/MIP/interrupt_pending gating; `QUIESCENCE`: whether
+`trap_entry` fires exactly when it should, and that nothing else commits alongside it),
+each proved by its own `mode prove` task (`traps_pc`/`traps_cause`/`traps_status`/
+`traps_quiescence` in `formal/components.sby`) against the SAME full composed environment
+and the same seven decoder invariants — nothing is weakened, each task just carries fewer
+goals. `formal/traps-groups-test.py` grades that every assertion belongs to exactly one
+group and every group is non-empty, both directions against `formal/TRAPS_GROUPS`, the way
+`formal/EXPECTED_CHECKS` is graded; `formal/traps-groups-probe.py` is its forced-red
+prerequisite, proving a mis-tagged (invisible-to-every-task) assertion and a stale manifest
+each fail for their own reason.
+
+**The measured result changes what this ADR can claim.** `traps_pc` — the smallest group,
+twelve assertions with no CSR-address-gated timing dependency at all — ran for 31+ minutes
+with neither leg closing before being stopped, the same order of magnitude as the unsplit
+task's own two unresolved runs. The other three groups were not run to a similar length:
+once the smallest, structurally simplest group failed to close comfortably, running the
+larger three seemed unlikely to produce a different qualitative answer and was not worth
+the additional wall clock, though that is an inference from one data point, not a
+measurement of all four. **The working hypothesis, not yet confirmed**: k-induction's cost
+here tracks the size of the composed environment's own reachable state space (the
+fetcher/decoder/executor/csrs instances, their registers, and traps.sv's own `prev_`/
+`prev2_` chains), which every split task carries in full regardless of how many of
+traps.sv's OWN assertions it is asked to prove — so dividing the GOAL COUNT does not
+divide the cost the way it would for a BMC search, where each additional goal is
+comparatively cheap next to finding whether an invariant generalizes at all. If this
+holds, splitting by property group is not sufficient on its own; what would need to
+shrink is the environment each task inducts over, not the assertion list.
+
+The infrastructure lands regardless of whether the split ultimately reduces wall time — it
+is provably correct (elaborates clean under all four groups and the default, `traps_cover`
+and both probes still pass unchanged) and is not a weakening of any kind. `formal/Makefile`
+gains `components_traps_pc`/`_cause`/`_status`/`_quiescence`, each behind the
+`traps-groups` prerequisite; `make -C formal all` is left calling plain `components_traps`
+until the timing question above is resolved one way or the other.
+
 ## Not yet done
 
 `test/decoder_tb.v` (1345 lines) still carries the fused decoder's port list and its whole
