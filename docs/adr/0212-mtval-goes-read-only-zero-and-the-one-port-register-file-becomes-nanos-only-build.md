@@ -203,7 +203,14 @@ measurement the ratchet has carried through its last several steps).
 `gh workflow run nano-tt-area-selfhosted --ref <branch> -f tiles=4x2 -f synth_strategy="AREA 2" -f disallow_congestion=false -f stop_after_synthesis=false`
 (the `ports` input no longer exists, per the decision above).
 
-<!-- TT-FLOW-RESULT -->
+Run 36153840938, 2026-09-25, flops, `AREA 2`, congestion allowed through. **The 4×2 still does not fit.**
+
+| 4×2 run | Flow synthesis | `GPL-0019` placement | `GRT-0096` routing demand | Result |
+|---|---|---|---|---|
+| main before these cuts (35878644497) | 96,594 µm² | 75.5% | 189.9%, 85,071 overflow | failed at detailed placement |
+| this tree (36153840938) | 86,767 µm² | 68.2% | 145.5% (met1 185.6%, met2 130.9%, met3 144.7%, met4 87.5%) | failed at detailed placement (`DPL-0036`, in antenna repair) |
+
+The cuts are worth 9,827 µm² of flow synthesis and 44 points of routing demand, and the tile needs roughly another 45 points. Two earlier core-only 4×2 points — 48,240 µm² routing at 53% demand and 65,026 µm² at 66.5% — put the routable ceiling somewhere near 70–75k µm² of flow synthesis, an estimate from two points rather than a measurement. No spec-legal cut of that size remains: the counters and `mscratch` must be implemented, and the counters' implementation measured at its minimum. The full chip fits a 6×2 (run 36101051908: 49.8% placement, 57.7% routing demand). Peak runner memory for this run was 4,598,050,816 bytes.
 
 ## What was left alone
 
