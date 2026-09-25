@@ -17,11 +17,6 @@ override NANO_LIBERTY_URL := https://raw.githubusercontent.com/The-OpenROAD-Proj
 NANO_LIBERTY_DIR := $(TOOL_CACHE)/sky130
 NANO_LIBERTY     := $(NANO_LIBERTY_DIR)/sky130_fd_sc_hd__tt_025C_1v80.lib
 
-# `dfflibmap` maps flip-flops only; a latch left generic is priced at zero by `stat -liberty` without this techmap stub.
-override NANO_LATCHMAP_SHA256 := 5f28f158599cd6548fdf302fa3dbe2e306cf0aba431884f1c9b6305589cd560f
-override NANO_LATCHMAP_URL := https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/$(NANO_LIBERTY_COMMIT)/flow/platforms/sky130hd/cells_latch_hd.v
-NANO_LATCHMAP := $(NANO_LIBERTY_DIR)/cells_latch_hd.v
-
 .PHONY: nano-liberty-setup
 nano-liberty-setup:
 	@set -e; \
@@ -52,7 +47,6 @@ nano-liberty-setup:
 	}; \
 	rc=0; \
 	fetch '$(NANO_LIBERTY_URL)' '$(NANO_LIBERTY)' '$(NANO_LIBERTY_SHA256)' || rc=1; \
-	fetch '$(NANO_LATCHMAP_URL)' '$(NANO_LATCHMAP)' '$(NANO_LATCHMAP_SHA256)' || rc=1; \
 	exit $$rc
 
 # A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped for the real tt_um top: nano_bus's address decode plus the UART and GPIO peripherals it routes to, in place of area_top.v's synthesis-only pairing, measure 78,566.6 um2 against the CSR/trap layer's own 76,982.6.
@@ -72,23 +66,17 @@ nano-area:
 	python3 nano/area_report.py nano/area.json --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --max-um2 '$(NANO_MAX_UM2)'
 
-# Area and delay both come out of one synthesis run per register-file build; no ratchet, since this ranks RTL versions rather than gating either figure.
+# Area and delay both come out of one synthesis run; no ratchet, since this ranks RTL
+# versions against each other rather than gating either figure.
 .PHONY: nano-timing
 nano-timing:
 	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
 	if [ $$rc -eq 2 ]; then exit 0; fi; \
 	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
 	$(MAKE) --no-print-directory nano-liberty-setup; \
-	yosys -p "$$(nano/timing_script.sh '$(NANO_LIBERTY)' '$(NANO_LATCHMAP)' nano/timing.flops.json '' $(NANO_SRCS))" \
-	  > nano/timing.flops.log 2>&1 & pid_flops=$$!; \
-	yosys -p "$$(nano/timing_script.sh '$(NANO_LIBERTY)' '$(NANO_LATCHMAP)' nano/timing.latches.json NANO_LATCH_RF $(NANO_SRCS))" \
-	  > nano/timing.latches.log 2>&1 & pid_latches=$$!; \
-	rc=0; \
-	wait $$pid_flops || { tail -40 nano/timing.flops.log; rc=1; }; \
-	wait $$pid_latches || { tail -40 nano/timing.latches.log; rc=1; }; \
-	[ $$rc -eq 0 ] || exit 1; \
+	yosys -p "$$(nano/timing_script.sh '$(NANO_LIBERTY)' nano/timing.flops.json $(NANO_SRCS))" \
+	  > nano/timing.flops.log 2>&1 || { tail -40 nano/timing.flops.log; exit 1; }; \
 	python3 nano/timing_report.py --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' \
 	  --variant flops:nano/timing.flops.log:nano/timing.flops.json \
-	  --variant latches:nano/timing.latches.log:nano/timing.latches.json \
 	  --flow-correlation nano/timing_flow_correlation.json
