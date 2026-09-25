@@ -1,0 +1,23 @@
+# The anti-vacuity control for components_traps' six CSR-read guards: proves each one's
+# own reachability, the way pcloop_cover proves pcloop's increment arm.
+
+[options]
+mode cover
+depth 20
+
+[engines]
+smtbmc bitwuzla
+
+[script]
+read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -formal structs.v traps.sv
+prep -top traps
+
+[files]
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv

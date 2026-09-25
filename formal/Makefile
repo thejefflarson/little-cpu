@@ -85,6 +85,9 @@ imemcheck-cover-probe: memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby 
 pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
               ../rtl/regsel.v ../rtl/structs.v
 
+traps_cover: traps_cover.sby traps.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
+             ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v
+
 busarbiter_cover: busarbiter_cover.sby busarbiter.sv ../rtl/busarbiter.v
 
 complete:  complete.sby  complete.sv  arbiter.v complete-exclusions abc-engine $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
@@ -144,7 +147,8 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
                    ../rtl/executor.v ../rtl/regsel.v ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
-components_traps: components.sby traps-region-probe traps-tval-probe check-solver-bitwuzla \
+components_traps: components.sby traps_cover traps-region-probe traps-tval-probe \
+                  check-solver-bitwuzla \
                   ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v ../rtl/regsel.v \
                   ../rtl/csrs.v ../rtl/structs.v traps.sv
 	rm -rf $@
@@ -170,7 +174,7 @@ busarbiter-probe: busarbiter-probe.py busarbiter.sv ../rtl/busarbiter.v
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
-	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg
+	rm -rf pcloop_cover traps_cover busarbiter_cover fg-probe fg-probe.cfg
 	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
