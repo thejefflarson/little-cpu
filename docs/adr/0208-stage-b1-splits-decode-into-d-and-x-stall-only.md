@@ -184,6 +184,80 @@ reasons no longer read a bit of register-file data at all, so the whole structur
 moved to X's one timing output (`x_busy`), gated by `region_stall` and the divider's own
 `divider_busy` — Zkt's own two named exclusions — rather than a blanket ban.
 
+## A second, independent defect: six assertions were vacuous, since the split landed
+
+`components_traps` closing (above) and its six checks actually checking something are two
+different claims. `traps-region-probe` timed out at minutes per attempt instead of its
+documented ~6 seconds, and chasing that — not a code review — is what surfaced this: `mode
+cover` proved the six `prev_trap_entry`/`prev_interrupt_entry`-gated CSR-read assertions
+(MCAUSE and MTVAL, the normal case, the fetch-fault case, and the interrupt case) were each
+*unreachable*, not merely slow to disprove. They had been since B1 landed, and every
+`components_traps` PASS since then proved nothing about mcause or mtval.
+
+The mechanism: D's own mandatory post-redirect bubble (no wrong-path state) means the
+earliest instruction able to read a CSR back reaches X two cycles after `trap_entry`
+commits, not one. `prev_trap_entry` looks back exactly one cycle, so `csr_addr ==
+MCAUSE`/`MTVAL` could never be true on the cycle the guard checked — the arm was structured
+exactly like `rtl/decoder.v`'s (formerly) guessed register pair, one cycle short of the
+pipeline it was actually measuring. `prev2_trap_entry`, a second delay tap mirroring the
+`prev2_rdata`/`prev2_mstatus_*` chain the interrupt-independent checks already used, fixed
+the guard itself.
+
+Fixing the guard surfaced a second bug underneath it, of the class ADR-0207 and B1 both
+already produced (a signal racing ahead of the state it should have waited for): the
+cause/tval VALUES the four regular-trap checks compared against (`expected_cause`/
+`expected_tval`) were built from `instr`, `formal/traps.sv`'s own read of `fetcher_out` —
+the fetcher's live, still-advancing word — rather than from `dx_out.instr`, the stable word
+X is actually committing. By the time a CSR-read instruction reached X two cycles later,
+fetch had typically moved on to a completely different instruction, so the comparison's
+right-hand side described the wrong access. A parallel signal family already existed for
+exactly this reason (`c_expected_trap`/`c_must_not_trap`, built off `dx_instr` and checked
+same-cycle against `trap_entry`, added when `components_traps` first closed); the fix adds
+`c_expected_cause`/`c_expected_tval` alongside it, mirroring the same case statement, and
+retargets `prev_cause`/`prev_tval`'s own capture onto them. The fetch-fault MTVAL arm had
+the identical defect one level down — it compared against `past_fetch_pc`, a tap on the
+same live `fetch_pc` — and is now `past2_dx_pc`, a tap on `dx_pc` (the same stable pc `mepc`
+already reads). The two interrupt-entry checks had a third instance of the same class:
+`prev_interrupt_entry`/`prev_interrupt_pending` read the CSR file's live `interrupt_pending`
+rather than `dx_out.is_interrupt`, X's own captured decision that a given commit is an
+interrupt entry rather than a real instruction — the two can disagree once mie/mip have
+moved between the decision and the commit.
+
+Each of the six was confirmed the same way: a direct property, stated against the reference
+model's own spec rule with no cycle-offset dependency, proven by `mode prove` with the other
+five assertions disabled — first against `is_amo_op`/`is_lr`'s tval rule (holds at full
+depth, no counterexample, confirming the earlier hand-read of a VCD trace that had produced
+two disagreeing values for the same signal was the unreliable step, not the RTL or the
+spec) — then against the fetch-fault and interrupt arms directly, each of which did produce
+a real, fast counterexample (traps.sv:583, then traps.sv:628 and :686) pointing at exactly
+the live-wire tap named above. No RTL changed for any of the six; `rtl/executor.v`'s own
+`trap_tval`/`trap_cause` case statements (`in_imem_fault: trap_tval = in_pc;` etc.) were
+confirmed correct by the same direct-property method and are what the fixed reference model
+now agrees with.
+
+Six permanent `cover()` statements (`mcause_normal_reached`, `mcause_fetch_fault_reached`,
+`mtval_normal_reached`, `mtval_fetch_fault_reached`, `mtval_interrupt_reached`,
+`mcause_interrupt_reached`) replace the one-off diagnostic covers used to find this:
+`formal/traps_cover.sby`, wired into `components_traps` as a prerequisite the same way
+`pcloop_cover` already is, proves all six reachable under `prev2_` in under 20 seconds.
+`traps-region-probe.py` and `traps-tval-probe.py` are re-pinned to the `prev2_cause`/
+`prev2_tval` spelling; both still fail their two-and-two mutations at the right line.
+
+**Left open**: the real `components_traps` proof (`mode prove`, `bitwuzla`, the composed
+fetcher/D/X/csrs environment, no narrowing) passed basecase cleanly through step 19 of 20
+over roughly 45 minutes in one full run and, in a second, independent run against the exact
+tracked file, reached step 16 of 20 at the 20-minute mark with no counterexample either
+time — meaning the fix is not in question, but whether this proof now fits inside the
+`components-proof` CI job's wall clock is. `traps_cover`, `traps-region-probe` and
+`traps-tval-probe`'s own two mutation cases are all fast (under 20 seconds combined);
+`traps-tval-probe`'s **control** case (the shipping core, required to PASS) is the one
+still-open exception — it inherits the slow default solver its own header says is
+deliberate (`traps_probe_sby.py`, "the engine is not [read from components.sby], deliberately,"
+so a probe cannot inherit a fast choice made for some other task's runtime), and that
+choice was cheap against a vacuous property and is not cheap against a real one. Whether
+`components_traps` itself clears CI's window, and whether `traps-tval-probe`'s control case
+needs its own engine override now that its property is real, are both undecided.
+
 ## Not yet done
 
 `test/decoder_tb.v` (1345 lines) still carries the fused decoder's port list and its whole
@@ -260,3 +334,8 @@ topology — is real, independent, and substantial; the remaining three test the
 architectural change from an angle those oracles cannot reach (a vector-level bench built
 on D's own new single-cycle protocol) and are owed before Stage B is declared complete, not
 before this stage ships.
+
+**Amended**: "`components_traps` ... closed" above was true of the induction generalizing,
+not of what six of its assertions actually checked — see the vacuity section above. The
+guard is fixed and proven non-vacuous by `traps_cover`, but whether the now-real proof fits
+CI's `components-proof` window is undecided and stays open alongside the other three.
