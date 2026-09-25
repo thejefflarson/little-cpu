@@ -295,22 +295,16 @@ module decoder (
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // `out`'s producer is read by X the cycle after this decode, exactly when its own
-  // result lands in executor_out -- forwardable, IF X will actually compute a same-cycle
-  // result for it. `executor_out`'s producer is two instructions behind: by the time this
-  // instruction reaches X, that producer's value has already landed in the regfile through
-  // the write-through bypass (commitment 6), so a match there needs no forwarding path --
-  // only a pending unpacked result (a load, AMO, `lr.w`, `sc.w`) is still a genuine stall.
+  // `out`'s producer lands in executor_out exactly when this instruction reaches X, so a
+  // match there forwards (below); `executor_out`'s own producer is already reachable
+  // through the regfile's write-through bypass by then.
   logic dx_match_rs1, dx_match_rs2, ex_match_rs1, ex_match_rs2;
   assign dx_match_rs1 = out.valid && out.rd == rs1;
   assign dx_match_rs2 = out.valid && out.rd == rs2;
   assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
   assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
 
-  // Mirrors executor.v's `in_has_result`: true for every op X computes in the same cycle
-  // it reads `out` -- the base ALU ops, the four multiplies, and auipc/lui/jal/jalr/csr
-  // access, which alias onto the same adder. False for a load/store/AMO/LR/SC (needs the
-  // accessor) and for div/rem (needs the divider's iterations).
+  // Mirrors executor.v's `in_has_result`: same-cycle ops, never a load/store/AMO/LR/SC/div/rem.
   logic out_has_result;
   assign out_has_result = out.is_add || out.is_sub || out.is_xor || out.is_or || out.is_and ||
     out.is_sll || out.is_slt || out.is_sltu || out.is_srl || out.is_sra ||
