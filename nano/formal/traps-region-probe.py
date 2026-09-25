@@ -45,18 +45,14 @@ MUTATIONS = {
     "wrong-cause": (
         """    end else if (load_region_fault) begin
       trap_cause_value = CAUSE_LOAD_ACCESS_FAULT;
-      trap_tval_value  = load_store_address;
     end else if (store_region_fault) begin
       trap_cause_value = CAUSE_STORE_ACCESS_FAULT;
-      trap_tval_value  = load_store_address;
     end else begin
 """,
         """    end else if (load_region_fault) begin
       trap_cause_value = CAUSE_STORE_ACCESS_FAULT;
-      trap_tval_value  = load_store_address;
     end else if (store_region_fault) begin
       trap_cause_value = CAUSE_LOAD_ACCESS_FAULT;
-      trap_tval_value  = load_store_address;
     end else begin
 """,
     ),

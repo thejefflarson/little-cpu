@@ -93,8 +93,9 @@ echo "ok   branch-free cycles are identical with the loop buffer off, tagged-blo
 REPS_LO=200
 REPS_HI=400
 REPS_DELTA=$((REPS_HI - REPS_LO))
-# 11 cycles/rep gives slack over the measured 10 while catching a hit that costs one extra.
-WINDOW_BOUND=$((11 * REPS_DELTA))
+# 14 cycles/rep gives slack over the measured 13, up from 11 now that every instruction's
+# minimum retire latency includes an rs1/rs2 fetch state (nano.v's register file reads one port).
+WINDOW_BOUND=$((14 * REPS_DELTA))
 assemble loop_lo.elf -DKIND=1 -DREPS=$REPS_LO
 assemble loop_hi.elf -DKIND=1 -DREPS=$REPS_HI
 for tag in tagged cam; do

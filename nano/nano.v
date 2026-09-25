@@ -94,8 +94,8 @@ module riscv #(
   localparam logic [31:0] CAUSE_MACHINE_EXTERNAL    = 32'h8000_000B;
 
   logic [63:0] mcycle, minstret;
-  // WARL: mtvec.MODE, mepc[0] and mcause's unimplemented codes are hardwired zero.
-  logic [31:0] mscratch, mtval;
+  // WARL: mtvec.MODE, mepc[0], mcause's unimplemented codes and mtval are hardwired zero.
+  logic [31:0] mscratch;
   logic [29:0] mtvec_base;
   logic [30:0] mepc_msbs;
   logic [3:0]  mcause_code;
@@ -115,7 +115,7 @@ module riscv #(
   logic        load_misaligned, store_misaligned, ls_in_range, load_region_fault,
                store_region_fault;
   logic        take_trap;
-  logic [31:0] trap_cause_value, trap_tval_value;
+  logic [31:0] trap_cause_value;
   logic [31:0] pc;
   logic [4:0] rd, rs1, rs2;
   logic [31:0] load_store_address;
@@ -130,16 +130,11 @@ module riscv #(
   logic [3:0] cpu_state;
   logic skip_reg_write;
 
-`ifdef NANO_ONE_PORT_RF
   // One held register per operand; `rf_raddr` is the one address that reads `regs[]`.
   logic [31:0] op_rs1, op_rs2;
   logic [3:0] rf_raddr;
 `define RF_RS1 op_rs1
 `define RF_RS2 op_rs2
-`else
-`define RF_RS1 regs[rs1[3:0]]
-`define RF_RS2 regs[rs2[3:0]]
-`endif
 
   assign opcode = instr[6:2];
   assign quadrant = instr[1:0];
@@ -377,28 +372,20 @@ module riscv #(
   always_comb begin
     if (!is_valid) begin
       trap_cause_value = CAUSE_ILLEGAL_INSTRUCTION;
-      trap_tval_value  = instr;
     end else if (is_ebreak) begin
       trap_cause_value = CAUSE_BREAKPOINT;
-      trap_tval_value  = 32'b0;
     end else if (is_ecall) begin
       trap_cause_value = CAUSE_ECALL_M;
-      trap_tval_value  = 32'b0;
     end else if (load_misaligned) begin
       trap_cause_value = CAUSE_LOAD_MISALIGNED;
-      trap_tval_value  = load_store_address;
     end else if (store_misaligned) begin
       trap_cause_value = CAUSE_STORE_MISALIGNED;
-      trap_tval_value  = load_store_address;
     end else if (load_region_fault) begin
       trap_cause_value = CAUSE_LOAD_ACCESS_FAULT;
-      trap_tval_value  = load_store_address;
     end else if (store_region_fault) begin
       trap_cause_value = CAUSE_STORE_ACCESS_FAULT;
-      trap_tval_value  = load_store_address;
     end else begin
       trap_cause_value = 32'b0;
-      trap_tval_value  = 32'b0;
     end
   end
 
@@ -425,8 +412,7 @@ module riscv #(
   assign interrupt_pending = irq_meip_sync2 && mie_meie && mstatus_mie;
 
   // Sliced here, not inside the case below: a constant part-select of a wider signal
-  // inside an always_comb/always_ff is an iverilog "sorry" (over-sensitive, not an
-  // error), avoided by slicing in a continuous assign instead.
+  // inside an always_comb/always_ff is an iverilog "sorry", avoided by slicing here.
   logic [31:0] mcycle_lo, mcycle_hi, minstret_lo, minstret_hi;
   assign mcycle_lo   = mcycle[31:0];
   assign mcycle_hi   = mcycle[63:32];
@@ -445,7 +431,7 @@ module riscv #(
       CSR_MSCRATCH:  csr_rdata = mscratch;
       CSR_MEPC:      csr_rdata = mepc_value;
       CSR_MCAUSE:    csr_rdata = mcause_value;
-      CSR_MTVAL:     csr_rdata = mtval;
+      CSR_MTVAL:     csr_rdata = 32'b0;
       CSR_MIP:       csr_rdata = mip_value;
       CSR_MCYCLE:    csr_rdata = mcycle_lo;
       CSR_MCYCLEH:   csr_rdata = mcycle_hi;
@@ -469,12 +455,10 @@ module riscv #(
   localparam finish_store = 4'b0110;
   localparam check_pc = 4'b0111;
   localparam reg_write = 4'b1000;
-`ifdef NANO_ONE_PORT_RF
   localparam fetch_rs1 = 4'b1100;
   localparam fetch_rs2 = 4'b1101;
 
   assign rf_raddr = cpu_state == fetch_rs2 ? rs2[3:0] : rs1[3:0];
-`endif
 
   // Nano completes one instruction fully before returning here to redirect.
   assign take_interrupt = interrupt_pending && cpu_state == fetch_instr;
@@ -548,14 +532,9 @@ module riscv #(
             is_cbeqz || is_cbnez: rs2 <= 0;
             default: rs2 <= instr[24:20];
           endcase
-`ifdef NANO_ONE_PORT_RF
           cpu_state <= fetch_rs1;
-`else
-          cpu_state <= execute_instr;
-`endif
         end
 
-`ifdef NANO_ONE_PORT_RF
         fetch_rs1: begin
           op_rs1 <= regs[rf_raddr];
           cpu_state <= rs2_valid ? fetch_rs2 : execute_instr;
@@ -565,7 +544,6 @@ module riscv #(
           op_rs2 <= regs[rf_raddr];
           cpu_state <= execute_instr;
         end
-`endif
 
         execute_instr: begin
           if (take_trap) begin
@@ -787,7 +765,6 @@ module riscv #(
       mepc_msbs        <= 31'b0;
       mcause_code      <= 4'b0;
       mcause_interrupt <= 1'b0;
-      mtval            <= 32'b0;
       mstatus_mie      <= 1'b0;
       mstatus_mpie     <= 1'b0;
       mie_meie         <= 1'b0;
@@ -819,21 +796,19 @@ module riscv #(
             mcause_interrupt <= csr_new_value[31];
             mcause_code      <= csr_new_value[3:0];
           end
-          CSR_MTVAL:    mtval      <= csr_new_value;
+          // CSR_MTVAL falls to default: read-only zero, so a write is legal but discarded.
           default: ;
         endcase
       end else if (take_interrupt) begin
         mepc_msbs        <= next_pc[31:1];
         mcause_interrupt <= 1'b1;
         mcause_code      <= CAUSE_MACHINE_EXTERNAL[3:0];
-        mtval            <= 32'b0;
         mstatus_mpie     <= mstatus_mie;
         mstatus_mie      <= 1'b0;
       end else if (cpu_state == execute_instr && take_trap) begin
         mepc_msbs        <= pc[31:1];
         mcause_interrupt <= 1'b0;
         mcause_code      <= trap_cause_value[3:0];
-        mtval            <= trap_tval_value;
         mstatus_mpie     <= mstatus_mie;
         mstatus_mie      <= 1'b0;
       end else if (cpu_state == execute_instr && is_mret) begin
@@ -847,11 +822,10 @@ module riscv #(
   assign rvfi_dbg_mtvec   = mtvec_value;
   assign rvfi_dbg_mepc    = mepc_value;
   assign rvfi_dbg_mcause  = mcause_value;
-  assign rvfi_dbg_mtval   = mtval;
+  assign rvfi_dbg_mtval   = 32'b0;
   assign rvfi_dbg_mstatus = mstatus_value;
 
-  // prev_cpu_state tells a genuine arrival in fetch_instr apart from a cycle merely
-  // spent dwelling here doing interrupt-entry bookkeeping.
+  // prev_cpu_state tells a genuine arrival in fetch_instr apart from a dwell cycle.
   logic [3:0] prev_cpu_state;
   always_ff @(posedge clk)
     prev_cpu_state <= reset ? fetch_instr : cpu_state;

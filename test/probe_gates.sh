@@ -1896,9 +1896,9 @@ ga_nano_fixture() {
 }
 
 d=$(ga_nano_fixture)
-mutate "$d/checks.cfg" 's/^hang     1     14$/hang     1     10/'
+mutate "$d/checks.cfg" 's/^hang     1     15$/hang     1     10/'
 probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
-  "hang: depth 10 is below F+1 = 13" "cd '$d' && $GA ."
+  "hang: depth 10 is below F+1 = 14" "cd '$d' && $GA ."
 
 d=$(ga_nano_fixture)
 probe "control: nano's declared fork redirects every generated insn_* check" 0 \
@@ -2063,7 +2063,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
-  "not the 9 this row swept" \
+  "not the 10 this row swept" \
   "$RFG && python3 ../../formal/remeasure-fg.py . --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
