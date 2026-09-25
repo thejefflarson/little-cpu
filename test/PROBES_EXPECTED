@@ -841,7 +841,7 @@ control: the shipping schedule workflow confines its credential to the publish s
 control: the shipping tree has no fallback search outside its exceptions
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
-control: the shipping tree names the eight stall reasons consistently
+control: the shipping tree names the seven stall signals and the seven CPI reasons consistently
 control: the shipping tree states every band figure in one place
 control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
 control: the tracked monitor sanitizes, and rule 3 fires
@@ -954,6 +954,7 @@ storing a never-written register that reports no X leaves the store path unprove
 storing a register this program wrote first is not a store-path control
 the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycles
 the Dhrystone flags drifting from the suite's ISA is red
+the FORMAL hold-assert naming something other than x_busy is red
 the Makefile and test/cosim.py drifting apart is red
 the QSPI timing accounting identity is graded and can fail
 the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
@@ -1007,6 +1008,7 @@ the harness moving away takes the probe with it, loudly
 the harness moving away takes the probe with it, loudly
 the harness passing a literal instead of the size it sized
 the harness sizing its own RAM again is red
+the hold branch holding on something other than x_busy is red, and named
 the isa list is what wires a model in, not the insns/ directory alone
 the iverilog leg failing its own baseline is red before any comparison
 the linker script's RAM origin drifting from the RTL's base is red
