@@ -301,6 +301,87 @@ gains `components_traps_pc`/`_cause`/`_status`/`_quiescence`, each behind the
 `traps-groups` prerequisite; `make -C formal all` is left calling plain `components_traps`
 until the timing question above is resolved one way or the other.
 
+## Naming PDR's stubborn properties found no missing invariant
+
+`abc pdr` (mode prove, no time limit, the real fetcher/decoder/executor/regsel/csrs/traps.sv
+composition, no narrowing) was run against the unsplit `traps` task in a throwaway sby copy.
+The composed netlist carries exactly 143 properties — the AIGER header's own `B` (bad-state)
+count and `design_aiger.ywa`'s `asserts` list agree — matching this ADR's earlier "~130"
+estimate now made exact. Over roughly 24 minutes on this machine, PDR proved 125 of 143 with
+zero counterexamples anywhere, then was stopped rather than left to grind further once its
+proved count plateaued for several consecutive frames. The remaining 18, by AIGER output
+index mapped back through `design_aiger.ywa` to source line:
+
+- **14 in `rtl/executor.v`**: 764/767/770/773 (a `mul`/`mulh`/`mulhu`/`mulhsu` result reaching
+  `out_rd_data`), 780 (the Zkt constant-latency claim for the four multiplies), 809/827/828/829
+  (the divider's internal long-division identity and its two derived bounds), 846/849/852/855
+  (`divu`/`remu`/`div`/`rem`'s result against the reference expression), and 883
+  (`ls_answer_valid` implies `ls_answer == ls_supported`, the region test's deferred-answer
+  protocol).
+- **2 in `rtl/decoder.v`**: 523 (the `x_busy` hold: `out` unchanged the cycle after
+  `$past(x_busy)`) and 567 (the onehot0 over `out`'s full class-flag set, one of the six
+  additions that closed the CAUSE group's vacuity, above).
+- **2 in `formal/traps.sv`**: 689 and 692, the quiescence group's own end-to-end claims — a
+  trap commits when `c_expected_trap` says it must, and does not when `c_must_not_trap` says it
+  must not.
+
+None of these eighteen is new evidence of a gap the way the six CAUSE assertions were: those
+were *vacuous* (unreachable under their own guard, confirmed by a `mode cover` proof, and each
+fixed by a real counterexample once made reachable). Here, PDR never produced a single
+counterexample for any of the 18 — only timeouts — which is the opposite signature. Reading
+what each group actually is explains why:
+
+- Thirteen of the fourteen `rtl/executor.v` properties (764-855) are the multiplier's and
+  divider's own arithmetic correctness, already the subject of a separate, closed, fast proof
+  (`components_executor`, over `rtl/executor.v` alone). CLAUDE.md already records that the
+  multiplier is "checked differentially, not exhaustively" and the divider "proved under a
+  recorded magnitude restriction" — 827's `div_quot_done * div_divisor + div_rem ==
+  div_mag_x_done` is exactly the class of nonlinear-arithmetic identity both AIG-based PDR and
+  bit-blasted SMT are weakest at generalizing quickly, and here it is being re-derived over the
+  whole fetcher/decoder/executor/csrs netlist rather than `components_executor`'s own much
+  smaller one.
+- 883 is the one non-arithmetic `executor.v` property in the set; it is the region test's
+  deferred-answer protocol the CAUSE group's fix already depends on.
+- `decoder.v`:523 and :567 are decoder.v's own properties, already proven quickly by
+  `components_decoder`'s standalone proof (closed without further work, above); their
+  difficulty here is the size of the composed state space they are being re-verified against,
+  not the property.
+- `traps.sv`:689/692 are the two real end-to-end goals and depend transitively on every fact
+  above, so they are expected to be the last to converge under any induction order.
+
+Three further pieces of evidence, all pointing the same way — the proof is very likely
+correct, and too large for the engines tried to close in bounded time, not missing a fact:
+this ADR's own two prior full-composition bitwuzla runs (above) each reached step 19/20 and
+16/20 with zero counterexamples over roughly 45 and 20 minutes; the property-GROUP split
+(above) already showed that shrinking the GOAL count on the same environment does not shrink
+the time (`traps_pc`, the smallest group, ran 31+ minutes unclosed); and an attempt here to
+isolate a single property further — composing the same full environment with the other 142
+properties converted to `assume` via `chformal -assert2assume`, selected by the `$assert`
+cell's own `src` attribute (`a:src=traps.sv:692.*`), so k-induction would get 142 free lemmas
+while proving one goal — was abandoned before producing a result: yosys's own `prep` splits
+SVA `$check` cells into `$assert`/`$assume` across several internal passes rather than
+atomically, so landing the selection at the right elaboration stage cost more wall time than
+the existing evidence already justified spending.
+
+**No invariant was added for any of the 18, because none produced a counterexample to derive
+one from.** `components_traps`'s real k-induction proof does not close inside
+`components-proof`'s 20-minute CI window on any of the three engines tried (bitwuzla
+k-induction, twice, unsplit — nearest to closing at step 19/20; the four-way property-group
+split; `abc pdr` here, 125/143 with no ETA on the rest). `formal/components.sby`'s
+`traps: smtbmc bitwuzla` line is left as it is: bitwuzla is the only one of the three with a
+documented near-complete trace, and no engine choice made here would follow from evidence
+rather than a guess.
+
+**DECISION NEEDED**: none of (a) raising `components-proof`'s CI timeout for the `traps` entry
+alone, (b) moving `components_traps`'s real proof off the required CI path — keeping the
+already-closed `traps_cover`, `traps-region-probe` and `traps-tval-probe` plus this session's
+125/143 unbounded PDR result as the PR-time gate, and running the full k-induction proof on a
+longer cadence (nightly, or `main`-only, the way Sail co-simulation already is) — or (c)
+genuinely shrinking the composed state space (for instance, modeling the divider's and
+multiplier's result as a free value in the traps composition specifically, since trap
+semantics never read it) is this session's to make; each trades a different one of the four
+goals and belongs to the owner or a follow-up ADR.
+
 ## Not yet done
 
 `test/decoder_tb.v` (1345 lines) still carries the fused decoder's port list and its whole
