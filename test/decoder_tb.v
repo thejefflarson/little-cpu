@@ -230,31 +230,72 @@ module decoder_tb;
     check_bit("csrrsi is an immediate form", dut.is_csr_imm, 1'b1);
     check_bit("...so it does not use rs1", dut.uses_rs1, 1'b0);
 
-    // Hazards: a RAW match against `out` or `executor_out` stalls, no forwarding.
+    // Hazards: dx_match against a same-cycle-ready producer forwards from the X/M
+    // register instead of stalling; a match on a producer that will not be ready next
+    // cycle (a load, an AMO, `lr.w`, `sc.w`) still stalls, and so does a CSR access's own
+    // rs1, which never reads the forwarded value. A match against `executor_out` (two
+    // instructions back) needs no forwarding path at all -- the regfile's own
+    // write-through bypass reaches it in time -- except when that producer's own result
+    // is not yet unpacked (rd_ready low).
     in.pc = 32'h0000_00c0;
     settle_issue(32'h000100b3);   // add x1, x2, x0 -- reads x2, writes x1
     check_bit("a producer reaches out", out.valid, 1'b1);
     check_hex("...carrying the rd the next check depends on", {27'b0, out.rd}, 32'd1);
+    check_bit("...and it will publish a ready result next cycle", dut.out_has_result, 1'b1);
     present(32'h00008233);        // add x4, x1, x0 -- reads x1, still in `out`
     check_bit("the instruction behind it interlocks on out.rd", dut.dx_match_rs1, 1'b1);
-    check_bit("...which is a hazard", dut.hazard_rs1, 1'b1);
-    check_bit("...and a stall", dut.stall, 1'b1);
-    check_bit("...so it does not issue", issuing, 1'b0);
+    check_bit("...but the producer is ready, so it forwards instead of stalling",
+              dut.fwd_rs1, 1'b1);
+    check_bit("...which is no hazard", dut.hazard_rs1, 1'b0);
+    check_bit("...and no stall", dut.stall, 1'b0);
+    check_bit("...so it issues", issuing, 1'b1);
+    @(posedge clk);
+    #1;
+    check_bit("the forward select rode along into out", out.fwd_rs1, 1'b1);
+
+    x_redirect = 1'b1;
+    @(posedge clk);
+    #1;
+    x_redirect = 1'b0;
+    check_bit("drained ahead of the load-use vector", out.valid, 1'b0);
+
+    in.pc = 32'h0000_00d0;
+    settle_issue(32'h0000a103);   // lw x2, 0(x1) -- a load, never ready next cycle
+    check_bit("a load producer reaches out", out.valid, 1'b1);
+    check_bit("...and out_has_result correctly excludes it", dut.out_has_result, 1'b0);
+    present(32'h00010233);        // add x4, x2, x0 -- reads x2, the load's rd
+    check_bit("dx_match against a load", dut.dx_match_rs1, 1'b1);
+    check_bit("...raises no forward select", dut.fwd_rs1, 1'b0);
+    check_bit("...so it is a genuine (load-use) hazard", dut.hazard_rs1, 1'b1);
+    check_bit("...and it stalls", issuing, 1'b0);
+
+    x_redirect = 1'b1;
+    @(posedge clk);
+    #1;
+    x_redirect = 1'b0;
+    check_bit("drained ahead of the ex_match vectors", out.valid, 1'b0);
 
     executor_out = '0;
     executor_out.valid = 1'b1;
     executor_out.rd = 5'd2;
-    in.pc = 32'h0000_00c4;
+    executor_out.rd_ready = 1'b1;
+    in.pc = 32'h0000_00e4;
     present(32'h00008233);        // add x4, x1, x0 -- reads x1 (x0 + x1), and x1 != x2
     check_bit("a producer only in executor_out and a mismatched rs1 raises no hazard",
               dut.ex_match_rs1, 1'b0);
     in.instr = 32'h00010233;      // add x4, x2, x0 -- reads x2, matching executor_out.rd
     #1;
-    check_bit("a match against executor_out.rd raises the same hazard",
-              dut.ex_match_rs1, 1'b1);
-    check_bit("...unconditionally: this split does no forwarding", dut.hazard_rs1, 1'b1);
+    check_bit("a match against executor_out.rd, ready", dut.ex_match_rs1, 1'b1);
+    check_bit("...raises no hazard: the regfile's own bypass reaches it in time",
+              dut.hazard_rs1, 1'b0);
+
+    executor_out.rd_ready = 1'b0;   // the same match, but not yet unpacked (a pending load)
+    #1;
+    check_bit("a match against executor_out.rd, not yet unpacked, still stalls",
+              dut.hazard_rs1, 1'b1);
 
     executor_out.rd = 5'd0;   // x0 is exempt on both sides
+    executor_out.rd_ready = 1'b0;
     in.instr = 32'h00000233;      // add x4, x0, x0
     #1;
     check_bit("x0 raises no hazard even when it matches a producer's rd",
@@ -263,7 +304,7 @@ module decoder_tb;
 
     executor_out.valid = 1'b1;
     executor_out.rd = 5'd3;
-    in.instr = 32'h00310063;      // beq x2, x3, 0 -- reads x3
+    in.instr = 32'h00310063;      // beq x2, x3, 0 -- reads x3, producer not yet unpacked
     #1;
     check_bit("a branch's rs2 raises a hazard like any other read", dut.hazard_rs2, 1'b1);
     in.instr = 32'h00312023;      // sw x3, 0(x2) -- data operand is x3
@@ -273,6 +314,21 @@ module decoder_tb;
     #1;
     check_bit("a math-immediate's rs2 field is never a hazard", dut.hazard_rs2, 1'b0);
     executor_out = '0;
+
+    // A CSR access's own rs1 feeds csr_arg, which reads reg_rs1 verbatim: dx_match
+    // against a ready producer must still stall, never forward.
+    x_redirect = 1'b1;
+    @(posedge clk);
+    #1;
+    x_redirect = 1'b0;
+    check_bit("drained ahead of the CSR forwarding-exclusion vector", out.valid, 1'b0);
+
+    in.pc = 32'h0000_00f0;
+    settle_issue(32'h000100b3);   // add x1, x2, x0 -- a ready producer, rd = x1
+    present(32'h340095f3);        // csrrw a1, mscratch, x1 -- rs1 = x1, matches
+    check_bit("a CSR access dx_matches its own producer", dut.dx_match_rs1, 1'b1);
+    check_bit("...but never forwards", dut.fwd_rs1, 1'b0);
+    check_bit("...so it still stalls", dut.hazard_rs1, 1'b1);
 
     // `out` still holds "add x1, x2, x0" from the hazard vectors above; drain it so the
     // serialize checks below start from a genuinely empty pipe, matching their own comment.
@@ -352,13 +408,11 @@ module decoder_tb;
     check_bit("...for as long as x_busy stays asserted", out.valid, 1'b1);
     check_hex("...still the same rd", {27'b0, out.rd}, 32'd1);
     x_busy = 1'b0;
-    in.instr = 32'h00008233;      // add x4, x1, x0 -- hazards on out.rd once x_busy clears
+    in.instr = 32'h00008233;      // add x4, x1, x0 -- dx_matches out.rd once x_busy clears
     #1;
-    check_bit("a hazard against the just-released out.rd is a plain stall", issuing, 1'b0);
-    @(posedge clk);
-    #1;
-    check_bit("...and a plain stall bubbles instead: out.rd's instruction has left",
-              out.valid, 1'b0);
+    check_bit("a dx_match against the just-released, ready out.rd forwards", dut.fwd_rs1, 1'b1);
+    check_bit("...raising no hazard", dut.hazard_rs1, 1'b0);
+    check_bit("...so it issues rather than stalling", issuing, 1'b1);
 
     in.pc = 32'h0000_0880;
     settle_issue(32'h00100093);   // addi x1, x0, 1

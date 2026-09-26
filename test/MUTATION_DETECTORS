@@ -3,6 +3,7 @@
 serialize-drops-fencei      bench decoder_tb
 
 serialize-drops-csr-mret    bench decoder_tb
+serialize-drops-csr-mret    asm   mtimermask.S FAIL 17
 
 fencei-wait-and-store-port  bench decoder_tb
 fencei-wait-and-store-port  bench imem_tb

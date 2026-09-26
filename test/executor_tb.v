@@ -480,6 +480,87 @@ module executor_tb;
     #1;
     check_bit("an ordinary instruction raises neither", x_busy, 1'b0);
 
+    // Forwarding: `in.fwd_rs1`/`fwd_rs2` select `out.rd_data` (the X/M register, a
+    // producer that has just landed there) over `reg_rs1`/`reg_rs2`. Each vector first
+    // lands a known value in `out.rd_data`, then presents a consumer whose select points
+    // at it and whose `reg_rs1`/`reg_rs2` inputs are deliberately wrong -- only a working
+    // mux passes.
+    clear_in();
+    in.is_add = 1'b1;
+    in.rd = 5'd5;
+    reg_rs1 = 32'd100;
+    reg_rs2 = 32'd23;
+    @(posedge clk);
+    #1;
+    check_hex("the producer's result lands in out.rd_data", out.rd_data, 32'd123);
+    check_bit("...ready the same cycle", out.rd_ready, 1'b1);
+
+    clear_in();
+    in.is_add = 1'b1;
+    in.fwd_rs1 = 1'b1;
+    reg_rs1 = 32'hdead_dead;   // must not be read: fwd_rs1 overrides it
+    reg_rs2 = 32'd1;
+    #1;
+    check_hex("fwd_rs1 selects out.rd_data over reg_rs1", launch.rs1, 32'd123);
+    @(posedge clk);
+    #1;
+    check_hex("...and the result reflects the forwarded operand", out.rd_data, 32'd124);
+
+    clear_in();
+    in.is_add = 1'b1;
+    in.rd = 5'd5;
+    reg_rs1 = 32'd200;
+    reg_rs2 = 32'd0;
+    @(posedge clk);
+    #1;
+    check_hex("a fresh producer for the rs2 vector", out.rd_data, 32'd200);
+
+    clear_in();
+    in.is_sub = 1'b1;
+    in.fwd_rs2 = 1'b1;
+    reg_rs1 = 32'd500;
+    reg_rs2 = 32'hdead_dead;   // must not be read: fwd_rs2 overrides it
+    #1;
+    check_hex("fwd_rs2 selects out.rd_data for the second operand too", launch.rs2, 32'd200);
+    @(posedge clk);
+    #1;
+    check_hex("...giving 500 - 200, not 500 - 0xdeaddead", out.rd_data, 32'd300);
+
+    clear_in();
+    in.is_add = 1'b1;
+    in.rd = 5'd5;
+    reg_rs1 = 32'd100;
+    reg_rs2 = 32'd0;
+    @(posedge clk);
+    #1;
+    check_hex("a fresh producer for the effective-address vector", out.rd_data, 32'd100);
+
+    clear_in();
+    in.is_lw = 1'b1;
+    in.fwd_rs1 = 1'b1;
+    in.immediate = 32'd4;
+    reg_rs1 = 32'hdead_dead;   // must not be read
+    #1;
+    check_hex("the effective address reads the forwarded rs1 too", launch.mem_addr, 32'd104);
+
+    clear_in();
+    in.is_lr = 1'b1;
+    in.fwd_rs1 = 1'b1;
+    reg_rs1 = 32'hdead_dead;   // must not be read
+    #1;
+    check_hex("...and so does an atomic's address", atomic_addr, 32'd100);
+
+    clear_in();
+    in.is_csrrw = 1'b1;
+    in.is_csr_access = 1'b1;
+    in.instr = 32'h340282f3;   // csrrw t0, mscratch, t0
+    in.fwd_rs1 = 1'b1;         // a CSR access never actually sets this (D excludes it), but
+    reg_rs1 = 32'd55;          // csr_arg must read reg_rs1 regardless of the select
+    csr_rdata = 32'd0;
+    #1;
+    check_hex("csr_arg never forwards, even if the select were somehow set",
+              csr_wdata, 32'd55);
+
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
