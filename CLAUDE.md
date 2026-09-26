@@ -60,7 +60,8 @@ references still resolve.
   derivable, retire unfiltered, and `pcloop`'s induction free of speculative state (ADR-0207,
   ADR-0208). B3 (ADR-0214) deleted the load/store region wait, one of `x_busy`'s two reasons to
   hold X across multiple cycles — only the divider remains — which can only shrink F and G, never
-  grow them; `make -C formal remeasure-fg` re-confirms both unchanged at 6/6 after the deletion.
+  grow them; `make -C formal remeasure-fg` measures the shrink, from 6/6 to 5/5, and
+  `formal/checks.cfg`'s `#derive` lines and every `[depth]` floor move with it (ADR-0214).
   Enforced by `formal/pcloop.sv` (rebuilt on the fetcher/D/X/littlecpu topology) and
   `rtl/decoder.v`'s `FORMAL` block; `test/decoder_tb.v` checks D's own `predicted_pc` guess
   directly, but `fetch_pc` itself now lives in `rtl/littlecpu.v`, which has no unit bench of its
@@ -79,13 +80,17 @@ references still resolve.
   board clock (seven priced: ADR-0104, ADR-0116, ADR-0128), which is why it answered from `reg_rs1`
   alone where it could and deferred a cycle at an edge instead (ADR-0129); moving the test into X
   with the D/X split (ADR-0208) carried the deferral over rather than re-measuring whether X, now
-  its own stage with no fetch-loop timing to protect, still needed it. It does not: B3 measured the
-  period a null and gave back the cycles the deferral cost (ADR-0214 has the figures). **The layout
-  preference this used to create is retired**: ADR-0158's convention (start `.data` one block clear
-  of a mapped-region edge) is no longer load-bearing, since every access now answers in one cycle
-  regardless of where `.data`/`__stack_top` sit. The linker scripts and `test/probe_gates.sh`'s
-  layout `ASSERT`s are left in place as harmless structure, not because anything still reads their
-  placement's cost — retiring them is separate, unstarted work. Enforced by `components_traps` over
+  its own stage with no fetch-loop timing to protect, still needed it. **The layout preference this
+  used to create is retired**: ADR-0158's convention (start `.data` one block clear of a
+  mapped-region edge) is no longer load-bearing, since every access now answers in one cycle
+  regardless of where `.data`/`__stack_top` sit. Dhrystone and CoreMark measure no cycle change from
+  this deletion, because their own linker scripts already followed the convention and the wait it
+  paid was already down to 2 cycles each — measuring a conflict rather than assuming one shows the
+  win is a program NO LONGER NEEDING the convention to reach that floor, not a faster number on the
+  two that already had it (ADR-0214 has the figures, `make cycles`' hand-written suite included).
+  The linker scripts and `test/probe_gates.sh`'s layout `ASSERT`s are left in place as harmless
+  structure, not because anything still reads their placement's cost — retiring them is separate,
+  unstarted work. Enforced by `components_traps` over
   `formal/traps.sv` (rebuilt on the D/X topology) and `rtl/executor.v`'s `FORMAL` block;
   `test/executor_tb.v` is the region test's and the trap-cause priority chain's own directed bench,
   driving `rtl/executor.v` the way `test/exec_tb.v` drives its arithmetic.
@@ -314,7 +319,7 @@ What a green result does and does not mean:
   `test/mutations/`, so `make mutation-check` does not re-run that table.
 - **Every generated riscv-formal check is `mode bmc`**: PASS means no counterexample within that
   depth, not that the property holds. Depths derive from F (worst-case first retire, from `hang`)
-  and G (worst-case retire gap, from `liveness`), both 6, declared in `formal/checks.cfg`'s
+  and G (worst-case retire gap, from `liveness`), both 5 (ADR-0214), declared in `formal/checks.cfg`'s
   `#derive` lines. **Any change that adds a stall reason, lengthens a stage, or widens the
   scoreboard must re-measure F and G before it lands** (ADR-0046); `make -C formal remeasure-fg` is
   that sweep. `formal/genchecks-audit.py` grades every depth against its family's floor and a depth
