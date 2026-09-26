@@ -759,6 +759,8 @@ module executor #(
   always_comb if (clocked) assert({mul_sign_x, reg_rs1} == mul_op_x_ref);
   always_comb if (clocked) assert({mul_sign_y, reg_rs2} == mul_op_y_ref);
 
+  // Proven by components_executor; excluded from traps.sv's own composition below.
+ `ifndef TRAPS_SKIP_EXEC_ARITH
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mul))
       assert(out_rd_data == $past(mul_lo));
@@ -778,6 +780,7 @@ module executor #(
     if (clocked && !reset && !$past(reset) && $past(state) == init &&
         $past(launch_is_mul || launch_is_mulh || launch_is_mulhu || launch_is_mulhsu))
       assert(state == init);
+ `endif
 
   logic [63:0] mul_result;
   assign mul_result = {mul_hi, mul_lo};
@@ -806,7 +809,9 @@ module executor #(
     if (state == divide) assert($onehot({op_is_div, op_is_divu, op_is_rem, op_is_remu}));
   always_comb if (state == divide) assert(op_sign_x == div_ghost_rs1_sign);
   always_comb if (state == divide) assert(op_sign_y == div_ghost_rs2_sign);
+ `ifndef TRAPS_SKIP_EXEC_ARITH
   always_comb if (state == divide) assert(div_divisor == div_mag_y);
+ `endif
 
   always_comb if (state == divide) assert(mul_div_counter <= 32);
   always_comb if (state == divide) assert(mul_div_counter != 0);
@@ -815,6 +820,7 @@ module executor #(
   always_comb if (state == divide) assume(div_mag_x <= div_proof_cap);
   always_comb if (state == divide) assume(div_mag_y <= div_proof_cap);
 
+ `ifndef TRAPS_SKIP_EXEC_ARITH
   logic [5:0]  div_done;
   logic [63:0] div_quot_done, div_quot_left, div_mag_x_done, div_mag_x_left;
   assign div_done       = 6'd32 - mul_div_counter[5:0];
@@ -853,6 +859,7 @@ module executor #(
   always_ff @(posedge clk)
     if (clocked && !reset && $past(state) == divide && state == init && $past(op_is_rem))
       assert(out_rd_data == rem_ref);
+ `endif
 
   // The Zkt isolation claim's other half: region_stall is the one stall reason allowed to
   // read a register value, and only for the eight base load/store encodings.
