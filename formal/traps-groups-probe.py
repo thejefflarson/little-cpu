@@ -37,9 +37,8 @@ def main():
 
     red = []
 
-    # Case 1: orphan a real assertion by misspelling the one TRAPS_CHECK_STATUS
-    # select guarding it -- exactly what a typo in a future group edit would do,
-    # and exactly the failure a real split (TRAPS_SPLIT defined) makes silent.
+    # Case 1: misspell the one TRAPS_CHECK_STATUS select guarding a real assertion,
+    # orphaning it -- exactly the failure a real split (TRAPS_SPLIT defined) makes silent.
     needle = "`ifdef TRAPS_CHECK_STATUS\n  always_comb if (clocked && !irq_timer)"
     if needle not in original:
         stop(

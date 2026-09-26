@@ -2689,7 +2689,7 @@ probe "a stall reason with no driving cell stops the run" 2 \
 # staying green.
 d=$(zkt_fixture)
 mutate "$d/executor.v" \
-  's/assign ls_block = fwd_rs1_val\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/'
+  's/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/'
 probe "a graph with no edges out of reg_rs1 is red, not a vacuous pass" 1 \
   "found no edges at all" "$ZKT $d/executor.v"
 
@@ -5253,7 +5253,7 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the no-trap core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  's/assert(csr_rdata == prev2_cause);/assert(csr_rdata == prev2_cause_x);/'
+  's/assert(csr_rdata == prev2_cause);/assert(csr_rdata == prev2_cause2);/'
 probe "a respelled cause comparison stops rather than pinning nothing" 2 \
   "prev2_cause);\` 0 times" "$(trs "$d")"
 
@@ -5559,7 +5559,7 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the control core is empty" "STUB_TVAL_EMPTY_STATUS=1 $(tts "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  's/assert(csr_rdata == prev2_tval);/assert(csr_rdata == prev2_tval_x);/'
+  's/assert(csr_rdata == prev2_tval);/assert(csr_rdata == prev2_tval2);/'
 probe "a respelled mtval comparison stops rather than pinning nothing" 2 \
   "0 times" "$(tts "$d")"
 
