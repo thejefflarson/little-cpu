@@ -8,18 +8,19 @@ WHY THIS EXISTS. Nothing checked that the sites agreed with each other; a reason
 from one site, or a new signal ORed into `stall` that nobody taught the other sites, went
 unnoticed until someone read a CPI number and wondered why it changed.
 
-TWO VOCABULARIES, BOTH SEVEN LONG, AND THEY ARE NOT THE SAME LIST. The D/X split folded
-the divider and the load/store region wait into one opaque bit, `x_busy`, at D's own
-level (D cannot tell them apart and does not need to: both mean "hold `out`"). But
-test/cxxrtl.cc's cycle accounting reaches inside the executor instance and still charges
-a stalled cycle to `divider_busy` or `region_stall` separately, because that distinction
-is what makes `make cycles`' CPI table useful. So there are two canonical lists, not one:
-DECODER_REASONS (what actually gates `stall`, at the raw-signal granularity `stall`'s own
-OR is built from -- hazard_rs1 and hazard_rs2 are two signals here, since that is the
-literal shape of test/decoder_tb.v's OR-identity check) and CPI_REASONS (what a stalled
-cycle is charged to for reporting, where hazard_rs1/hazard_rs2 collapse to one "hazard"
-bucket but divider and region stay apart). x_busy is the union of CPI_REASONS' "divider"
-and "region"; that relationship is asserted directly rather than assumed.
+TWO VOCABULARIES, SEVEN AND SIX LONG, AND THEY ARE NOT THE SAME LIST. The D/X split made
+the divider's own busy bit, `x_busy`, opaque at D's level (D does not need to know why X
+is still working `out`). But test/cxxrtl.cc's cycle accounting reaches inside the
+executor instance and still charges a stalled cycle to `divider_busy` by name, because
+that distinction is what makes `make cycles`' CPI table useful. So there are two
+canonical lists, not one: DECODER_REASONS (what actually gates `stall`, at the
+raw-signal granularity `stall`'s own OR is built from -- hazard_rs1 and hazard_rs2 are
+two signals here, since that is the literal shape of test/decoder_tb.v's OR-identity
+check) and CPI_REASONS (what a stalled cycle is charged to for reporting, where
+hazard_rs1/hazard_rs2 collapse to one "hazard" bucket). B3 deleted the load/store region
+wait outright, so x_busy is now exactly `divider_busy`'s own condition, restated rather
+than aliased (region_stall no longer exists to fold together with it); that identity is
+asserted directly rather than assumed.
 
 A SIGNAL THIS SCRIPT DOES NOT RECOGNIZE IS RED, NOT SILENT, in whichever vocabulary the
 site is graded against.
@@ -42,7 +43,7 @@ SIGNAL_TO_DECODER_REASON = {
     "bus_wait": "bus",
 }
 
-CPI_REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus", "region"]
+CPI_REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus"]
 SIGNAL_TO_CPI_REASON = {
     "divider_busy": "divider",
     "atomic_stall": "atomic",
@@ -51,7 +52,6 @@ SIGNAL_TO_CPI_REASON = {
     "serialize": "serialize",
     "fetch_stall": "fetch",
     "bus_wait": "bus",
-    "region_stall": "region",
 }
 
 CLAUDE_STALL_OWN = "stall_own = hazard || serialize || fetch_stall || atomic_stall || x_busy"
@@ -145,27 +145,31 @@ def check_decoder_v(text):
 
 def check_executor_v(text):
     label = "rtl/executor.v's x_busy composition"
-    rhs = assign_rhs(text, "x_busy")
-    if rhs is None:
+    x_rhs = assign_rhs(text, "x_busy")
+    d_rhs = assign_rhs(text, "divider_busy")
+    if x_rhs is None:
         return [f"error: {label} has no 'assign x_busy = ...;' to read."]
-    terms = split_or_terms(rhs)
-    errors = []
-    if sorted(terms) != ["divider_busy", "region_stall"]:
-        errors.append(
-            f"error: {label} is {terms}, not exactly ['divider_busy', 'region_stall'] "
-            f"(the two reasons x_busy folds together for D).")
-    return errors
+    if d_rhs is None:
+        return [f"error: {label} has no 'assign divider_busy = ...;' to read."]
+    if x_rhs.strip() != d_rhs.strip():
+        return [
+            f"error: {label} is '{x_rhs.strip()}', not the same expression "
+            f"divider_busy is defined as ('{d_rhs.strip()}'). region_stall is gone, so "
+            f"x_busy is exactly divider_busy's own condition, restated rather than "
+            f"aliased (an alias collapses to one netlist bit, which breaks "
+            f"test/zkt_isolation_test.py's one-hop block)."
+        ]
+    return []
 
 
 def check_executor_tb(text):
-    label = "test/executor_tb.v's x_busy OR-identity check"
-    m = re.search(r"if \(x_busy !== \((.*?)\)\) begin", text, re.DOTALL)
+    label = "test/executor_tb.v's x_busy identity check"
+    m = re.search(r"if \(x_busy !== (dut\.\w+)\) begin", text, re.DOTALL)
     if m is None:
         return [f"error: {label} could not be found."]
-    terms = [t[len("dut."):] if t.startswith("dut.") else t for t in split_or_terms(m.group(1))]
-    if sorted(terms) != ["divider_busy", "region_stall"]:
-        errors_txt = f"error: {label} is {terms}, not exactly ['divider_busy', 'region_stall']."
-        return [errors_txt]
+    term = m.group(1)[len("dut."):]
+    if term != "divider_busy":
+        return [f"error: {label} compares x_busy against '{term}', not 'divider_busy'."]
     return []
 
 
@@ -248,7 +252,7 @@ def check_stall_report(text):
         errors.append(f"error: test/stall_report.py's HEADINGS is missing reason '{reason}'.")
     for key in sorted(extra):
         errors.append(f"error: test/stall_report.py's HEADINGS names '{key}', not one of "
-                       f"the seven CPI-accounting reasons.")
+                       f"the six CPI-accounting reasons.")
     return errors
 
 
@@ -263,7 +267,7 @@ def check_claude_md(text):
         errors.append(
             f"error: CLAUDE.md no longer states rtl/decoder.v's stall composition "
             f"verbatim ('{CLAUDE_STALL}').")
-    if "Seven" not in flat and "seven" not in flat:
+    if "Six" not in flat and "six" not in flat:
         errors.append(
             "error: CLAUDE.md's commitment 8 no longer says how many reasons raise "
             "`stall`.")
@@ -290,7 +294,7 @@ def main(argv):
         return 1
 
     print(f"the decoder's seven raw stall signals ({', '.join(DECODER_REASONS)}) and the "
-          f"seven CPI-accounting reasons ({', '.join(CPI_REASONS)}) each agree across "
+          f"six CPI-accounting reasons ({', '.join(CPI_REASONS)}) each agree across "
           f"their declared sites.")
     return 0
 

@@ -19,46 +19,49 @@ RE-DERIVED AT THE NEW SITE. The D/X split (ADR-0208) moved every signal this
 script used to grade off `rtl/decoder.v` and onto `rtl/executor.v`: D's own
 nine stall reasons no longer read a single bit of register-file DATA (only
 register NUMBERS and the single `x_busy` bit X hands back), so the whole
-argument is vacuous there now. X owns `region_stall` and, new since the
-split, the divider's own `divider_busy` -- both legitimately depend on an
-operand's VALUE (a load/store address, a divide's magnitude), and both are
-Zkt's own named exclusions (region_stall for loads/stores, divider_busy for
-DIV/REM). X's only TIMING output is `x_busy`, so the claim this script now
-proves is: reg_rs1/reg_rs2 reach `x_busy` only through `region_stall` or
-`divider_busy`, never any other path -- which is what would let a
-Zkt-listed instruction's cycle count depend on an operand's value. The
-`mul`-family constant-latency half of Zkt's claim is not 2-safety and is
-proved separately, single-trace, by `rtl/executor.v`'s own `FORMAL` block
-(`state == init` the cycle after a mul launches) and `make -C formal
-components_executor`.
+argument is vacuous there now. B3 (region_stall's deletion) then removed the
+other exclusion this script used to carry: the load/store region test now
+reads the effective address combinationally and never extends `x_busy`, so
+`divider_busy` (`state != init`) is the only thing left that legitimately
+depends on an operand's VALUE (a divide's magnitude, both at launch --
+`rs2 == 0` or `INT_MIN / -1` finish in one cycle -- and via `div_skip`'s
+choice of iteration count) -- Zkt's own remaining named exclusion, DIV/REM.
+The gate this script blocks is `state` itself, not `divider_busy`: `x_busy`
+is restated as its own `state != init` comparison (`rtl/executor.v` keeps
+`divider_busy` as the same expression, for documentation and for
+test/executor_tb.v's own identity check) rather than reading `divider_busy`
+directly, because a bare `x_busy = divider_busy` collapses to the same
+netlist bit and a plain `divider_busy` block would then miss the sibling
+comparison feeding `x_busy` on a path that never touches the blocked bit at
+all. `state` is a real flip-flop's output, upstream of both comparisons, so
+blocking it stops either from being read as a source. X's only TIMING
+output is `x_busy`, so the claim this script now proves is: reg_rs1/reg_rs2
+reach `x_busy` only through `state`, never any other path -- which is what
+would let a Zkt-listed instruction's cycle count depend on an operand's
+value. The `mul`-family constant-latency half of Zkt's claim is not
+2-safety and is proved separately, single-trace, by `rtl/executor.v`'s own
+`FORMAL` block (`state == init` the cycle after a mul launches) and
+`make -C formal components_executor`.
 
-WHY `region_stall`'S AND `ls_access`'S OWN GATES ARE NOT DECIDED HERE. Both
-are single-trace, exact-set-equality invariants with no VALUE comparison at
-all (`assert(!region_stall || ls_access)`,
-`assert(ls_access == (in_is_lb || ...))`), the same shape as
-`assert(is_amo == (is_amoswap || ...))`. `rtl/executor.v` states both as
-assertions, `make -C formal components_executor` proves them by
-k-induction, and `make -C formal decoder-zkt-probe` demonstrates both fail
-at their own assertion for the mutations this script used to catch
-structurally. This script keeps only the half of the argument that is
-genuinely 2-safety and has no exact decision procedure to hand a solver
-instead.
+WHY `ls_access`'S OWN GATE IS NOT DECIDED HERE. It is a single-trace,
+exact-set-equality invariant with no VALUE comparison at all
+(`assert(ls_access == (in_is_lb || ...))`), the same shape as
+`assert(is_amo == (is_amoswap || ...))`. `rtl/executor.v` states it as an
+assertion, `make -C formal components_executor` proves it by k-induction,
+and `make -C formal decoder-zkt-probe` demonstrates it fails at its own
+assertion for the mutation this script used to catch structurally. This
+script keeps only the half of the argument that is genuinely 2-safety and
+has no exact decision procedure to hand a solver instead.
 
 Two checks, against the netlist `yosys -q -s` writes for `rtl/executor.v`
 (plus `rtl/structs.v`), never against the source text:
 
-  1. FORWARD REACHABILITY, twice. Starting from the bits of `reg_rs1` and
+  1. FORWARD REACHABILITY. Starting from the bits of `reg_rs1` and
      `reg_rs2`, follow every cell's inputs to its outputs -- a flip-flop's D
      to its Q included, so a value laundered through a register (the
      divider's own magnitude counter included) is not read as clean -- with
-     `region_stall` and `divider_busy` both blocked from being used as a
-     source for anything past their own one hop. `x_busy` must not be
-     reached this way. Then, separately, starting from
-     `ls_capture`/`ls_answer`/`ls_answer_valid`'s own bits with the same two
-     blocked, `x_busy` must not be reachable either -- their own
-     correctness (a captured region answer is about the access still held
-     in X) does not extend to being read by an unrelated instruction's
-     timing.
+     `state` blocked from being used as a source for anything past its own
+     one hop. `x_busy` must not be reached this way.
   2. PORT COVERAGE, BOTH WAYS. Every input port of `executor` wider than 5
      bits (5 is the widest a register NUMBER gets) must be classified
      SEED_PORTS/STRUCT_FIELD_SEEDS (can carry a register-file or CSR-file
@@ -82,19 +85,18 @@ import tempfile
 # X's only TIMING output: how long an instruction takes to commit.
 STALL_TARGETS = ['x_busy']
 
-# The two reasons allowed to depend on a register-file DATA output: a load/store's
-# region wait, and the divider's own operand-magnitude-dependent iteration count.
-# Zkt's own exclusion list names both (loads/stores, DIV/REM).
-GATED_SIGNALS = ['region_stall', 'divider_busy']
-
-# Registers derived from region_stall that hold a load's or store's own region answer
-# across the cycle it is read on.
-REGION_STATE = ['ls_capture', 'ls_answer', 'ls_answer_valid']
+# The one hop left allowed to depend on a register-file DATA output: the divider's own
+# state register, whose transition reads fwd_rs1_val/fwd_rs2_val directly (rs2 == 0,
+# INT_MIN / -1) and via div_skip's choice of iteration count. Zkt's own exclusion list
+# names DIV/REM; the load/store region wait's own exclusion was deleted with
+# region_stall. `divider_busy` itself is not the blocked signal -- see the module
+# docstring for why a comparison of `state`, not `state` itself, would miss a sibling
+# path.
+GATED_SIGNALS = ['state']
 
 # The positive control: named nets the real RTL is known to carry reg_rs1/reg_rs2
-# through on the way to each gated signal.
-EXPECT_TAINTED = ['ls_block', 'ls_text_deep', 'ls_ram_deep', 'ls_settled',
-                   'region_stall', 'div_skip', 'divider_busy']
+# through on the way to the gated signal, and on past it to x_busy's own comparison.
+EXPECT_TAINTED = ['div_skip', 'divider_busy']
 
 # Plain (non-struct) executor INPUT ports wide enough (>5 bits) to carry a register-file
 # or CSR-file DATA output, and the ones wide enough that provably cannot.
@@ -170,11 +172,11 @@ def build_executor_netlist(executor_path, structs_path, out_dir):
     struct is one wide cell until simplemap breaks it apart into the
     primitives build_graph and forward_taint know how to read. Deliberately
     NO `opt_clean` here, unlike that check: a pure bit-select such as
-    `ls_block = reg_rs1[31:21]` has no cell of its own, so a fanout sweep
-    folds its name away in favour of reg_rs1's, and this script needs every
-    intermediate's OWN name to walk the graph one text-level term at a
+    `div_skip = div_x[31:16] == 16'b0` has no cell of its own, so a fanout
+    sweep folds its name away in favour of div_x's, and this script needs
+    every intermediate's OWN name to walk the graph one text-level term at a
     time. No port is deleted here either -- this reads named INTERNAL wires
-    (`x_busy`, `region_stall`, ...), not a diff of two builds, so there is
+    (`x_busy`, `divider_busy`, ...), not a diff of two builds, so there is
     nothing for a sweep to clean up."""
     rtl_dir = os.path.dirname(os.path.abspath(executor_path))
     srcs = ' '.join([structs_path, executor_path])
@@ -459,12 +461,11 @@ def forward_taint(fanout, seed_bits, blocked_bits=frozenset()):
 
     A bit in `blocked_bits` can still be REACHED (added to the returned set)
     but is never used as a SOURCE for tainting anything further downstream of
-    it -- the restricted-taint discipline `region_stall` and `divider_busy`
-    both need: each is allowed to depend on a register value, and everything
-    that reads one of them (rather than reg_rs1/reg_rs2 themselves) is judged
-    as if that one read were invisible. Any OTHER path into the same signal
-    still counts; blocking removes only the specific paths this design
-    intends."""
+    it -- the restricted-taint discipline `divider_busy` needs: it is allowed
+    to depend on a register value, and everything that reads it (rather than
+    reg_rs1/reg_rs2 themselves) is judged as if that one read were invisible.
+    Any OTHER path into the same signal still counts; blocking removes only
+    the specific paths this design intends."""
     reached = set(seed_bits)
     frontier = [b for b in seed_bits if b not in blocked_bits]
     while frontier:
@@ -528,8 +529,7 @@ def main():
 
         name_bits = {name: data['bits']
                      for name, data in mod['netnames'].items()}
-        needed = (list(STALL_TARGETS) + list(GATED_SIGNALS)
-                  + list(REGION_STATE) + list(EXPECT_TAINTED))
+        needed = list(STALL_TARGETS) + list(GATED_SIGNALS) + list(EXPECT_TAINTED)
         missing = sorted(set(n for n in needed if n not in name_bits))
         if missing:
             print('error: the elaborated netlist has no signal named: %s. '
@@ -566,9 +566,9 @@ def main():
         failures.append(
             'the netlist graph found no path from reg_rs1/reg_rs2 to %s, '
             'which the real RTL is known to carry a register value through '
-            'on the way to region_stall or divider_busy. That means this '
-            'run found no edges at all, and every PASS above is a check of '
-            'nothing.' % ', '.join(vacuous))
+            'on the way to divider_busy. That means this run found no edges '
+            'at all, and every PASS above is a check of nothing.'
+            % ', '.join(vacuous))
 
     def report_reachable(reached, template):
         """failures.append(template % name) for every STALL_TARGETS name
@@ -588,23 +588,10 @@ def main():
         region_reached,
         '`%s` is reachable, on the elaborated netlist, from a '
         'register-file DATA output (reg_rs1 or reg_rs2) through a path '
-        'other than region_stall or divider_busy. A Zkt-listed instruction '
+        'other than state. A Zkt-listed instruction '
         '(add, xor, sll, mul, ...) can assert this, so its cycle count '
         'would depend on an operand\'s VALUE, not just which registers it '
         'names.')
-
-    region_state_bits = set()
-    for name in REGION_STATE:
-        region_state_bits.update(name_bits[name])
-    state_reached = forward_taint(fanout, region_state_bits,
-                                   blocked_bits=blocked_bits)
-    report_reachable(
-        state_reached,
-        '`%s` is reachable, on the elaborated netlist, from %s -- '
-        'region_stall\'s own captured answer, held across the cycle '
-        'a load or store reads it on. Its correctness does not '
-        'extend to being read by an unrelated instruction\'s timing.'
-        % ('%s', '/'.join(REGION_STATE)))
 
     if failures:
         print('ZKT STALL ISOLATION: FAIL', file=sys.stderr)
@@ -613,8 +600,8 @@ def main():
         return 1
 
     print('%s: on the elaborated netlist, reg_rs1/reg_rs2 reach x_busy '
-          'only through region_stall or divider_busy (each one\'s own gate '
-          'is proved separately by make -C formal components_executor).'
+          'only through state (proved separately by '
+          'make -C formal components_executor).'
           % executor_path)
     print('ZKT STALL ISOLATION: PASS')
     return 0

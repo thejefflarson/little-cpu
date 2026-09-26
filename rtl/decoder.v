@@ -7,7 +7,7 @@ module decoder (
   input  logic clk,
   input  logic reset,
   input  fetcher_output in,
-  input  logic x_busy,  // X still working `out` (the divider, or the region test's wait)
+  input  logic x_busy,  // X still working `out` (the divider)
   input  executor_output executor_out,
   input  logic fetch_stall,  // the fetch port went to a load/store; `in.instr` is data
   input  logic bus_wait,

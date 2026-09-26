@@ -303,10 +303,51 @@ self-modifying code does at all — is checked entirely by the real core on
 both sim legs, never by the model, because the model was never going to see a
 real byte.
 
+## `datainit.c`: the last register write races the halt it is behind
+
+A fourth kind of entry, closed by neither of the two mechanisms above: not a
+platform the model cannot be configured to be, not a value the two sides
+compute differently. Both `finish`'s stores retire in program order — `tohost[1]
+= 0` at `0x108`, `x14` loaded with the return value at `0x10c`, `tohost[0] =
+x14` at `0x10e` — and both sides agree on every value along the way. `DISAGREE
+LENGTH` here means the core's trace is missing exactly one entry Sail has:
+`x14=1`, the last register write before the halt.
+
+`test/cosim.cc` samples the register file once a cycle and stops the instant
+`tohost` reads nonzero (`test/cosim.py`'s own harness, not this core, decides
+when to stop looking). `x14`'s write reaches the register file over the
+writeback path; `tohost`'s write reaches memory over the accessor's own path;
+the two are different pipeline depths from their causing instructions, so
+which one becomes visible first is a timing question, not an architectural
+one. B3 (ADR-0214) shortens the accessor path for this exact case — a plain
+store not near a mapped-region edge used to cost the deferred region answer's
+cycle, and no longer does — so the memory write that used to land a cycle
+after the register write now lands at the same cycle or before it. The loop
+in `test/cosim.cc` sees `tohost` nonzero and stops before the register write
+it raced ever gets sampled, and Sail, which logs every register-writing
+instruction rather than watching a memory location, has no such race to lose.
+
+This is a boundary effect of the comparison harness meeting a fixed platform
+behavior — where a program's LAST instruction's result becomes visible
+relative to when the program's own halt signal does — not a claim about the
+core's or the model's architectural correctness, and it is expected to recur
+in either direction (appearing or disappearing) whenever a change shifts the
+relative timing of a program's final register write against its final memory
+write. It was not previously enumerable because nothing before B3 had made
+memory writes fast enough to threaten register writes for a race at the very
+last instruction. `test/OBSERVED_FLOOR`'s own `>=` grading absorbed a related
+but distinct effect from the same measured speedup: several suite programs'
+tail self-loop got one fewer iteration in before the same per-cycle `tohost`
+poll caught it, one instruction earlier than before B3 (retires *and*
+spec-checked moved together, so nothing went unmonitored) — a floor update,
+not a baseline entry, because that shift never drops the number of
+COMPARABLE changes to zero for a whole program the way this one does for its
+very last change.
+
 ## The failure direction is still live
 
 These are name-and-status pairs under set equality, so if a future change
-makes any of the five below AGREE, or makes one diverge some other way, this
+makes any of the six below AGREE, or makes one diverge some other way, this
 gate goes red and these paragraphs get re-read. That is how the `amoregion.S`
 entry above came out: the program AGREEd, the gate said so, and the line was
 removed with the reason rather than the reason being reconstructed later.

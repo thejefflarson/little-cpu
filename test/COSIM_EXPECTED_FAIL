@@ -1,5 +1,6 @@
 # The co-simulation baseline; format, the closed entries and the open ones' reasons are in docs/manifests/cosim-expected-fail.md.
 
+datainit.c     DISAGREE LENGTH
 lrsclock.S     INCONCLUSIVE SAIL-LIMIT
 mtimer.S       INCONCLUSIVE SAIL-LIMIT
 mtimermask.S   INCONCLUSIVE SAIL-LIMIT

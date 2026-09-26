@@ -104,11 +104,11 @@ struct StallReason {
   int bucket;
 };
 
-// The D/X split deletes "operand" outright and moves the divider/region reasons to
-// rtl/executor.v's `divider_busy`/`region_stall`, both folded into `x_busy` for D.
+// The D/X split deletes "operand" outright and moves the divider reason to
+// rtl/executor.v's `divider_busy`, folded into `x_busy` for D. B3 deletes the region
+// wait outright rather than folding it: `x_busy` is now exactly `divider_busy`.
 constexpr const char *kStallLabels[] = {"divider", "atomic",  "hazard",
-                                        "serialize", "fetch", "bus",
-                                        "region"};
+                                        "serialize", "fetch", "bus"};
 constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
 
 constexpr StallReason kStallReasons[] = {
@@ -120,8 +120,6 @@ constexpr StallReason kStallReasons[] = {
     {"uut decoder fetch_stall", 4},
     // The shared bus given to another initiator.
     {"uut decoder bus_wait", 5},
-    // The load/store region wait.
-    {"uut executor region_stall", 6},
 };
 
 struct Args {

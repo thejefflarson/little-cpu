@@ -59,10 +59,10 @@ reopens this path shows up as a nonzero the identity below did not expect.
 import argparse
 import sys
 
-# The seven the D/X split has, in the order test/cxxrtl.cc tries them. No guess exists
-# to miss ("operand" is gone); the divider and region wait report through X's own signals.
-REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus",
-           "region"]
+# The six the D/X split has, in the order test/cxxrtl.cc tries them. No guess exists
+# to miss ("operand" is gone); the divider reports through X's own signal. B3 deleted
+# the region wait outright rather than reporting it here.
+REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus"]
 
 # What the CPI above it describes.
 SUITE_WORKLOAD = (
@@ -80,7 +80,6 @@ HEADINGS = {
     "serialize": "SERIAL",
     "fetch": "FETCH",
     "bus": "BUS",
-    "region": "REGION",
 }
 # The load/store locality counters, in the order the line below prints them: every
 # issuing load and store, then the two subsets.
@@ -245,9 +244,9 @@ def main():
         print(f"  {total[key]} ({of_issues}) {what}.")
     print(
         "Both are properties of where this workload keeps its data, not of the\n"
-        "core: the first is what a load/store region test answered from rs1\n"
-        "alone would stall on, and the second what a precomputed answer would\n"
-        "have to be recomputed for."
+        "core: the region test resolves every access in one cycle regardless, so\n"
+        "neither costs a cycle any more -- they are reported as workload locality\n"
+        "measurements, not as stall causes."
     )
     print()
     print(args.workload)

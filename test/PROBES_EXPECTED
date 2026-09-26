@@ -225,7 +225,6 @@ a gap in the sequence is not a defect
 a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
-a gate failure reported only by the induction leg is not evidence
 a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway
 a generated .sby whose depth drifted from what was swept is refused, not read anyway
 a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway
@@ -448,7 +447,6 @@ a respelled constant-latency assertion stops rather than pinning nothing
 a respelled divide case item stops the same way
 a respelled fault site stops rather than building the shipping core twice
 a respelled flag declaration stops rather than comparing nothing
-a respelled gate assertion stops rather than pinning nothing
 a respelled indivisibility arm stops rather than pinning nothing
 a respelled indivisibility arm stops rather than pinning nothing
 a respelled lock cover stops rather than pinning nothing
@@ -462,7 +460,6 @@ a respelled mutation site stops rather than proving the shipping core thrice
 a respelled mutation site stops rather than proving the shipping core thrice
 a respelled op_is_divu latch stops the same way too
 a respelled parameter stops rather than comparing nothing
-a respelled region_stall site stops rather than building the shipping core twice
 a respelled rule line stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
@@ -645,7 +642,6 @@ an unexpected PASS is red for nano's suite too
 an unexpected PASS is red too -- the baseline is not a ceiling
 an unexpected agreement is red -- both directions, as everywhere
 an unexpected runner status is RUNNER-ERROR, carrying it
-an ungated region_stall proving is red
 an unlisted core_portme.h would shadow the port's header, and is caught
 an unlisted core_portme.h would shadow the port's header, and is caught
 an unlisted site is red and named, with the file:line quoted
@@ -766,7 +762,7 @@ control: an untracked file is out of scope and does not fail the build
 control: and names the corner and constraint it was placed against
 control: another commit's canonical netlist is built from its own tree
 control: block RAM resets tied to a constant are green
-control: both Zkt-isolation assertions fail, each at its own line
+control: the Zkt-isolation assertion fails at its own line
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms fail, each at its own line
@@ -823,7 +819,7 @@ control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
-control: the shipping executor reaches x_busy only through its two gates
+control: the shipping executor reaches x_busy only through its one gate
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping fetchqueue passes its own bench
 control: the shipping files describe one machine
@@ -841,7 +837,7 @@ control: the shipping schedule workflow confines its credential to the publish s
 control: the shipping tree has no fallback search outside its exceptions
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
-control: the shipping tree names the seven stall signals and the seven CPI reasons consistently
+control: the shipping tree names the seven stall signals and the six CPI reasons consistently
 control: the shipping tree states every band figure in one place
 control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
 control: the tracked monitor sanitizes, and rule 3 fires
@@ -866,7 +862,7 @@ excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
 half of a macro-guarded group is red, where none of it is not
-x_busy reading ls_answer_valid directly is red (finding 1)
+x_busy reading mul_div_counter directly is red (finding 1)
 hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
@@ -998,9 +994,8 @@ the defect this exists for: a core clocked from the pad, not the PLL
 the defect this exists for: a summary line re-deriving the mode from inputs.
 the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
-the encoding proof going red somewhere else is not evidence either
+the encoding proof going red somewhere else is not evidence
 the exemption does not extend to a write of the WRONG register
-the gate proof going red somewhere else is not evidence
 the generated check set's isa line swept along with the flags is red
 the harness giving the UART its own baud rate is red
 the harness moving away takes the probe with it, loudly

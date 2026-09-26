@@ -123,48 +123,10 @@ module executor #(
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
-  // Asked of the forwarded rs1 alone: a 12-bit offset reaches 2 KB, so a block clear either side answers the same.
-  localparam int LS_BLOCK_BITS = 11;
-  localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
-  localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
-  localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BMASK =
-    LS_BLOCK_NUM'((LS_TEXT_BYTES - 32'd1) >> LS_BLOCK_BITS);
-  localparam logic [LS_BLOCK_NUM-1:0] LS_RAM_BLOCK =
-    LS_BLOCK_NUM'(LS_RAM_BASE >> LS_BLOCK_BITS);
-  localparam logic [LS_BLOCK_NUM-1:0] LS_RAM_BMASK =
-    LS_BLOCK_NUM'((LS_RAM_BYTES - 32'd1) >> LS_BLOCK_BITS);
-
-  logic [LS_BLOCK_NUM-1:0] ls_block;
-  assign ls_block = fwd_rs1_val[31:LS_BLOCK_BITS];
-
-  logic ls_text_deep, ls_ram_deep, ls_settled;
-  assign ls_text_deep = ((ls_block ^ LS_TEXT_BLOCK) & ~LS_TEXT_BMASK) == '0 &&
-                        (ls_block & LS_TEXT_BMASK) != '0 &&
-                        (ls_block & LS_TEXT_BMASK) != LS_TEXT_BMASK;
-  assign ls_ram_deep  = ((ls_block ^ LS_RAM_BLOCK) & ~LS_RAM_BMASK) == '0 &&
-                        (ls_block & LS_RAM_BMASK) != '0 &&
-                        (ls_block & LS_RAM_BMASK) != LS_RAM_BMASK;
-  assign ls_settled = ls_text_deep || ls_ram_deep;
-
   logic [1:0] mem_addr_low;
   assign mem_addr_low = in_immediate[1:0] + fwd_rs1_val[1:0];
 
-  logic ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
-  assign region_stall = in_valid && ls_access && !ls_settled && !ls_answer_valid;
-  assign ls_capture = region_stall;
-
-  // Held until X finishes, not one cycle: a one-cycle answer would expire under a wait.
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      ls_answer       <= 1'b0;
-      ls_answer_valid <= 1'b0;
-    end else if (ls_capture) begin
-      ls_answer       <= ls_supported;
-      ls_answer_valid <= 1'b1;
-    end else if (!x_busy) begin
-      ls_answer_valid <= 1'b0;
-    end
-  end
+  logic ls_fault;
 
   // Read again by the RVFI fault mask below, ungated by `executing`, for a trapping amo.
   logic is_amo;
@@ -186,8 +148,7 @@ module executor #(
 
   logic atomic_fault;
   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
-  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
-                    !load_misaligned && !store_misaligned;
+  assign ls_fault = ls_access && !ls_supported && !load_misaligned && !store_misaligned;
 
   logic load_access_fault, store_access_fault;
   assign load_access_fault  = (atomic_fault && in_is_lr) || (ls_fault && instr_ls_load);
@@ -292,24 +253,27 @@ module executor #(
     endcase
   end
 
-  assign redirect = in_valid && !x_busy && !region_stall && (resolved_target != seq_pc ||
+  assign redirect = in_valid && !x_busy && (resolved_target != seq_pc ||
     trap_taken || in_is_mret);
   assign redirect_target = resolved_target;
 
   logic committing;
-  assign committing = in_valid && !x_busy && !region_stall && !trap_taken;
+  assign committing = in_valid && !x_busy && !trap_taken;
   assign csr_ren = committing && in_is_csr_access && csr_read_op;
   assign csr_wen = committing && in_is_csr_access && csr_write_op;
   assign instret = committing;
-  assign trap_entry = in_valid && !x_busy && !region_stall && trap_taken;
+  assign trap_entry = in_valid && !x_busy && trap_taken;
   assign mret_entry = committing && in_is_mret;
 
   logic [1:0]  state;
   localparam init = 2'b00;
   localparam divide = 2'b10;
+  // x_busy is exactly divider_busy now that region_stall is gone, but restated rather
+  // than aliased: a bare `x_busy = divider_busy` collapses to the same netlist bit,
+  // which would make test/zkt_isolation_test.py's one-hop block land on x_busy itself.
   logic divider_busy;
   assign divider_busy = state != init;
-  assign x_busy = divider_busy || region_stall;
+  assign x_busy = state != init;
 
   logic [31:0] alu_rs1, alu_rs2;
   always_comb begin
@@ -340,8 +304,8 @@ module executor #(
 
   // A trap still retires; `executing` gates that, and `launch.valid` must not.
   logic executing;
-  assign executing = in_valid && !in_is_interrupt && !region_stall && !x_busy && !trap_taken;
-  assign launch.valid = in_valid && !in_is_interrupt && !region_stall && !x_busy;
+  assign executing = in_valid && !in_is_interrupt && !x_busy && !trap_taken;
+  assign launch.valid = in_valid && !in_is_interrupt && !x_busy;
   assign launch.rd = executing ? in_rd : 5'b0;
   assign launch.rs1 = alu_rs1;
   assign launch.rs2 = fwd_rs2_val;
@@ -522,8 +486,6 @@ module executor #(
       op_is_remu <= 0;
       op_sign_x <= 0;
       op_sign_y <= 0;
-    end else if (region_stall) begin
-      out.valid <= 1'b0;  // still waiting on the deferred region answer
     end else begin
       // Assigned outside the case: a divide's completing cycle must publish its own answer.
       out.rd_ready <= in_has_result;
@@ -870,10 +832,9 @@ module executor #(
       assert(out_rd_data == rem_ref);
  `endif
 
-  // The Zkt isolation claim's other half: region_stall is the one stall reason allowed to
-  // read a register value, and only for the eight base load/store encodings.
-  // formal/decoder-zkt-probe.py is these two assertions' forced-red prerequisite.
-  always_comb if (clocked) assert(!region_stall || ls_access);
+  // The Zkt isolation claim's other half: `ls_access` is exactly the eight base
+  // load/store encodings. formal/decoder-zkt-probe.py is this assertion's forced-red
+  // prerequisite.
   always_comb if (clocked)
     assert(ls_access == (in_is_lb || in_is_lbu || in_is_lh || in_is_lhu ||
       in_is_lw || in_is_sb || in_is_sh || in_is_sw));
@@ -886,17 +847,7 @@ module executor #(
 
   always_comb if (clocked && instr_atomic) assert(mem_addr_calc == atomic_addr);
 
-  always_comb if (clocked && ls_access) begin
-    assert(in_immediate_hi == {20{in_immediate_sign}});
-    if (ls_settled) assert(ls_supported);
-  end
-
-  logic prev_answer_valid;
-  always_ff @(posedge clk) prev_answer_valid <= ls_answer_valid;
-  always_comb if (clocked && prev_answer_valid && !prev_x_busy)
-    assert(!ls_answer_valid);
-
-  always_comb if (clocked && ls_answer_valid) assert(ls_answer == ls_supported);
+  always_comb if (clocked && ls_access) assert(in_immediate_hi == {20{in_immediate_sign}});
 
   // The trap-cause priority chain: exactly one arm decides, in this order, whenever the
   // word alone (no interrupt, no fetch fault) is what is deciding.
@@ -929,8 +880,8 @@ module executor #(
   always_comb if (clocked && trap_taken) assert(!instret && !csr_wen && !csr_ren);
   always_comb if (clocked) assert(!(trap_entry && mret_entry));
   // NOT asserted here: "in_is_interrupt implies trap_entry" depends on D never handing X
-  // an interrupt while x_busy or region_stall holds -- a claim about D's own behavior this
-  // module cannot see standalone. formal/traps.sv checks it composed.
+  // an interrupt while x_busy holds -- a claim about D's own behavior this module cannot
+  // see standalone. formal/traps.sv checks it composed.
 
   logic signed [31:0] cmp_ref_x, cmp_ref_y;
   assign cmp_ref_x = fwd_rs1_val;

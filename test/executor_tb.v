@@ -84,12 +84,12 @@ module executor_tb;
     end
   endtask
 
-  // `x_busy` is exactly the OR of the two reasons the divider and the region wait, the
-  // counterpart of test/decoder_tb.v's own OR-identity check on D's side of the split.
+  // `x_busy` is exactly the divider's own busy bit -- the counterpart of
+  // test/decoder_tb.v's own identity check on D's side of the split.
   always @(clk) begin
-    if (x_busy !== (dut.divider_busy || dut.region_stall)) begin
-      $display("MISMATCH x_busy is not the OR of divider_busy and region_stall: x_busy=%b divider_busy=%b region_stall=%b",
-               x_busy, dut.divider_busy, dut.region_stall);
+    if (x_busy !== dut.divider_busy) begin
+      $display("MISMATCH x_busy is not divider_busy: x_busy=%b divider_busy=%b",
+               x_busy, dut.divider_busy);
       errors++;
     end
   end
@@ -227,8 +227,8 @@ module executor_tb;
     check_hex("ecall is cause 11", trap_cause, 32'd11);
     check_hex("...and reports nothing either", trap_tval, 32'h0);
 
-    // Addresses in this block are all deep inside a RAM block (region_stall settles
-    // combinationally), so `trap_entry` reads its real committed value with no wait.
+    // The region test reads the effective address combinationally, so `trap_entry`
+    // reads its real committed value the same cycle for every address below.
     clear_in();
     in.is_lw = 1'b1;
     in.immediate = 32'd4;
@@ -381,85 +381,56 @@ module executor_tb;
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0001_1000;   // deep inside the 64 KB RAM
     #1;
-    check_bit("a load deep inside RAM waits for nothing", dut.region_stall, 1'b0);
-    check_bit("...and does not fault", trap_entry, 1'b0);
+    check_bit("a load deep inside RAM does not fault", trap_entry, 1'b0);
 
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0000_0800;   // deep inside the 8 KB text window
     #1;
-    check_bit("a load deep inside text waits for nothing either", dut.region_stall, 1'b0);
-    check_bit("...and does not fault", trap_entry, 1'b0);
+    check_bit("a load deep inside text does not fault either", trap_entry, 1'b0);
 
     clear_in();
     in.is_lw = 1'b1;
-    reg_rs1 = 32'h0001_0400;   // the RAM's first 2 KB block
+    reg_rs1 = 32'h0001_0400;   // the RAM's first 2 KB block -- an edge case, still answered
     #1;
-    check_bit("the RAM's first block does not reach the fast path", dut.region_stall, 1'b1);
-    reg_rs1 = 32'h0001_0800;
-    #1;
-    check_bit("...and the block above it does", dut.region_stall, 1'b0);
+    check_bit("the RAM's first block resolves the same cycle, with no fault", trap_entry, 1'b0);
 
-    // The deferred-answer protocol: `in` held steady (D's job under x_busy is tested in
-    // test/decoder_tb.v), the answer registers one cycle after the capture and is read
-    // the cycle after that.
+    // No more deferred-answer protocol: the region test reads the effective address
+    // combinationally, so every vector below faults or does not on the very cycle it
+    // is presented, with no wait and no x_busy raised for this reason.
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0004_0000;   // claimed by nothing
     #1;
-    check_bit("an out-of-map load waits for its region answer", dut.region_stall, 1'b1);
-    check_bit("...which raises x_busy", x_busy, 1'b1);
-    @(posedge clk);
-    #1;
-    check_bit("the answer is there on the next cycle", dut.ls_answer_valid, 1'b1);
-    check_bit("...with the wait over", dut.region_stall, 1'b0);
-    check_bit("...and it faults", trap_entry, 1'b1);
+    check_bit("an out-of-map load faults the same cycle", trap_entry, 1'b1);
     check_hex("...as a LOAD access fault", trap_cause, 32'd5);
+    check_bit("...raising no x_busy for it", x_busy, 1'b0);
 
-    // A settled answer's latch decays only once X stops being busy -- the same cycle a new
-    // instruction would be presented in the real pipeline -- so every vector below spends
-    // one such cycle before its own wait can start clean of the previous vector's answer.
     clear_in();
     in.is_sw = 1'b1;
     reg_rs1 = 32'h0004_0000;
-    @(posedge clk);
-    #1;
-    check_bit("an out-of-map store waits for its own region answer", dut.region_stall, 1'b1);
-    @(posedge clk);
     #1;
     check_hex("the same address STORES as a STORE/AMO access fault", trap_cause, 32'd7);
 
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0001_0000;   // the RAM's own base -- answered
-    @(posedge clk);
-    #1;
-    @(posedge clk);
     #1;
     check_bit("a load the map answers does not fault", trap_entry, 1'b0);
 
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0002_0000;   // the timer's reserved window
-    @(posedge clk);
-    #1;
-    @(posedge clk);
     #1;
     check_bit("a load from the timer's window is answered", trap_entry, 1'b0);
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0002_0020;   // the UART
-    @(posedge clk);
-    #1;
-    @(posedge clk);
     #1;
     check_bit("...and so is one from the UART", trap_entry, 1'b0);
     clear_in();
     in.is_lw = 1'b1;
     reg_rs1 = 32'h0002_0028;   // the SPI controller
-    @(posedge clk);
-    #1;
-    @(posedge clk);
     #1;
     check_bit("...and the SPI controller", trap_entry, 1'b0);
 
