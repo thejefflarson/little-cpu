@@ -58,10 +58,7 @@ def main():
     elif "guards" not in output or "update the manifest" not in output:
         red.append(f"the stale-manifest mutation failed for a different reason:\n{output}")
 
-    # Case 2: orphan one exclusion -- unguard a real excluded assertion, so the count
-    # drops below the manifest with no declared reason. The Zkt-latency assertion is
-    # the one this repo's own probe (executor-zkt-probe.py) also depends on staying
-    # inside the guard, so unguarding it is a real, not a token, mutation.
+    # Case 2: unguard a real excluded assertion, so the count drops with no declared reason.
     original = executor_path.read_text()
     needle = " `ifndef TRAPS_SKIP_EXEC_ARITH\n  always_ff @(posedge clk)\n" \
         "    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mul))\n" \
@@ -82,9 +79,7 @@ def main():
     elif "guards" not in output or "update the manifest" not in output:
         red.append(f"the unguarded-assertion mutation failed for a different reason:\n{output}")
 
-    # Case 3: drop the macro from one traps task's own read line, leaving the manifest
-    # and executor.v untouched -- the exclusion this probe grades would stop applying
-    # there while every check of the guard and the count still passes.
+    # Case 3: drop the macro from one traps task's own read line, everything else untouched.
     real_sby = sby_path.read_text()
     needle_sby = (
         "traps_cause:\n"

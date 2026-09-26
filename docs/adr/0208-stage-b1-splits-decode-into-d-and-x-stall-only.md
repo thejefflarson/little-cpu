@@ -364,40 +364,62 @@ atomically, so landing the selection at the right elaboration stage cost more wa
 the existing evidence already justified spending.
 
 **No invariant was added for any of the 18, because none produced a counterexample to derive
-one from.** `components_traps`'s real k-induction proof does not close inside
-`components-proof`'s 20-minute CI window on any of the three engines tried (bitwuzla
-k-induction, twice, unsplit — nearest to closing at step 19/20; the four-way property-group
-split; `abc pdr` here, 125/143 with no ETA on the rest). `formal/components.sby`'s
-`traps: smtbmc bitwuzla` line is left as it is: bitwuzla is the only one of the three with a
-documented near-complete trace, and no engine choice made here would follow from evidence
-rather than a guess.
+one from.** What closed the proof instead was excluding the thirteen that are pure
+multiplier/divider arithmetic from the traps composition's own obligations — proven
+unconditionally, and unaffected, by `components_executor`'s own separate proof, over its own
+much smaller environment; no trap property reads a multiply or divide result.
+`rtl/executor.v` gates them behind `` `ifndef TRAPS_SKIP_EXEC_ARITH ``, and
+`formal/components.sby` defines that macro only on the five traps-composition tasks' own read
+of `executor.v` — never on `components_executor`'s, `components_decoder`'s, `pcloop`'s,
+`accessor`'s or `busarbiter`'s. `formal/traps-arith-excluded-test.py` grades both the
+guarded-assertion count (13, `formal/TRAPS_ARITH_EXCLUDED`) and the macro's placement, both
+directions, and `formal/traps-arith-excluded-probe.py` forces it red three ways (a stale
+count, an unguarded exclusion, and the macro missing from one traps task); both are wired
+into `components_traps` and the four `traps_*` split tasks as Makefile prerequisites, the way
+`traps-groups` already is. `rtl/executor.v:883` (`ls_answer_valid` implies
+`ls_answer == ls_supported`, the region test's own deferred-answer protocol) and the two
+decoder invariants (523, 567) stay in the traps composition's obligations unexcluded: none is
+arithmetic, and the two decoder facts are exactly the kind of cross-module lemma the CAUSE fix
+above needed — removing them was never on the table.
 
-**DECISION NEEDED**: none of (a) raising `components-proof`'s CI timeout for the `traps` entry
-alone, (b) moving `components_traps`'s real proof off the required CI path — keeping the
-already-closed `traps_cover`, `traps-region-probe` and `traps-tval-probe` plus this session's
-125/143 unbounded PDR result as the PR-time gate, and running the full k-induction proof on a
-longer cadence (nightly, or `main`-only, the way Sail co-simulation already is) — or (c)
-genuinely shrinking the composed state space (for instance, modeling the divider's and
-multiplier's result as a free value in the traps composition specifically, since trap
-semantics never read it) is this session's to make; each trades a different one of the four
-goals and belongs to the owner or a follow-up ADR.
+**Measured**: `make -C formal components_executor` still proves the full `` `ifdef FORMAL ``
+block with the macro left undefined — basecase and induction both pass by k-induction under
+bitwuzla in 2:35, both Zkt probes (`decoder-zkt-probe.py`, `executor-zkt-probe.py`) still find
+and fail at their assertions' now-shifted lines, confirming their line lookup is by text
+search and unaffected by the inserted `` `ifdef ``/`` `endif `` lines. `make -C formal
+components_traps` — the real, unsplit, full k-induction proof, `mode prove`, no narrowing —
+now closes in **57 seconds** of sby's own elapsed clock time (1m59s wall including every
+prerequisite: `traps_cover`, `traps-region-probe`, `traps-tval-probe`,
+`traps-arith-excluded`), against `components-proof`'s 20-minute CI budget — a ~95% margin, not
+a near miss. `abc pdr` on the same excluded composition (mode prove, no time limit, throwaway
+sby) reaches 126 of the now-130 properties with zero counterexamples before plateauing again
+at the same four residual outputs (the two decoder facts and the two `traps.sv` end-to-end
+goals) — PDR alone still does not fully close, but that no longer matters: bitwuzla, the
+shipping engine, closes the real proof with room to spare. `formal/components.sby`'s
+`traps: smtbmc bitwuzla` line is unchanged, now confirmed rather than merely the least-bad
+guess it was before this measurement.
 
-## Not yet done
+**Decided, not left open**: option (c) from the prior draft of this section — excluding the
+arithmetic components_executor already proves, graded so nothing falls into the gap — closed
+the proof outright. Freeing the multiplier's and divider's result as an unconstrained value in
+the traps composition (the more invasive form of the same idea) was not needed and was not
+tried. Neither raising `components-proof`'s CI timeout nor moving `components_traps` off the
+required CI path is needed either.
 
-`test/decoder_tb.v` (1345 lines) still carries the fused decoder's port list and its whole
-vector set is built on the two-cycle guess-then-fetch protocol B1 deleted (the guessed
-pair, the operand-fetch stall, same-cycle branch resolution) — not a rename, a rewrite
-against D's actual single-cycle present-then-issue shape, and larger than the rest of this
-closure combined. `test/stall_sites_test.py` (and, with it, `test/decoder_tb.v`'s OR-identity
-check, `CLAUDE.md`'s own stall-broadcast list, and every other of the six declared sites)
-needs re-deriving against `x_busy` folding two reasons into one bit at D's level and the
-operand reason's deletion; `CLAUDE.md`'s prose for this is rewritten in this same PR but the
-grading script that would catch it drifting is not. `test/MUTATION_DETECTORS`'s five
-patches keyed to the region-test logic that moved into `rtl/executor.v` still do not apply;
-re-keying and re-measuring each is blocked on `test/decoder_tb.v` for the two whose detector
-is that bench. None of these three is graded on `make test`'s own path except
-`zkt-isolation-test` (now closed) and `mutation-probe` (the forced-red prerequisite, not the
-check itself).
+## Not yet done, updated
+
+This section originally listed `test/decoder_tb.v`'s rewrite, `test/stall_sites_test.py`'s
+re-derivation and `test/MUTATION_DETECTORS`'s five region-test patches as open work. All
+three landed in later commits on this same branch (`e39efef`, ahead of this ADR's own
+first version and an ancestor of every commit since): `test/decoder_tb.v` is 435 lines
+against D's real single-cycle present-then-issue shape, `test/executor_tb.v` is new (491
+lines, the region test's and the trap-cause priority chain's own directed bench),
+`test/stall_sites_test.py` grades both vocabularies (D's own composition and the
+CPI-accounting taxonomy), and `test/MUTATION_DETECTORS`'s `atomic-region-ignored` and
+`loadstore-region-ignored` are re-keyed to `executor_tb`. `make test` and
+`make mutation-check` are both green against this tree. Nothing is open from that list
+anymore; the only open item this ADR carries forward is the `components_traps` CI-timing
+question below.
 
 ## Measured: cycles moved the direction the ticket's kill criterion predicted
 
@@ -461,5 +483,12 @@ before this stage ships.
 
 **Amended**: "`components_traps` ... closed" above was true of the induction generalizing,
 not of what six of its assertions actually checked — see the vacuity section above. The
-guard is fixed and proven non-vacuous by `traps_cover`, but whether the now-real proof fits
-CI's `components-proof` window is undecided and stays open alongside the other three.
+guard is fixed and proven non-vacuous by `traps_cover`.
+
+**Amended again**: every item this section called open or undecided is now closed.
+`test/decoder_tb.v`, `test/stall_sites_test.py` and `test/MUTATION_DETECTORS` landed in
+`e39efef`, already an ancestor of this branch before this update — see "Not yet done,
+updated" above. `components_traps`'s real proof fits `components-proof`'s CI window: closing
+it needed excluding the multiplier's and divider's own arithmetic checks (proven
+unconditionally elsewhere, graded so nothing falls into the gap), not a wider timeout or a
+narrower CI path — see "Naming PDR's stubborn properties" above for the measurement.

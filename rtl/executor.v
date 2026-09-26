@@ -1,8 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// X is where a register value first exists: the ALU, branch compare, address/region
-// test, every trap but the timer interrupt, and CSR access land here.
+// X is where a register value first exists: the ALU, branch compare, region test, traps and CSR access land here.
 module executor #(
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
@@ -52,8 +51,7 @@ module executor #(
   `endif
  `endif
 );
-  // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
-  // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
+  // Named continuous assigns, not part-selects: iverilog mis-derives sensitivity for those (ADR-0037).
   logic        in_valid, in_is_interrupt, in_imem_fault;
   logic [31:0] in_pc, in_instr, in_immediate;
   logic [4:0]  in_rd, in_rs1, in_rs2;
@@ -648,8 +646,7 @@ module executor #(
     assume(fwd_rs2_val == prev_fwd_rs2_val);
   end
 
-  // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
-  // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
+  // Named continuous assigns, not part-selects: iverilog mis-derives sensitivity for those (ADR-0037).
   logic [31:0] alu_sub_lo;
   assign alu_sub_lo = alu_sub[31:0];
   logic rem_sub_hi, rem_shifted_hi;
@@ -730,8 +727,7 @@ module executor #(
   always_comb if (clocked) assert({mul_sign_x, fwd_rs1_val} == mul_op_x_ref);
   always_comb if (clocked) assert({mul_sign_y, fwd_rs2_val} == mul_op_y_ref);
 
-  // Proven by components_executor; excluded from traps.sv's own composition below.
- `ifndef TRAPS_SKIP_EXEC_ARITH
+ `ifndef TRAPS_SKIP_EXEC_ARITH  // proven by components_executor; excluded from traps.sv below
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mul))
       assert(out_rd_data == $past(mul_lo));

@@ -157,8 +157,7 @@ def main():
         if parts != counts["cycles"]:
             broken.append(f"  {name}: columns sum to {parts}, cycles is {counts['cycles']}")
 
-    # The same identity, one level down: hazard's three causes have to sum to exactly the
-    # hazard column they split, per program and not just in total.
+    # The same identity one level down: hazard's three causes must sum to hazard, per program.
     hazard_broken = [
         f"  {name}: hzA+hzB+hzC is {counts['hzA'] + counts['hzB'] + counts['hzC']}"
         f", hazard is {counts['hazard']}"
