@@ -220,9 +220,10 @@ fi
 echo "coremark.c $stall_line retires=$retires" > "$tmp/stall_counts"
 python3 "$TEST_DIR/stall_report.py" "$tmp/stall_counts" --workload \
 "READ THE CPI AS A PROPERTY OF COREMARK, and COREMARK'S AS A PROPERTY OF THIS
-CONFIGURATION. This core has no forwarding network (priced and declined --
-see the hazards commitment in CLAUDE.md) and no bitmanip extension, and
-CoreMark leans on both harder than Dhrystone does. Reading this table against
+CONFIGURATION. Forwarding reaches only a same-cycle producer (see the hazards
+commitment in CLAUDE.md); a load-use dependency still stalls, and there is no
+bitmanip extension, and CoreMark leans on both harder than Dhrystone does.
+Reading this table against
 \`make cycles\`'s hand-written-assembly one is what running this is for; reading
 either DMIPS/MHz or CoreMark/MHz against a number this repo did not measure on
 its own hardware, at its own ROM size, is not something either supports."

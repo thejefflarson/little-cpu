@@ -314,9 +314,12 @@ module decoder (
   // A CSR access's own rs1 feeds `csr_arg` in X, which reads `reg_rs1` verbatim -- it is
   // never a forwarding consumer, so a dx_match against it still stalls even when `out`
   // would otherwise be forwardable. rs2 has no such use (a CSR access never reads rs2).
+  // x0 is excluded the same way the hazard check excludes it below: a producer that
+  // targeted x0 must never forward, since x0 reads zero regardless of what `out.rd_data`
+  // holds.
   logic fwd_rs1, fwd_rs2;
-  assign fwd_rs1 = dx_match_rs1 && out_has_result && !instr_csr_access;
-  assign fwd_rs2 = dx_match_rs2 && out_has_result;
+  assign fwd_rs1 = uses_rs1 && rs1 != 0 && dx_match_rs1 && out_has_result && !instr_csr_access;
+  assign fwd_rs2 = uses_rs2 && rs2 != 0 && dx_match_rs2 && out_has_result;
 
   // hzA: dx_match without a forward select -- the producer will not publish a ready
   // result next cycle (a load/AMO/LR/SC, a div/rem just starting, or a CSR access's own
