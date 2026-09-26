@@ -148,7 +148,7 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
 	rm -rf $@
 	sby -f $< pcloop
 components_traps: components.sby traps_cover traps-region-probe traps-tval-probe \
-                  check-solver-bitwuzla \
+                  traps-arith-excluded check-solver-bitwuzla \
                   ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v ../rtl/regsel.v \
                   ../rtl/csrs.v ../rtl/structs.v traps.sv
 	rm -rf $@
@@ -159,9 +159,15 @@ traps-groups: traps-groups-test.py traps-groups-probe.py traps.sv TRAPS_GROUPS
 	python3 traps-groups-probe.py
 	python3 traps-groups-test.py
 
+.PHONY: traps-arith-excluded
+traps-arith-excluded: traps-arith-excluded-test.py traps-arith-excluded-probe.py \
+                       ../rtl/executor.v TRAPS_ARITH_EXCLUDED components.sby
+	python3 traps-arith-excluded-probe.py
+	python3 traps-arith-excluded-test.py
+
 components_traps_pc components_traps_cause components_traps_status \
 components_traps_quiescence: components_traps_%: components.sby traps-groups \
-                              check-solver-bitwuzla \
+                              traps-arith-excluded check-solver-bitwuzla \
                               ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
                               ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
 	rm -rf $@
