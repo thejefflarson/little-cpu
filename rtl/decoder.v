@@ -1,9 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// D decodes the buffered word and presents the register file its own pair, never a
-// guess, so X reads the right answer next cycle. Everything needing a register value
-// commits in X; fetch-address ownership lives in rtl/littlecpu.v, since it spans F and X.
+// D decodes the buffered word and presents the register file its own pair (never a guess),
+// so X reads the right answer next cycle. Fetch-address ownership lives in rtl/littlecpu.v.
 module decoder (
   input  logic clk,
   input  logic reset,
@@ -253,8 +252,7 @@ module decoder (
   assign instr_csr_access = instr_csrrw || instr_csrrs || instr_csrrc;
   assign is_csr_imm = instr_csrrwi || instr_csrrsi || instr_csrrci;
 
-  // Raw instruction fields, not the muxed `rs1`/`rd`: those would put the compressed
-  // register-select decode in a trap arm.
+  // Raw instruction fields, not the muxed `rs1`/`rd`, to keep compressed register-select out of a trap arm.
   logic instr_error, instr_mret, instr_wfi, instr_cebreak;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 &&
     rs1_field == 5'b0 && rd_field == 5'b0;
@@ -295,38 +293,29 @@ module decoder (
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // `out`'s producer lands in executor_out exactly when this instruction reaches X, so a
-  // match there forwards (below); `executor_out`'s own producer is already reachable
-  // through the regfile's write-through bypass by then.
+  // A dx_match's producer reaches executor_out exactly when this instruction reaches X; an
+  // ex_match's producer is already reachable through the regfile's write-through bypass.
   logic dx_match_rs1, dx_match_rs2, ex_match_rs1, ex_match_rs2;
   assign dx_match_rs1 = out.valid && out.rd == rs1;
   assign dx_match_rs2 = out.valid && out.rd == rs2;
   assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
   assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
 
-  // Mirrors executor.v's `in_has_result`: same-cycle ops, never a load/store/AMO/LR/SC/div/rem.
+  // Mirrors executor.v's `in_has_result`.
   logic out_has_result;
   assign out_has_result = out.is_add || out.is_sub || out.is_xor || out.is_or || out.is_and ||
     out.is_sll || out.is_slt || out.is_sltu || out.is_srl || out.is_sra ||
     out.is_mul || out.is_mulh || out.is_mulhu || out.is_mulhsu ||
     out.is_auipc || out.is_lui || out.is_jal || out.is_jalr || out.is_csr_access;
 
-  // A CSR access's own rs1 feeds `csr_arg` in X, which reads `reg_rs1` verbatim -- it is
-  // never a forwarding consumer, so a dx_match against it still stalls even when `out`
-  // would otherwise be forwardable. rs2 has no such use (a CSR access never reads rs2).
-  // x0 is excluded the same way the hazard check excludes it below: a producer that
-  // targeted x0 must never forward, since x0 reads zero regardless of what `out.rd_data`
-  // holds.
+  // Excludes a CSR access's own rs1 (reads `reg_rs1` verbatim via `csr_arg`, never a
+  // forwarding consumer) and x0 (always zero, regardless of `out.rd_data`).
   logic fwd_rs1, fwd_rs2;
   assign fwd_rs1 = uses_rs1 && rs1 != 0 && dx_match_rs1 && out_has_result && !instr_csr_access;
   assign fwd_rs2 = uses_rs2 && rs2 != 0 && dx_match_rs2 && out_has_result;
 
-  // hzA: dx_match without a forward select -- the producer will not publish a ready
-  // result next cycle (a load/AMO/LR/SC, a div/rem just starting, or a CSR access's own
-  // excluded rs1). hzB: ex_match whose producer is in the executor but not yet unpacked.
-  // A ready ex_match (the old hzC) needs no stall at all: the regfile's write-through
-  // bypass reaches it on its own, so that population is exactly the cycles this split
-  // over hazard_rs1_dx/hazard_rs1_ex no longer counts.
+  // hzA: no forward select yet exists for this dx_match. hzB: an ex_match not yet
+  // unpacked. A ready ex_match needs no stall -- the write-through bypass reaches it.
   logic hazard_rs1_dx, hazard_rs1_ex, hazard_rs2_dx, hazard_rs2_ex;
   assign hazard_rs1_dx = uses_rs1 && rs1 != 0 && dx_match_rs1 && !fwd_rs1;
   assign hazard_rs1_ex = uses_rs1 && rs1 != 0 && ex_match_rs1 && !executor_out.rd_ready;
@@ -354,8 +343,7 @@ module decoder (
   assign stall_own = hazard || serialize || fetch_stall || atomic_stall || x_busy;
   assign stall = stall_own || bus_wait;
 
-  // Over-asking is deliberate (a store-conditional with no reservation makes no
-  // transaction, and X may yet find this instruction traps); under-asking is not.
+  // Over-asking is deliberate: X may yet find this instruction traps, or fault an SC.
   assign bus_request = !reset && !stall_own &&
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
@@ -487,10 +475,8 @@ module decoder (
   assign out_is_amominu = out.is_amominu;
   assign out_is_amomaxu = out.is_amomaxu;
 
-  // formal/traps.sv composes this module `-formal -noassume`, dropping executor.v's own
-  // standalone-only assumes about `in` and everything its reference model re-derives
-  // from `dx_instr`'s bits instead of trusting D's decode; the asserts below restate
-  // each as a fact about `out` k-induction can use.
+  // formal/traps.sv composes this `-formal -noassume`, so the asserts below restate as
+  // facts about `out` what a standalone run would otherwise only assume about `in`.
   logic out_is_auipc, out_is_jal, out_is_jalr, out_is_beq, out_is_bne, out_is_blt,
     out_is_bltu, out_is_bge, out_is_bgeu, out_is_add, out_is_sub, out_is_xor, out_is_or,
     out_is_and, out_is_sll, out_is_slt, out_is_sltu, out_is_srl, out_is_sra, out_is_mul,
@@ -650,8 +636,7 @@ module decoder (
   always_comb if (clocked && out_valid)
     assert(out_is_ecall == (out_instr == 32'h0000_0073));
 
-  // Gated on out_uncompressed throughout: is_lw/is_sw also cover a compressed form the
-  // reference does not check, ruled out here by the quadrant bits.
+  // Gated on out_uncompressed: is_lw/is_sw also cover a compressed form the quadrant bits rule out here.
   always_comb if (clocked && out_valid && out_uncompressed) begin
     assert(out_is_lb == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b000));
     assert(out_is_lbu == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b100));
@@ -666,8 +651,8 @@ module decoder (
     if (out_is_sb || out_is_sh || out_is_sw)
       assert(out_immediate == {{20{out_instr[31]}}, out_instr[31:25], out_instr[11:7]});
 
-    // The eleven A encodings, zero immediate included: X's atomic address check trusts
-    // rs1 verbatim, true only because D hands an atomic a zero immediate.
+    // The eleven A encodings: X's atomic address check trusts rs1 verbatim, true only
+    // because D hands an atomic a zero immediate.
     if (out_instr[6:2] == 5'b01011 && out_instr[14:12] == 3'b010) begin
       assert(out_is_amoswap == (out_instr[31:27] == 5'b00001));
       assert(out_is_amoadd == (out_instr[31:27] == 5'b00000));
@@ -686,8 +671,7 @@ module decoder (
         out_is_amominu || out_is_amomaxu)
       assert(out_immediate == 32'b0);
 
-    // A plain `add` must never fault. One direction only: out_is_add also covers
-    // addi/c.add/c.mv, which the reference does not check.
+    // One direction only: out_is_add also covers addi/c.add/c.mv, unchecked here.
     if (out_instr[6:2] == 5'b01100 && out_instr[14:12] == 3'b000 && out_instr[31:25] == 7'b0)
       assert(out_is_add);
   end

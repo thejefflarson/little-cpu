@@ -77,10 +77,8 @@ module executor #(
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
     in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2} = in;
 
-  // D precomputed and registered these selects from register NUMBERS alone (`dx_match`
-  // against `out.rd`, gated on the producer having a same-cycle result): the one case the
-  // regfile's own write-through bypass reaches too late. A match two instructions back
-  // reaches the bypass in time on its own and needs no mux here (commitment 4).
+  // D precomputed these selects from register NUMBERS alone -- the one case the
+  // write-through bypass (commitment 4) reaches too late.
   logic [31:0] fwd_rs1_val, fwd_rs2_val;
   assign fwd_rs1_val = in_fwd_rs1 ? out.rd_data : reg_rs1;
   assign fwd_rs2_val = in_fwd_rs2 ? out.rd_data : reg_rs2;
@@ -92,8 +90,7 @@ module executor #(
   logic [31:0] csr_arg;
   assign csr_arg = in_is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
 
-  // Zicsr's suppression rules: skipping the write is what makes `csrr` legal on a
-  // read-only CSR. `csr_read_op` exists only so RVFI reports the right read mask.
+  // Zicsr's suppression rules make `csrr` legal on a read-only CSR; `csr_read_op` exists only so RVFI reports the right read mask.
   logic csr_src_zero, csr_write_op, csr_read_op;
   assign csr_src_zero = rs1_field == 5'b0;
   assign csr_write_op = in_is_csr_access && !((in_is_csrrs || in_is_csrrc) && csr_src_zero);
@@ -220,8 +217,7 @@ module executor #(
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
  `ifdef RISCV_FORMAL
-  // A plain `assign`: a constant select in an always_* process is Icarus's own
-  // over-sensitivity "sorry", allowlisted nowhere but rtl/writeback.v.
+  // A plain `assign`: a constant select in an always_* process is Icarus's own "sorry", allowlisted nowhere but rtl/writeback.v.
   logic [3:0] ls_fault_wstrb;
   assign ls_fault_wstrb = in_is_sb ? (4'b0001 << mem_addr_calc[1:0]) :
                            in_is_sh ? (4'b0011 << mem_addr_calc[1:0]) :
@@ -412,8 +408,7 @@ module executor #(
     else if (launch.valid) pending_intr <= 1'b0;
   end
 
-  // Plain `assign`, matching every other `launch.*` field: Icarus treats a packed
-  // struct's procedural and continuous drivers as conflicting even on disjoint fields.
+  // Plain `assign`, matching every other `launch.*` field: Icarus conflicts a packed struct's procedural and continuous drivers even on disjoint fields.
   assign launch.rvfi.pc_wdata = resolved_target;
   assign launch.rvfi.insn = in_instr;
   assign launch.rvfi.pc_rdata = in_pc;
@@ -425,9 +420,8 @@ module executor #(
   assign launch.rvfi.mem_fault_addr = mem_fault_word_addr;
   assign launch.rvfi.rs1_addr = rvfi_rs1_valid ? in_rs1 : 5'b0;
   assign launch.rvfi.rs2_addr = rvfi_rs2_valid ? in_rs2 : 5'b0;
-  // The forwarded value, not the regfile's own answer: the monitor checks rd_wdata
-  // against exactly these two fields, so reporting the unforwarded operand would make
-  // every forwarded retire self-contradictory.
+  // The forwarded value: the monitor checks rd_wdata against these two fields, so the
+  // unforwarded operand would make every forwarded retire self-contradictory.
   assign launch.rvfi.rs1_rdata = rvfi_rs1_valid ? fwd_rs1_val : 32'b0;
   assign launch.rvfi.rs2_rdata = rvfi_rs2_valid ? fwd_rs2_val : 32'b0;
   assign launch.rvfi.csr_mcycle   = csr_rvfi_mcycle;
@@ -646,8 +640,7 @@ module executor #(
   // D writes the whole struct `'0` on every bubble path, never just `valid`.
   always_comb if (!in_valid) assume(in == '0);
 
-  // decoder.v's own `one_of` set, restated so a free `in` cannot manufacture a spurious
-  // trap-cause conflict by coinciding two unrelated class flags.
+  // decoder.v's own `one_of` set: a free `in` must not manufacture a spurious trap-cause conflict.
   always_comb assume($onehot0({in_is_auipc, in_is_jal, in_is_jalr,
     in_is_beq, in_is_bne, in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu,
     in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and,

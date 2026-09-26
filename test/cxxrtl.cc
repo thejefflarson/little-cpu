@@ -389,11 +389,8 @@ int main(int argc, char **argv) {
           unattributed_cycles++;
         (void)charged_item;
 
-        // hzA: dx_match without a forward select -- the producer sitting in `out` will
-        // not publish a ready result next cycle. hzB: ex_match whose producer is in
-        // executor_out but not yet unpacked. A ready ex_match no longer stalls at all
-        // (the regfile's write-through bypass reaches it), so hzC reads zero except the
-        // CSR carve-out this split does not reintroduce.
+        // hzA: dx_match with no forward select yet. hzB: ex_match not yet unpacked. A
+        // ready ex_match no longer stalls (the write-through bypass reaches it).
         if (charged_bucket == 2) {
           bool dx = (hazard_rs1_dx_item->curr[0] & 1) != 0 ||
                     (hazard_rs2_dx_item->curr[0] & 1) != 0;

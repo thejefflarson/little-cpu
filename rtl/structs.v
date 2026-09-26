@@ -5,9 +5,7 @@ typedef struct packed {
   logic        valid;
   logic [31:0] pc;
   logic [31:0] instr;
-  // The raw 32 bits following `instr`. Decode reads a register-number guess out of them a
-  // cycle early, so this need not be an instruction at all.
-  logic [31:0] next_instr;
+  logic [31:0] next_instr;  // The raw 32 bits following `instr`, not necessarily an instruction.
 } fetcher_output;
 
 `ifdef RISCV_FORMAL
@@ -124,9 +122,8 @@ typedef struct packed {
   logic        is_csr_access;
   // True for addi..srai and their compressed forms: `rs2` is a shamt/immediate, not a register.
   logic        is_math_imm;
-  // Set when this operand's producer is `out` at decode time and will publish a ready
-  // result in executor_out exactly one cycle later: X selects executor_out.rd_data over
-  // the regfile's answer. Never set for a CSR access's rs1, which reads csr_arg raw.
+  // Set when this operand's producer is `out` and will publish a ready result in
+  // executor_out one cycle later, which X then selects over the regfile's answer.
   logic        fwd_rs1;
   logic        fwd_rs2;
 } dx_output;
