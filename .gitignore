@@ -81,6 +81,7 @@ formal/imemcheck
 formal/components_*
 formal/components
 formal/pcloop_cover
+formal/traps_cover
 formal/busarbiter_cover
 formal/fg-probe.cfg
 formal/fg-probe/
@@ -164,3 +165,4 @@ icesugar.bit
 icesugar.synth.log
 icesugar.pnr.log
 icesugar_dhrystone.txt
+.scratch/

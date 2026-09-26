@@ -11,10 +11,11 @@ and an arm in that position is worth nothing until it has been shown to fail --
 which is what `make probe-gates` demands of every other graded comparison in this
 tree and what this file does for the two that need a solver.
 
-Two cores are built, each two lines of rtl/decoder.v away from the shipping one,
-and each faults an aligned `lw` whose address has bit 31 set -- an address
-outside all four windows of any map this platform can be given -- and each must
-turn `make -C formal components_traps` red at a named assertion:
+Two cores are built, each two lines of rtl/executor.v away from the shipping
+one (the address/region test moved there with the D/X split), and each faults
+an aligned `lw` whose address has bit 31 set -- an address outside all four
+windows of any map this platform can be given -- and each must turn
+`make -C formal components_traps` red at a named assertion:
 
   no-trap      still waits for the region answer and then never faults on it, so
                the trap the model requires does not happen. The proof must go
@@ -24,10 +25,10 @@ turn `make -C formal components_traps` red at a named assertion:
                only required the cause would have been satisfied by.
 
                IT DROPS THE FAULT RATHER THAN THE COMMIT, and the difference is
-               new: the composed task reads the decoder with `-formal` now, so a
-               core that computes a cause and does not commit it breaks the
-               decoder's own `!trap_taken => trap_cause == 0` at step 3 -- in
-               decoder.v, which is not this arm and not even this file.
+               new: the composed task reads X with `-formal` now, so a core
+               that computes a cause and does not commit it breaks executor.v's
+               own `!trap_taken => trap_cause == 0` at its own line -- in
+               executor.v, which is not this arm and not even this file.
   wrong-cause  swaps the two causes -- cause 7 for a load and 5 for a store --
                and the proof must go FAIL at the mcause comparison. A core that
                faults the right access with the wrong cause is what that arm
@@ -61,10 +62,10 @@ from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 # The two comparisons being probed, found in traps.sv by their text.
 ASSERTS = {
     "no-trap": "assert(trap_entry);",
-    "wrong-cause": "assert(csr_rdata == prev_cause);",
+    "wrong-cause": "assert(csr_rdata == prev2_cause);",
 }
 
-# The lines of rtl/decoder.v each mutation replaces, matched in full so a respelling
+# The lines of rtl/executor.v each mutation replaces, matched in full so a respelling
 # stops this file rather than silently probing nothing.
 MUTATIONS = {
     "no-trap": (
@@ -75,11 +76,11 @@ MUTATIONS = {
 """,
     ),
     "wrong-cause": (
-        """  assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);
+        """  assign load_access_fault  = (atomic_fault && in_is_lr) || (ls_fault && instr_ls_load);
   assign store_access_fault = (atomic_fault && instr_atomic_write) ||
                               (ls_fault && instr_ls_store);
 """,
-        """  assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_store);
+        """  assign load_access_fault  = (atomic_fault && in_is_lr) || (ls_fault && instr_ls_store);
   assign store_access_fault = (atomic_fault && instr_atomic_write) ||
                               (ls_fault && instr_ls_load);
 """,
@@ -108,12 +109,12 @@ def assert_line(traps_sv, case):
         )
     return hits[0]
 
-def mutate(decoder_v, case):
-    """rtl/decoder.v with this case's one line replaced."""
+def mutate(executor_v, case):
+    """rtl/executor.v with this case's one line replaced."""
     old, new = MUTATIONS[case]
-    if old not in decoder_v:
+    if old not in executor_v:
         stop(
-            f"rtl/decoder.v no longer spells what the {case} mutation replaces.\n"
+            f"rtl/executor.v no longer spells what the {case} mutation replaces.\n"
             "Re-anchor it on the new spelling -- left alone it would build the\n"
             "shipping core and report that an arm which was never exercised is fine."
         )
@@ -122,7 +123,7 @@ def mutate(decoder_v, case):
             f"the {case} mutation replaces its text with itself, so the core below\n"
             "would be the shipping one and the proof would say nothing."
         )
-    return decoder_v.replace(old, new, 1)
+    return executor_v.replace(old, new, 1)
 
 def run_case(repo, workdir, sby, config, case):
     """Builds the mutated tree, runs sby, and returns (status, failing lines)."""
@@ -132,8 +133,8 @@ def run_case(repo, workdir, sby, config, case):
     for name in SOURCES:
         shutil.copy(repo / "rtl" / name, root / "src" / name)
     shutil.copy(repo / "formal" / "traps.sv", root / "src" / "traps.sv")
-    decoder = (repo / "rtl" / "decoder.v").read_text()
-    (root / "src" / "decoder.v").write_text(mutate(decoder, case))
+    executor = (repo / "rtl" / "executor.v").read_text()
+    (root / "src" / "executor.v").write_text(mutate(executor, case))
     (root / "probe.sby").write_text(config)
 
     # sby's own exit status is not read: FAIL is the required outcome of one of the two
@@ -164,7 +165,7 @@ def main():
     args = parser.parse_args()
 
     repo = pathlib.Path(args.repo).resolve()
-    for name in ("formal/traps.sv", "rtl/decoder.v"):
+    for name in ("formal/traps.sv", "rtl/executor.v"):
         if not (repo / name).is_file():
             stop(f"{name} is missing from {repo}, so there is nothing to probe.")
     workdir = pathlib.Path(args.workdir).resolve()

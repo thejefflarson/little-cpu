@@ -4,6 +4,10 @@ decoder all
 accessor all
 pcloop all
 traps all
+traps_pc all
+traps_cause all
+traps_status all
+traps_quiescence all
 busarbiter all
 
 [options]
@@ -14,6 +18,13 @@ all: mode prove
 decoder: smtbmc
 accessor: smtbmc
 traps: smtbmc bitwuzla
+# Each traps_* task proves a disjoint subset of traps.sv's own assertions (see
+# TRAPS_CHECK_* in traps.sv and formal/TRAPS_GROUPS); same engine as traps itself,
+# since each is the same composed environment with fewer goals, not a smaller one.
+traps_pc: smtbmc bitwuzla
+traps_cause: smtbmc bitwuzla
+traps_status: smtbmc bitwuzla
+traps_quiescence: smtbmc bitwuzla
 pcloop: smtbmc boolector
 # executor is most of this job's clock; bitwuzla proves it in 101s against 245s.
 executor: smtbmc bitwuzla
@@ -35,14 +46,34 @@ prep -top accessor
 
 pcloop:
 read -sv -formal -noassume structs.v fetcher.v
-read -sv structs.v decoder.v regsel.v
+read -sv structs.v decoder.v executor.v regsel.v
 read -sv -formal structs.v pcloop.sv
 prep -top pcloop
 
 traps:
-# The same split as pcloop and for the same reason, drawn one statement finer.
-read -sv -formal -noassume structs.v fetcher.v decoder.v regsel.v csrs.v
+# Same split as pcloop; TRAPS_SKIP_EXEC_ARITH excludes arithmetic proven elsewhere.
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
 read -sv -formal structs.v traps.sv
+prep -top traps
+
+traps_pc:
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_PC -formal structs.v traps.sv
+prep -top traps
+
+traps_cause:
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_CAUSE -formal structs.v traps.sv
+prep -top traps
+
+traps_status:
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_STATUS -formal structs.v traps.sv
+prep -top traps
+
+traps_quiescence:
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_QUIESCENCE -formal structs.v traps.sv
 prep -top traps
 
 busarbiter:
@@ -66,6 +97,7 @@ accessor:
 pcloop:
 ../rtl/fetcher.v
 ../rtl/decoder.v
+../rtl/executor.v
 ../rtl/regsel.v
 ../rtl/structs.v
 pcloop.sv
@@ -73,6 +105,43 @@ pcloop.sv
 traps:
 ../rtl/fetcher.v
 ../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv
+
+traps_pc:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv
+
+traps_cause:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv
+
+traps_status:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
+../rtl/regsel.v
+../rtl/csrs.v
+../rtl/structs.v
+traps.sv
+
+traps_quiescence:
+../rtl/fetcher.v
+../rtl/decoder.v
+../rtl/executor.v
 ../rtl/regsel.v
 ../rtl/csrs.v
 ../rtl/structs.v

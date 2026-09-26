@@ -82,8 +82,11 @@ imemcheck-cover-probe: memcheck-cover-probe.py imemcheck.sv imemcheck_cover.sby 
                        $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 	python3 $< --harness formal --check imemcheck --workdir memcheck-cover-probe/imemcheck
 
-pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
-              ../rtl/structs.v
+pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
+              ../rtl/regsel.v ../rtl/structs.v
+
+traps_cover: traps_cover.sby traps.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
+             ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v
 
 busarbiter_cover: busarbiter_cover.sby busarbiter.sv ../rtl/busarbiter.v
 
@@ -119,16 +122,18 @@ nonperturbation: check-nonperturbation.py
 
 .PHONY: components_decoder components_executor components_accessor components_pcloop components_traps \
         components_busarbiter
-components_decoder: components.sby decoder-zkt-probe ../rtl/decoder.v ../rtl/regsel.v \
+components_decoder: components.sby ../rtl/decoder.v ../rtl/regsel.v \
                      ../rtl/structs.v
 	rm -rf $@
 	sby -f $< decoder
 
+# The Zkt isolation gate (region_stall/ls_access) moved to executor.v with the D/X split,
+# so both probes now build against it and both gate components_executor.
 .PHONY: decoder-zkt-probe
-decoder-zkt-probe: decoder-zkt-probe.py ../rtl/decoder.v components.sby
+decoder-zkt-probe: decoder-zkt-probe.py ../rtl/executor.v components.sby
 	python3 $<
-components_executor: components.sby executor-zkt-probe check-solver-bitwuzla ../rtl/executor.v \
-                      ../rtl/structs.v
+components_executor: components.sby decoder-zkt-probe executor-zkt-probe check-solver-bitwuzla \
+                      ../rtl/executor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< executor
 
@@ -138,22 +143,42 @@ executor-zkt-probe: executor-zkt-probe.py ../rtl/executor.v components.sby
 components_accessor: components.sby ../rtl/accessor.v ../rtl/structs.v
 	rm -rf $@
 	sby -f $< accessor
-components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v \
-                   ../rtl/structs.v pcloop.sv
+components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v \
+                   ../rtl/executor.v ../rtl/regsel.v ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
-components_traps: components.sby traps-region-probe traps-tval-probe check-solver-bitwuzla \
-                  ../rtl/fetcher.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/csrs.v \
-                  ../rtl/structs.v traps.sv
+components_traps: components.sby traps_cover traps-region-probe traps-tval-probe \
+                  traps-arith-excluded check-solver-bitwuzla \
+                  ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v ../rtl/regsel.v \
+                  ../rtl/csrs.v ../rtl/structs.v traps.sv
 	rm -rf $@
 	sby -f $< traps
 
+.PHONY: traps-groups
+traps-groups: traps-groups-test.py traps-groups-probe.py traps.sv TRAPS_GROUPS
+	python3 traps-groups-probe.py
+	python3 traps-groups-test.py
+
+.PHONY: traps-arith-excluded
+traps-arith-excluded: traps-arith-excluded-test.py traps-arith-excluded-probe.py \
+                       ../rtl/executor.v TRAPS_ARITH_EXCLUDED components.sby
+	python3 traps-arith-excluded-probe.py
+	python3 traps-arith-excluded-test.py
+
+components_traps_pc components_traps_cause components_traps_status \
+components_traps_quiescence: components_traps_%: components.sby traps-groups \
+                              traps-arith-excluded check-solver-bitwuzla \
+                              ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
+                              ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
+	rm -rf $@
+	sby -f $< traps_$*
+
 .PHONY: traps-region-probe
-traps-region-probe: traps-region-probe.py traps.sv ../rtl/decoder.v
+traps-region-probe: traps-region-probe.py traps.sv ../rtl/executor.v
 	python3 $<
 
 .PHONY: traps-tval-probe
-traps-tval-probe: traps-tval-probe.py traps.sv ../rtl/decoder.v
+traps-tval-probe: traps-tval-probe.py traps.sv ../rtl/executor.v
 	python3 $<
 
 components_busarbiter: components.sby busarbiter_cover busarbiter-probe \
@@ -168,7 +193,7 @@ busarbiter-probe: busarbiter-probe.py busarbiter.sv ../rtl/busarbiter.v
 clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
-	rm -rf pcloop_cover busarbiter_cover fg-probe fg-probe.cfg
+	rm -rf pcloop_cover traps_cover busarbiter_cover fg-probe fg-probe.cfg
 	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 

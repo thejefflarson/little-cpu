@@ -25,7 +25,6 @@
 ...and the same for the second mutation, which shares that line
 ...and their second copy is compared whole, not just its ISA
 0 retires overrides every verdict above to exit 6, the blind oracle
-CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)
 CoreMark data past the end of the simulated RAM is red, not silent
 CoreMark's own FAIL verdict stops the number being quoted
 DHRY_BOARD_CFLAGS drifting away from DHRY_CFLAGS is red
@@ -411,7 +410,7 @@ a ref that names no commit here is refused before any placement
 a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
 a refresh branch without the run id is red
-a reg_rs1 bit routed into hazard is red, at hazard's own site
+a reg_rs1 bit routed into x_busy is red, at x_busy's own site
 a register-file define is passed straight through to read_verilog
 a reintroduced fallback search in a live consumer is red, and located
 a relative install directory is red before it is compared
@@ -626,7 +625,6 @@ an exception whose port is connected now is red
 an exception whose site stopped naming that ISA is red
 an excluded program that assembles and passes anyway is red, not silently trusted
 an exclusion with no reason written under it is rejected
-an executor_out.rd_data bit routed into a stall reason is red
 an exemption naming no program is red, not a program quietly excused
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
@@ -690,7 +688,7 @@ board.lds putting .data back at ram's origin is red
 board.lds putting the stack back at the top of ram is red
 boot.lds putting .data back at ram's origin is red
 boot.lds putting the stack back at the top of ram is red
-branch_taken carrying reg_rs1/reg_rs2 into hazard is red
+cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red
 check-sources actually refusing on a mismatch is red even if the text still warns
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
@@ -825,7 +823,7 @@ control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
-control: the shipping decoder reaches region_stall only, gated
+control: the shipping executor reaches x_busy only through its two gates
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping fetchqueue passes its own bench
 control: the shipping files describe one machine
@@ -843,7 +841,7 @@ control: the shipping schedule workflow confines its credential to the publish s
 control: the shipping tree has no fallback search outside its exceptions
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
-control: the shipping tree names the eight stall reasons consistently
+control: the shipping tree names the seven stall signals and the seven CPI reasons consistently
 control: the shipping tree states every band figure in one place
 control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
 control: the tracked monitor sanitizes, and rule 3 fires
@@ -857,7 +855,8 @@ coremark.lds putting .data back at ram's origin is red
 coremark.lds putting the stack back at the top of ram is red
 cores given with no --target-core among them is refused
 data past the end of the simulated RAM is red, not silent
-decoder_output.rd widened past 5 bits is red (finding 5)
+a CONTROL_FIELDS entry wider than a register NUMBER is red
+dx_output.rs1 widened past 5 bits is red, unclassified
 deleting an rtl file and leaving its line is red
 dividers that make a frequency CORE_HZ does not state is red
 ecp5 names fewer than twelve seeds and is refused before any placement
@@ -867,7 +866,7 @@ excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
 half of a macro-guarded group is red, where none of it is not
-hazard reading ls_answer_valid directly is red (finding 1)
+x_busy reading ls_answer_valid directly is red (finding 1)
 hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
@@ -928,7 +927,7 @@ output this script does not recognize is exit 3, not guessed at
 over budget names the count and the budget
 perl -pi is a raw edit like sed -i
 product_write.py refuses a --base that is not a 40-character commit SHA
-reg_rs1 laundered through out.rs1's own register is still red
+reg_rs1 laundered through out.rd_data's own register is still red
 renaming the publish step out of reach stops rather than passing
 renaming the upstream-code step out of reach stops rather than passing
 retires that stopped being spec-checked is its own status
@@ -955,6 +954,7 @@ storing a never-written register that reports no X leaves the store path unprove
 storing a register this program wrote first is not a store-path control
 the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycles
 the Dhrystone flags drifting from the suite's ISA is red
+the FORMAL hold-assert naming something other than x_busy is red
 the Makefile and test/cosim.py drifting apart is red
 the QSPI timing accounting identity is graded and can fail
 the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
@@ -1008,6 +1008,7 @@ the harness moving away takes the probe with it, loudly
 the harness moving away takes the probe with it, loudly
 the harness passing a literal instead of the size it sized
 the harness sizing its own RAM again is red
+the hold branch holding on something other than x_busy is red, and named
 the isa list is what wires a model in, not the insns/ directory alone
 the iverilog leg failing its own baseline is red before any comparison
 the linker script's RAM origin drifting from the RTL's base is red

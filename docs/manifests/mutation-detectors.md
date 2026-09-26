@@ -89,7 +89,8 @@ adds no ratchet.
   platform's answer about an atomic's address, ignored: every atomic
   executes wherever it is pointed, which is the behaviour the two causes
   replaced. `amoregion.S`'s first refused case is what sees the atomic
-  version, and `decoder_tb` sees it at the decode boundary. `amo.S`,
+  version, and `executor_tb` sees it where the region test now lives, in X.
+  `amo.S`,
   `amominmax.S`, `lrsc.S` and `lrsclock.S` do NOT, and that is right — every
   atomic in them is inside the data RAM, so a core that never refuses one
   finishes them all. `uart.S` is a detector by accident of what it was

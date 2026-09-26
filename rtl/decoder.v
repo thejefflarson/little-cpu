@@ -1,65 +1,30 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-module decoder #(
-  parameter integer      LS_TEXT_WORDS = 2048,
-  parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
-  parameter integer      LS_RAM_WORDS  = 16384,
-  parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
-  parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020,
-  parameter logic [31:0] LS_FLASH_BASE = 32'h0002_0028
-) (
+// D decodes the buffered word and presents the register file its own pair, never a
+// guess, so X reads the right answer next cycle. Everything needing a register value
+// commits in X; fetch-address ownership lives in rtl/littlecpu.v, since it spans F and X.
+module decoder (
   input  logic clk,
   input  logic reset,
   input  fetcher_output in,
-  input  logic [31:0] reg_rs1,
-  input  logic [31:0] reg_rs2,
+  input  logic x_busy,  // X still working `out` (the divider, or the region test's wait)
   input  executor_output executor_out,
-  input  logic divider_stall,
-  // The fetch port went to a load or store this cycle, so `in.instr` holds a data word
-  // rather than an instruction.
-  input  logic fetch_stall,
+  input  logic fetch_stall,  // the fetch port went to a load/store; `in.instr` is data
   input  logic bus_wait,
-  // Decode's request for the data bus, a cycle before the transaction. The platform ANDs
-  // it against its own grant; a grant term here would close the loop through the arbiter.
+  // Decode's request for the bus; the platform ANDs it against its own grant.
   output logic bus_request,
   input  logic imem_fault,
-  output logic [31:0] atomic_addr,
-  input  logic atomic_supported,
-  input  logic       accessor_out_valid,
-  output logic [31:0] pc,
-  output logic [31:0] next_pc,
-  output logic        issuing,
-  output logic        redirect,
-  output logic [4:0] rs1,
-  output logic [4:0] rs2,
+  input  logic accessor_out_valid,
+  output logic issuing,
+  // The sequential guess `+2`/`+4`, never F's word-granular ROM address.
+  output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
-  output logic [11:0] csr_addr,
-  output logic        csr_ren,
-  output logic        csr_wen,
-  output logic [31:0] csr_wdata,
-  input  logic [31:0] csr_rdata,
-  input  logic        csr_implemented,
-  output logic        instret,
-  output logic        trap_entry,
-  output logic [31:0] trap_cause,
-  output logic [31:0] trap_epc,
-  output logic [31:0] trap_tval,
-  output logic        mret_entry,
-  input  logic [31:0] mtvec,
-  input  logic [31:0] mepc,
-  input  logic        interrupt_pending,
- `ifdef RISCV_FORMAL
-  input  rvfi_csr64   csr_rvfi_mcycle,
-  input  rvfi_csr64   csr_rvfi_minstret,
-  input  rvfi_csr32   csr_rvfi_mscratch,
-  `ifdef RISCV_FORMAL_CSR_MCAUSE
-  input  rvfi_csr32   csr_rvfi_mcause,
-  `endif
-  output logic        probe_ls_issuing,
- `endif
-  output decoder_output out
+  input  logic interrupt_pending,
+  // `in` was fetched down the wrong path: discard it unconditionally, no counter or list.
+  input  logic x_redirect,
+  output dx_output out
 );
   logic [31:0] instr;
   assign instr = (in.instr[1:0] == 2'b11) ? in.instr : {16'b0, in.instr[15:0]};
@@ -288,22 +253,8 @@ module decoder #(
   assign instr_csr_access = instr_csrrw || instr_csrrs || instr_csrrc;
   assign is_csr_imm = instr_csrrwi || instr_csrrsi || instr_csrrci;
 
-  assign csr_addr = instr[31:20];
-  logic [31:0] csr_arg;
-  assign csr_arg = is_csr_imm ? {27'b0, rs1_field} : reg_rs1;
-
-  // Zicsr's suppression rules. Skipping the write is what makes `csrr` legal on a
-  // read-only CSR; `csr_read_op` exists only so RVFI reports the right read mask.
-  logic csr_src_zero, csr_write_op, csr_read_op;
-  assign csr_src_zero = rs1_field == 5'b0;
-  assign csr_write_op = instr_csr_access && !((instr_csrrs || instr_csrrc) && csr_src_zero);
-  assign csr_read_op  = instr_csr_access && !(instr_csrrw && rd_field == 5'b0);
-  assign csr_wdata = instr_csrrw ? csr_arg :
-                     instr_csrrs ? (csr_rdata | csr_arg) :
-                                   (csr_rdata & ~csr_arg);
-
-  // Read off the raw instruction fields, not the muxed `rs1`/`rd`: those would put the
-  // compressed register-select decode in the trap arm of `next_pc`.
+  // Raw instruction fields, not the muxed `rs1`/`rd`: those would put the compressed
+  // register-select decode in a trap arm.
   logic instr_error, instr_mret, instr_wfi, instr_cebreak;
   assign instr_error = opcode == 5'b11100 && uncompressed && funct3 == 0 &&
     rs1_field == 5'b0 && rd_field == 5'b0;
@@ -319,170 +270,6 @@ module decoder #(
   assign instr_fence  = instr_miscmem && funct3 == 3'b000;
   assign instr_fencei = instr_miscmem && funct3 == 3'b001;
 
-  logic instr_valid;
-
-  assign instr_valid = instr_auipc || instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt
-    || instr_bltu || instr_bge || instr_bgeu || instr_add || instr_sub || instr_xor || instr_or ||
-    instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div || instr_divu
-    || instr_rem || instr_remu || instr_sll || instr_slt || instr_sltu || instr_srl || instr_sra ||
-    instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw || instr_sb || instr_sh
-    || instr_sw || instr_ecall || instr_ebreak || instr_mret || instr_wfi || instr_fence ||
-    instr_fencei || instr_atomic || (instr_csr_access && csr_implemented);
-
-  logic [31:0] mem_addr_calc;
-  assign mem_addr_calc = $signed(immediate) + $signed(reg_rs1);
-
-  assign atomic_addr = reg_rs1;
-
-  logic instr_ls_load, instr_ls_store;
-  assign instr_ls_load  = instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw;
-  assign instr_ls_store = instr_sb || instr_sh || instr_sw;
-
-  // Reads the whole sum, and drives only the flip-flop below, which keeps the carry chain
-  // out of the fetch loop.
-  localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
-  localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
-  logic ls_supported;
-  assign ls_supported =
-    ((mem_addr_calc & ~(LS_TEXT_BYTES - 32'd1)) == 32'd0) ||
-    (((mem_addr_calc ^ LS_RAM_BASE) & ~(LS_RAM_BYTES - 32'd1)) == 32'd0) ||
-    (mem_addr_calc[31:5] == LS_TIMER_BASE[31:5]) ||
-    (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
-    (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
-
-  // Whether that answer can depend on the immediate at all, asked of `reg_rs1` alone. A
-  // 12-bit offset reaches 2 KB, so a base block with a whole block of the same window on
-  // each side answers the same whatever the immediate is.
-  localparam int LS_BLOCK_BITS = 11;
-  localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
-  localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
-  localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BMASK =
-    LS_BLOCK_NUM'((LS_TEXT_BYTES - 32'd1) >> LS_BLOCK_BITS);
-  localparam logic [LS_BLOCK_NUM-1:0] LS_RAM_BLOCK =
-    LS_BLOCK_NUM'(LS_RAM_BASE >> LS_BLOCK_BITS);
-  localparam logic [LS_BLOCK_NUM-1:0] LS_RAM_BMASK =
-    LS_BLOCK_NUM'((LS_RAM_BYTES - 32'd1) >> LS_BLOCK_BITS);
-
-  logic [LS_BLOCK_NUM-1:0] ls_block;
-  assign ls_block = reg_rs1[31:LS_BLOCK_BITS];
-
-  logic ls_text_deep, ls_ram_deep, ls_settled;
-  assign ls_text_deep = ((ls_block ^ LS_TEXT_BLOCK) & ~LS_TEXT_BMASK) == '0 &&
-                        (ls_block & LS_TEXT_BMASK) != '0 &&
-                        (ls_block & LS_TEXT_BMASK) != LS_TEXT_BMASK;
-  assign ls_ram_deep  = ((ls_block ^ LS_RAM_BLOCK) & ~LS_RAM_BMASK) == '0 &&
-                        (ls_block & LS_RAM_BMASK) != '0 &&
-                        (ls_block & LS_RAM_BMASK) != LS_RAM_BMASK;
-  assign ls_settled = ls_text_deep || ls_ram_deep;
-
-  logic [1:0] mem_addr_low;
-  assign mem_addr_low = immediate[1:0] + reg_rs1[1:0];
-
-  logic ls_access, ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
-  logic stall_other, stall_own;
-  assign ls_access = instr_ls_load || instr_ls_store;
-  assign region_stall = ls_access && !ls_settled && !ls_answer_valid;
-  assign ls_capture = region_stall && !stall_own;
-
-  // Held until the access issues, not for one cycle: under a bus wait a one-cycle answer
-  // expires, drops `bus_request`, and the two livelock.
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      ls_answer       <= 1'b0;
-      ls_answer_valid <= 1'b0;
-    end else if (ls_capture) begin
-      ls_answer       <= ls_supported;
-      ls_answer_valid <= 1'b1;
-    end else begin
-      ls_answer_valid <= ls_answer_valid && ls_access &&
-                         (bus_wait || fetch_stall);
-    end
-  end
-
-  logic instr_atomic_write, word_misaligned;
-  assign instr_atomic_write = instr_amo || instr_sc;
-  assign word_misaligned = mem_addr_low != 2'b00;
-
-  logic load_misaligned, store_misaligned;
-  assign load_misaligned  = (instr_lw && word_misaligned) ||
-                            ((instr_lh || instr_lhu) && mem_addr_low[0] != 1'b0) ||
-                            (instr_lr && word_misaligned);
-  assign store_misaligned = (instr_sw && word_misaligned) ||
-                            (instr_sh && mem_addr_low[0] != 1'b0) ||
-                            (instr_atomic_write && word_misaligned);
-
-  logic atomic_fault;
-  assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
-  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
-                    !load_misaligned && !store_misaligned;
-
-  logic load_access_fault, store_access_fault;
-  assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);
-  assign store_access_fault = (atomic_fault && instr_atomic_write) ||
-                              (ls_fault && instr_ls_store);
-
-  logic csr_readonly_write, instr_illegal;
-  assign csr_readonly_write = instr_csr_access && csr_write_op && csr_addr[11:10] == 2'b11;
-  assign instr_illegal = !instr_valid || csr_readonly_write;
-
-  localparam logic [31:0] CAUSE_INSTRUCTION_FAULT   = 32'd1;
-  localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;
-  localparam logic [31:0] CAUSE_BREAKPOINT          = 32'd3;
-  localparam logic [31:0] CAUSE_LOAD_MISALIGNED     = 32'd4;
-  localparam logic [31:0] CAUSE_LOAD_ACCESS_FAULT   = 32'd5;
-  localparam logic [31:0] CAUSE_STORE_MISALIGNED    = 32'd6;
-  localparam logic [31:0] CAUSE_STORE_ACCESS_FAULT  = 32'd7;
-  localparam logic [31:0] CAUSE_ECALL_M             = 32'd11;
-  localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
-
- `ifdef RISCV_FORMAL
-  logic [3:0] ls_fault_wstrb;
-  always_comb begin
-    if (instr_sb)      ls_fault_wstrb = 4'b0001 << mem_addr_calc[1:0];
-    else if (instr_sh) ls_fault_wstrb = 4'b0011 << mem_addr_calc[1:0];
-    else               ls_fault_wstrb = 4'b1111;
-  end
- `endif
-
-  logic data_fault;
-  assign data_fault = load_misaligned || store_misaligned || atomic_fault || ls_fault;
-
-  logic trap_pending;
-  assign trap_pending = imem_fault || instr_illegal || instr_ebreak || instr_ecall ||
-                        data_fault;
-
-  logic trap_taken;
-  assign trap_taken = trap_pending || interrupt_pending;
-
-  // No `(* parallel_case *)` here: the top two arms deliberately overlap the eight below,
-  // and the FORMAL block proves those eight disjoint.
-  always_comb begin
-    case (1'b1)
-      interrupt_pending: trap_cause = CAUSE_MACHINE_TIMER;
-      imem_fault:       trap_cause = CAUSE_INSTRUCTION_FAULT;
-      instr_illegal:    trap_cause = CAUSE_ILLEGAL_INSTRUCTION;
-      instr_ebreak:     trap_cause = CAUSE_BREAKPOINT;
-      instr_ecall:      trap_cause = CAUSE_ECALL_M;
-      load_misaligned:  trap_cause = CAUSE_LOAD_MISALIGNED;
-      store_misaligned: trap_cause = CAUSE_STORE_MISALIGNED;
-      load_access_fault:  trap_cause = CAUSE_LOAD_ACCESS_FAULT;
-      store_access_fault: trap_cause = CAUSE_STORE_ACCESS_FAULT;
-      default:          trap_cause = 32'b0;
-    endcase
-  end
-
-  assign trap_epc = fetcher_pc;
-
-  always_comb begin
-    case (1'b1)
-      interrupt_pending: trap_tval = 32'b0;
-      imem_fault:        trap_tval = fetcher_pc;
-      instr_illegal:     trap_tval = instr;
-      data_fault:        trap_tval = mem_addr_calc;
-      default:           trap_tval = 32'b0;
-    endcase
-  end
-
   always_comb begin
     (* parallel_case, full_case *)
     case (1'b1)
@@ -496,218 +283,83 @@ module decoder #(
     endcase
   end // always_comb
 
-  logic [4:0] next_rs1, next_rs2;
+  logic [4:0] rs1, rs2;
   regsel current_regs (.word(in.instr), .rs1(rs1), .rs2(rs2));
-  regsel next_regs (.word(in.next_instr), .rs1(next_rs1), .rs2(next_rs2));
-
-  logic instr_math, instr_shift;
-  assign instr_math = instr_add || instr_sub || instr_sll || instr_slt || instr_sltu || instr_xor || instr_srl ||
-    instr_sra || instr_or || instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div ||
-    instr_divu || instr_rem || instr_remu;
-  assign instr_shift = instr_slli || instr_srli || instr_srai;
 
   logic uses_rs1, uses_rs2;
   assign uses_rs1 = !(instr_lui || instr_jal || instr_auipc || is_csr_imm);
-  assign uses_rs2 = (instr_math && !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
+  assign uses_rs2 = ((instr_add || instr_sub || instr_sll || instr_slt || instr_sltu ||
+    instr_xor || instr_srl || instr_sra || instr_or || instr_and || instr_mul || instr_mulh ||
+    instr_mulhu || instr_mulhsu || instr_div || instr_divu || instr_rem || instr_remu) &&
+    !instr_math_immediate) || instr_sb || instr_sh || instr_sw ||
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu ||
     instr_amo || instr_sc;
 
-  // An eligible encoding must have no other decode-side reader of the same register. The
-  // branch comparator, the jalr target, an effective address, an atomic's own address and
-  // a register-form CSR's operand all read `reg_rs1`/`reg_rs2` directly.
-  logic rs1_fwd_eligible, rs2_fwd_eligible;
-  assign rs1_fwd_eligible = instr_math;
-  assign rs2_fwd_eligible = (instr_math && !instr_math_immediate) ||
-    instr_sb || instr_sh || instr_sw || instr_amo || instr_sc;
-
-  logic out_match_rs1, out_match_rs2, ex_match_rs1, ex_match_rs2;
-  assign out_match_rs1 = out.valid && out.rd == rs1;
-  assign out_match_rs2 = out.valid && out.rd == rs2;
+  // No forwarding (B2 adds it): a RAW match against `out` or `executor_out` stalls.
+  logic dx_match_rs1, dx_match_rs2, ex_match_rs1, ex_match_rs2;
+  assign dx_match_rs1 = out.valid && out.rd == rs1;
+  assign dx_match_rs2 = out.valid && out.rd == rs2;
   assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
   assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
 
-  logic ex_fwd_rs1, ex_fwd_rs2;
-  assign ex_fwd_rs1 = rs1_fwd_eligible && rs1 != 0 && ex_match_rs1 &&
-    executor_out.rd_ready && !out_match_rs1;
-  assign ex_fwd_rs2 = rs2_fwd_eligible && rs2 != 0 && ex_match_rs2 &&
-    executor_out.rd_ready && !out_match_rs2;
+  logic hazard_rs1, hazard_rs2, hazard;
+  assign hazard_rs1 = uses_rs1 && rs1 != 0 && (dx_match_rs1 || ex_match_rs1);
+  assign hazard_rs2 = uses_rs2 && rs2 != 0 && (dx_match_rs2 || ex_match_rs2);
+  assign hazard = hazard_rs1 || hazard_rs2;
 
-  logic [31:0] rs1_forwarded, rs2_forwarded;
-  assign rs1_forwarded = ex_fwd_rs1 ? executor_out.rd_data : reg_rs1;
-  assign rs2_forwarded = ex_fwd_rs2 ? executor_out.rd_data : reg_rs2;
-
-  logic [31:0] math_arg;
-  always_comb
-    if (instr_math_immediate) math_arg = instr_shift ? {27'b0, rs2} : immediate;
-    else math_arg = rs2_forwarded;
-
-  logic [31:0] pc_inc;
-  assign pc_inc = uncompressed ? 4 : 2;
-
-  // DO NOT FOLD THESE INTO A FUNCTION. iverilog builds a continuous assign's sensitivity
-  // list from the call's arguments, so a body reading `out` or `executor_out` silently
-  // stops re-evaluating when they change -- and yosys gets it right, so every other check
-  // stays green.
-  logic live_rs1, live_rs2;
-  assign live_rs1 = out_match_rs1 || ex_match_rs1;
-  assign live_rs2 = out_match_rs2 || ex_match_rs2;
-
-  // Two reasons share one wait, and narrowing it to suit one breaks the other: a CSR
-  // access or `mret` must not interleave with older instructions, and `fence.i` waits
-  // because text is writable and the fetch address goes out a cycle early.
+  // A CSR access/`mret`/`fence.i` must not interleave with older instructions.
   logic pipe_drained, serialize;
   assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
   assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
 
-  logic hazard_rs1, hazard_rs2, hazard, stall;
-  assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1 && !ex_fwd_rs1;
-  assign hazard_rs2 = uses_rs2 && rs2 != 0 && live_rs2 && !ex_fwd_rs2;
-  assign hazard = hazard_rs1 || hazard_rs2 || serialize;
+  // X already consumed the AMO in `out`; re-presenting it would retire it twice.
+  logic out_is_amo, atomic_stall;
+  assign out_is_amo = out.is_amoswap || out.is_amoadd || out.is_amoxor || out.is_amoand ||
+    out.is_amoor || out.is_amomin || out.is_amomax || out.is_amominu || out.is_amomaxu;
+  assign atomic_stall = out.valid && out_is_amo && !x_busy;
 
- `ifdef RISCV_FORMAL
-  logic rvfi_rs1_valid, rvfi_rs2_valid;
-  assign rvfi_rs1_valid = !instr_lui && !instr_jal && !instr_auipc && !is_csr_imm;
-  assign rvfi_rs2_valid = uses_rs2;
- `endif
-  // The register file answers a cycle late, so this asks whether what was presented last
-  // cycle is what this instruction reads. It does not ask where that request came from,
-  // which is what lets `read_rs1` be a guess.
-  logic [4:0] prev_rs1, prev_rs2;
-  logic       read_taken, operand_stall;
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      prev_rs1   <= 5'd0;
-      prev_rs2   <= 5'd0;
-      read_taken <= 1'b0;
-    end else begin
-      prev_rs1   <= read_rs1;
-      prev_rs2   <= read_rs2;
-      read_taken <= 1'b1;
-    end
-  end
-  assign operand_stall = !read_taken || (uses_rs1 && prev_rs1 != rs1) ||
-                                        (uses_rs2 && prev_rs2 != rs2);
+  logic stall_own, stall;
+  // X still working `out` holds the whole pipeline, presented pair included.
+  assign stall_own = hazard || serialize || fetch_stall || atomic_stall || x_busy;
+  assign stall = stall_own || bus_wait;
 
-  logic atomic_stall;
-  assign atomic_stall = out.valid && out.is_amo && !divider_stall;
-
-  assign stall_own = hazard || operand_stall || divider_stall || fetch_stall ||
-                     atomic_stall;
-  assign stall_other = stall_own || bus_wait;
-  assign stall = stall_other || region_stall;
-
-  // Over-asking is deliberate -- a store-conditional with no reservation makes no
-  // transaction -- because under-asking would put two initiators on the bus at once.
-  assign bus_request = !reset && !trap_taken && !region_stall && !stall_own &&
+  // Over-asking is deliberate (a store-conditional with no reservation makes no
+  // transaction, and X may yet find this instruction traps); under-asking is not.
+  assign bus_request = !reset && !stall_own &&
     (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
      instr_sb || instr_sh || instr_sw || instr_atomic);
 
-  // On an issuing cycle the next instruction's pair; on a stalled cycle its own, since
-  // the same instruction comes back; on a stolen fetch window, last cycle's, since that
-  // word is data.
-  assign read_rs1 = fetch_stall ? prev_rs1 : stall ? rs1 : next_rs1;
-  assign read_rs2 = fetch_stall ? prev_rs2 : stall ? rs2 : next_rs2;
+  // While X works `out`, keep presenting `out`'s own pair; the regfile answers late.
+  assign read_rs1 = x_busy ? out.rs1 : rs1;
+  assign read_rs2 = x_busy ? out.rs2 : rs2;
 
-  logic [32:0] cmp_sub;
-  logic        cmp_eq, cmp_ltu, cmp_lt;
-  assign cmp_sub = {1'b0, reg_rs1} - {1'b0, reg_rs2};
-  assign cmp_eq  = ~|cmp_sub[31:0];
-  assign cmp_ltu = cmp_sub[32];
-  assign cmp_lt  = (reg_rs1[31] ^ reg_rs2[31]) ? reg_rs1[31] : cmp_sub[32];
-
-  logic branch_taken;
-  always_comb begin
-    (* parallel_case *)
-    case (1'b1)
-      instr_beq:  branch_taken =  cmp_eq;
-      instr_bne:  branch_taken = !cmp_eq;
-      instr_blt:  branch_taken =  cmp_lt;
-      instr_bge:  branch_taken = !cmp_lt;
-      instr_bltu: branch_taken =  cmp_ltu;
-      instr_bgeu: branch_taken = !cmp_ltu;
-      default:    branch_taken = 1'b0;
-    endcase
-  end
-
-  always_comb begin
-    case (1'b1)
-      reset:                     next_pc = 32'b0;
-      stall:                     next_pc = pc;
-      trap_taken:                next_pc = mtvec;
-      instr_mret:                next_pc = mepc;
-      instr_jalr:                next_pc = ($signed(immediate) + $signed(reg_rs1)) & 32'hfffffffe;
-      instr_jal || branch_taken: next_pc = fetcher_pc + immediate;
-      default:                   next_pc = fetcher_pc + pc_inc;
-    endcase
-  end
-
-  // DO NOT ADD `&& in.valid`. The publish block's last two arms do not test it, and if
-  // the two ever disagree a CSR write fires once per stalled cycle with nothing to say
-  // so.
   assign issuing = !reset && !stall;
-  assign redirect = trap_taken || instr_mret || instr_jalr || instr_jal || branch_taken;
-
-  logic committing;
-  assign committing = issuing && !trap_taken;
-  assign csr_ren = committing && csr_read_op;
-  assign csr_wen = committing && csr_write_op;
-  assign instret = committing;
-
-  assign trap_entry = issuing && trap_taken;
-  assign mret_entry = committing && instr_mret;
-
- `ifdef RISCV_FORMAL
-  logic intr_report;
-  always_ff @(posedge clk) begin
-    if (reset) intr_report <= 1'b0;
-    else if (issuing) intr_report <= interrupt_pending;
-  end
-
-  assign probe_ls_issuing = committing &&
-    (instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
-     instr_sb || instr_sh || instr_sw);
- `endif
-
-  always_ff @(posedge clk) pc <= next_pc;
+  assign predicted_pc = fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
 
   always_ff @(posedge clk) begin
     if (reset) begin
       out <= '0;
-    end else if (divider_stall) begin
+    end else if (x_busy) begin
       out <= out;
-    end else if (hazard || operand_stall || fetch_stall || atomic_stall || bus_wait ||
-                 region_stall || interrupt_pending) begin
+    end else if (x_redirect) begin
       out <= '0;
+    end else if (stall) begin
+      out <= '0;
+    end else if (interrupt_pending) begin
+      out <= '0;
+      out.valid <= 1'b1;
+      out.is_interrupt <= 1'b1;
+      out.pc <= fetcher_pc;
     end else begin
       out.valid <= 1'b1;
-      out.mem_addr <= mem_addr_calc;
-      out.rs1 <= rs1_forwarded;
-      out.rs2 <= instr_math ? math_arg : rs2_forwarded;
+      out.is_interrupt <= 1'b0;
+      out.imem_fault <= imem_fault;
+      out.pc <= fetcher_pc;
+      out.instr <= instr;
+      out.immediate <= immediate;
       out.rd <= rd;
-     `ifdef RISCV_FORMAL
-      out.rvfi.pc_wdata <= next_pc;
-      out.rvfi.insn <= instr;
-      out.rvfi.pc_rdata <= fetcher_pc;
-      out.rvfi.trap <= trap_pending;
-      out.rvfi.intr <= intr_report;
-      out.rvfi.mem_fault <= imem_fault || load_access_fault || store_access_fault;
-      out.rvfi.mem_fault_rmask <= {4{load_access_fault || (store_access_fault && instr_amo)}};
-      out.rvfi.mem_fault_wmask <= store_access_fault ? ls_fault_wstrb : 4'b0;
-      out.rvfi.mem_fault_addr <= {mem_addr_calc[31:2], 2'b00};
-      out.rvfi.rs1_addr <= rvfi_rs1_valid ? rs1 : 5'b0;
-      out.rvfi.rs2_addr <= rvfi_rs2_valid ? rs2 : 5'b0;
-      // THE FORWARDED VALUE, not the register file's. The monitor checks `rd_wdata`
-      // against exactly these two fields, so reporting the register file's answer makes
-      // every forwarded retire self-contradictory.
-      out.rvfi.rs1_rdata <= rvfi_rs1_valid ? rs1_forwarded : 32'b0;
-      out.rvfi.rs2_rdata <= rvfi_rs2_valid ? rs2_forwarded : 32'b0;
-      out.rvfi.csr_mcycle   <= csr_rvfi_mcycle;
-      out.rvfi.csr_minstret <= csr_rvfi_minstret;
-      out.rvfi.csr_mscratch <= csr_rvfi_mscratch;
-     `ifdef RISCV_FORMAL_CSR_MCAUSE
-      out.rvfi.csr_mcause   <= csr_rvfi_mcause;
-     `endif
-     `endif
+      out.rs1 <= rs1;
+      out.rs2 <= rs2;
       out.is_add <= instr_add;
       out.is_sub <= instr_sub;
       out.is_xor <= instr_xor;
@@ -734,7 +386,6 @@ module decoder #(
       out.is_sb <= instr_sb;
       out.is_sh <= instr_sh;
       out.is_sw <= instr_sw;
-      out.is_amo <= instr_amo;
       out.is_amoswap <= instr_amoswap;
       out.is_amoadd <= instr_amoadd;
       out.is_amoxor <= instr_amoxor;
@@ -746,56 +397,28 @@ module decoder #(
       out.is_amomaxu <= instr_amomaxu;
       out.is_lr <= instr_lr;
       out.is_sc <= instr_sc;
-      out.is_valid_instr <= instr_valid;
-      (* parallel_case *)
-      case(1'b1)
-        default: ;
-        instr_auipc: begin
-          out.rd <= rd;
-          out.rs1 <= fetcher_pc;
-          out.rs2 <= immediate;
-          out.is_add <= 1;
-        end
-
-        instr_csr_access: begin
-          out.rs1 <= csr_rdata;
-          out.rs2 <= 32'b0;
-          out.is_add <= 1;
-        end
-
-        instr_lui: begin
-          out.rs1 <= immediate;
-          out.rs2 <= 32'b0;
-          out.is_add <= 1;
-        end
-
-        instr_jal || instr_jalr: begin
-          out.rs1 <= fetcher_pc;
-          out.rs2 <= pc_inc;
-          out.rd <= rd;
-          out.is_add <= 1;
-        end
-
-        instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu: begin
-          out.rs1 <= 0;
-          out.rs2 <= 0;
-          out.rd <= 0;
-        end
-      endcase
-
-      if (trap_pending) begin
-        out.is_add <= 0; out.is_sub <= 0; out.is_xor <= 0; out.is_or <= 0; out.is_and <= 0;
-        out.is_mul <= 0; out.is_mulh <= 0; out.is_mulhu <= 0; out.is_mulhsu <= 0;
-        out.is_div <= 0; out.is_divu <= 0; out.is_rem <= 0; out.is_remu <= 0;
-        out.is_sll <= 0; out.is_slt <= 0; out.is_sltu <= 0; out.is_srl <= 0; out.is_sra <= 0;
-        out.is_lb <= 0; out.is_lbu <= 0; out.is_lhu <= 0; out.is_lh <= 0; out.is_lw <= 0;
-        out.is_sb <= 0; out.is_sh <= 0; out.is_sw <= 0;
-        out.is_amo <= 0;
-        out.is_amoswap <= 0; out.is_amoadd <= 0; out.is_amoxor <= 0; out.is_amoand <= 0;
-        out.is_amoor <= 0; out.is_amomin <= 0; out.is_amomax <= 0; out.is_amominu <= 0;
-        out.is_amomaxu <= 0; out.is_lr <= 0; out.is_sc <= 0;
-        out.rd <= 0;
-      end
+      out.is_auipc <= instr_auipc;
+      out.is_lui <= instr_lui;
+      out.is_jal <= instr_jal;
+      out.is_jalr <= instr_jalr;
+      out.is_beq <= instr_beq;
+      out.is_bne <= instr_bne;
+      out.is_blt <= instr_blt;
+      out.is_bltu <= instr_bltu;
+      out.is_bge <= instr_bge;
+      out.is_bgeu <= instr_bgeu;
+      out.is_ecall <= instr_ecall;
+      out.is_ebreak <= instr_ebreak;
+      out.is_mret <= instr_mret;
+      out.is_wfi <= instr_wfi;
+      out.is_fence <= instr_fence;
+      out.is_fencei <= instr_fencei;
+      out.is_csrrw <= instr_csrrw;
+      out.is_csrrs <= instr_csrrs;
+      out.is_csrrc <= instr_csrrc;
+      out.is_csr_imm <= is_csr_imm;
+      out.is_csr_access <= instr_csr_access;
+      out.is_math_imm <= instr_math_immediate;
     end
   end
 
@@ -807,76 +430,97 @@ module decoder #(
   always_comb if(!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);
 
-  always_comb assume(in.pc == pc);
+  // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
+  // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
+  logic out_valid, out_is_interrupt;
+  logic [4:0] out_rd;
+  logic [31:0] out_instr, out_immediate;
+  assign out_instr = out.instr;
+  assign out_immediate = out.immediate;
+  logic out_uncompressed;
+  assign out_uncompressed = out_instr[1:0] == 2'b11;
+  logic out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
+    out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu;
+  assign out_valid = out.valid;
+  assign out_is_interrupt = out.is_interrupt;
+  assign out_rd = out.rd;
+  assign out_is_amoswap = out.is_amoswap;
+  assign out_is_amoadd = out.is_amoadd;
+  assign out_is_amoxor = out.is_amoxor;
+  assign out_is_amoand = out.is_amoand;
+  assign out_is_amoor = out.is_amoor;
+  assign out_is_amomin = out.is_amomin;
+  assign out_is_amomax = out.is_amomax;
+  assign out_is_amominu = out.is_amominu;
+  assign out_is_amomaxu = out.is_amomaxu;
 
-  // Assumed here, and dropped with `-noassume` where the composed proof can check it
-  // against the real fetcher.
-  fetcher_output prev_in;
-  logic [31:0] prev_reg_rs1;
-  logic        prev_issued;
-  always_ff @(posedge clk) begin
-    prev_in      <= in;
-    prev_reg_rs1 <= reg_rs1;
-    prev_issued  <= !stall || reset;
-  end
-  always_comb if (clocked && !prev_issued) begin
-    assume(in == prev_in);
-    assume(reg_rs1 == prev_reg_rs1);
-  end
+  // formal/traps.sv composes this module `-formal -noassume`, dropping executor.v's own
+  // standalone-only assumes about `in` and everything its reference model re-derives
+  // from `dx_instr`'s bits instead of trusting D's decode; the asserts below restate
+  // each as a fact about `out` k-induction can use.
+  logic out_is_auipc, out_is_jal, out_is_jalr, out_is_beq, out_is_bne, out_is_blt,
+    out_is_bltu, out_is_bge, out_is_bgeu, out_is_add, out_is_sub, out_is_xor, out_is_or,
+    out_is_and, out_is_sll, out_is_slt, out_is_sltu, out_is_srl, out_is_sra, out_is_mul,
+    out_is_mulh, out_is_mulhu, out_is_mulhsu, out_is_div, out_is_divu, out_is_rem,
+    out_is_remu, out_is_lui, out_is_lb, out_is_lbu, out_is_lh, out_is_lhu, out_is_lw,
+    out_is_sb, out_is_sh, out_is_sw, out_is_ecall, out_is_ebreak, out_is_csrrw,
+    out_is_csrrs, out_is_csrrc, out_is_mret, out_is_wfi, out_is_fence, out_is_fencei,
+    out_is_lr, out_is_sc, out_is_csr_access;
+  assign out_is_auipc = out.is_auipc;
+  assign out_is_jal = out.is_jal;
+  assign out_is_jalr = out.is_jalr;
+  assign out_is_beq = out.is_beq;
+  assign out_is_bne = out.is_bne;
+  assign out_is_blt = out.is_blt;
+  assign out_is_bltu = out.is_bltu;
+  assign out_is_bge = out.is_bge;
+  assign out_is_bgeu = out.is_bgeu;
+  assign out_is_add = out.is_add;
+  assign out_is_sub = out.is_sub;
+  assign out_is_xor = out.is_xor;
+  assign out_is_or = out.is_or;
+  assign out_is_and = out.is_and;
+  assign out_is_sll = out.is_sll;
+  assign out_is_slt = out.is_slt;
+  assign out_is_sltu = out.is_sltu;
+  assign out_is_srl = out.is_srl;
+  assign out_is_sra = out.is_sra;
+  assign out_is_mul = out.is_mul;
+  assign out_is_mulh = out.is_mulh;
+  assign out_is_mulhu = out.is_mulhu;
+  assign out_is_mulhsu = out.is_mulhsu;
+  assign out_is_div = out.is_div;
+  assign out_is_divu = out.is_divu;
+  assign out_is_rem = out.is_rem;
+  assign out_is_remu = out.is_remu;
+  assign out_is_lui = out.is_lui;
+  assign out_is_lb = out.is_lb;
+  assign out_is_lbu = out.is_lbu;
+  assign out_is_lh = out.is_lh;
+  assign out_is_lhu = out.is_lhu;
+  assign out_is_lw = out.is_lw;
+  assign out_is_sb = out.is_sb;
+  assign out_is_sh = out.is_sh;
+  assign out_is_sw = out.is_sw;
+  assign out_is_ecall = out.is_ecall;
+  assign out_is_ebreak = out.is_ebreak;
+  assign out_is_csrrw = out.is_csrrw;
+  assign out_is_csrrs = out.is_csrrs;
+  assign out_is_csrrc = out.is_csrrc;
+  assign out_is_mret = out.is_mret;
+  assign out_is_wfi = out.is_wfi;
+  assign out_is_fence = out.is_fence;
+  assign out_is_fencei = out.is_fencei;
+  assign out_is_lr = out.is_lr;
+  assign out_is_sc = out.is_sc;
+  assign out_is_csr_access = out.is_csr_access;
 
-  logic branch_jump;
-  always_ff @(posedge clk) if (reset) branch_jump <= 1'b0;
-    else branch_jump <= instr_jal || instr_jalr || instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu || trap_taken || instr_mret;
-  logic [31:0] past_pc;
-  logic prev_reset, prev_stall, prev_uncompressed;
-  always_ff @(posedge clk) begin
-    past_pc <= pc;
-    prev_reset <= reset;
-    prev_stall <= stall;
-    prev_uncompressed <= uncompressed;
-  end
-  always_ff @(posedge clk) if(clocked && !branch_jump && !prev_stall && !prev_reset && prev_uncompressed) assert(past_pc + 4 == pc);
-  always_ff @(posedge clk) if(clocked && !branch_jump && !prev_stall && !prev_reset && !prev_uncompressed) assert(past_pc + 2 == pc);
+  // A bubble is the whole struct zeroed, never just `valid`.
+  always_comb if (clocked && !out_valid) assert(out == '0);
+  always_comb if (clocked && out_is_interrupt) assert(out_rd == 0);
 
-  always_ff @(posedge clk) if (clocked && prev_stall && !prev_reset) assert(pc == past_pc);
-
-  decoder_output past_out;
-  logic prev_hold_and_steal, prev_steal_only, prev_atomic_stall;
-  logic prev_hold_and_wait, prev_wait_only;
-  logic prev_hold_and_region, prev_region_only;
-  always_ff @(posedge clk) begin
-    past_out             <= out;
-    prev_hold_and_steal  <= fetch_stall && divider_stall;
-    prev_steal_only      <= fetch_stall && !divider_stall;
-    prev_atomic_stall    <= atomic_stall;
-    prev_hold_and_wait   <= bus_wait && divider_stall;
-    prev_wait_only       <= bus_wait && !divider_stall;
-    prev_hold_and_region <= region_stall && divider_stall;
-    prev_region_only     <= region_stall && !divider_stall;
-  end
-  always_comb if (clocked && !prev_reset && prev_hold_and_steal) assert(out == past_out);
-  always_comb if (clocked && !prev_reset && prev_steal_only)     assert(out == '0);
-  always_comb if (clocked && !prev_reset && prev_hold_and_wait) assert(out == past_out);
-  always_comb if (clocked && !prev_reset && prev_wait_only)     assert(out == '0);
-  always_comb if (clocked && !prev_reset && prev_atomic_stall) assert(out == '0);
-  always_comb if (clocked && !prev_reset && prev_hold_and_region) assert(out == past_out);
-  always_comb if (clocked && !prev_reset && prev_region_only)     assert(out == '0);
-
-  logic [31:0] past_next_pc;
-  always_ff @(posedge clk) past_next_pc <= next_pc;
-  always_comb if (clocked) assert(pc == past_next_pc);
-
-  always_comb if (clocked && !out.valid) assert(out.rd == 0);
-
-  always_comb if (clocked)
-    assert(out.is_amo == (out.is_amoswap || out.is_amoadd || out.is_amoxor ||
-      out.is_amoand || out.is_amoor || out.is_amomin || out.is_amomax ||
-      out.is_amominu || out.is_amomaxu));
-
-  always_comb if (clocked) assert(!region_stall || ls_access);
-  always_comb if (clocked)
-    assert(ls_access == (instr_lb || instr_lbu || instr_lh || instr_lhu ||
-      instr_lw || instr_sb || instr_sh || instr_sw));
+  always_ff @(posedge clk)
+    if (clocked && !reset && !$past(reset) && $past(x_busy)) assert(out == $past(out));
 
   always_comb if (rs1 == 0) assert(!hazard_rs1);
   always_comb if (rs2 == 0) assert(!hazard_rs2);
@@ -892,7 +536,15 @@ module decoder #(
     instr_amoswap, instr_amoadd, instr_amoxor, instr_amoand, instr_amoor, instr_amomin,
     instr_amomax, instr_amominu, instr_amomaxu, instr_lr, instr_sc});
 
-  always_comb if (instr_valid) assert(one_of);
+  logic instr_valid_d;
+  assign instr_valid_d = instr_auipc || instr_jal || instr_jalr || instr_beq || instr_bne ||
+    instr_blt || instr_bltu || instr_bge || instr_bgeu || instr_add || instr_sub || instr_xor ||
+    instr_or || instr_and || instr_mul || instr_mulh || instr_mulhu || instr_mulhsu || instr_div ||
+    instr_divu || instr_rem || instr_remu || instr_sll || instr_slt || instr_sltu || instr_srl ||
+    instr_sra || instr_lui || instr_lb || instr_lbu || instr_lh || instr_lhu || instr_lw ||
+    instr_sb || instr_sh || instr_sw || instr_ecall || instr_ebreak || instr_mret || instr_wfi ||
+    instr_fence || instr_fencei || instr_atomic || instr_csr_access;
+  always_comb if (instr_valid_d) assert(one_of);
 
   always_comb assert($onehot0({instr_load_op || instr_jalr_op, instr_store_op,
     instr_lui_op || instr_auipc, instr_jal_op, instr_branch_op, instr_math_immediate_op,
@@ -910,75 +562,95 @@ module decoder #(
     instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
-  always_comb if (!imem_fault)
-    assert($onehot0({instr_illegal, instr_ebreak, instr_ecall,
-                     load_misaligned, store_misaligned,
-                     load_access_fault, store_access_fault}));
+  // Not `&& !out_is_interrupt`: that bubble zeroes every class flag too.
+  always_comb if (clocked && out_valid)
+    assert($onehot0({out_is_auipc, out_is_jal, out_is_jalr,
+      out_is_beq, out_is_bne, out_is_blt, out_is_bltu, out_is_bge, out_is_bgeu,
+      out_is_add, out_is_sub, out_is_xor, out_is_or, out_is_and,
+      out_is_sll, out_is_slt, out_is_sltu, out_is_srl, out_is_sra,
+      out_is_mul, out_is_mulh, out_is_mulhu, out_is_mulhsu,
+      out_is_div, out_is_divu, out_is_rem, out_is_remu,
+      out_is_lui,
+      out_is_lb, out_is_lbu, out_is_lh, out_is_lhu, out_is_lw,
+      out_is_sb, out_is_sh, out_is_sw,
+      out_is_ecall, out_is_ebreak,
+      out_is_csrrw, out_is_csrrs, out_is_csrrc,
+      out_is_mret, out_is_wfi, out_is_fence, out_is_fencei,
+      out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
+      out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu,
+      out_is_lr, out_is_sc}));
 
-  always_comb if (instr_atomic) assert(mem_addr_calc == atomic_addr);
+  // The converse of the onehot0 above: no flag survives a reserved opcode or a zero word.
+  logic out_any_class;
+  assign out_any_class =
+    out_is_auipc || out_is_jal || out_is_jalr ||
+    out_is_beq || out_is_bne || out_is_blt || out_is_bltu || out_is_bge || out_is_bgeu ||
+    out_is_add || out_is_sub || out_is_xor || out_is_or || out_is_and ||
+    out_is_sll || out_is_slt || out_is_sltu || out_is_srl || out_is_sra ||
+    out_is_mul || out_is_mulh || out_is_mulhu || out_is_mulhsu ||
+    out_is_div || out_is_divu || out_is_rem || out_is_remu ||
+    out_is_lui ||
+    out_is_lb || out_is_lbu || out_is_lh || out_is_lhu || out_is_lw ||
+    out_is_sb || out_is_sh || out_is_sw ||
+    out_is_ecall || out_is_ebreak ||
+    out_is_csrrw || out_is_csrrs || out_is_csrrc ||
+    out_is_mret || out_is_wfi || out_is_fence || out_is_fencei ||
+    out_is_amoswap || out_is_amoadd || out_is_amoxor || out_is_amoand || out_is_amoor ||
+    out_is_amomin || out_is_amomax || out_is_amominu || out_is_amomaxu ||
+    out_is_lr || out_is_sc;
+  always_comb if (clocked && out_valid && out_uncompressed && out_instr[6:2] == 5'b11111)
+    assert(!out_any_class);
+  always_comb if (clocked && out_valid && out_instr == 32'b0)
+    assert(!out_any_class);
 
-  always_comb if (ls_access) begin
-    assert(immediate[31:12] == {20{immediate[31]}});
-    if (ls_settled) assert(ls_supported);
+  always_comb if (clocked && out_valid)
+    assert(out_is_csr_access == (out_is_csrrw || out_is_csrrs || out_is_csrrc));
+
+  always_comb if (clocked && out_valid)
+    assert(out_is_ebreak == (out_instr == 32'h0010_0073 || out_instr == 32'h0000_9002));
+  always_comb if (clocked && out_valid)
+    assert(out_is_ecall == (out_instr == 32'h0000_0073));
+
+  // Gated on out_uncompressed throughout: is_lw/is_sw also cover a compressed form the
+  // reference does not check, ruled out here by the quadrant bits.
+  always_comb if (clocked && out_valid && out_uncompressed) begin
+    assert(out_is_lb == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b000));
+    assert(out_is_lbu == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b100));
+    assert(out_is_lh == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b001));
+    assert(out_is_lhu == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b101));
+    assert(out_is_lw == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b010));
+    assert(out_is_sb == (out_instr[6:2] == 5'b01000 && out_instr[14:12] == 3'b000));
+    assert(out_is_sh == (out_instr[6:2] == 5'b01000 && out_instr[14:12] == 3'b001));
+    assert(out_is_sw == (out_instr[6:2] == 5'b01000 && out_instr[14:12] == 3'b010));
+    if (out_is_lb || out_is_lbu || out_is_lh || out_is_lhu || out_is_lw)
+      assert(out_immediate == {{20{out_instr[31]}}, out_instr[31:20]});
+    if (out_is_sb || out_is_sh || out_is_sw)
+      assert(out_immediate == {{20{out_instr[31]}}, out_instr[31:25], out_instr[11:7]});
+
+    // The eleven A encodings, zero immediate included: X's atomic address check trusts
+    // rs1 verbatim, true only because D hands an atomic a zero immediate.
+    if (out_instr[6:2] == 5'b01011 && out_instr[14:12] == 3'b010) begin
+      assert(out_is_amoswap == (out_instr[31:27] == 5'b00001));
+      assert(out_is_amoadd == (out_instr[31:27] == 5'b00000));
+      assert(out_is_amoxor == (out_instr[31:27] == 5'b00100));
+      assert(out_is_amoand == (out_instr[31:27] == 5'b01100));
+      assert(out_is_amoor == (out_instr[31:27] == 5'b01000));
+      assert(out_is_amomin == (out_instr[31:27] == 5'b10000));
+      assert(out_is_amomax == (out_instr[31:27] == 5'b10100));
+      assert(out_is_amominu == (out_instr[31:27] == 5'b11000));
+      assert(out_is_amomaxu == (out_instr[31:27] == 5'b11100));
+      assert(out_is_lr == (out_instr[31:27] == 5'b00010 && out_instr[24:20] == 5'b0));
+      assert(out_is_sc == (out_instr[31:27] == 5'b00011));
+    end
+    if (out_is_lr || out_is_sc || out_is_amoswap || out_is_amoadd || out_is_amoxor ||
+        out_is_amoand || out_is_amoor || out_is_amomin || out_is_amomax ||
+        out_is_amominu || out_is_amomaxu)
+      assert(out_immediate == 32'b0);
+
+    // A plain `add` must never fault. One direction only: out_is_add also covers
+    // addi/c.add/c.mv, which the reference does not check.
+    if (out_instr[6:2] == 5'b01100 && out_instr[14:12] == 3'b000 && out_instr[31:25] == 7'b0)
+      assert(out_is_add);
   end
-
-  logic prev_answer_valid;
-  always_ff @(posedge clk) prev_answer_valid <= ls_answer_valid;
-  always_comb if (clocked && prev_answer_valid && prev_issued)
-    assert(!ls_answer_valid);
-
-  always_comb if (clocked && ls_answer_valid) assert(ls_answer == ls_supported);
-
-  logic word_decides;
-  assign word_decides = !interrupt_pending && !imem_fault;
-  always_comb if (interrupt_pending) assert(trap_cause == CAUSE_MACHINE_TIMER);
-  always_comb if (!interrupt_pending && imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
-  always_comb if (word_decides && instr_illegal)    assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
-  always_comb if (word_decides && instr_ebreak)     assert(trap_cause == CAUSE_BREAKPOINT);
-  always_comb if (word_decides && instr_ecall)      assert(trap_cause == CAUSE_ECALL_M);
-  always_comb if (word_decides && load_misaligned)  assert(trap_cause == CAUSE_LOAD_MISALIGNED);
-  always_comb if (word_decides && store_misaligned) assert(trap_cause == CAUSE_STORE_MISALIGNED);
-  always_comb if (word_decides && load_access_fault)
-    assert(trap_cause == CAUSE_LOAD_ACCESS_FAULT);
-  always_comb if (word_decides && store_access_fault)
-    assert(trap_cause == CAUSE_STORE_ACCESS_FAULT);
-  always_comb if (!trap_taken)       assert(trap_cause == 32'b0);
-
-  logic        prev_trap_entry, prev_mret_entry;
-  logic [31:0] prev_mtvec, prev_mepc;
-  always_ff @(posedge clk) begin
-    prev_trap_entry <= trap_entry;
-    prev_mret_entry <= mret_entry;
-    prev_mtvec      <= mtvec;
-    prev_mepc       <= mepc;
-  end
-
-  always_comb if (clocked && !prev_reset && prev_trap_entry) assert(pc == prev_mtvec);
-  always_comb if (clocked && !prev_reset && prev_mret_entry) assert(pc == prev_mepc);
-
-  always_comb if (clocked && !prev_reset && prev_trap_entry) begin
-    assert(out.rd == 5'b0);
-    assert(!out.is_lb && !out.is_lbu && !out.is_lh && !out.is_lhu && !out.is_lw);
-    assert(!out.is_sb && !out.is_sh && !out.is_sw);
-    assert(!out.is_amo && !out.is_lr && !out.is_sc);
-  end
-
-  always_comb if (trap_taken) assert(!instret && !csr_wen && !csr_ren);
-  always_comb assert(!(trap_entry && mret_entry));
-
-  always_comb if (interrupt_pending && !stall && !reset) assert(trap_entry);
-  always_comb if (stall || reset) assert(!trap_entry);
-
-  logic prev_interrupt_entry;
-  always_ff @(posedge clk) prev_interrupt_entry <= !reset && !stall && interrupt_pending;
-  always_comb if (clocked && !prev_reset && prev_interrupt_entry) assert(!out.valid);
-
-  logic signed [31:0] cmp_ref_x, cmp_ref_y;
-  assign cmp_ref_x = reg_rs1;
-  assign cmp_ref_y = reg_rs2;
-  always_comb assert(cmp_eq == (reg_rs1 == reg_rs2));
-  always_comb assert(cmp_ltu == (reg_rs1 < reg_rs2));
-  always_comb assert(cmp_lt == (cmp_ref_x < cmp_ref_y));
-  always_comb assert(mem_addr_low == mem_addr_calc[1:0]);
  `endif
 endmodule
