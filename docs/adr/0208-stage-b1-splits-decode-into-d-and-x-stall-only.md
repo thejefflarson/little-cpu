@@ -301,22 +301,125 @@ gains `components_traps_pc`/`_cause`/`_status`/`_quiescence`, each behind the
 `traps-groups` prerequisite; `make -C formal all` is left calling plain `components_traps`
 until the timing question above is resolved one way or the other.
 
-## Not yet done
+## Naming PDR's stubborn properties found no missing invariant
 
-`test/decoder_tb.v` (1345 lines) still carries the fused decoder's port list and its whole
-vector set is built on the two-cycle guess-then-fetch protocol B1 deleted (the guessed
-pair, the operand-fetch stall, same-cycle branch resolution) — not a rename, a rewrite
-against D's actual single-cycle present-then-issue shape, and larger than the rest of this
-closure combined. `test/stall_sites_test.py` (and, with it, `test/decoder_tb.v`'s OR-identity
-check, `CLAUDE.md`'s own stall-broadcast list, and every other of the six declared sites)
-needs re-deriving against `x_busy` folding two reasons into one bit at D's level and the
-operand reason's deletion; `CLAUDE.md`'s prose for this is rewritten in this same PR but the
-grading script that would catch it drifting is not. `test/MUTATION_DETECTORS`'s five
-patches keyed to the region-test logic that moved into `rtl/executor.v` still do not apply;
-re-keying and re-measuring each is blocked on `test/decoder_tb.v` for the two whose detector
-is that bench. None of these three is graded on `make test`'s own path except
-`zkt-isolation-test` (now closed) and `mutation-probe` (the forced-red prerequisite, not the
-check itself).
+`abc pdr` (mode prove, no time limit, the real fetcher/decoder/executor/regsel/csrs/traps.sv
+composition, no narrowing) was run against the unsplit `traps` task in a throwaway sby copy.
+The composed netlist carries exactly 143 properties — the AIGER header's own `B` (bad-state)
+count and `design_aiger.ywa`'s `asserts` list agree — matching this ADR's earlier "~130"
+estimate now made exact. Over roughly 24 minutes on this machine, PDR proved 125 of 143 with
+zero counterexamples anywhere, then was stopped rather than left to grind further once its
+proved count plateaued for several consecutive frames. The remaining 18, by AIGER output
+index mapped back through `design_aiger.ywa` to source line:
+
+- **14 in `rtl/executor.v`**: 764/767/770/773 (a `mul`/`mulh`/`mulhu`/`mulhsu` result reaching
+  `out_rd_data`), 780 (the Zkt constant-latency claim for the four multiplies), 809/827/828/829
+  (the divider's internal long-division identity and its two derived bounds), 846/849/852/855
+  (`divu`/`remu`/`div`/`rem`'s result against the reference expression), and 883
+  (`ls_answer_valid` implies `ls_answer == ls_supported`, the region test's deferred-answer
+  protocol).
+- **2 in `rtl/decoder.v`**: 523 (the `x_busy` hold: `out` unchanged the cycle after
+  `$past(x_busy)`) and 567 (the onehot0 over `out`'s full class-flag set, one of the six
+  additions that closed the CAUSE group's vacuity, above).
+- **2 in `formal/traps.sv`**: 689 and 692, the quiescence group's own end-to-end claims — a
+  trap commits when `c_expected_trap` says it must, and does not when `c_must_not_trap` says it
+  must not.
+
+None of these eighteen is new evidence of a gap the way the six CAUSE assertions were: those
+were *vacuous* (unreachable under their own guard, confirmed by a `mode cover` proof, and each
+fixed by a real counterexample once made reachable). Here, PDR never produced a single
+counterexample for any of the 18 — only timeouts — which is the opposite signature. Reading
+what each group actually is explains why:
+
+- Thirteen of the fourteen `rtl/executor.v` properties (764-855) are the multiplier's and
+  divider's own arithmetic correctness, already the subject of a separate, closed, fast proof
+  (`components_executor`, over `rtl/executor.v` alone). CLAUDE.md already records that the
+  multiplier is "checked differentially, not exhaustively" and the divider "proved under a
+  recorded magnitude restriction" — 827's `div_quot_done * div_divisor + div_rem ==
+  div_mag_x_done` is exactly the class of nonlinear-arithmetic identity both AIG-based PDR and
+  bit-blasted SMT are weakest at generalizing quickly, and here it is being re-derived over the
+  whole fetcher/decoder/executor/csrs netlist rather than `components_executor`'s own much
+  smaller one.
+- 883 is the one non-arithmetic `executor.v` property in the set; it is the region test's
+  deferred-answer protocol the CAUSE group's fix already depends on.
+- `decoder.v`:523 and :567 are decoder.v's own properties, already proven quickly by
+  `components_decoder`'s standalone proof (closed without further work, above); their
+  difficulty here is the size of the composed state space they are being re-verified against,
+  not the property.
+- `traps.sv`:689/692 are the two real end-to-end goals and depend transitively on every fact
+  above, so they are expected to be the last to converge under any induction order.
+
+Three further pieces of evidence, all pointing the same way — the proof is very likely
+correct, and too large for the engines tried to close in bounded time, not missing a fact:
+this ADR's own two prior full-composition bitwuzla runs (above) each reached step 19/20 and
+16/20 with zero counterexamples over roughly 45 and 20 minutes; the property-GROUP split
+(above) already showed that shrinking the GOAL count on the same environment does not shrink
+the time (`traps_pc`, the smallest group, ran 31+ minutes unclosed); and an attempt here to
+isolate a single property further — composing the same full environment with the other 142
+properties converted to `assume` via `chformal -assert2assume`, selected by the `$assert`
+cell's own `src` attribute (`a:src=traps.sv:692.*`), so k-induction would get 142 free lemmas
+while proving one goal — was abandoned before producing a result: yosys's own `prep` splits
+SVA `$check` cells into `$assert`/`$assume` across several internal passes rather than
+atomically, so landing the selection at the right elaboration stage cost more wall time than
+the existing evidence already justified spending.
+
+**No invariant was added for any of the 18, because none produced a counterexample to derive
+one from.** What closed the proof instead was excluding the thirteen that are pure
+multiplier/divider arithmetic from the traps composition's own obligations — proven
+unconditionally, and unaffected, by `components_executor`'s own separate proof, over its own
+much smaller environment; no trap property reads a multiply or divide result.
+`rtl/executor.v` gates them behind `` `ifndef TRAPS_SKIP_EXEC_ARITH ``, and
+`formal/components.sby` defines that macro only on the five traps-composition tasks' own read
+of `executor.v` — never on `components_executor`'s, `components_decoder`'s, `pcloop`'s,
+`accessor`'s or `busarbiter`'s. `formal/traps-arith-excluded-test.py` grades both the
+guarded-assertion count (13, `formal/TRAPS_ARITH_EXCLUDED`) and the macro's placement, both
+directions, and `formal/traps-arith-excluded-probe.py` forces it red three ways (a stale
+count, an unguarded exclusion, and the macro missing from one traps task); both are wired
+into `components_traps` and the four `traps_*` split tasks as Makefile prerequisites, the way
+`traps-groups` already is. `rtl/executor.v:883` (`ls_answer_valid` implies
+`ls_answer == ls_supported`, the region test's own deferred-answer protocol) and the two
+decoder invariants (523, 567) stay in the traps composition's obligations unexcluded: none is
+arithmetic, and the two decoder facts are exactly the kind of cross-module lemma the CAUSE fix
+above needed — removing them was never on the table.
+
+**Measured**: `make -C formal components_executor` still proves the full `` `ifdef FORMAL ``
+block with the macro left undefined — basecase and induction both pass by k-induction under
+bitwuzla in 2:35, both Zkt probes (`decoder-zkt-probe.py`, `executor-zkt-probe.py`) still find
+and fail at their assertions' now-shifted lines, confirming their line lookup is by text
+search and unaffected by the inserted `` `ifdef ``/`` `endif `` lines. `make -C formal
+components_traps` — the real, unsplit, full k-induction proof, `mode prove`, no narrowing —
+now closes in **57 seconds** of sby's own elapsed clock time (1m59s wall including every
+prerequisite: `traps_cover`, `traps-region-probe`, `traps-tval-probe`,
+`traps-arith-excluded`), against `components-proof`'s 20-minute CI budget — a ~95% margin, not
+a near miss. `abc pdr` on the same excluded composition (mode prove, no time limit, throwaway
+sby) reaches 126 of the now-130 properties with zero counterexamples before plateauing again
+at the same four residual outputs (the two decoder facts and the two `traps.sv` end-to-end
+goals) — PDR alone still does not fully close, but that no longer matters: bitwuzla, the
+shipping engine, closes the real proof with room to spare. `formal/components.sby`'s
+`traps: smtbmc bitwuzla` line is unchanged, now confirmed rather than merely the least-bad
+guess it was before this measurement.
+
+**Decided, not left open**: option (c) from the prior draft of this section — excluding the
+arithmetic components_executor already proves, graded so nothing falls into the gap — closed
+the proof outright. Freeing the multiplier's and divider's result as an unconstrained value in
+the traps composition (the more invasive form of the same idea) was not needed and was not
+tried. Neither raising `components-proof`'s CI timeout nor moving `components_traps` off the
+required CI path is needed either.
+
+## Not yet done, updated
+
+This section originally listed `test/decoder_tb.v`'s rewrite, `test/stall_sites_test.py`'s
+re-derivation and `test/MUTATION_DETECTORS`'s five region-test patches as open work. All
+three landed in later commits on this same branch (`e39efef`, ahead of this ADR's own
+first version and an ancestor of every commit since): `test/decoder_tb.v` is 435 lines
+against D's real single-cycle present-then-issue shape, `test/executor_tb.v` is new (491
+lines, the region test's and the trap-cause priority chain's own directed bench),
+`test/stall_sites_test.py` grades both vocabularies (D's own composition and the
+CPI-accounting taxonomy), and `test/MUTATION_DETECTORS`'s `atomic-region-ignored` and
+`loadstore-region-ignored` are re-keyed to `executor_tb`. `make test` and
+`make mutation-check` are both green against this tree. Nothing is open from that list
+anymore; the only open item this ADR carries forward is the `components_traps` CI-timing
+question below.
 
 ## Measured: cycles moved the direction the ticket's kill criterion predicted
 
@@ -380,5 +483,12 @@ before this stage ships.
 
 **Amended**: "`components_traps` ... closed" above was true of the induction generalizing,
 not of what six of its assertions actually checked — see the vacuity section above. The
-guard is fixed and proven non-vacuous by `traps_cover`, but whether the now-real proof fits
-CI's `components-proof` window is undecided and stays open alongside the other three.
+guard is fixed and proven non-vacuous by `traps_cover`.
+
+**Amended again**: every item this section called open or undecided is now closed.
+`test/decoder_tb.v`, `test/stall_sites_test.py` and `test/MUTATION_DETECTORS` landed in
+`e39efef`, already an ancestor of this branch before this update — see "Not yet done,
+updated" above. `components_traps`'s real proof fits `components-proof`'s CI window: closing
+it needed excluding the multiplier's and divider's own arithmetic checks (proven
+unconditionally elsewhere, graded so nothing falls into the gap), not a wider timeout or a
+narrower CI path — see "Naming PDR's stubborn properties" above for the measurement.

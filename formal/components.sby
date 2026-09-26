@@ -51,28 +51,28 @@ read -sv -formal structs.v pcloop.sv
 prep -top pcloop
 
 traps:
-# The same split as pcloop and for the same reason, drawn one statement finer.
-read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+# Same split as pcloop; TRAPS_SKIP_EXEC_ARITH excludes arithmetic proven elsewhere.
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
 read -sv -formal structs.v traps.sv
 prep -top traps
 
 traps_pc:
-read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
 read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_PC -formal structs.v traps.sv
 prep -top traps
 
 traps_cause:
-read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
 read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_CAUSE -formal structs.v traps.sv
 prep -top traps
 
 traps_status:
-read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
 read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_STATUS -formal structs.v traps.sv
 prep -top traps
 
 traps_quiescence:
-read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
 read -sv -D TRAPS_SPLIT -D TRAPS_CHECK_QUIESCENCE -formal structs.v traps.sv
 prep -top traps
 
