@@ -631,6 +631,20 @@ module decoder (
   // `csr_arg` in X reads `reg_rs1` verbatim.
   always_comb if (clocked && out_is_csr_access) assert(!out_fwd_rs1);
 
+  // fwd_rs1/fwd_rs2 exclude x0 at the point they're computed (decoder.v's own
+  // `rs1 != 0`/`rs2 != 0` guards); an unconstrained k-induction start state on
+  // `out` is not bound by that unless it is restated here about `out` itself.
+  logic [4:0] out_regsel_rs1, out_regsel_rs2;
+  regsel out_regs (.word(out_instr), .rs1(out_regsel_rs1), .rs2(out_regsel_rs2));
+  logic out_fwd_rs2;
+  assign out_fwd_rs2 = out.fwd_rs2;
+  always_comb if (clocked && out_valid) begin
+    assert(out.rs1 == out_regsel_rs1);
+    assert(out.rs2 == out_regsel_rs2);
+    if (out_fwd_rs1) assert(out.rs1 != 0);
+    if (out_fwd_rs2) assert(out.rs2 != 0);
+  end
+
   always_comb if (clocked && out_valid)
     assert(out_is_ebreak == (out_instr == 32'h0010_0073 || out_instr == 32'h0000_9002));
   always_comb if (clocked && out_valid)
@@ -674,6 +688,21 @@ module decoder (
     // One direction only: out_is_add also covers addi/c.add/c.mv, unchecked here.
     if (out_instr[6:2] == 5'b01100 && out_instr[14:12] == 3'b000 && out_instr[31:25] == 7'b0)
       assert(out_is_add);
+  end
+
+  // The compressed quadrant has no lb/lbu/lh/lhu or A encoding at all; only
+  // c.lw/c.lwsp/c.sw/c.swsp exist, and regsel.v's own quadrant/funct3 test
+  // (mirrored here against the raw bits, not decoder's copy of it) says which.
+  always_comb if (clocked && out_valid && !out_uncompressed) begin
+    assert(!out_is_lb && !out_is_lbu && !out_is_lh && !out_is_lhu);
+    assert(!out_is_amoswap && !out_is_amoadd && !out_is_amoxor && !out_is_amoand &&
+           !out_is_amoor && !out_is_amomin && !out_is_amomax && !out_is_amominu &&
+           !out_is_amomaxu && !out_is_lr && !out_is_sc);
+    assert(out_is_lw == ((out_instr[1:0] == 2'b00 && out_instr[15:13] == 3'b010) ||
+                          (out_instr[1:0] == 2'b10 && out_instr[15:13] == 3'b010 &&
+                           out_instr[11:7] != 5'b0)));
+    assert(out_is_sw == ((out_instr[1:0] == 2'b00 && out_instr[15:13] == 3'b110) ||
+                          (out_instr[1:0] == 2'b10 && out_instr[15:13] == 3'b110)));
   end
  `endif
 endmodule

@@ -314,6 +314,9 @@ module executor #(
   // `state <=` never targets anything but these two encodings; a free k-induction
   // start state is not bound by that unless it is said here too.
   always_comb if (clocked) assert(state == init || state == divide);
+  // A ready result is a final one: `out.rd_data` is only trustworthy once the
+  // divide that owns it (if any) has actually finished.
+  always_comb if (clocked && out.valid && out.rd_ready) assert(state != divide);
  `endif
 
   logic [31:0] alu_rs1, alu_rs2;
