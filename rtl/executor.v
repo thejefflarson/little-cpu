@@ -677,7 +677,7 @@ module executor #(
   // Held so the divide proof sees stable operands; composed proofs drop this via `-formal -noassume`.
   dx_output prev_in;
   logic [31:0] prev_reg_rs1, prev_reg_rs2, prev_fwd_rs1_val, prev_fwd_rs2_val;
-  logic        prev_x_busy, prev_reset;
+  logic        prev_x_busy, prev_reset, prev_divider_busy;
   logic [31:0] prev_out_rd_data;
   logic        prev_divide_completing;
   always_ff @(posedge clk) begin
@@ -690,6 +690,7 @@ module executor #(
     prev_reset              <= reset;
     prev_out_rd_data        <= out.rd_data;
     prev_divide_completing  <= state == divide && mul_div_counter == 7'd1;
+    prev_divider_busy       <= divider_busy;
   end
   always_comb if (clocked && prev_x_busy) begin
     assume(in == prev_in);
@@ -718,6 +719,20 @@ module executor #(
   // it; `in` cannot swap under a still-held `x_busy` (the fact above), so the
   // capture and its consumption always read the same `mem_addr_calc`.
   always_comb if (clocked && ls_answer_valid) assert(ls_access);
+
+  // A divide's own launch cycle is the one cycle `x_busy` is still low (nothing
+  // has held `in` yet), so decoder.v is free to replace `in` with whatever comes
+  // next; that successor's `fwd_rs1`/`fwd_rs2` is decided against the divide's
+  // own `out_has_result` (false), so it can never inherit a forward. Combined
+  // with `in`'s own stability while `x_busy` holds it (above), this rules out a
+  // forwarding `in` anywhere across a divide's whole run -- otherwise
+  // `fwd_rs1_val`/`fwd_rs2_val` would track the divider's own still-changing
+  // `out.rd_data` instead of a stable operand, breaking `ls_answer`'s capture.
+  always_comb if (clocked && divider_busy && !prev_divider_busy) begin
+    assume(!in_fwd_rs1 && !in_fwd_rs2);
+    if (!reset && !prev_reset) assert(!in_fwd_rs1 && !in_fwd_rs2);
+  end
+  always_comb if (clocked) assert(!(divider_busy && (in_fwd_rs1 || in_fwd_rs2)));
 
   // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
   // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
