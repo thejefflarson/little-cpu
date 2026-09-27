@@ -310,6 +310,11 @@ module executor #(
   logic divider_busy;
   assign divider_busy = state != init;
   assign x_busy = divider_busy || region_stall;
+ `ifdef FORMAL
+  // `state <=` never targets anything but these two encodings; a free k-induction
+  // start state is not bound by that unless it is said here too.
+  always_comb if (clocked) assert(state == init || state == divide);
+ `endif
 
   logic [31:0] alu_rs1, alu_rs2;
   always_comb begin
@@ -669,14 +674,19 @@ module executor #(
   // Held so the divide proof sees stable operands; composed proofs drop this via `-formal -noassume`.
   dx_output prev_in;
   logic [31:0] prev_reg_rs1, prev_reg_rs2, prev_fwd_rs1_val, prev_fwd_rs2_val;
-  logic        prev_x_busy;
+  logic        prev_x_busy, prev_reset;
+  logic [31:0] prev_out_rd_data;
+  logic        prev_divide_completing;
   always_ff @(posedge clk) begin
-    prev_in          <= in;
-    prev_reg_rs1     <= reg_rs1;
-    prev_reg_rs2     <= reg_rs2;
-    prev_fwd_rs1_val <= fwd_rs1_val;
-    prev_fwd_rs2_val <= fwd_rs2_val;
-    prev_x_busy      <= x_busy;
+    prev_in                <= in;
+    prev_reg_rs1            <= reg_rs1;
+    prev_reg_rs2            <= reg_rs2;
+    prev_fwd_rs1_val        <= fwd_rs1_val;
+    prev_fwd_rs2_val        <= fwd_rs2_val;
+    prev_x_busy             <= x_busy;
+    prev_reset              <= reset;
+    prev_out_rd_data        <= out.rd_data;
+    prev_divide_completing  <= state == divide && mul_div_counter == 7'd1;
   end
   always_comb if (clocked && prev_x_busy) begin
     assume(in == prev_in);
@@ -684,7 +694,20 @@ module executor #(
     assume(reg_rs2 == prev_reg_rs2);
     assume(fwd_rs1_val == prev_fwd_rs1_val);
     assume(fwd_rs2_val == prev_fwd_rs2_val);
+    // D holds `out` unchanged while x_busy, so `in` (=D's out) needs no free
+    // assumption here -- provable straight from D's own transition function.
+    // Reset outranks the hold in D's own priority chain, so the fact needs the
+    // same history guard D's other reset-crossing checks use.
+    if (!reset && !prev_reset) assert(in == prev_in);
+    // `out.rd_data` is untouched by every x_busy-holding branch except the one
+    // divide iteration that publishes its own result.
+    if (!reset && !prev_reset && !prev_divide_completing)
+      assert(out.rd_data == prev_out_rd_data);
   end
+  // A captured region answer belongs to the ls_access instruction that requested
+  // it; `in` cannot swap under a still-held `x_busy` (the fact above), so the
+  // capture and its consumption always read the same `mem_addr_calc`.
+  always_comb if (clocked && ls_answer_valid) assert(ls_access);
 
   // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
   // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
