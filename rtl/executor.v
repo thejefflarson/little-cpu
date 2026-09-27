@@ -699,6 +699,13 @@ module executor #(
     // Reset outranks the hold in D's own priority chain, so the fact needs the
     // same history guard D's other reset-crossing checks use.
     if (!reset && !prev_reset) assert(in == prev_in);
+    // D re-presents the same read pair to the regfile while x_busy extends the
+    // wait (commitment 6), so the synchronous answer is unchanged too --
+    // provable from that hold, not a free fact composed proofs get for free.
+    if (!reset && !prev_reset) begin
+      assert(reg_rs1 == prev_reg_rs1);
+      assert(reg_rs2 == prev_reg_rs2);
+    end
     // `out.rd_data` is untouched by every x_busy-holding branch except the one
     // divide iteration that publishes its own result.
     if (!reset && !prev_reset && !prev_divide_completing)
