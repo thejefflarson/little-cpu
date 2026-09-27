@@ -311,12 +311,8 @@ module executor #(
   assign divider_busy = state != init;
   assign x_busy = divider_busy || region_stall;
  `ifdef FORMAL
-  // `state <=` never targets anything but these two encodings; a free k-induction
-  // start state is not bound by that unless it is said here too.
-  always_comb if (clocked) assert(state == init || state == divide);
-  // A ready result is a final one: `out.rd_data` is only trustworthy once the
-  // divide that owns it (if any) has actually finished.
-  always_comb if (clocked && out.valid && out.rd_ready) assert(state != divide);
+  always_comb if (clocked) assert(state == init || state == divide);  // the only two targets
+  always_comb if (clocked && out.valid && out.rd_ready) assert(state != divide);  // ready is final
  `endif
 
   logic [31:0] alu_rs1, alu_rs2;
@@ -674,8 +670,7 @@ module executor #(
   always_comb if (ls_access) assume(assume_immediate_hi == {20{assume_immediate_lo_sign}});
   always_comb if (instr_atomic) assume(in_immediate == 32'b0);
 
-  // Held so the divide proof sees stable operands; composed proofs drop this via `-formal -noassume`.
-  dx_output prev_in;
+  dx_output prev_in;  // held so the divide proof sees stable operands; -formal -noassume drops this
   logic [31:0] prev_reg_rs1, prev_reg_rs2, prev_fwd_rs1_val, prev_fwd_rs2_val;
   logic        prev_x_busy, prev_reset, prev_divider_busy;
   logic [31:0] prev_out_rd_data;
@@ -698,36 +693,18 @@ module executor #(
     assume(reg_rs2 == prev_reg_rs2);
     assume(fwd_rs1_val == prev_fwd_rs1_val);
     assume(fwd_rs2_val == prev_fwd_rs2_val);
-    // D holds `out` unchanged while x_busy, so `in` (=D's out) needs no free
-    // assumption here -- provable straight from D's own transition function.
-    // Reset outranks the hold in D's own priority chain, so the fact needs the
-    // same history guard D's other reset-crossing checks use.
-    if (!reset && !prev_reset) assert(in == prev_in);
-    // D re-presents the same read pair to the regfile while x_busy extends the
-    // wait (commitment 6), so the synchronous answer is unchanged too --
-    // provable from that hold, not a free fact composed proofs get for free.
+    // Each is provable from D's own hold, not a free fact composed proofs get.
     if (!reset && !prev_reset) begin
+      assert(in == prev_in);
       assert(reg_rs1 == prev_reg_rs1);
       assert(reg_rs2 == prev_reg_rs2);
     end
-    // `out.rd_data` is untouched by every x_busy-holding branch except the one
-    // divide iteration that publishes its own result.
     if (!reset && !prev_reset && !prev_divide_completing)
-      assert(out.rd_data == prev_out_rd_data);
+      assert(out.rd_data == prev_out_rd_data);  // untouched except a divide's own publish cycle
   end
-  // A captured region answer belongs to the ls_access instruction that requested
-  // it; `in` cannot swap under a still-held `x_busy` (the fact above), so the
-  // capture and its consumption always read the same `mem_addr_calc`.
-  always_comb if (clocked && ls_answer_valid) assert(ls_access);
+  always_comb if (clocked && ls_answer_valid) assert(ls_access);  // capture belongs to its own in
 
-  // A divide's own launch cycle is the one cycle `x_busy` is still low (nothing
-  // has held `in` yet), so decoder.v is free to replace `in` with whatever comes
-  // next; that successor's `fwd_rs1`/`fwd_rs2` is decided against the divide's
-  // own `out_has_result` (false), so it can never inherit a forward. Combined
-  // with `in`'s own stability while `x_busy` holds it (above), this rules out a
-  // forwarding `in` anywhere across a divide's whole run -- otherwise
-  // `fwd_rs1_val`/`fwd_rs2_val` would track the divider's own still-changing
-  // `out.rd_data` instead of a stable operand, breaking `ls_answer`'s capture.
+  // A launch cycle's own out_has_result is false, so its successor inherits no forward.
   always_comb if (clocked && divider_busy && !prev_divider_busy) begin
     assume(!in_fwd_rs1 && !in_fwd_rs2);
     if (!reset && !prev_reset) assert(!in_fwd_rs1 && !in_fwd_rs2);

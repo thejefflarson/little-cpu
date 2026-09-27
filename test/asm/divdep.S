@@ -4,9 +4,7 @@
 RVTEST_RV64U
 RVTEST_CODE_BEGIN
 
-  // A load reading div's own destination register, the very next instruction
-  // in program order: the hazard scoreboard must hold it for the divide's
-  // real completion, not for whatever in_has_result claims one cycle early.
+  // A load reading div's own destination, the very next instruction.
   TEST_CASE( 2, x6, 0x1234, \
     li   x10, 0x30000; \
     li   x11, 2; \

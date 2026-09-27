@@ -1,8 +1,7 @@
 #include "riscv_test.h"
 #include "test_macros.h"
 
-// Above the machine timer's four words and below the 1 MB the linker script may grow
-// into.
+// Above the machine timer's four words, below the 1 MB the linker script may grow into.
 #define UNMAPPED 0x00040000
 
 RVTEST_RV64U
@@ -16,10 +15,7 @@ test_2:
   sw    x0, 0(x1)
   li    x10, UNMAPPED * 2
   li    x11, 2
-  // A load reading div's own destination, the very next instruction, whose
-  // divide result lands outside every mapped window: the region test must
-  // trap on that real, final address, not on whatever the register held
-  // before the divide committed.
+  // A load reading div's own destination, whose result lands outside every mapped window.
   div   x5, x10, x11
   .option push
   .option norvc

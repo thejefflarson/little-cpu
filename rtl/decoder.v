@@ -631,10 +631,7 @@ module decoder (
   // `csr_arg` in X reads `reg_rs1` verbatim.
   always_comb if (clocked && out_is_csr_access) assert(!out_fwd_rs1);
 
-  // fwd_rs1/fwd_rs2 exclude x0 at the point they're computed (decoder.v's own
-  // `rs1 != 0`/`rs2 != 0` guards); an unconstrained k-induction start state on
-  // `out` is not bound by that unless it is restated here about `out` itself.
-  logic [4:0] out_regsel_rs1, out_regsel_rs2;
+  logic [4:0] out_regsel_rs1, out_regsel_rs2;  // restates rs1/rs2 != 0 on out for k-induction
   regsel out_regs (.word(out_instr), .rs1(out_regsel_rs1), .rs2(out_regsel_rs2));
   logic out_fwd_rs2;
   assign out_fwd_rs2 = out.fwd_rs2;
@@ -644,6 +641,10 @@ module decoder (
     if (out_fwd_rs1) assert(out.rs1 != 0);
     if (out_fwd_rs2) assert(out.rs2 != 0);
   end
+
+  always_ff @(posedge clk)
+    if (clocked && out_valid && !$past(x_busy) && (out_fwd_rs1 || out_fwd_rs2))
+      assert($past(out_has_result));  // a fresh forward's predecessor was never a divide
 
   always_comb if (clocked && out_valid)
     assert(out_is_ebreak == (out_instr == 32'h0010_0073 || out_instr == 32'h0000_9002));
@@ -690,9 +691,7 @@ module decoder (
       assert(out_is_add);
   end
 
-  // The compressed quadrant has no lb/lbu/lh/lhu or A encoding at all; only
-  // c.lw/c.lwsp/c.sw/c.swsp exist, and regsel.v's own quadrant/funct3 test
-  // (mirrored here against the raw bits, not decoder's copy of it) says which.
+  // The compressed quadrant has no lb/lbu/lh/lhu or A encoding; only c.lw/c.lwsp/c.sw/c.swsp exist.
   always_comb if (clocked && out_valid && !out_uncompressed) begin
     assert(!out_is_lb && !out_is_lbu && !out_is_lh && !out_is_lhu);
     assert(!out_is_amoswap && !out_is_amoadd && !out_is_amoxor && !out_is_amoand &&

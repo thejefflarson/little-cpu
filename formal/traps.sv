@@ -427,10 +427,7 @@ module traps #(
   assign dx_imem_fault = dx_out.imem_fault;
   assign dx_instr = dx_out.instr;
 
-  // Mirrors executor.v's fwd_rs1_val: a load/store/atomic's base register can be the
-  // previous instruction's still-unretired result, and the region and misalignment
-  // checks below are wrong about the address whenever that forward is live.
-  logic [31:0] c_fwd_rs1;
+  logic [31:0] c_fwd_rs1;  // mirrors executor.v's fwd_rs1_val: the address checks below need it
   assign c_fwd_rs1 = dx_out.fwd_rs1 ? executor_out.rd_data : reg_rs1;
 
   logic        c_uncompressed;
