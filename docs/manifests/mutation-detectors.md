@@ -60,11 +60,16 @@ adds no ratchet.
   the grader — five named mismatches.
 - **`serialize-drops-csr-mret`** — the CSR and `mret` half, which shares the
   mechanism for a different reason: a one-cycle architectural update must not
-  interleave with older instructions. The suite stays green here too, and
-  that is measured rather than argued. `test/asm/minstret.S`'s exactness case
+  interleave with older instructions. `test/asm/minstret.S`'s exactness case
   reads `minstret` before and after three nops and still gets 4 without the
   wait, because the counter advances when an instruction issues and both
-  reads are issues.
+  reads are issues, so it stays green under this mutation regardless. B2's
+  forwarding changed what else can see it: `test/asm/mtimermask.S`'s six
+  back-to-back independent `csrr mscratch` reads (test 15-18) no longer each
+  wait for the pipe to drain, so they retire fast enough to shift when the
+  30-cycle-armed timer's interrupt lands relative to test 17's sample of
+  `irq_count`, catching the mutation as `FAIL 17` where it used to read 4.
+
 - **`fencei-wait-and-store-port`** — both mechanisms that order a text store
   against the fetch behind it, deleted together. `test/asm/selfmod.S` is a
   live grader for the pair and for neither term alone, which is why this

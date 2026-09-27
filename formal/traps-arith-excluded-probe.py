@@ -60,14 +60,16 @@ def main():
 
     # Case 2: unguard a real excluded assertion, so the count drops with no declared reason.
     original = executor_path.read_text()
-    needle = " `ifndef TRAPS_SKIP_EXEC_ARITH\n  always_ff @(posedge clk)\n" \
+    guard_line = " `ifndef TRAPS_SKIP_EXEC_ARITH" \
+        "  // proven by components_executor; excluded from traps.sv below\n"
+    needle = guard_line + "  always_ff @(posedge clk)\n" \
         "    if (clocked && !reset && !$past(reset) && $past(state) == init && $past(launch_is_mul))\n" \
         "      assert(out_rd_data == $past(mul_lo));"
     if needle not in original:
         stop("rtl/executor.v no longer spells the mul-result guard this probe mutates -- re-anchor it.")
     mutated = original.replace(
         needle,
-        needle.replace(" `ifndef TRAPS_SKIP_EXEC_ARITH\n", "", 1),
+        needle.replace(guard_line, "", 1),
         1,
     )
     tmp_executor = executor_path.with_suffix(".orphan-probe.v")

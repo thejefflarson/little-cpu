@@ -128,6 +128,7 @@ STRUCT_PORTS = {
         'is_ecall', 'is_ebreak', 'is_mret', 'is_wfi', 'is_fence', 'is_fencei',
         'is_csrrw', 'is_csrrs', 'is_csrrc', 'is_csr_imm', 'is_csr_access',
         'is_math_imm',
+        'fwd_rs1', 'fwd_rs2',
     ]),
 }
 

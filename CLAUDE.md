@@ -93,20 +93,31 @@ references still resolve.
   product is re-taken as a pair rather than one side at a time.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
-- **Hazards are stall-only** (4). B1 deleted the fused decoder's confined forwarding outright
-  rather than reshaping it: D presents its own instruction's pair (never a guess, commitment 6) and
-  X is the first place a register value exists at all, one cycle later, so a RAW hazard against
-  anything still in flight — X's own `out` or its already-registered `executor_out` — simply
-  stalls, with no exception. D's scoreboard (`dx_match_rs1`/`dx_match_rs2` against `out.rd`,
-  `ex_match_rs1`/`ex_match_rs2` against `executor_out.rd`) compares register NUMBERS only, never a
-  VALUE, so this is a pure RAW-hazard-existence check, not the confined-forwarding scheme this
-  commitment used to describe. Measured on B1's own tree (ADR-0208): the whole suite's cycles rise
-  ~12.0%, Dhrystone 1,550,023 → 1,698,022 cycles (0.734 → 0.670 DMIPS/MHz), and the operand-fetch
-  column this commitment used to split hazard against is deleted outright — there is no guess left
-  to fetch operands for. Every pre-B1 number and declined-candidate history this commitment used to
-  carry (ADR-0083, ADR-0092, ADR-0100, ADR-0154, ADR-0175) described the fused decoder's own
-  confined-forwarding scheme and retires with it; B2 re-measures fresh against this narrower D/X
-  shape rather than reopening a closed comparison.
+- **Hazards are stall-only except where the executor's own slot already holds the answer**
+  (4). B1 split decode into D and X with no forwarding at all: D presents its own
+  instruction's pair (never a guess, commitment 6) and a RAW hazard against anything still
+  in flight — X's own `out` or its already-registered `executor_out` — simply stalled, with
+  no exception (measured 44,620 suite cycles and 1,698,022 Dhrystone cycles, 0.670
+  DMIPS/MHz, ADR-0208). B2 (ADR-0213) gives X a forwarding mux: `fwd_rs1`/`fwd_rs2`, D's own
+  `dx_match_rs1`/`dx_match_rs2` against `out.rd` gated on a same-cycle-result class flag —
+  register NUMBERS and class flags, never a VALUE — ride the D/X register into X and select
+  `executor_out.rd_data` over `reg_rs1`/`reg_rs2`, excluding a CSR access's own rs1 (which
+  reads `reg_rs1` verbatim via `csr_arg`) and x0 (always zero regardless of `out.rd_data`).
+  An `ex_match` producer — one instruction further back — needs no mux at all: by the time
+  its consumer reaches X the result has moved on to `writeback`, and the regfile's own
+  write-through bypass (commitment 6) already delivers it on the issuing cycle. Only a
+  load-use dependency still stalls, two cycles (no ready result to forward, then the result
+  not yet unpacked); `hazard`'s split (`test/stall_report.py`'s hzA/hzB/hzC) reads hzC=0 on
+  the suite by construction, since B2 gives that class no path because it needs none. RVFI's
+  `rs1_rdata`/`rs2_rdata` report the forwarded value, not the regfile's own answer, so the
+  monitor's `rd_wdata` check is self-consistent only against exactly those two fields.
+  Measured on B2's own tree (ADR-0213): against B1, the suite's cycles fall 44,620 → 30,893
+  and Dhrystone 1,698,022 → 1,394,022 cycles (0.670 → 0.816 DMIPS/MHz); against main
+  (pre-B1), Dhrystone 1,613,644 → 1,394,022 cycles and CoreMark 2.155 → 2.414 CoreMark/MHz.
+  Every pre-B1 number and declined-candidate history this commitment used to carry
+  (ADR-0083, ADR-0092, ADR-0100, ADR-0154, ADR-0175) described the fused decoder's own
+  confined-forwarding scheme and retired with B1's teardown; B2 is a fresh mechanism against
+  the D/X split, not a reopening.
 - **CSR instructions, `mret` and `fence.i` serialize** (5) — held in decode until execute, access
   and writeback are empty. Two reasons share the mechanism and must not be collapsed: the first two
   so a one-cycle architectural update cannot interleave with older instructions; `fence.i` because

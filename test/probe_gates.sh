@@ -2689,7 +2689,7 @@ probe "a stall reason with no driving cell stops the run" 2 \
 # staying green.
 d=$(zkt_fixture)
 mutate "$d/executor.v" \
-  's/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/'
+  's/assign ls_block = fwd_rs1_val\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/'
 probe "a graph with no edges out of reg_rs1 is red, not a vacuous pass" 1 \
   "found no edges at all" "$ZKT $d/executor.v"
 
