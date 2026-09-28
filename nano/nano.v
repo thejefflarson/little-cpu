@@ -61,7 +61,7 @@ module riscv #(
   logic rs1_valid, rs2_valid;
   logic is_e_illegal;
   logic is_valid;
-  logic [31:0] regs[0:15];
+  logic [31:0] regs[1:15];
 
   localparam logic [31:0] MISA_VALUE = 32'h4000_0014; // RV32, E, C
   localparam logic [11:0] CSR_MSTATUS    = 12'h300;
@@ -458,10 +458,37 @@ module riscv #(
   localparam fetch_rs1 = 4'b1100;
   localparam fetch_rs2 = 4'b1101;
 
+  assign rd = (is_branch || is_store || is_cj || is_cjr) ? 5'b0 :
+              (is_cjal || is_cjalr) ? 5'd1 :
+              (is_clw || is_caddi4spn) ? {2'b01, instr[4:2]} :
+              (is_csrai || is_csrli || is_candi || is_cand ||
+               is_cor || is_cxor || is_csub) ? {2'b01, instr[9:7]} :
+              instr[11:7];
+
+  assign rs1 = (is_clwsp || is_cswsp || is_caddi4spn) ? 5'd2 :
+               (is_clw || is_csw || is_cbeqz || is_cbnez ||
+                is_csrai || is_csrli || is_candi || is_cand ||
+                is_cor || is_cxor || is_csub) ? {2'b01, instr[9:7]} :
+               (is_cjr || is_cjalr || is_cslli) ? instr[11:7] :
+               (is_cli || is_cmv) ? 5'b0 :
+               (is_caddi || is_caddi16sp || is_cadd) ? instr[11:7] :
+               instr[19:15];
+
+  assign rs2 = (is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd) ?
+                 instr[6:2] :
+               (is_csw || is_cand || is_cor || is_cxor || is_csub) ? {2'b01, instr[4:2]} :
+               (is_cbeqz || is_cbnez) ? 5'b0 :
+               instr[24:20];
+
   assign rf_raddr = cpu_state == fetch_rs2 ? rs2[3:0] : rs1[3:0];
 
   // Nano completes one instruction fully before returning here to redirect.
   assign take_interrupt = interrupt_pending && cpu_state == fetch_instr;
+
+  assign mem_wdata = is_sh ? {2{`RF_RS2[15:0]}} :
+                      is_sb ? {4{`RF_RS2[7:0]}} :
+                              `RF_RS2;
+  assign mem_wstrb = cpu_state == finish_store ? store_wstrb : 4'b0000;
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -469,8 +496,6 @@ module riscv #(
       instr <= 0;
       next_pc <= 0;
       mem_addr <= 0;
-      mem_wdata <= 0;
-      mem_wstrb <= 0;
       trap <= 0;
       cpu_state <= fetch_instr;
       mem_valid <= 0;
@@ -479,13 +504,11 @@ module riscv #(
       case (cpu_state)
         fetch_instr: begin
           skip_reg_write <= 0;
-          regs[0] <= 0;
           if (take_interrupt) begin
             // Nothing issues this cycle: next_pc becomes mtvec, and mstatus_mie
             // reads already cleared next cycle, so the fetch below runs then.
             next_pc <= mtvec_value;
           end else begin
-            mem_wstrb <= 4'b0000;
             mem_instr <= 1;
             mem_valid <= 1;
             cpu_state <= ready_instr;
@@ -503,45 +526,16 @@ module riscv #(
         end
 
         decode_instr: begin
-          (* parallel_case, full_case *)
-          case (1'b1)
-            is_branch || is_store || is_cj || is_cjr: rd <= 0;
-            is_cjal || is_cjalr: rd <= 1;
-            is_clw || is_caddi4spn: rd <= {2'b01, instr[4:2]};
-            is_csrai || is_csrli || is_candi || is_cand ||
-              is_cor || is_cxor || is_csub: rd <= {2'b01, instr[9:7]};
-            default: rd <= instr[11:7];
-          endcase
-
-          (* parallel_case, full_case *)
-          case (1'b1)
-            is_clwsp || is_cswsp || is_caddi4spn: rs1 <= 2;
-            is_clw || is_csw || is_cbeqz || is_cbnez ||
-              is_csrai || is_csrli || is_candi || is_cand ||
-              is_cor || is_cxor || is_csub: rs1 <= {2'b01, instr[9:7]};
-            is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
-            is_cli || is_cmv: rs1 <= 0;
-            is_caddi || is_caddi16sp || is_cadd: rs1 <= instr[11:7];
-            default: rs1 <= instr[19:15];
-          endcase
-
-          (* parallel_case, full_case *)
-          case(1'b1)
-            is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd: rs2 <= instr[6:2];
-            is_csw || is_cand || is_cor || is_cxor || is_csub: rs2 <= {2'b01, instr[4:2]};
-            is_cbeqz || is_cbnez: rs2 <= 0;
-            default: rs2 <= instr[24:20];
-          endcase
           cpu_state <= fetch_rs1;
         end
 
         fetch_rs1: begin
-          op_rs1 <= regs[rf_raddr];
+          op_rs1 <= |rf_raddr ? regs[rf_raddr] : 32'b0;
           cpu_state <= rs2_valid ? fetch_rs2 : execute_instr;
         end
 
         fetch_rs2: begin
-          op_rs2 <= regs[rf_raddr];
+          op_rs2 <= |rf_raddr ? regs[rf_raddr] : 32'b0;
           cpu_state <= execute_instr;
         end
 
@@ -634,8 +628,6 @@ module riscv #(
               end
 
               is_load_op || is_clwsp || is_clw: begin
-                // Misaligned and out-of-window accesses are excluded by take_trap above.
-                mem_wstrb <= 4'b0000;
                 mem_addr <= {load_store_address[31:2], 2'b00};
                 mem_instr <= 0; // can we have data
                 mem_valid <= 1; // kick off a memory request
@@ -643,13 +635,6 @@ module riscv #(
               end
 
               is_store_op || is_cswsp || is_csw: begin
-                (* parallel_case, full_case *)
-                case (1'b1)
-                  is_sw:  mem_wdata <= `RF_RS2;
-                  is_sh:  mem_wdata <= {2{`RF_RS2[15:0]}};
-                  is_sb:  mem_wdata <= {4{`RF_RS2[7:0]}};
-                endcase
-                mem_wstrb <= store_wstrb;
                 mem_addr <= {load_store_address[31:2], 2'b00};
                 mem_instr <= 0;
                 mem_valid <= 1; // kick off a memory request
@@ -685,7 +670,7 @@ module riscv #(
         end
 
         reg_write: begin
-          regs[rd[3:0]] <= reg_wdata;
+          if (|rd[3:0]) regs[rd[3:0]] <= reg_wdata;
           cpu_state <= fetch_instr;
         end
 
@@ -930,7 +915,7 @@ module riscv #(
     // RVFI requires a trapping retirement to report no destination register.
     rvfi_rd_addr_q <= (is_fetch_entry && captured_take_trap) ? 5'b0 : rd;
     rvfi_rd_wdata_q <=
-      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd ? regs[rd[3:0]] : 0);
+      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd[3:0] ? regs[rd[3:0]] : 0);
     rvfi_trap_q <= (is_fetch_entry && captured_take_trap) || trap;
     rvfi_halt_q <= trap;
 `ifdef RISCV_FORMAL_MEM_FAULT
