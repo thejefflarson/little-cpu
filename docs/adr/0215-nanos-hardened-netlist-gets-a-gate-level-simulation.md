@@ -102,9 +102,8 @@ routing with 46,828 violations after seven iterations and wrote no netlist.
   specific gate low inside hundreds of auto-named cells in the real netlist is not a stable
   text mutation across synthesis runs, so the probe proves the mechanism (a stuck-low real
   dlclkp cell is caught) rather than mutating the shipping netlist itself.
-- `make nano-area`'s local instrument still does not run the `clockgate` pass
-  (`nano/synth_script.sh` is unchanged here, owed to the sprint doing Tier 1's RTL edits),
-  so it continues to measure a netlist the flow no longer builds; this change verifies the
+- `make nano-area`'s local instrument runs the same `clockgate` pass, so its netlist has
+  the gates this check exists for, but it is never simulated: this check verifies the
   flow's own output, not `nano-area`'s.
 - iverilog is the only leg that can run this: cxxrtl cannot fire an `always` block on a
   clock a synthesis pass derived, and riscv-formal has no model of the netlist at all.
