@@ -65,7 +65,8 @@ module executor #(
     in_is_lr, in_is_sc, in_is_auipc, in_is_lui, in_is_jal, in_is_jalr, in_is_beq, in_is_bne,
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
-    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2;
+    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2, in_predicted_taken;
+  logic [31:0] in_predicted_target;
   assign {in_valid, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
     in_rs1, in_rs2, in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
     in_is_mulhu, in_is_mulhsu, in_is_div, in_is_divu, in_is_rem, in_is_remu, in_is_sll,
@@ -75,7 +76,8 @@ module executor #(
     in_is_lr, in_is_sc, in_is_auipc, in_is_lui, in_is_jal, in_is_jalr, in_is_beq, in_is_bne,
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
-    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2} = in;
+    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2, in_predicted_taken,
+    in_predicted_target} = in;
 
   // Gated on x_busy so a divide in progress finishes before X ever looks.
   logic take_interrupt;

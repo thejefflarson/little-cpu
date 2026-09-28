@@ -125,6 +125,8 @@ typedef struct packed {
   // executor_out one cycle later, which X then selects over the regfile's answer.
   logic        fwd_rs1;
   logic        fwd_rs2;
+  logic        predicted_taken;
+  logic [31:0] predicted_target;
 } dx_output;
 
 typedef struct packed {

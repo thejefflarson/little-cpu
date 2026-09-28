@@ -266,6 +266,10 @@ int main(int argc, char **argv) {
   const cxxrtl::debug_item *ls_issues = nullptr;
   const cxxrtl::debug_item *ls_edges = nullptr;
   const cxxrtl::debug_item *ls_bypasses = nullptr;
+  // D's own branch/jal predictor counters (rtl/littlecpu.v).
+  const cxxrtl::debug_item *guesses = nullptr;
+  const cxxrtl::debug_item *guess_hits = nullptr;
+  const cxxrtl::debug_item *guess_misses = nullptr;
   if (args.stalls) {
     try {
       stall_any = &all_debug_items.at("uut decoder stall").at(0);
@@ -298,6 +302,18 @@ int main(int argc, char **argv) {
                     "loads in it.\n");
       return 3;
     }
+    try {
+      guesses = &all_debug_items.at("uut probe_guesses").at(0);
+      guess_hits = &all_debug_items.at("uut probe_guess_hits").at(0);
+      guess_misses = &all_debug_items.at("uut probe_guess_misses").at(0);
+    } catch (const std::out_of_range &) {
+      std::fprintf(stderr,
+                    "error: --stalls needs the branch/jal predictor counters as "
+                    "debug items, and at least one of them is not in the "
+                    "simulated design. They are the `probe_guess_*` registers in "
+                    "rtl/littlecpu.v's RISCV_FORMAL block.\n");
+      return 3;
+    }
   }
 
   uint64_t counted_cycles = 0;
@@ -322,9 +338,11 @@ int main(int argc, char **argv) {
     std::printf(" hzA=%llu hzB=%llu hzC=%llu hzCcsr=%llu",
                  (unsigned long long)hazard_a, (unsigned long long)hazard_b,
                  (unsigned long long)hazard_c, (unsigned long long)hazard_c_csr);
-    std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u\n",
+    std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u"
+                 " guesses=%u guesshits=%u guessmisses=%u\n",
                  (unsigned long long)unattributed_cycles, ls_issues->curr[0],
-                 ls_edges->curr[0], ls_bypasses->curr[0]);
+                 ls_edges->curr[0], ls_bypasses->curr[0], guesses->curr[0],
+                 guess_hits->curr[0], guess_misses->curr[0]);
   };
 
   auto finish = [&](int code) {

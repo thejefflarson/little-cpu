@@ -1,8 +1,6 @@
 # See LICENSE for license details.
 
-// A hundred-iteration backward conditional branch: the fetch-side predictor's own
-// case (rtl/fetcher.v's guess_valid, ADR-0207). Regresses the loop's per-iteration
-// cost, not just its final result.
+// A hundred-iteration backward branch aligned so its fall-through crosses a fetch window.
 
 #include "riscv_test.h"
 #include "test_macros.h"

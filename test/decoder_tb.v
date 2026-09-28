@@ -228,6 +228,41 @@ module decoder_tb;
     check_bit("csrrsi is an immediate form", dut.is_csr_imm, 1'b1);
     check_bit("...so it does not use rs1", dut.uses_rs1, 1'b0);
 
+    // D's own branch/jal predictor: formed off `in.next_instr` one cycle before the
+    // candidate itself reaches decode, so the guess captured into `out` on the cycle a
+    // word is PRESENTED reflects the guess the PRIOR cycle formed about it.
+    in.pc = 32'h0000_0300;
+    in.instr = 32'h00100093;       // addi x1, x0, 1 -- an unrelated instruction
+    in.next_instr = 32'hfe62_9ee3; // bne x5, x6, -4 -- backward, guessed taken
+    settle_issue(in.instr);        // out now carries addi; no guess check yet
+
+    in.pc = 32'h0000_0304;
+    in.instr = 32'hfe62_9ee3;      // the branch itself, now at decode
+    in.next_instr = 32'h0000_0463; // beq x0, x0, +8 -- forward, not guessed
+    settle_issue(in.instr);
+    check_bit("a backward branch next in line is guessed taken", out.predicted_taken, 1'b1);
+    check_hex("...to its own pc plus its immediate", out.predicted_target, 32'h0000_0300);
+
+    in.pc = 32'h0000_0308;
+    in.instr = 32'h0000_0463;      // the forward branch, now at decode
+    in.next_instr = 32'h0080_00ef; // jal x1, +8 -- unconditional, always guessed taken
+    settle_issue(in.instr);
+    check_bit("a forward branch next in line is not guessed", out.predicted_taken, 1'b0);
+
+    in.pc = 32'h0000_0306;         // pc[1] set: an uncompressed word straddles the window
+    in.instr = 32'h0000_0013;      // addi x0, x0, 0 -- uncompressed, straddling
+    in.next_instr = 32'hfe62_9ee3; // would be guessed taken if it were whole
+    settle_issue(in.instr);
+    check_bit("a jal next in line is guessed taken", out.predicted_taken, 1'b1);
+    check_hex("...to its own pc plus its immediate", out.predicted_target, 32'h0000_0314);
+
+    in.pc = 32'h0000_0310;
+    in.instr = 32'h00100093;       // addi x1, x0, 1 -- an unrelated instruction
+    in.next_instr = 32'h0000_0013; // irrelevant; the guess it would form is blocked below
+    settle_issue(in.instr);
+    check_bit("a straddling current word leaves next_instr's upper half empty, so no guess",
+              out.predicted_taken, 1'b0);
+
     // Hazards: dx_match against a same-cycle-ready producer forwards from the X/M
     // register instead of stalling; a match on a producer that will not be ready next
     // cycle (a load, an AMO, `lr.w`, `sc.w`) still stalls, and so does a CSR access's own
