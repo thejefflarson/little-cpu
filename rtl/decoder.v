@@ -3,7 +3,9 @@
 `include "structs.v"
 // D decodes the buffered word, presents the register file its own pair (never a guess) and
 // guesses whether it branches/jumps taken. Fetch-address ownership lives in rtl/littlecpu.v.
-module decoder (
+module decoder #(
+  parameter integer LS_TEXT_WORDS = 2048
+) (
   input  logic clk,
   input  logic reset,
   input  fetcher_output in,
@@ -359,6 +361,13 @@ module decoder (
   assign predict_taken = instr_jal || ((instr_beq || instr_bne || instr_blt || instr_bge ||
     instr_bltu || instr_bgeu) && immediate[31]);
 
+  // The guess's own low bits, sized to this window rather than dx_output's fixed-width
+  // field: zero-extended into it below, so a narrower LS_TEXT_WORDS costs no extra carry.
+  localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
+  localparam int PREDICT_LOW_BITS  = LS_TEXT_ADDR_BITS + 2;
+  logic [PREDICT_LOW_BITS-1:0] predict_target_low;
+  assign predict_target_low = fetcher_pc[PREDICT_LOW_BITS-1:0] + immediate[PREDICT_LOW_BITS-1:0];
+
   always_ff @(posedge clk) begin
     if (reset) begin
       out <= '0;
@@ -439,7 +448,7 @@ module decoder (
       out.fwd_rs1 <= fwd_rs1;
       out.fwd_rs2 <= fwd_rs2;
       out.predicted_taken <= predict_taken;
-      out.predicted_target_low <= fetcher_pc[7:0] + immediate[7:0];
+      out.predicted_target_low <= predict_target_low;
     end
   end
 

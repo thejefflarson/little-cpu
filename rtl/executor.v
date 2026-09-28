@@ -66,7 +66,7 @@ module executor #(
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
     in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2, in_predicted_taken;
-  logic [7:0] in_predicted_target_low;
+  logic [13:0] in_predicted_target_low;
   assign {in_valid, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
     in_rs1, in_rs2, in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
     in_is_mulhu, in_is_mulhsu, in_is_div, in_is_divu, in_is_rem, in_is_remu, in_is_sll,

@@ -14,7 +14,7 @@ module fetcher_tb;
   logic [31:0] pc = 32'b0, next_pc, target = 32'b0, seq_pc;
   logic        hold_now = 1'b0, steal = 1'b0;
   logic        issuing, predicted_taken;
-  logic [7:0] predicted_target_low;
+  logic [13:0] predicted_target_low;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next, imem_data, imem_data2;
   logic        imem_stall, imem_fault, fetch_stall, fault;
   fetcher_output out;
@@ -63,7 +63,7 @@ module fetcher_tb;
     gt_redirect_target <= target;
     predicted_taken       <= !reset && issuing &&
       (guess_override ? (guess_to != seq_pc) : d_redirect);
-    predicted_target_low  <= guess_override ? guess_to[7:0] : target[7:0];
+    predicted_target_low  <= guess_override ? guess_to[13:0] : target[13:0];
   end
   assign next_pc = reset ? 32'b0 : gt_redirect ? gt_redirect_target : issuing ? seq_pc : pc;
   always_ff @(posedge clk) pc <= next_pc;

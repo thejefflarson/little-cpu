@@ -103,6 +103,12 @@ module littlecpu #(
   if (LS_RAM_WORDS != (1 << LS_RAM_ADDR_BITS)) begin : l_ls_ram_words_power_of_two
     $fatal(1, "littlecpu: LS_RAM_WORDS must be a power of two");
   end
+  // dx_output's predicted_target_low is 14 bits wide (rtl/structs.v), sized for the
+  // widest LS_TEXT_WORDS this design synthesizes; a build that widens the window past
+  // that must widen the field too, not truncate the guess silently.
+  if (LS_TEXT_ADDR_BITS + 2 > 14) begin : l_predicted_target_low_fits
+    $fatal(1, "littlecpu: LS_TEXT_WORDS needs more bits than predicted_target_low has");
+  end
   if (|LS_RAM_BASE[LS_RAM_ADDR_BITS+1:0]) begin : l_ls_ram_base_aligned
     $fatal(1, "littlecpu: LS_RAM_BASE must be aligned to LS_RAM_WORDS words");
   end
@@ -192,7 +198,7 @@ module littlecpu #(
   `endif
  `endif
 
-  decoder decoder(
+  decoder #(.LS_TEXT_WORDS(LS_TEXT_WORDS)) decoder(
     .clk(clk),
     .reset(reset),
     .in(fetcher_out),
@@ -433,7 +439,7 @@ module littlecpu #(
   logic probe_guess_active, probe_guess_correct;
   assign probe_guess_active = dx_out.valid && !x_busy && dx_out.predicted_taken;
   assign probe_guess_correct = probe_guess_active && x_redirect &&
-    x_redirect_target[7:0] == dx_out.predicted_target_low;
+    x_redirect_target[13:0] == dx_out.predicted_target_low;
 
   logic [31:0] probe_guesses, probe_guess_hits, probe_guess_misses;
   always_ff @(posedge clk) begin

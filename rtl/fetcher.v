@@ -11,7 +11,7 @@ module fetcher (
   input  logic [31:0] next_pc,
   input  logic        issuing,
   input  logic        predicted_taken,
-  input  logic [7:0] predicted_target_low,
+  input  logic [13:0] predicted_target_low,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
@@ -37,7 +37,7 @@ module fetcher (
   assign fetch_stall = !hit;
 
   assign fetch_word = reset          ? 30'd0 :
-                      predicted_taken ? {24'b0, predicted_target_low[7:2]} :
+                      predicted_taken ? {18'b0, predicted_target_low[13:2]} :
                                         word + {29'b0, hit};
   assign imem_addr_next = {fetch_word, 2'b00};
   assign imem_addr      = {rom_addr, 2'b00};
