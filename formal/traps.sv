@@ -57,7 +57,7 @@ module traps #(
     .next_pc(fetch_pc_next),
     .issuing(decoder_issuing),
     .predicted_taken(dx_out.predicted_taken),
-    .predicted_target(dx_out.predicted_target),
+    .predicted_target_low(dx_out.predicted_target_low),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),

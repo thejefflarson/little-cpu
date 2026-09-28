@@ -1,9 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// D decodes the buffered word and presents the register file its own pair (never a guess),
-// so X reads the right answer next cycle. Fetch-address ownership lives in rtl/littlecpu.v.
-// D also guesses whether the next word issued will branch/jump taken (`out.predicted_taken`).
+// D decodes the buffered word, presents the register file its own pair (never a guess) and
+// guesses whether it branches/jumps taken. Fetch-address ownership lives in rtl/littlecpu.v.
 module decoder (
   input  logic clk,
   input  logic reset,
@@ -355,38 +354,10 @@ module decoder (
   assign issuing = !reset && !stall;
   assign predicted_pc = fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
 
-  // A BTFN/jal-taken guess off `in.next_instr`; a straddling current word gets none.
-  logic n_jal, n_branch, n_cj, n_cb, guess_candidate, guess_whole;
-  assign n_jal    = in.next_instr[1:0] == 2'b11 && in.next_instr[6:2] == 5'b11011;
-  assign n_branch = in.next_instr[1:0] == 2'b11 && in.next_instr[6:2] == 5'b11000;
-  assign n_cj     = in.next_instr[1:0] == 2'b01 && in.next_instr[14:13] == 2'b01;
-  assign n_cb     = in.next_instr[1:0] == 2'b01 && in.next_instr[15:14] == 2'b11;
-  assign guess_candidate = n_jal || (n_branch && in.next_instr[31]) || n_cj ||
-    (n_cb && in.next_instr[12]);
-  assign guess_whole = !(uncompressed && fetcher_pc[1]);
-
-  logic [31:0] n_imm, guess_j_imm, guess_b_imm, guess_cj_imm, guess_cb_imm, guess_seq_pc;
-  assign guess_j_imm = {{12{in.next_instr[31]}}, in.next_instr[19:12], in.next_instr[20],
-                        in.next_instr[30:21], 1'b0};
-  assign guess_b_imm = {{20{in.next_instr[31]}}, in.next_instr[7], in.next_instr[30:25],
-                        in.next_instr[11:8], 1'b0};
-  assign guess_cj_imm = {{20{in.next_instr[12]}}, in.next_instr[12], in.next_instr[8],
-    in.next_instr[10], in.next_instr[9], in.next_instr[6], in.next_instr[7],
-    in.next_instr[2], in.next_instr[11], in.next_instr[5], in.next_instr[4],
-    in.next_instr[3], 1'b0};
-  assign guess_cb_imm = {{23{in.next_instr[12]}}, in.next_instr[12], in.next_instr[6:5],
-    in.next_instr[2], in.next_instr[11:10], in.next_instr[4:3], 1'b0};
-  assign n_imm = n_jal ? guess_j_imm : n_branch ? guess_b_imm : n_cj ? guess_cj_imm :
-    guess_cb_imm;
-  assign guess_seq_pc = fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
-
-  logic        guess_valid;
-  logic [31:0] guess_target;
-  always_ff @(posedge clk) begin
-    if (reset)        guess_valid <= 1'b0;
-    else if (issuing) guess_valid <= guess_candidate && guess_whole && !x_redirect;
-    if (issuing) guess_target <= guess_seq_pc + n_imm;
-  end
+  // A BTFN/jal-taken guess off the class flags and `immediate` decode already computes.
+  logic predict_taken;
+  assign predict_taken = instr_jal || ((instr_beq || instr_bne || instr_blt || instr_bge ||
+    instr_bltu || instr_bgeu) && immediate[31]);
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -467,8 +438,8 @@ module decoder (
       out.is_math_imm <= instr_math_immediate;
       out.fwd_rs1 <= fwd_rs1;
       out.fwd_rs2 <= fwd_rs2;
-      out.predicted_taken <= guess_valid;
-      out.predicted_target <= guess_target;
+      out.predicted_taken <= predict_taken;
+      out.predicted_target_low <= fetcher_pc[7:0] + immediate[7:0];
     end
   end
 

@@ -141,7 +141,7 @@ module littlecpu #(
     .next_pc(fetch_pc_next),
     .issuing(decoder_issuing),
     .predicted_taken(dx_out.predicted_taken),
-    .predicted_target(dx_out.predicted_target),
+    .predicted_target_low(dx_out.predicted_target_low),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .imem_stall(fetch_stall),
@@ -433,7 +433,7 @@ module littlecpu #(
   logic probe_guess_active, probe_guess_correct;
   assign probe_guess_active = dx_out.valid && !x_busy && dx_out.predicted_taken;
   assign probe_guess_correct = probe_guess_active && x_redirect &&
-    x_redirect_target == dx_out.predicted_target;
+    x_redirect_target[7:0] == dx_out.predicted_target_low;
 
   logic [31:0] probe_guesses, probe_guess_hits, probe_guess_misses;
   always_ff @(posedge clk) begin

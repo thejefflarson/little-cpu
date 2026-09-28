@@ -2,7 +2,7 @@
 `default_nettype none
 `include "structs.v"
 
-// rtl/fetcher.v over a ROM that answers late; `predicted_taken`/`predicted_target` model D's own guess, independently settable from `pc`/`next_pc`'s ground truth.
+// rtl/fetcher.v over a ROM that answers late; `predicted_taken`/`predicted_target_low` model D's own guess, independently settable from `pc`/`next_pc`'s ground truth.
 module fetcher_tb;
   localparam int ROM_WORDS = 64;
   localparam int FAULT_WORD = 32;
@@ -14,7 +14,7 @@ module fetcher_tb;
   logic [31:0] pc = 32'b0, next_pc, target = 32'b0, seq_pc;
   logic        hold_now = 1'b0, steal = 1'b0;
   logic        issuing, predicted_taken;
-  logic [31:0] predicted_target;
+  logic [7:0] predicted_target_low;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next, imem_data, imem_data2;
   logic        imem_stall, imem_fault, fetch_stall, fault;
   fetcher_output out;
@@ -26,7 +26,7 @@ module fetcher_tb;
     .next_pc(next_pc),
     .issuing(issuing),
     .predicted_taken(predicted_taken),
-    .predicted_target(predicted_target),
+    .predicted_target_low(predicted_target_low),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
@@ -61,9 +61,9 @@ module fetcher_tb;
   always_ff @(posedge clk) begin
     gt_redirect        <= !reset && issuing && d_redirect;
     gt_redirect_target <= target;
-    predicted_taken    <= !reset && issuing &&
+    predicted_taken       <= !reset && issuing &&
       (guess_override ? (guess_to != seq_pc) : d_redirect);
-    predicted_target   <= guess_override ? guess_to : target;
+    predicted_target_low  <= guess_override ? guess_to[7:0] : target[7:0];
   end
   assign next_pc = reset ? 32'b0 : gt_redirect ? gt_redirect_target : issuing ? seq_pc : pc;
   always_ff @(posedge clk) pc <= next_pc;
@@ -84,13 +84,11 @@ module fetcher_tb;
 
   task automatic check_window(input string what);
     logic [63:0] pair;
-    logic [31:0] want_instr, want_next;
+    logic [31:0] want_instr;
     begin
       pair = {rom[pc[7:2] + 6'd1], rom[pc[7:2]]} >> (pc[1] ? 16 : 0);
       want_instr = pair[31:0];
-      want_next  = want_instr[1:0] == 2'b11 ? pair[63:32] : pair[47:16];
       check({what, ": instr at pc"}, out.instr, want_instr);
-      check({what, ": the word after it"}, out.next_instr, want_next);
       check({what, ": out.pc"}, out.pc, pc);
       check({what, ": fault"}, {31'b0, fault}, {31'b0, pc[7:2] >= FAULT_WORD});
     end

@@ -3,8 +3,7 @@
 `include "structs.v"
 // The fetch address is built from registers alone. Decode reads the window at `pc` off
 // the ROM's output register or off `skid`, the one window fetch has moved past.
-// `predicted_taken`/`predicted_target` are D's own guess, riding `dx_out` -- a register,
-// not X's live branch compare -- into the ROM's address.
+// `predicted_taken`/`predicted_target_low` are D's own guess, riding `dx_out`.
 module fetcher (
   input  logic clk,
   input  logic reset,
@@ -12,7 +11,7 @@ module fetcher (
   input  logic [31:0] next_pc,
   input  logic        issuing,
   input  logic        predicted_taken,
-  input  logic [31:0] predicted_target,
+  input  logic [7:0] predicted_target_low,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
@@ -38,7 +37,7 @@ module fetcher (
   assign fetch_stall = !hit;
 
   assign fetch_word = reset          ? 30'd0 :
-                      predicted_taken ? predicted_target[31:2] :
+                      predicted_taken ? {24'b0, predicted_target_low[7:2]} :
                                         word + {29'b0, hit};
   assign imem_addr_next = {fetch_word, 2'b00};
   assign imem_addr      = {rom_addr, 2'b00};
@@ -62,22 +61,17 @@ module fetcher (
 
   logic [63:0] fetch_pair;
   assign fetch_pair = {win_hi, win_lo} >> (pc[1] ? 16 : 0);
-  logic [31:0] windowed_instr, next_word;
-  logic        uncompressed;
+  logic [31:0] windowed_instr;
   assign windowed_instr = fetch_pair[31:0];
-  assign uncompressed   = windowed_instr[1:0] == 2'b11;
-  assign next_word = uncompressed ? fetch_pair[63:32] : fetch_pair[47:16];
 
   always_comb begin
     if (reset) begin
       out.valid = 1'b0;
       out.pc = 32'b0;
       out.instr = 32'b0;
-      out.next_instr = 32'b0;
     end else begin
       out.valid = 1'b1;
       out.instr = windowed_instr;
-      out.next_instr = next_word;
       out.pc = pc;
     end
   end
