@@ -48,7 +48,7 @@ nano-dhrystone: nano-sim
 	@./nano/bench/run_dhrystone.sh ./nano-sim $(NANO_DHRY_RUNS) $(NANO_DHRY_CYCLES) '$(NANO_CFLAGS)'
 
 NANO_COREMARK_ITERATIONS ?= 5
-NANO_COREMARK_CYCLES     ?= 20000000
+NANO_COREMARK_CYCLES     ?= 30000000
 
 .PHONY: nano-coremark
 nano-coremark: nano-sim
