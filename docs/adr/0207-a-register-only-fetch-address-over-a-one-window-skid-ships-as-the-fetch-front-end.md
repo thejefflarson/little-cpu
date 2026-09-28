@@ -364,3 +364,119 @@ tried and backed out in the same session. `make dhrystone`/`make coremark` are n
 the RTL is byte-identical to what this ADR's prior amendment already measured (0.922 DMIPS/MHz,
 2.661 CoreMark/MHz), confirmed by an empty diff against 7382201 on every file but one test
 program's comment.
+
+## Amendment: both declines above were wrong, and the D-stage guess ships, corrected
+
+**The premise of the last two paragraphs does not hold: this ADR's own shipped shape does not
+reliably clear 12 MHz, and nothing here was "owner-acknowledged" as an acceptable gap.** The
+9.53 MHz this ADR quotes throughout is ONE pinned seed (20740127). An 8-seed census of that same
+committed shape (195147338, 218749127, 20740127, 125781539, 14871351, 156842832, 233595587,
+20382078) reads **9.08–9.53 MHz**, and **half the seeds are limited by the fetch loop**
+(`regfile → forwarding → X branch compare → fetch_pc_next → ROM WADDR`) — the exact loop this
+whole fetch refactor exists to shorten. The owner's requirement is 12 MHz on the up5k, unconditionally
+(ADR-0066); a design that clears it on zero of eight seeds is not a resolved trade, and this file
+should not have read the interrupt-register finding as license to stop looking once a single seed
+came back with an unrelated critical path. This amendment corrects the record and finishes the
+trim pass rather than deferring it again.
+
+**Why the prior decline missed it.** A single pinned-seed placement at 99–100% occupancy is what
+this very file already calls "not a reliable read of which hop is slow," two paragraphs above the
+decline that then rested its whole conclusion on one. The 8-bit D-stage guess was ALSO genuinely
+broken on its own terms, independent of the seed count: `predicted_target_low`'s width was a bare
+8, so `fetcher_pc[7:0] + immediate[7:0]` zero-extended into a guess that could only ever land in
+the ROM's first 256 bytes of 8192 — confirmed here as the earlier amendment suspected, and the hit
+grader (`littlecpu.v`'s `probe_guess_correct`) compared only those same 8 bits on both sides, so
+even that corrupted signal could not have shown the truth. Both defects independently hid the
+mechanism's real value.
+
+**The fix, in three parts, on top of the D-stage guess this ADR already built and reverted**
+(`git checkout 3521fd8 -- formal/pcloop.sv formal/traps.sv rtl/decoder.v rtl/executor.v
+rtl/fetcher.v rtl/littlecpu.v rtl/structs.v test/cxxrtl.cc test/decoder_tb.v test/fetcher_tb.v
+test/zkt_isolation_test.py`, i.e. the guess this section above walked back to 7382201):
+
+1. **`predicted_target_low` covers the ROM, derived from `LS_TEXT_WORDS`, not hardcoded.**
+   `rtl/decoder.v` takes its own `LS_TEXT_WORDS` parameter (default 2048, mirroring
+   `rtl/executor.v`'s) and sizes the guess's own adder to `$clog2(LS_TEXT_WORDS)+2` bits (13 for
+   the up5k's 8 KB default); `rtl/structs.v`'s `dx_output.predicted_target_low` is 14 bits, sized
+   for the widest `LS_TEXT_WORDS` this design ever synthesizes (the Makefile's
+   `ICESUGAR_COREMARK_ROM_WORDS`, 4096 words / 16 KB for ECP5's CoreMark build), and
+   `rtl/littlecpu.v` elaboration-fatals a build whose window needs more bits than that field has,
+   rather than silently truncating a future widening the way the 8-bit field truncated this one.
+   The hit grader now compares the full field (`x_redirect_target[13:0] == dx_out.predicted_target_low`),
+   not 8 bits of it.
+2. **The TIMER critical path the wider, working guess exposes is cut in `rtl/timer.v` alone.** An
+   8-seed census of the widened guess (still narrow, before this cut) reads **9.38–9.80 MHz across
+   all eight seeds, 0/8 fetch-loop-limited** — the fetch loop is genuinely gone — but **every one
+   of the eight** is limited by a new path entering `mtimer.v` and ending at `mtip`'s own D-input, a
+   register-to-register path with no further hop beyond it (confirmed by reading the worst path in
+   full: `riscv.accessor_out[32]` (a register) through several LUT hops of live class-flag/region
+   decode into `mtimer.mtip_..._SB_CARRY..._SB_CARRY...`, an unbroken run of roughly 60 `SB_CARRY`
+   hops at 0.278 ns each terminating at `irq_timer`). The mechanism: `mtip[0] <= mtime_next >=
+   mtimecmp`, where `mtime_next = (wr_time_lo || wr_time_hi) ? mtime : mtime + 1` selects between
+   the frozen counter and its own 64-bit incrementer based on **this cycle's live decode** of
+   `mem_addr`/`mem_wstrb` — and `mem_addr` is `rtl/accessor.v`'s combinational `launch_mem_addr`,
+   driven straight off X's effective-address adder the same cycle (B3/ADR-0214 made the region test
+   and the memory transaction combinational, with no register between X and the timer's bus port).
+   The freeze-vs-increment MUX selecting the comparator's own operand is therefore serialized in
+   front of the 64-bit comparator's own carry chain rather than running in parallel with it, and
+   that mux's select depends on live, same-cycle address decode. The cut: `mtip[0] <= mtime >=
+   mtimecmp` (both hart-0 and the `NHARTS>1` generate arm), comparing the two ALREADY-REGISTERED
+   counters directly, with no `mtime_next` look-ahead and so no dependency on this cycle's
+   `mem_addr` at all. `mtime`'s own update (`mtime <= mtime_next`, the freeze-on-write and the
+   increment) is untouched — only `mtip`'s comparator operand changes. This makes `mtip` visible
+   exactly one cycle later than before on a free-running tick (never early, only later — CLAUDE.md's
+   timer section already permits this class of change, and `test/timer_tb.v` is its grader per
+   ADR-0118); two of that bench's cycle-exact boundary checks each need one more `idle()` to see the
+   now-later crossing, and every other check — including the torn-write and byte-strobe cases — is
+   unaffected, because a `mtimecmp`/`mtime` write's own visibility was already one cycle late under
+   the prior design too (non-blocking reads inside the same `always_ff` see the pre-edge value
+   regardless of which comparator operand is used).
+3. **`rtl/fetcher.v`'s skid caches only `skid_hi`'s low 16 bits.** `windowed_instr` never reads
+   `skid_hi[31:16]` under either arm of `fetch_pair`'s shift (`{win_hi, win_lo} >> (pc[1] ? 16 :
+   0)`) — a straddling word only ever needs `win_hi`'s low half. This is a pure dead-bit deletion
+   with no timing or straddle-logic change (unlike the "48-bit skid" idea a still-earlier version
+   of this section named and left unbuilt, which additionally proposed reading a live ROM word
+   instead of caching one and needed its own re-proof against a guess in flight): `make fit` falls
+   4,540 → 4,524.
+
+**Formally re-verified.** `make -C formal components_decoder components_executor components_traps
+components_pcloop` — all four k-induction proofs pass on the tree with all three parts above.
+`make -C formal remeasure-fg`: F = 5, G = 5, both reproduce, unchanged. `make test` (full,
+including the rebuilt `test/timer_tb.v`, `test/asm/mtimer.S`, `test/asm/mtimermask.S` and the
+unit benches) and `make lint` both pass clean.
+
+**Cycles, confirmed against the scratch prediction that motivated widening the guess in the first
+place:** Dhrystone **1,266,023 cycles, 0.899 DMIPS/MHz** (was 1,392,022 / 0.816 on the unwidened
+8-bit guess); CoreMark **38,549,564 cycles (100 iterations, 16 KB simulated ROM), 2.594
+CoreMark/MHz** (was 2.415), with the guess-hit probes now meaningful for the first time —
+`guesses=3,129,413 guesshits=2,892,166 guessmisses=237,247`, a 92.4% hit rate, where the 8-bit
+version's corrupted grader could report nothing trustworthy. The suite (`make cycles`): 31,019
+cycles, CPI 1.32.
+
+**The area this needs does not fit the part, and closing it further is not safe to do by more
+hand-tuned bit-width edits.** `make soc-timing` on the tree with all three parts above:
+**`ICESTORM_LC: 5,321/5,280 (101%)`, placement fails** ("Failed to expand region"), IDENTICALLY
+at all eight census seeds — logic-cell demand is a synthesis output, not a placement one, so it
+does not vary by seed the way Fmax does, and no seed search can rescue a netlist that does not fit.
+No per-seed MHz or critical-path table follows this section for that reason: nextpnr never reaches
+a timing report. This is not a regression introduced casually — this ADR's own committed shape
+already places at 5,277/5,280, three cells of headroom, before any of this amendment's work; both
+the corrected guess and the TIMER cut are real, necessary logic, not a bookkeeping error, and
+**hand-tuning their width or their exact RTL shape does not move the SoC's placed cell count
+predictably**: three throwaway, reverted variants built purely to isolate the two changes' costs
+measured 5,336 (the narrow, still-broken 8-bit guess, with the TIMER cut and the skid trim),
+5,368 (the same 8-bit guess and TIMER cut, WITHOUT the skid trim — worse, not better, than the
+14-bit guess's own 5,321), and 5,301 (the 8-bit guess and the skid trim, WITHOUT the TIMER cut).
+None of the three is smaller than the shape that ships, and the ordering does not track either
+change's apparent logic complexity — consistent with this file's own documented ~3.6% SoC
+edit-churn band (about 190 cells at this design's size, from ABC9 sorting generated cells by a
+`file:line`-derived name that a few added or deleted lines reorders) rather than a real,
+attributable cost per bit or per line. Closing the placement gap needs a genuine, multi-seed-
+measured area reduction — this file's own "not built, and named" 48-bit-skid idea (an estimated
+~32 cells, though see above: the version built here is a strictly smaller, dead-bits-only cut of
+that same idea, and it does not by itself close a gap this size) or an equivalent — not another
+single-point hand edit. **DECISION NEEDED**: whether to fund that area-reduction pass as its own
+piece of work before this shape ships, or to accept a different scoping of the D-stage guess or
+the TIMER fix that this session did not have room to find and formally re-verify safely. The 12 MHz
+requirement itself is not negotiable (ADR-0066); what is open is how the area to reach it gets
+found.
