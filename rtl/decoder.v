@@ -1,8 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// D decodes the buffered word and presents the register file its own pair (never a guess),
-// so X reads the right answer next cycle. Fetch-address ownership lives in rtl/littlecpu.v.
+// D decodes the buffered word, presents the register file its own pair (never a guess) and
+// guesses whether it branches/jumps taken. Fetch-address ownership lives in rtl/littlecpu.v.
 module decoder (
   input  logic clk,
   input  logic reset,
@@ -354,6 +354,11 @@ module decoder (
   assign issuing = !reset && !stall;
   assign predicted_pc = fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
 
+  // A BTFN/jal-taken guess off the class flags and `immediate` decode already computes.
+  logic predict_taken;
+  assign predict_taken = instr_jal || ((instr_beq || instr_bne || instr_blt || instr_bge ||
+    instr_bltu || instr_bgeu) && immediate[31]);
+
   always_ff @(posedge clk) begin
     if (reset) begin
       out <= '0;
@@ -433,6 +438,8 @@ module decoder (
       out.is_math_imm <= instr_math_immediate;
       out.fwd_rs1 <= fwd_rs1;
       out.fwd_rs2 <= fwd_rs2;
+      out.predicted_taken <= predict_taken;
+      out.predicted_target_low <= fetcher_pc[7:0] + immediate[7:0];
     end
   end
 

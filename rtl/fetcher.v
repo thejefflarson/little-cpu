@@ -2,17 +2,16 @@
 `default_nettype none
 `include "structs.v"
 // The fetch address is built from registers alone. Decode reads the window at `pc` off
-// the ROM's output register or off `skid`, the one window fetch has moved past. X's
-// `redirect`/`redirect_target` name the address `pc` holds one cycle after X computes
-// them -- exactly the ROM's own latency -- so steering the ROM off them needs no guess.
+// the ROM's output register or off `skid`, the one window fetch has moved past.
+// `predicted_taken`/`predicted_target_low` are D's own guess, riding `dx_out`.
 module fetcher (
   input  logic clk,
   input  logic reset,
   input  logic [31:0] pc,
   input  logic [31:0] next_pc,
   input  logic        issuing,
-  input  logic        redirect,
-  input  logic [31:0] redirect_target,
+  input  logic        predicted_taken,
+  input  logic [7:0] predicted_target_low,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
@@ -37,9 +36,9 @@ module fetcher (
   assign capture   = skid_load && !pop;
   assign fetch_stall = !hit;
 
-  assign fetch_word = reset   ? 30'd0 :
-                      redirect ? redirect_target[31:2] :
-                                 word + {29'b0, hit};
+  assign fetch_word = reset          ? 30'd0 :
+                      predicted_taken ? {24'b0, predicted_target_low[7:2]} :
+                                        word + {29'b0, hit};
   assign imem_addr_next = {fetch_word, 2'b00};
   assign imem_addr      = {rom_addr, 2'b00};
   assign imem_addr2     = imem_addr + 32'd4;
@@ -62,22 +61,17 @@ module fetcher (
 
   logic [63:0] fetch_pair;
   assign fetch_pair = {win_hi, win_lo} >> (pc[1] ? 16 : 0);
-  logic [31:0] windowed_instr, next_word;
-  logic        uncompressed;
+  logic [31:0] windowed_instr;
   assign windowed_instr = fetch_pair[31:0];
-  assign uncompressed   = windowed_instr[1:0] == 2'b11;
-  assign next_word = uncompressed ? fetch_pair[63:32] : fetch_pair[47:16];
 
   always_comb begin
     if (reset) begin
       out.valid = 1'b0;
       out.pc = 32'b0;
       out.instr = 32'b0;
-      out.next_instr = 32'b0;
     end else begin
       out.valid = 1'b1;
       out.instr = windowed_instr;
-      out.next_instr = next_word;
       out.pc = pc;
     end
   end
@@ -97,13 +91,13 @@ module fetcher (
   always_comb if (clocked && !fetch_stall)
     assert((skid_valid ? skid_word : rom_addr) == word);
 
-  logic prev_fetch_stall, prev_redirect;
-  always_ff @(posedge clk) prev_fetch_stall <= fetch_stall;
-  always_ff @(posedge clk) prev_redirect    <= redirect;
+  logic prev_fetch_stall, prev_predicted_taken;
+  always_ff @(posedge clk) prev_fetch_stall     <= fetch_stall;
+  always_ff @(posedge clk) prev_predicted_taken <= predicted_taken;
   always_ff @(posedge clk) if (clocked && !reset) begin
     skid_read:   cover (skid_valid && issuing);
     miss_then_hit: cover (prev_fetch_stall && !fetch_stall);
-    redirect_served: cover (prev_redirect && !fetch_stall);
+    guess_served: cover (prev_predicted_taken && !fetch_stall);
   end
  `endif
 endmodule

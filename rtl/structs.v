@@ -5,7 +5,6 @@ typedef struct packed {
   logic        valid;
   logic [31:0] pc;
   logic [31:0] instr;
-  logic [31:0] next_instr;  // The raw 32 bits following `instr`, not necessarily an instruction.
 } fetcher_output;
 
 `ifdef RISCV_FORMAL
@@ -125,6 +124,8 @@ typedef struct packed {
   // executor_out one cycle later, which X then selects over the regfile's answer.
   logic        fwd_rs1;
   logic        fwd_rs2;
+  logic        predicted_taken;
+  logic [7:0] predicted_target_low;
 } dx_output;
 
 typedef struct packed {
