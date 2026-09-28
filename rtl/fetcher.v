@@ -4,7 +4,9 @@
 // The fetch address is built from registers alone. Decode reads the window at `pc` off
 // the ROM's output register or off `skid`, the one window fetch has moved past; a guess
 // formed a cycle early steers the ROM to a jump's target, and any miss costs one cycle.
-module fetcher(
+module fetcher #(
+  parameter integer LS_TEXT_WORDS = 2048
+) (
   input  logic clk,
   input  logic reset,
   input  logic [31:0] pc,
@@ -26,7 +28,8 @@ module fetcher(
   logic        rom_hit, hit, pop, skid_load, capture, skid_valid, skid_fault;
   logic [31:0] skid_lo, skid_hi;
   logic        guess_valid;
-  logic [31:0] guess_target;
+  localparam int GUESS_ADDR_BITS = $clog2(LS_TEXT_WORDS) + 2;
+  logic [GUESS_ADDR_BITS-1:0] guess_target_low;
 
   assign word     = pc[31:2];
   assign rom_hit  = !imem_stall && rom_addr == word;
@@ -39,7 +42,9 @@ module fetcher(
   assign fetch_stall = !hit;
 
   assign fetch_word = reset ? 30'd0 :
-                      hit && guess_valid ? guess_target[31:2] : word + {29'b0, hit};
+                      hit && guess_valid ?
+                        {{(30-(GUESS_ADDR_BITS-2)){1'b0}}, guess_target_low[GUESS_ADDR_BITS-1:2]} :
+                        word + {29'b0, hit};
   assign imem_addr_next = {fetch_word, 2'b00};
   assign imem_addr      = {rom_addr, 2'b00};
   assign imem_addr2     = imem_addr + 32'd4;
@@ -109,7 +114,7 @@ module fetcher(
   always_ff @(posedge clk) begin
     if (reset)        guess_valid <= 1'b0;
     else if (issuing) guess_valid <= candidate && next_whole && !redirect;
-    if (issuing) guess_target <= seq_pc + n_imm;
+    if (issuing) guess_target_low <= seq_pc[GUESS_ADDR_BITS-1:0] + n_imm[GUESS_ADDR_BITS-1:0];
   end
 
  `ifdef FORMAL

@@ -50,7 +50,9 @@ module traps #(
   // warning in yosys.
   logic        bus_request;
 
-  fetcher fetcher (
+  fetcher #(
+    .LS_TEXT_WORDS(LS_TEXT_WORDS)
+  ) fetcher (
     .clk(clk),
     .reset(reset),
     .pc(fetch_pc),

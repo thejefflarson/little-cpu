@@ -134,7 +134,9 @@ module littlecpu #(
   logic  [31:0] decoder_predicted_pc;
   fetcher_output fetcher_out;
   logic  [31:0] fetcher_imem_addr_next;
-  fetcher fetcher(
+  fetcher #(
+    .LS_TEXT_WORDS(LS_TEXT_WORDS)
+  ) fetcher(
     .clk(clk),
     .reset(reset),
     .pc(fetch_pc),
