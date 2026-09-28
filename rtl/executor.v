@@ -21,6 +21,8 @@ module executor #(
   output logic x_busy,
 
   output logic [31:0] atomic_addr,
+  // Kept for interface stability; X answers its own atomic region test off
+  // ram_mapped below instead of reading the platform's answer back.
   input  logic        atomic_supported,
 
   output logic [11:0] csr_addr,
@@ -121,10 +123,15 @@ module executor #(
 
   localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
+  // An atomic's immediate is always zero (asserted below), so this is also its own
+  // region test: no need to round-trip atomic_addr through the platform and back.
+  logic ram_mapped;
+  assign ram_mapped = ((mem_addr_calc ^ LS_RAM_BASE) & ~(LS_RAM_BYTES - 32'd1)) == 32'd0;
+
   logic ls_supported;
   assign ls_supported =
     ((mem_addr_calc & ~(LS_TEXT_BYTES - 32'd1)) == 32'd0) ||
-    (((mem_addr_calc ^ LS_RAM_BASE) & ~(LS_RAM_BYTES - 32'd1)) == 32'd0) ||
+    ram_mapped ||
     (mem_addr_calc[31:5] == LS_TIMER_BASE[31:5]) ||
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
@@ -153,7 +160,7 @@ module executor #(
                             (instr_atomic_write && word_misaligned);
 
   logic atomic_fault;
-  assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
+  assign atomic_fault = instr_atomic && !ram_mapped && !word_misaligned;
   assign ls_fault = ls_access && !ls_supported && !load_misaligned && !store_misaligned;
 
   logic load_access_fault, store_access_fault;

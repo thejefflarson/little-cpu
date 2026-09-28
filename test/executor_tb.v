@@ -328,24 +328,34 @@ module executor_tb;
     check_hex("...matching what launch hands the accessor", launch.mem_addr, 32'h0001_0000);
 
     clear_in();
-    atomic_supported = 1'b0;
     in.is_lr = 1'b1;
-    reg_rs1 = 32'h0004_0000;
+    reg_rs1 = 32'h0004_0000;   // outside the RAM window an atomic's own region test covers
     #1;
-    check_bit("an lr.w the platform does not answer traps", trap_entry, 1'b1);
+    check_bit("an lr.w outside RAM traps", trap_entry, 1'b1);
     check_hex("...as a LOAD access fault", trap_cause, 32'd5);
     clear_in();
-    atomic_supported = 1'b0;
     in.is_amoadd = 1'b1;
     reg_rs1 = 32'h0004_0000;
     #1;
     check_hex("an AMO there is a STORE/AMO access fault", trap_cause, 32'd7);
     clear_in();
-    atomic_supported = 1'b0;
     in.is_sc = 1'b1;
     reg_rs1 = 32'h0004_0000;
     #1;
     check_hex("...and so is sc.w", trap_cause, 32'd7);
+
+    clear_in();
+    in.is_lr = 1'b1;
+    reg_rs1 = 32'h0001_fffc;   // RAM's own last word, aligned -- no region or alignment trap
+    #1;
+    check_bit("an lr.w at RAM's own last word does not trap", trap_entry, 1'b0);
+    clear_in();
+    in.is_lr = 1'b1;
+    reg_rs1 = 32'h0002_0000;   // one word past RAM's top -- the timer's own base, but
+                                // an atomic's region test is RAM-only, unlike a plain load's
+    #1;
+    check_bit("an lr.w one word past RAM's top traps on region", trap_entry, 1'b1);
+    check_hex("...as a LOAD access fault", trap_cause, 32'd5);
 
     clear_in();
     in.is_amoadd = 1'b1;

@@ -20,7 +20,7 @@ module traps #(
     input logic imem_stall,  // the ROM's stolen-read flag, free; turned into fetch_stall
     input logic bus_wait,  // free; an ungranted hart issues nothing, so it commits no trap either
     input logic rom_fault,  // free, like everything else not instantiated here
-    input logic atomic_supported,  // the platform's answer about an atomic's address
+    input logic atomic_supported,  // free; the DUT ignores it (region test is address-only)
     input logic accessor_out_valid,
     input logic irq_timer  // the platform's timer line, free every cycle
 );
@@ -291,7 +291,11 @@ module traps #(
                                 instr[31:27] == 5'b11100);
   assign is_atomic = is_amo || is_lr || is_sc;
   assign atomic_word_aligned = reg_rs1[1:0] == 2'b00;
-  assign atomic_refused = !atomic_supported && atomic_word_aligned;
+  // The DUT no longer round-trips atomic_addr through the platform; its immediate is
+  // always zero, so reg_rs1 alone answers the same region test a load/store would.
+  logic atomic_ram_mapped;
+  assign atomic_ram_mapped = reg_rs1 >= LS_RAM_BASE && reg_rs1 < LS_RAM_TOP;
+  assign atomic_refused = !atomic_ram_mapped && atomic_word_aligned;
 
   logic reserved_opcode, zero_halfword, is_illegal;
   assign reserved_opcode = uncompressed && opcode == 5'b11111;
@@ -348,7 +352,7 @@ module traps #(
       (uncompressed && opcode == 5'b01100 && instr[31:25] == 7'b0 && funct3 == 3'b000) ||
       (is_load_op && funct3 == 3'b010 && load_addr[1:0] == 2'b00 && data_mapped) ||
       (is_store_op && funct3 == 3'b010 && store_addr[1:0] == 2'b00 && data_mapped) ||
-      (is_atomic && atomic_supported && atomic_word_aligned);
+      (is_atomic && atomic_ram_mapped && atomic_word_aligned);
 
   logic mstatus_addressed, mstatus_static;
   assign mstatus_addressed = csr_addr == MSTATUS;
@@ -487,7 +491,9 @@ module traps #(
                      dx_instr[31:27] == 5'b11100);
   assign c_is_atomic = c_is_amo || c_is_lr || c_is_sc;
   assign c_atomic_word_aligned = c_fwd_rs1[1:0] == 2'b00;
-  assign c_atomic_refused = !atomic_supported && c_atomic_word_aligned;
+  logic c_atomic_ram_mapped;
+  assign c_atomic_ram_mapped = c_fwd_rs1 >= LS_RAM_BASE && c_fwd_rs1 < LS_RAM_TOP;
+  assign c_atomic_refused = !c_atomic_ram_mapped && c_atomic_word_aligned;
 
   logic c_reserved_opcode, c_zero_halfword, c_is_illegal;
   assign c_reserved_opcode = c_uncompressed && c_opcode == 5'b11111;
@@ -508,7 +514,7 @@ module traps #(
        c_funct3 == 3'b000) ||
       (c_is_load_op && c_funct3 == 3'b010 && c_load_addr[1:0] == 2'b00 && c_data_mapped) ||
       (c_is_store_op && c_funct3 == 3'b010 && c_store_addr[1:0] == 2'b00 && c_data_mapped) ||
-      (c_is_atomic && atomic_supported && c_atomic_word_aligned);
+      (c_is_atomic && c_atomic_ram_mapped && c_atomic_word_aligned);
 
   // Mirrors expected_cause/expected_tval's case statement against dx_instr, not `instr`.
   logic [31:0] c_expected_cause, c_expected_tval;
