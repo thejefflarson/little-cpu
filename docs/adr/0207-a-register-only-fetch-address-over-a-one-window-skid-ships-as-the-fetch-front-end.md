@@ -208,3 +208,98 @@ RTL change: **`ICESTORM_LC: 5285/5280` (100%), placement fails** ("Failed to exp
 That is the number the owner's later trim pass starts from — five cells, not the ADR's earlier
 +365-to-+418-against-`main` estimate restated, since it is now a direct placement rather than a
 throwaway measurement off a patched tree.
+
+## Amendment: the guess was timed for Stage A, and Stage B never re-timed it
+
+**A predictor that only ever costs cycles is not a predictor with a bug in its target
+computation — it is one instrumented, resolved, and torn out**, and the trace below is what
+proves the mechanism, not the effect: the loop test on the unfixed guess drives `fetch=200`
+against the disabled guess's own `fetch=100`, a doubled cost measured with the guess itself
+switched off as the control.
+
+**Bisection on the guess's own toggle, `make cycles` (SUITE column), off vs on, at each stage
+of the D/X split this ADR's shape stacks under:**
+
+| commit | shape | guess off | guess on | delta |
+|---|---|---|---|---|
+| 28f929f | Stage A (this ADR, fused decoder) | 39,976 | 39,827 | **-149, guess helps** |
+| 1009c0f | B1: split decode into D and X | 44,138 | 44,620 | **+482, guess costs** |
+| 1b95010 | B2: forward X/M into X | 30,572 | 31,061 | +489, guess costs |
+| b587659 | B3: delete the region wait | 30,264 | 30,753 | +489, guess costs |
+| 25cd444 | this branch, unchanged fetcher.v | 30,264 | 30,753 | +489, guess costs |
+
+The regression starts exactly at B1 (ADR-0208), the commit that moved branch resolution from D
+into X, one cycle later than where this ADR's guess was timed for.
+
+**The mechanism.** The guess is formed one cycle before the guessed branch is even decoded (off
+`next_instr`) and applied to `fetch_word` during the single cycle that branch is at decode
+(`guess_valid <= candidate && ... on issuing`, cleared the very next cycle regardless of
+anything else). In Stage A's fused decoder, decode resolved the branch in that same cycle, so
+the guessed word landed in the ROM exactly one cycle before `pc` needed it — the ROM's own
+latency. B1 moved resolution into X, one stage later: `pc` still advances on D's own naive
+`predicted_pc` (`pc + 2`/`+4`) in the interim, and the fetcher's `fetch_word` recomputes fresh
+from `word + hit` every cycle with no memory of an earlier guess. The guessed prefetch is
+consumed by nothing, sits in the ROM for exactly one cycle, and is overwritten by that plain
+recomputation the cycle before `pc` ever reaches the guessed target — a `redirect` that would
+have cost one miss unguessed now costs two, because the guess also evicts whatever the ordinary
+sequential run-ahead would have had ready for the intervening cycle.
+
+Proved on a hand-traced waveform (`$display` added and removed, not committed) of a 100-iteration
+counted backward branch (`test/asm/btfnloop.S`, aligned so the branch's own fall-through crosses
+a fetch window): `redirect` and `guess_valid` both fire as designed, `rom_addr` is steered to the
+target for exactly one cycle, and is stomped by the plain `word + hit` recomputation the very
+next cycle, before `pc` ever redirects there — reproducing the miss twice, at `fetch_stall`, in
+the RTL itself, not merely inferred from the aggregate.
+
+**The fix.** X already computes `redirect`/`redirect_target` — resolved exactly one cycle before
+`fetch_pc_next` selects it, the same lag `rtl/littlecpu.v` (and every formal harness composing
+the real topology) already wires between the decoder's `out` and the executor's `redirect` — so
+the fetcher needs no guess at what X will decide; it already knows, one cycle ahead, which is
+precisely the ROM's own latency. `rtl/fetcher.v` takes a new `redirect_target` input and
+`fetch_word` steers off `redirect`/`redirect_target` directly, unconditionally (no `hit` gate: a
+pending redirect is never wrong to act on). This deletes the whole `next_instr`-based heuristic —
+candidate detection (`n_jal`/`n_branch`/`n_cj`/`n_cb`), four immediate decoders, and the guess
+register — and, being wired to the resolved value rather than a heuristic, is unconditionally
+correct for every redirect (forward branches, `jalr`, traps, `mret`), not just backward branches
+and `jal`. `formal/pcloop.sv` and `formal/traps.sv` wire the new port the same way
+`rtl/littlecpu.v` does; the composed proof reaches a new cover, `fetcher.redirect_served`
+(a redirect immediately followed by a hit), in place of the deleted `guess_taken`.
+
+**Measured, fixed vs the two rows this ADR already carried:**
+
+| build | suite (`make cycles`, 77 comparable programs) | Dhrystone (2000 runs) | DMIPS/MHz | CoreMark (100 iter, 16 KB ROM) |
+|---|---|---|---|---|
+| predictor off | 30,264 | 1,392,021 | 0.777 | 2.425 |
+| predictor on (broken) | 30,753 | 1,394,022 | 0.777 | 2.414 |
+| **fixed** | **29,018** (30,338 with the new regression counted in) | **1,234,021** | **0.922** | **2.661** |
+
+Dhrystone's own `fetch` stall column reads **0** for the entire run — every redirect the
+benchmark takes is served with no miss. CoreMark still carries a residual, `fetch=37,219` of
+37,580,102 cycles (0.10%), small next to `hazard` (5,011,241) and `lsissue` (6,893,500) and not
+chased here.
+
+**Area moved the same direction, unasked.** Deleting the heuristic rather than re-timing it
+shrinks the design: `make fit` (core alone) reads **4,497** `ICESTORM_LC` against this branch's
+prior 4,617–4,636 (`FIT_MAX_LC` is 4,219; both numbers are over it, a standing, expected-red
+state this ticket's own trim pass is for — not something this change closes by itself, and not a
+regression this change introduces). `make soc-timing`'s utilisation line moves from
+**5,463/5,280 (over capacity, does not place)** to **5,277/5,280 (99%, places)** — the SoC now
+fits the part's logic cells; its Fmax still reads under the 12 MHz requirement (9.53 MHz),
+unrelated to this change and left for the trim pass.
+
+**Regression.** `test/asm/btfnloop.S`: a 100-iteration counted backward branch, deliberately
+aligned so the branch's own fall-through instruction crosses a fetch window — the exact
+condition the broken guess doubled a miss under. `test/OBSERVED_FLOOR` and
+`nano/asm/LITTLECPU_FLOOR` both carry its retire floor (nano decodes the same program at 1,214
+retires against littlecpu's 1,213 — one extra, not investigated, unrelated to this fix).
+`test/fetcher_tb.v` is rewritten for the new interface and timing (X's resolution now lags
+`issuing` by a register, mirrored in the testbench's own scripted decode) and cannot even build
+against the pre-fix `fetcher.v`, which had no `redirect_target` port — the interface change is
+itself the forced-red boundary.
+
+**Verification, this amendment.** `make test` (full, including the rebuilt `test/fetcher_tb.v`
+and the two new manifest lines), `make lint`, `make -C formal components_decoder
+components_executor components_traps components_pcloop` (all four k-induction proofs pass, the
+new `fetcher.redirect_served` cover reached at step 2), `make -C formal remeasure-fg` (F = 5,
+G = 5, both reproduce — unchanged, since the fix deletes logic rather than adding a pipeline
+stage).

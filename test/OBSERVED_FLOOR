@@ -15,6 +15,7 @@ bgeu.S              297    297
 blt.S               254    254
 bltu.S              279    279
 bne.S               254    254
+btfnloop.S          1213   1212
 cebreak.S            160    137
 contend.S           112    112
 csr.S               107     81

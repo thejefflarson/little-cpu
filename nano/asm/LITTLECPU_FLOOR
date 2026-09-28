@@ -16,6 +16,7 @@ bgeu.S         298
 blt.S          255
 bltu.S         280
 bne.S          255
+btfnloop.S     1214
 cebreak.S      EXCLUDED CSR (trap handler, ebreak)
 contend.S      EXCLUDED CSR (RAM-window fault: a load/store cannot reach the ROM region)
 csr.S          EXCLUDED CSR

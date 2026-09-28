@@ -2,17 +2,17 @@
 `default_nettype none
 `include "structs.v"
 // The fetch address is built from registers alone. Decode reads the window at `pc` off
-// the ROM's output register or off `skid`, the one window fetch has moved past; a guess
-// formed a cycle early steers the ROM to a jump's target, and any miss costs one cycle.
-module fetcher #(
-  parameter integer LS_TEXT_WORDS = 2048
-) (
+// the ROM's output register or off `skid`, the one window fetch has moved past. X's
+// `redirect`/`redirect_target` name the address `pc` holds one cycle after X computes
+// them -- exactly the ROM's own latency -- so steering the ROM off them needs no guess.
+module fetcher (
   input  logic clk,
   input  logic reset,
   input  logic [31:0] pc,
   input  logic [31:0] next_pc,
   input  logic        issuing,
   input  logic        redirect,
+  input  logic [31:0] redirect_target,
   output logic [31:0] imem_addr,
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
@@ -27,24 +27,19 @@ module fetcher #(
   logic [29:0] word, rom_addr, fetch_word;
   logic        rom_hit, hit, pop, skid_load, capture, skid_valid, skid_fault;
   logic [31:0] skid_lo, skid_hi;
-  logic        guess_valid;
-  localparam int GUESS_ADDR_BITS = $clog2(LS_TEXT_WORDS) + 2;
-  logic [GUESS_ADDR_BITS-1:0] guess_target_low;
 
   assign word     = pc[31:2];
   assign rom_hit  = !imem_stall && rom_addr == word;
   assign hit      = skid_valid || rom_hit;
   assign pop      = next_pc[31:2] != word;
-  // The words load off registers alone and the valid bit alone reads decode's answer,
-  // so `next_pc` reaches one flop and not sixty-five enables.
+  // The valid bit alone reads decode's answer, so `next_pc` reaches one flop, not two.
   assign skid_load = rom_hit && !skid_valid;
   assign capture   = skid_load && !pop;
   assign fetch_stall = !hit;
 
-  assign fetch_word = reset ? 30'd0 :
-                      hit && guess_valid ?
-                        {{(30-(GUESS_ADDR_BITS-2)){1'b0}}, guess_target_low[GUESS_ADDR_BITS-1:2]} :
-                        word + {29'b0, hit};
+  assign fetch_word = reset   ? 30'd0 :
+                      redirect ? redirect_target[31:2] :
+                                 word + {29'b0, hit};
   assign imem_addr_next = {fetch_word, 2'b00};
   assign imem_addr      = {rom_addr, 2'b00};
   assign imem_addr2     = imem_addr + 32'd4;
@@ -87,36 +82,6 @@ module fetcher #(
     end
   end
 
-  // A word-straddling instruction leaves `next_word`'s upper half empty, so no guess.
-  logic n_jal, n_branch, n_cj, n_cb, candidate, next_whole;
-  assign n_jal    = next_word[1:0] == 2'b11 && next_word[6:2] == 5'b11011;
-  assign n_branch = next_word[1:0] == 2'b11 && next_word[6:2] == 5'b11000;
-  assign n_cj     = next_word[1:0] == 2'b01 && next_word[14:13] == 2'b01;
-  assign n_cb     = next_word[1:0] == 2'b01 && next_word[15:14] == 2'b11;
-  assign candidate  = n_jal || (n_branch && next_word[31]) || n_cj || (n_cb && next_word[12]);
-  assign next_whole = !(uncompressed && pc[1]);
-
-  logic [31:0] n_imm, j_imm, b_imm, cj_imm, cb_imm;
-  assign j_imm  = {{12{next_word[31]}}, next_word[19:12], next_word[20], next_word[30:21],
-                   1'b0};
-  assign b_imm  = {{20{next_word[31]}}, next_word[7], next_word[30:25], next_word[11:8],
-                   1'b0};
-  assign cj_imm = {{20{next_word[12]}}, next_word[12], next_word[8], next_word[10],
-                   next_word[9], next_word[6], next_word[7], next_word[2], next_word[11],
-                   next_word[5], next_word[4], next_word[3], 1'b0};
-  assign cb_imm = {{23{next_word[12]}}, next_word[12], next_word[6:5], next_word[2],
-                   next_word[11:10], next_word[4:3], 1'b0};
-  assign n_imm  = n_jal ? j_imm : n_branch ? b_imm : n_cj ? cj_imm : cb_imm;
-
-  logic [31:0] seq_pc;
-  assign seq_pc = pc + (uncompressed ? 32'd4 : 32'd2);
-
-  always_ff @(posedge clk) begin
-    if (reset)        guess_valid <= 1'b0;
-    else if (issuing) guess_valid <= candidate && next_whole && !redirect;
-    if (issuing) guess_target_low <= seq_pc[GUESS_ADDR_BITS-1:0] + n_imm[GUESS_ADDR_BITS-1:0];
-  end
-
  `ifdef FORMAL
   logic clocked;
   initial clocked = 1'b0;
@@ -132,12 +97,13 @@ module fetcher #(
   always_comb if (clocked && !fetch_stall)
     assert((skid_valid ? skid_word : rom_addr) == word);
 
-  logic prev_fetch_stall;
+  logic prev_fetch_stall, prev_redirect;
   always_ff @(posedge clk) prev_fetch_stall <= fetch_stall;
+  always_ff @(posedge clk) prev_redirect    <= redirect;
   always_ff @(posedge clk) if (clocked && !reset) begin
     skid_read:   cover (skid_valid && issuing);
     miss_then_hit: cover (prev_fetch_stall && !fetch_stall);
-    guess_taken: cover (guess_valid && hit && !skid_valid && issuing && pop);
+    redirect_served: cover (prev_redirect && !fetch_stall);
   end
  `endif
 endmodule

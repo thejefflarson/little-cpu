@@ -2,9 +2,8 @@
 `default_nettype none
 `include "structs.v"
 
-// rtl/fetcher.v over a ROM that answers a cycle late: the window at `pc` is always the
-// ROM's own words, a sequential run and a guessed jump cost no cycle, and a miss, a
-// mispredict or a stolen read costs exactly one.
+// rtl/fetcher.v over a ROM that answers a cycle late. X's `redirect`/`redirect_target`
+// lag `issuing` by a register, as in rtl/littlecpu.v, and cost no cycle prefetched off.
 module fetcher_tb;
   localparam int ROM_WORDS = 64;
   localparam int FAULT_WORD = 32;
@@ -16,6 +15,7 @@ module fetcher_tb;
   logic [31:0] pc = 32'b0, next_pc, target = 32'b0, seq_pc;
   logic        hold_now = 1'b0, steal = 1'b0;
   logic        issuing, redirect;
+  logic [31:0] redirect_target;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next, imem_data, imem_data2;
   logic        imem_stall, imem_fault, fetch_stall, fault;
   fetcher_output out;
@@ -27,6 +27,7 @@ module fetcher_tb;
     .next_pc(next_pc),
     .issuing(issuing),
     .redirect(redirect),
+    .redirect_target(redirect_target),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
@@ -49,11 +50,17 @@ module fetcher_tb;
     imem_stall <= steal;
   end
 
-  // Decode, reduced to what the fetcher can see of it.
-  assign seq_pc   = pc + (out.instr[1:0] == 2'b11 ? 32'd4 : 32'd2);
-  assign issuing  = !reset && !fetch_stall && !hold_now;
-  assign next_pc  = reset ? 32'b0 : issuing ? target : pc;
-  assign redirect = target != seq_pc;
+  // `target` is where the issuing instruction redirects to; `redirect`/`redirect_target`
+  // latch it one cycle late. Absent a pending redirect, `next_pc` follows `seq_pc`.
+  logic d_redirect;
+  assign seq_pc     = pc + (out.instr[1:0] == 2'b11 ? 32'd4 : 32'd2);
+  assign issuing    = !reset && !fetch_stall && !hold_now;
+  assign d_redirect = target != seq_pc;
+  always_ff @(posedge clk) begin
+    redirect        <= !reset && issuing && d_redirect;
+    redirect_target <= target;
+  end
+  assign next_pc = reset ? 32'b0 : redirect ? redirect_target : issuing ? seq_pc : pc;
   always_ff @(posedge clk) pc <= next_pc;
 
   logic [31:0] past_addr_next;
@@ -84,9 +91,7 @@ module fetcher_tb;
     end
   endtask
 
-  // One instruction: wait out any miss counting the cycles, hold `holds` cycles with the
-  // window checked on each, then issue it toward `to`, stealing the ROM read on the
-  // issue cycle or the first held cycle if asked.
+  // One instruction: wait out any miss, hold `holds` cycles, then issue it toward `to`.
   task automatic step(input logic [31:0] at, input logic [31:0] to, input int holds,
                       input int want_stalls, input logic steal_issue, input logic steal_hold);
     int stalls, h;
@@ -163,26 +168,42 @@ module fetcher_tb;
     step(32'h0e, 32'h12, 0, 0, 0, 0);   // straddles words 3 and 4
     step(32'h12, 32'h14, 0, 0, 0, 0);
     step(32'h14, 32'h18, 0, 0, 0, 0);
-    step(32'h18, 32'h14, 0, 0, 0, 0);   // bne taken: guessed, so the target is free
+
+    // 18 resolves to 00, long evicted from ROM and skid; 1c is the wrong-path word first.
+    // The claim: 00 arrives with no miss, since the ROM was asked for it a cycle early.
+    step(32'h18, 32'h00, 0, 0, 0, 0);   // 18 issues; real target 00 latches for next cycle
+    step(32'h1c, 32'h20, 0, 0, 0, 0);   // the wrong-path word; it redirects nowhere itself
+    step(32'h00, 32'h04, 0, 0, 0, 0);   // 00 arrives with no miss: the redirect was free
+
+    step(32'h04, 32'h06, 0, 0, 0, 0);
+    step(32'h06, 32'h08, 0, 0, 0, 0);
+    step(32'h08, 32'h0c, 0, 0, 0, 0);
+    step(32'h0c, 32'h0e, 0, 0, 0, 0);
+    step(32'h0e, 32'h12, 0, 0, 0, 0);
+    step(32'h12, 32'h14, 0, 0, 0, 0);
     step(32'h14, 32'h18, 0, 0, 0, 0);
-    step(32'h18, 32'h14, 0, 0, 0, 0);
-    step(32'h14, 32'h18, 0, 0, 0, 0);
-    step(32'h18, 32'h1c, 0, 0, 0, 0);   // bne not taken: a mispredict
-    step(32'h1c, 32'h24, 0, 1, 0, 0);   // ...costs one; beq taken forward is unguessed
-    step(32'h24, 32'h26, 0, 1, 0, 0);   // ...and costs one
-    step(32'h26, 32'h1c, 0, 0, 0, 0);   // c.j backward: guessed
-    step(32'h1c, 32'h24, 0, 0, 0, 0);
-    step(32'h24, 32'h26, 0, 1, 0, 0);
-    step(32'h26, 32'h30, 0, 0, 0, 0);   // the guess says 1c; decode goes elsewhere
-    step(32'h30, 32'h34, 0, 1, 0, 0);
+    step(32'h18, 32'h1c, 0, 0, 0, 0);
+    step(32'h1c, 32'h20, 0, 0, 0, 0);
+    step(32'h20, 32'h24, 0, 0, 0, 0);
+    step(32'h24, 32'h26, 0, 0, 0, 0);
+    step(32'h26, 32'h28, 0, 0, 0, 0);
+    step(32'h28, 32'h2c, 0, 0, 0, 0);
+    step(32'h2c, 32'h30, 0, 0, 0, 0);
+    step(32'h30, 32'h34, 0, 0, 0, 0);
     step(32'h34, 32'h38, 3, 0, 0, 0);   // decode holds three cycles
     step(32'h38, 32'h3c, 0, 0, 0, 0);
     step(32'h3c, 32'h40, 0, 0, 1, 0);   // the next read is stolen
     step(32'h40, 32'h44, 0, 1, 0, 0);
     step(32'h44, 32'h48, 2, 0, 0, 1);   // stolen while decode holds: nothing is lost
+
+    // A second redirect, past the ROM's initialised words: 48 resolves to 80, the fault
+    // word, 4c its wrong-path step.
     step(32'h48, 32'h80, 0, 0, 0, 0);
-    step(32'h80, 32'h00, 0, 1, 0, 0);   // a faulting word arrives with its flag
-    step(32'h00, 32'h04, 0, 1, 0, 0);
+    step(32'h4c, 32'h4e, 0, 0, 0, 0);   // rom[19] is uninitialised: reads compressed, +2
+    step(32'h80, 32'h00, 0, 0, 0, 0);   // a faulting word arrives with its flag, no miss
+    step(32'h82, 32'h04, 0, 0, 0, 0);   // its own wrong-path word, zeroed same as the fault
+
+    step(32'h00, 32'h04, 0, 0, 0, 0);
     step(32'h04, 32'h06, 1, 0, 1, 0);   // stolen on the issue of a held compressed pair
     step(32'h06, 32'h08, 0, 0, 0, 0);
     step(32'h08, 32'h0c, 0, 0, 0, 0);

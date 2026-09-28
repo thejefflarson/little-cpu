@@ -50,15 +50,14 @@ module traps #(
   // warning in yosys.
   logic        bus_request;
 
-  fetcher #(
-    .LS_TEXT_WORDS(LS_TEXT_WORDS)
-  ) fetcher (
+  fetcher fetcher (
     .clk(clk),
     .reset(reset),
     .pc(fetch_pc),
     .next_pc(fetch_pc_next),
     .issuing(decoder_issuing),
     .redirect(x_redirect),
+    .redirect_target(x_redirect_target),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
