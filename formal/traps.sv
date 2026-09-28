@@ -427,6 +427,9 @@ module traps #(
   assign dx_imem_fault = dx_out.imem_fault;
   assign dx_instr = dx_out.instr;
 
+  logic [31:0] c_fwd_rs1;  // mirrors executor.v's fwd_rs1_val: the address checks below need it
+  assign c_fwd_rs1 = dx_out.fwd_rs1 ? executor_out.rd_data : reg_rs1;
+
   logic        c_uncompressed;
   logic [4:0]  c_opcode;
   logic [2:0]  c_funct3;
@@ -439,8 +442,8 @@ module traps #(
   assign c_s_immediate = {{20{dx_instr[31]}}, dx_instr[31:25], dx_instr[11:7]};
 
   logic [31:0] c_load_addr, c_store_addr;
-  assign c_load_addr  = $signed(c_i_immediate) + $signed(reg_rs1);
-  assign c_store_addr = $signed(c_s_immediate) + $signed(reg_rs1);
+  assign c_load_addr  = $signed(c_i_immediate) + $signed(c_fwd_rs1);
+  assign c_store_addr = $signed(c_s_immediate) + $signed(c_fwd_rs1);
 
   logic c_is_load_op, c_is_store_op;
   assign c_is_load_op  = c_uncompressed && c_opcode == 5'b00000;
@@ -482,7 +485,7 @@ module traps #(
                      dx_instr[31:27] == 5'b10100 || dx_instr[31:27] == 5'b11000 ||
                      dx_instr[31:27] == 5'b11100);
   assign c_is_atomic = c_is_amo || c_is_lr || c_is_sc;
-  assign c_atomic_word_aligned = reg_rs1[1:0] == 2'b00;
+  assign c_atomic_word_aligned = c_fwd_rs1[1:0] == 2'b00;
   assign c_atomic_refused = !atomic_supported && c_atomic_word_aligned;
 
   logic c_reserved_opcode, c_zero_halfword, c_is_illegal;
@@ -532,10 +535,10 @@ module traps #(
       c_expected_tval  = c_data_addr;
     end else if (c_is_lr) begin
       c_expected_cause = CAUSE_LOAD_FAULT;
-      c_expected_tval  = reg_rs1;
+      c_expected_tval  = c_fwd_rs1;
     end else begin
       c_expected_cause = CAUSE_STORE_FAULT;
-      c_expected_tval  = reg_rs1;
+      c_expected_tval  = c_fwd_rs1;
     end
   end
 

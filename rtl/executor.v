@@ -272,6 +272,10 @@ module executor #(
   logic divider_busy;
   assign divider_busy = state != init;
   assign x_busy = state != init;
+ `ifdef FORMAL
+  always_comb if (clocked) assert(state == init || state == divide);  // the only two targets
+  always_comb if (clocked && out.valid && out.rd_ready) assert(state != divide);  // ready is final
+ `endif
 
   logic [31:0] alu_rs1, alu_rs2;
   always_comb begin
@@ -626,17 +630,22 @@ module executor #(
   always_comb if (ls_access) assume(assume_immediate_hi == {20{assume_immediate_lo_sign}});
   always_comb if (instr_atomic) assume(in_immediate == 32'b0);
 
-  // Held so the divide proof sees stable operands; composed proofs drop this via `-formal -noassume`.
-  dx_output prev_in;
+  dx_output prev_in;  // held so the divide proof sees stable operands; -formal -noassume drops this
   logic [31:0] prev_reg_rs1, prev_reg_rs2, prev_fwd_rs1_val, prev_fwd_rs2_val;
-  logic        prev_x_busy;
+  logic        prev_x_busy, prev_reset, prev_divider_busy;
+  logic [31:0] prev_out_rd_data;
+  logic        prev_divide_completing;
   always_ff @(posedge clk) begin
-    prev_in          <= in;
-    prev_reg_rs1     <= reg_rs1;
-    prev_reg_rs2     <= reg_rs2;
-    prev_fwd_rs1_val <= fwd_rs1_val;
-    prev_fwd_rs2_val <= fwd_rs2_val;
-    prev_x_busy      <= x_busy;
+    prev_in                <= in;
+    prev_reg_rs1            <= reg_rs1;
+    prev_reg_rs2            <= reg_rs2;
+    prev_fwd_rs1_val        <= fwd_rs1_val;
+    prev_fwd_rs2_val        <= fwd_rs2_val;
+    prev_x_busy             <= x_busy;
+    prev_reset              <= reset;
+    prev_out_rd_data        <= out.rd_data;
+    prev_divide_completing  <= state == divide && mul_div_counter == 7'd1;
+    prev_divider_busy       <= divider_busy;
   end
   always_comb if (clocked && prev_x_busy) begin
     assume(in == prev_in);
@@ -644,7 +653,22 @@ module executor #(
     assume(reg_rs2 == prev_reg_rs2);
     assume(fwd_rs1_val == prev_fwd_rs1_val);
     assume(fwd_rs2_val == prev_fwd_rs2_val);
+    // Each is provable from D's own hold, not a free fact composed proofs get.
+    if (!reset && !prev_reset) begin
+      assert(in == prev_in);
+      assert(reg_rs1 == prev_reg_rs1);
+      assert(reg_rs2 == prev_reg_rs2);
+    end
+    if (!reset && !prev_reset && !prev_divide_completing)
+      assert(out.rd_data == prev_out_rd_data);  // untouched except a divide's own publish cycle
   end
+
+  // A launch cycle's own out_has_result is false, so its successor inherits no forward.
+  always_comb if (clocked && divider_busy && !prev_divider_busy) begin
+    assume(!in_fwd_rs1 && !in_fwd_rs2);
+    if (!reset && !prev_reset) assert(!in_fwd_rs1 && !in_fwd_rs2);
+  end
+  always_comb if (clocked) assert(!(divider_busy && (in_fwd_rs1 || in_fwd_rs2)));
 
   // Named continuous assigns, not part-selects: iverilog mis-derives sensitivity for those (ADR-0037).
   logic [31:0] alu_sub_lo;

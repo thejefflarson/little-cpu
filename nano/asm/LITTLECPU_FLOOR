@@ -22,6 +22,8 @@ csr.S          EXCLUDED CSR
 csrset.S       76
 datainit.c     EXCLUDED not an assembly program; this runner builds .S only
 div.S          EXCLUDED M extension
+divdep.S       EXCLUDED M extension
+divfault.S     EXCLUDED M extension
 divu.S         EXCLUDED M extension
 fencenop.S     EXCLUDED Zifencei (fence.i)
 hazard.S       EXCLUDED M extension (div is the hazard-forcing instruction)
