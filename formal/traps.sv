@@ -43,9 +43,6 @@ module traps #(
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
   logic        interrupt_pending;
-  logic        interrupt_pending_reg;
-  always_ff @(posedge clk)
-    interrupt_pending_reg <= reset ? 1'b0 : interrupt_pending;
   logic [31:0] decoder_predicted_pc;
   logic [31:0] x_redirect_target;
   // Unread here, and declared anyway: an output connected to an undeclared identifier is
@@ -111,7 +108,7 @@ module traps #(
     .in(dx_out),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
-    .interrupt_pending(interrupt_pending_reg),
+    .interrupt_pending(interrupt_pending),
     .x_busy(x_busy),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -427,7 +424,7 @@ module traps #(
   logic [31:0] dx_instr;
   assign dx_valid = dx_out.valid;
   // X's own decision, restated -- no longer a captured field on dx_out.
-  assign dx_is_interrupt = dx_valid && !x_busy && interrupt_pending_reg;
+  assign dx_is_interrupt = dx_valid && !x_busy && interrupt_pending;
   assign dx_imem_fault = dx_out.imem_fault;
   assign dx_instr = dx_out.instr;
 
