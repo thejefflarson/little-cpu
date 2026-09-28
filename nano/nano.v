@@ -61,7 +61,7 @@ module riscv #(
   logic rs1_valid, rs2_valid;
   logic is_e_illegal;
   logic is_valid;
-  logic [31:0] regs[1:15];
+  logic [31:0] regs[0:15];
 
   localparam logic [31:0] MISA_VALUE = 32'h4000_0014; // RV32, E, C
   localparam logic [11:0] CSR_MSTATUS    = 12'h300;
