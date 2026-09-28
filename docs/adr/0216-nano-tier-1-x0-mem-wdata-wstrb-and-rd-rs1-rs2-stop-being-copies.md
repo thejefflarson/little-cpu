@@ -1,4 +1,4 @@
-# ADR-0215: nano Tier 1 -- x0, mem_wdata/mem_wstrb and rd/rs1/rs2 stop being copies
+# ADR-0216: nano Tier 1 -- x0, mem_wdata/mem_wstrb and rd/rs1/rs2 stop being copies
 
 **Status:** Accepted · 2026-09-27
 
