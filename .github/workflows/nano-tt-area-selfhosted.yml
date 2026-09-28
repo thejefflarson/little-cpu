@@ -212,19 +212,25 @@ jobs:
       - name: Gate-level simulate the hardened netlist
         id: gl_test
         if: steps.gl_netlist.outputs.found == 'true'
-        run: make nano-gl-test NETLIST="${{ steps.gl_netlist.outputs.path }}"
+        env:
+          NANO_GL_NETLIST: ${{ steps.gl_netlist.outputs.path }}
+        run: make nano-gl-test NETLIST="$NANO_GL_NETLIST"
 
       - name: Report the gate-level simulation
         if: always()
+        env:
+          NANO_GL_FOUND: ${{ steps.gl_netlist.outputs.found }}
+          NANO_GL_NETLIST: ${{ steps.gl_netlist.outputs.path }}
+          NANO_GL_RESULT: ${{ steps.gl_test.outcome || 'did not run' }}
         run: |
           summary_line() {
             echo "$1"
             echo "$1" >> "$GITHUB_STEP_SUMMARY"
           }
           summary_line "### nano gate-level simulation"
-          if [ "${{ steps.gl_netlist.outputs.found }}" = "true" ]; then
-            summary_line "netlist: ${{ steps.gl_netlist.outputs.path }}"
-            summary_line "result: ${{ steps.gl_test.outcome || 'did not run' }}"
+          if [ "$NANO_GL_FOUND" = "true" ]; then
+            summary_line "netlist: $NANO_GL_NETLIST"
+            summary_line "result: $NANO_GL_RESULT"
           else
             summary_line "not run: this dispatch produced no final/nl netlist (a stop-after-synthesis run, or routing did not finish before the job's timeout)."
           fi
