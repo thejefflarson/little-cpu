@@ -1,32 +1,28 @@
 #!/usr/bin/env python3
-"""Forces rtl/executor.v's own Zkt-isolation assertions to fail, and requires
-each to fail as its own assertion rather than as anything else.
+"""Forces rtl/executor.v's own Zkt-isolation assertion to fail, and requires
+it to fail as its own assertion rather than as anything else.
 
-WHY THIS EXISTS. rtl/executor.v's `ifdef FORMAL` block states two things
-about `region_stall`, the one stall reason Zkt's isolation argument allows to
-read a register-file DATA output: it can only assert alongside `ls_access`
-(`assert(!region_stall || ls_access)`), and `ls_access` is true for exactly
-the eight base load/store encodings (`assert(ls_access == (in_is_lb ||
-...))`). Both signals moved here from the fused decoder when D and X split
-(the address/region test they gate is X's, not D's), and both are proved by
-`make -C formal components_executor`. An assertion in that position is worth
-nothing until it has been shown to fail -- which is what `make probe-gates`
-demands of every graded comparison hermetic enough to run there and what
-this file does for the two that need a solver instead (the pattern
-`make -C formal traps-region-probe` set for formal/traps.sv).
+WHY THIS EXISTS. rtl/executor.v's `ifdef FORMAL` block states that
+`ls_access` is true for exactly the eight base load/store encodings
+(`assert(ls_access == (in_is_lb || ...))`). It moved here from the fused
+decoder when D and X split (the address/region test it gates is X's, not
+D's), and is proved by `make -C formal components_executor`. An assertion
+in that position is worth nothing until it has been shown to fail -- which
+is what `make probe-gates` demands of every graded comparison hermetic
+enough to run there and what this file does for the one that needs a
+solver instead (the pattern `make -C formal traps-region-probe` set for
+formal/traps.sv). B3 deleted `region_stall` (the load/store region wait),
+so the sibling assertion this file used to probe alongside `ls_access`
+(`assert(!region_stall || ls_access)`) went with it.
 
 This file's own name still says "decoder": it predates the split, and
 renaming it would touch every ADR and doc that already cites it by that
 name. What it probes moved; the name did not.
 
-Two cores are built, each one line of rtl/executor.v away from the shipping
-one, and each must turn `make -C formal components_executor` red at its own
+One core is built, one line of rtl/executor.v away from the shipping one,
+and it must turn `make -C formal components_executor` red at its own
 assertion:
 
-  region-stall-ungated  drops the `ls_access` conjunct from `region_stall`'s
-                         own `assign`, so `region_stall` can now assert
-                         whether or not `ls_access` does. Must go FAIL at
-                         `assert(!region_stall || ls_access)`.
   ls-access-extra        adds `in_is_add` to `ls_access`'s own `assign`, so
                          `ls_access` is no longer exactly the eight base
                          load/store encodings. Must go FAIL at
@@ -41,7 +37,7 @@ traps-region-probe.py applies to formal/traps.sv: a probe that only checked
 the status would be satisfied by a proof that went red for an unrelated
 reason.
 
-NOT HERMETIC -- it runs sby twice. So it is a prerequisite of
+NOT HERMETIC -- it runs sby. So it is a prerequisite of
 `make -C formal components_executor` rather than of `make test`, for the
 same reason pcloop_cover and traps-region-probe are: a control that can be
 run separately from the thing it controls eventually is not run at all.
@@ -80,19 +76,14 @@ smtbmc
 {files}
 """
 
-# The two assertions being probed, found in rtl/executor.v by their text.
+# The assertion being probed, found in rtl/executor.v by its text.
 ASSERTS = {
-    "region-stall-ungated": "assert(!region_stall || ls_access);",
     "ls-access-extra": "assert(ls_access == (in_is_lb || in_is_lbu || in_is_lh || in_is_lhu ||",
 }
 
-# The lines of rtl/executor.v each mutation replaces, matched in full so a respelling
+# The line of rtl/executor.v this mutation replaces, matched in full so a respelling
 # stops this file rather than silently probing nothing.
 MUTATIONS = {
-    "region-stall-ungated": (
-        "  assign region_stall = in_valid && ls_access && !ls_settled && !ls_answer_valid;\n",
-        "  assign region_stall = in_valid && !ls_settled && !ls_answer_valid;\n",
-    ),
     "ls-access-extra": (
         "  assign ls_access = instr_ls_load || instr_ls_store;\n",
         "  assign ls_access = instr_ls_load || instr_ls_store || in_is_add;\n",
@@ -210,7 +201,7 @@ def main():
     executor_v = (repo / "rtl" / "executor.v").read_text()
     red = []
 
-    for case in ("region-stall-ungated", "ls-access-extra"):
+    for case in ("ls-access-extra",):
         line = assert_line(executor_v, case)
         print(f"rtl/executor.v states {case}'s assertion on line {line}.")
         status, failed = run_case(repo, workdir, args.sby, config, case)
@@ -233,7 +224,7 @@ def main():
             print("*** " + why.replace("\n", "\n*** "), file=sys.stderr)
         sys.exit(1)
 
-    print("Both Zkt-isolation assertions fail for their own reason.")
+    print("The Zkt-isolation assertion fails for its own reason.")
 
 if __name__ == "__main__":
     main()

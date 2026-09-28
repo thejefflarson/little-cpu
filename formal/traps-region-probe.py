@@ -11,14 +11,15 @@ and an arm in that position is worth nothing until it has been shown to fail --
 which is what `make probe-gates` demands of every other graded comparison in this
 tree and what this file does for the two that need a solver.
 
-Two cores are built, each two lines of rtl/executor.v away from the shipping
-one (the address/region test moved there with the D/X split), and each faults
-an aligned `lw` whose address has bit 31 set -- an address outside all four
-windows of any map this platform can be given -- and each must turn
-`make -C formal components_traps` red at a named assertion:
+Two cores are built, each one or three lines of rtl/executor.v away from the
+shipping one (the address/region test moved there with the D/X split, and B3
+made it combinational rather than deferred), and each faults an aligned `lw`
+whose address has bit 31 set -- an address outside all four windows of any
+map this platform can be given -- and each must turn `make -C formal
+components_traps` red at a named assertion:
 
-  no-trap      still waits for the region answer and then never faults on it, so
-               the trap the model requires does not happen. The proof must go
+  no-trap      answers the region test and then never faults on it, so the
+               trap the model requires does not happen. The proof must go
                FAIL at the `assert(trap_entry)` under `expected_trap`. This is
                the arm that moved from may-trap to must-trap when the core
                started raising these two causes, and it is the one a model that
@@ -69,8 +70,7 @@ ASSERTS = {
 # stops this file rather than silently probing nothing.
 MUTATIONS = {
     "no-trap": (
-        """  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
-                    !load_misaligned && !store_misaligned;
+        """  assign ls_fault = ls_access && !ls_supported && !load_misaligned && !store_misaligned;
 """,
         """  assign ls_fault = 1'b0;
 """,

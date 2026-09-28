@@ -127,8 +127,8 @@ components_decoder: components.sby ../rtl/decoder.v ../rtl/regsel.v \
 	rm -rf $@
 	sby -f $< decoder
 
-# The Zkt isolation gate (region_stall/ls_access) moved to executor.v with the D/X split,
-# so both probes now build against it and both gate components_executor.
+# The Zkt isolation gate (ls_access) moved to executor.v with the D/X split, so both
+# probes now build against it and both gate components_executor.
 .PHONY: decoder-zkt-probe
 decoder-zkt-probe: decoder-zkt-probe.py ../rtl/executor.v components.sby
 	python3 $<

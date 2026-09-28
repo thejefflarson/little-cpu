@@ -1,8 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// X is where a register value first exists: the ALU, branch compare, address/region
-// test, every trap but the timer interrupt, and CSR access land here.
+// X is where a register value first exists: the ALU, branch compare, region test, traps and CSR access land here.
 module executor #(
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
@@ -17,6 +16,8 @@ module executor #(
   input  dx_output in,
   input  logic [31:0] reg_rs1,
   input  logic [31:0] reg_rs2,
+  // The timer's live level, read fresh every cycle rather than a bit D captured earlier.
+  input  logic interrupt_pending,
   output logic x_busy,
 
   output logic [31:0] atomic_addr,
@@ -52,9 +53,8 @@ module executor #(
   `endif
  `endif
 );
-  // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
-  // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
-  logic        in_valid, in_is_interrupt, in_imem_fault;
+  // Named continuous assigns, not part-selects: iverilog mis-derives sensitivity for those (ADR-0037).
+  logic        in_valid, in_imem_fault;
   logic [31:0] in_pc, in_instr, in_immediate;
   logic [4:0]  in_rd, in_rs1, in_rs2;
   logic        in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
@@ -66,7 +66,7 @@ module executor #(
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
     in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2;
-  assign {in_valid, in_is_interrupt, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
+  assign {in_valid, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
     in_rs1, in_rs2, in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
     in_is_mulhu, in_is_mulhsu, in_is_div, in_is_divu, in_is_rem, in_is_remu, in_is_sll,
     in_is_slt, in_is_sltu, in_is_srl, in_is_sra, in_is_lb, in_is_lbu, in_is_lhu, in_is_lh,
@@ -76,6 +76,10 @@ module executor #(
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
     in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2} = in;
+
+  // Gated on x_busy so a divide in progress finishes before X ever looks.
+  logic take_interrupt;
+  assign take_interrupt = in_valid && !x_busy && interrupt_pending;
 
   // D precomputed these selects from register NUMBERS alone -- the one case the
   // write-through bypass (commitment 4) reaches too late.
@@ -123,48 +127,10 @@ module executor #(
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
 
-  // Asked of the forwarded rs1 alone: a 12-bit offset reaches 2 KB, so a block clear either side answers the same.
-  localparam int LS_BLOCK_BITS = 11;
-  localparam int LS_BLOCK_NUM  = 32 - LS_BLOCK_BITS;
-  localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BLOCK = '0;
-  localparam logic [LS_BLOCK_NUM-1:0] LS_TEXT_BMASK =
-    LS_BLOCK_NUM'((LS_TEXT_BYTES - 32'd1) >> LS_BLOCK_BITS);
-  localparam logic [LS_BLOCK_NUM-1:0] LS_RAM_BLOCK =
-    LS_BLOCK_NUM'(LS_RAM_BASE >> LS_BLOCK_BITS);
-  localparam logic [LS_BLOCK_NUM-1:0] LS_RAM_BMASK =
-    LS_BLOCK_NUM'((LS_RAM_BYTES - 32'd1) >> LS_BLOCK_BITS);
-
-  logic [LS_BLOCK_NUM-1:0] ls_block;
-  assign ls_block = fwd_rs1_val[31:LS_BLOCK_BITS];
-
-  logic ls_text_deep, ls_ram_deep, ls_settled;
-  assign ls_text_deep = ((ls_block ^ LS_TEXT_BLOCK) & ~LS_TEXT_BMASK) == '0 &&
-                        (ls_block & LS_TEXT_BMASK) != '0 &&
-                        (ls_block & LS_TEXT_BMASK) != LS_TEXT_BMASK;
-  assign ls_ram_deep  = ((ls_block ^ LS_RAM_BLOCK) & ~LS_RAM_BMASK) == '0 &&
-                        (ls_block & LS_RAM_BMASK) != '0 &&
-                        (ls_block & LS_RAM_BMASK) != LS_RAM_BMASK;
-  assign ls_settled = ls_text_deep || ls_ram_deep;
-
   logic [1:0] mem_addr_low;
   assign mem_addr_low = in_immediate[1:0] + fwd_rs1_val[1:0];
 
-  logic ls_capture, ls_answer, ls_answer_valid, region_stall, ls_fault;
-  assign region_stall = in_valid && ls_access && !ls_settled && !ls_answer_valid;
-  assign ls_capture = region_stall;
-
-  // Held until X finishes, not one cycle: a one-cycle answer would expire under a wait.
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      ls_answer       <= 1'b0;
-      ls_answer_valid <= 1'b0;
-    end else if (ls_capture) begin
-      ls_answer       <= ls_supported;
-      ls_answer_valid <= 1'b1;
-    end else if (!x_busy) begin
-      ls_answer_valid <= 1'b0;
-    end
-  end
+  logic ls_fault;
 
   // Read again by the RVFI fault mask below, ungated by `executing`, for a trapping amo.
   logic is_amo;
@@ -186,8 +152,7 @@ module executor #(
 
   logic atomic_fault;
   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
-  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
-                    !load_misaligned && !store_misaligned;
+  assign ls_fault = ls_access && !ls_supported && !load_misaligned && !store_misaligned;
 
   logic load_access_fault, store_access_fault;
   assign load_access_fault  = (atomic_fault && in_is_lr) || (ls_fault && instr_ls_load);
@@ -204,7 +169,7 @@ module executor #(
     in_is_wfi || in_is_fence || in_is_fencei ||
     instr_atomic || (in_is_csr_access && csr_implemented);
   assign csr_readonly_write = in_is_csr_access && csr_write_op && csr_addr[11:10] == 2'b11;
-  assign instr_illegal = in_valid && !in_is_interrupt && (!instr_valid || csr_readonly_write);
+  assign instr_illegal = in_valid && !take_interrupt && (!instr_valid || csr_readonly_write);
 
   localparam logic [31:0] CAUSE_INSTRUCTION_FAULT   = 32'd1;
   localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;
@@ -226,13 +191,13 @@ module executor #(
 
   logic data_fault, trap_pending, trap_taken;
   assign data_fault = load_misaligned || store_misaligned || atomic_fault || ls_fault;
-  assign trap_pending = in_valid && !in_is_interrupt &&
+  assign trap_pending = in_valid && !take_interrupt &&
     (in_imem_fault || instr_illegal || in_is_ebreak || in_is_ecall || data_fault);
-  assign trap_taken = in_valid && (in_is_interrupt || trap_pending);
+  assign trap_taken = in_valid && (take_interrupt || trap_pending);
 
   always_comb begin
     case (1'b1)
-      in_is_interrupt:    trap_cause = CAUSE_MACHINE_TIMER;
+      take_interrupt:     trap_cause = CAUSE_MACHINE_TIMER;
       in_imem_fault:      trap_cause = CAUSE_INSTRUCTION_FAULT;
       instr_illegal:      trap_cause = CAUSE_ILLEGAL_INSTRUCTION;
       in_is_ebreak:       trap_cause = CAUSE_BREAKPOINT;
@@ -249,7 +214,7 @@ module executor #(
 
   always_comb begin
     case (1'b1)
-      in_is_interrupt: trap_tval = 32'b0;
+      take_interrupt: trap_tval = 32'b0;
       in_imem_fault:   trap_tval = in_pc;
       instr_illegal:   trap_tval = in_instr;
       data_fault:      trap_tval = mem_addr_calc;
@@ -292,24 +257,27 @@ module executor #(
     endcase
   end
 
-  assign redirect = in_valid && !x_busy && !region_stall && (resolved_target != seq_pc ||
+  assign redirect = in_valid && !x_busy && (resolved_target != seq_pc ||
     trap_taken || in_is_mret);
   assign redirect_target = resolved_target;
 
   logic committing;
-  assign committing = in_valid && !x_busy && !region_stall && !trap_taken;
+  assign committing = in_valid && !x_busy && !trap_taken;
   assign csr_ren = committing && in_is_csr_access && csr_read_op;
   assign csr_wen = committing && in_is_csr_access && csr_write_op;
   assign instret = committing;
-  assign trap_entry = in_valid && !x_busy && !region_stall && trap_taken;
+  assign trap_entry = in_valid && !x_busy && trap_taken;
   assign mret_entry = committing && in_is_mret;
 
   logic [1:0]  state;
   localparam init = 2'b00;
   localparam divide = 2'b10;
+  // x_busy is exactly divider_busy now that region_stall is gone, but restated rather
+  // than aliased: a bare `x_busy = divider_busy` collapses to the same netlist bit,
+  // which would make test/zkt_isolation_test.py's one-hop block land on x_busy itself.
   logic divider_busy;
   assign divider_busy = state != init;
-  assign x_busy = divider_busy || region_stall;
+  assign x_busy = state != init;
  `ifdef FORMAL
   always_comb if (clocked) assert(state == init || state == divide);  // the only two targets
   always_comb if (clocked && out.valid && out.rd_ready) assert(state != divide);  // ready is final
@@ -344,8 +312,8 @@ module executor #(
 
   // A trap still retires; `executing` gates that, and `launch.valid` must not.
   logic executing;
-  assign executing = in_valid && !in_is_interrupt && !region_stall && !x_busy && !trap_taken;
-  assign launch.valid = in_valid && !in_is_interrupt && !region_stall && !x_busy;
+  assign executing = in_valid && !take_interrupt && !x_busy && !trap_taken;
+  assign launch.valid = in_valid && !take_interrupt && !x_busy;
   assign launch.rd = executing ? in_rd : 5'b0;
   assign launch.rs1 = alu_rs1;
   assign launch.rs2 = fwd_rs2_val;
@@ -408,7 +376,7 @@ module executor #(
   logic pending_intr;
   always_ff @(posedge clk) begin
     if (reset) pending_intr <= 1'b0;
-    else if (in_valid && in_is_interrupt) pending_intr <= 1'b1;
+    else if (take_interrupt) pending_intr <= 1'b1;
     else if (launch.valid) pending_intr <= 1'b0;
   end
 
@@ -526,8 +494,6 @@ module executor #(
       op_is_remu <= 0;
       op_sign_x <= 0;
       op_sign_y <= 0;
-    end else if (region_stall) begin
-      out.valid <= 1'b0;  // still waiting on the deferred region answer
     end else begin
       // Assigned outside the case: a divide's completing cycle must publish its own answer.
       out.rd_ready <= in_has_result;
@@ -702,7 +668,6 @@ module executor #(
     if (!reset && !prev_reset && !prev_divide_completing)
       assert(out.rd_data == prev_out_rd_data);  // untouched except a divide's own publish cycle
   end
-  always_comb if (clocked && ls_answer_valid) assert(ls_access);  // capture belongs to its own in
 
   // A launch cycle's own out_has_result is false, so its successor inherits no forward.
   always_comb if (clocked && divider_busy && !prev_divider_busy) begin
@@ -711,8 +676,7 @@ module executor #(
   end
   always_comb if (clocked) assert(!(divider_busy && (in_fwd_rs1 || in_fwd_rs2)));
 
-  // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
-  // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
+  // Named continuous assigns, not part-selects: iverilog mis-derives sensitivity for those (ADR-0037).
   logic [31:0] alu_sub_lo;
   assign alu_sub_lo = alu_sub[31:0];
   logic rem_sub_hi, rem_shifted_hi;
@@ -894,10 +858,9 @@ module executor #(
       assert(out_rd_data == rem_ref);
  `endif
 
-  // The Zkt isolation claim's other half: region_stall is the one stall reason allowed to
-  // read a register value, and only for the eight base load/store encodings.
-  // formal/decoder-zkt-probe.py is these two assertions' forced-red prerequisite.
-  always_comb if (clocked) assert(!region_stall || ls_access);
+  // The Zkt isolation claim's other half: `ls_access` is exactly the eight base
+  // load/store encodings. formal/decoder-zkt-probe.py is this assertion's forced-red
+  // prerequisite.
   always_comb if (clocked)
     assert(ls_access == (in_is_lb || in_is_lbu || in_is_lh || in_is_lhu ||
       in_is_lw || in_is_sb || in_is_sh || in_is_sw));
@@ -910,24 +873,14 @@ module executor #(
 
   always_comb if (clocked && instr_atomic) assert(mem_addr_calc == atomic_addr);
 
-  always_comb if (clocked && ls_access) begin
-    assert(in_immediate_hi == {20{in_immediate_sign}});
-    if (ls_settled) assert(ls_supported);
-  end
-
-  logic prev_answer_valid;
-  always_ff @(posedge clk) prev_answer_valid <= ls_answer_valid;
-  always_comb if (clocked && prev_answer_valid && !prev_x_busy)
-    assert(!ls_answer_valid);
-
-  always_comb if (clocked && ls_answer_valid) assert(ls_answer == ls_supported);
+  always_comb if (clocked && ls_access) assert(in_immediate_hi == {20{in_immediate_sign}});
 
   // The trap-cause priority chain: exactly one arm decides, in this order, whenever the
   // word alone (no interrupt, no fetch fault) is what is deciding.
   logic word_decides;
-  assign word_decides = !in_is_interrupt && !in_imem_fault;
-  always_comb if (clocked && in_is_interrupt) assert(trap_cause == CAUSE_MACHINE_TIMER);
-  always_comb if (clocked && !in_is_interrupt && in_imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
+  assign word_decides = !take_interrupt && !in_imem_fault;
+  always_comb if (clocked && take_interrupt) assert(trap_cause == CAUSE_MACHINE_TIMER);
+  always_comb if (clocked && !take_interrupt && in_imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
   always_comb if (clocked && word_decides && instr_illegal) assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
   always_comb if (clocked && word_decides && in_is_ebreak) assert(trap_cause == CAUSE_BREAKPOINT);
   always_comb if (clocked && word_decides && in_is_ecall) assert(trap_cause == CAUSE_ECALL_M);
@@ -952,9 +905,8 @@ module executor #(
 
   always_comb if (clocked && trap_taken) assert(!instret && !csr_wen && !csr_ren);
   always_comb if (clocked) assert(!(trap_entry && mret_entry));
-  // NOT asserted here: "in_is_interrupt implies trap_entry" depends on D never handing X
-  // an interrupt while x_busy or region_stall holds -- a claim about D's own behavior this
-  // module cannot see standalone. formal/traps.sv checks it composed.
+  // Provable standalone now: take_interrupt already carries its own in_valid/x_busy gate.
+  always_comb if (clocked && take_interrupt) assert(trap_entry);
 
   logic signed [31:0] cmp_ref_x, cmp_ref_y;
   assign cmp_ref_x = fwd_rs1_val;

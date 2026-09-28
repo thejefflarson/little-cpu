@@ -1,11 +1,11 @@
 --- a/rtl/executor.v
 +++ b/rtl/executor.v
-@@ -180,7 +180,7 @@
+@@ -147,7 +147,7 @@
                              (instr_atomic_write && word_misaligned);
- 
+
    logic atomic_fault;
 -  assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
 +  assign atomic_fault = 1'b0;
-   assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
-                     !load_misaligned && !store_misaligned;
- 
+   assign ls_fault = ls_access && !ls_supported && !load_misaligned && !store_misaligned;
+
+   logic load_access_fault, store_access_fault;

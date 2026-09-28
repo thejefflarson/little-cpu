@@ -3,8 +3,8 @@
 `include "structs.v"
 
 // D vectors: decode, the hazard scoreboard, serialization and the stall broadcast.
-// Branch resolution, the region test, CSR access and every trap but the timer interrupt
-// moved to X and are test/executor_tb.v's job.
+// Branch resolution, the region test, CSR access and every trap, the timer interrupt
+// included, moved to X and are test/executor_tb.v's job.
 module decoder_tb;
   logic clk = 0;
   always #5 clk = ~clk;
@@ -21,7 +21,6 @@ module decoder_tb;
   logic issuing;
   logic [31:0] predicted_pc;
   logic [4:0] read_rs1, read_rs2;
-  logic interrupt_pending = 1'b0;
   logic x_redirect = 1'b0;
   dx_output out;
 
@@ -40,7 +39,6 @@ module decoder_tb;
     .predicted_pc(predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
-    .interrupt_pending(interrupt_pending),
     .x_redirect(x_redirect),
     .out(out)
   );
@@ -453,20 +451,6 @@ module decoder_tb;
     check_bit("a stalled cycle asks for nothing, even for a load", bus_request, 1'b0);
     executor_out = '0;
 
-    in.pc = 32'h0000_0940;   // the bubble is pc only; the trap commit is X's job later
-    present(32'h00100093);   // addi x1, x0, 1 -- a harmless victim
-    interrupt_pending = 1'b1;
-    #1;
-    check_bit("an armed interrupt is taken instead of issuing the victim", issuing, 1'b1);
-    @(posedge clk);
-    #1;
-    check_bit("the bubble reaches out", out.valid, 1'b1);
-    check_bit("...marked as the interrupt", out.is_interrupt, 1'b1);
-    check_hex("...at the pc that would have issued", out.pc, 32'h0000_0940);
-    check_hex("...with no rd", {27'b0, out.rd}, 32'b0);
-    check_hex("...and no instruction word", out.instr, 32'b0);
-    interrupt_pending = 1'b0;
-
     reset = 1;   // zeroes out unconditionally
     #1;
     @(posedge clk);
@@ -482,7 +466,7 @@ module decoder_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: D vectors (decode, hazard, serialize, atomic wait, x_busy hold/bubble, x_redirect, bus_request, the interrupt bubble)");
+      $display("PASSED: D vectors (decode, hazard, serialize, atomic wait, x_busy hold/bubble, x_redirect, bus_request)");
       $finish;
     end
   end

@@ -90,7 +90,6 @@ module traps #(
     .predicted_pc(decoder_predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
-    .interrupt_pending(interrupt_pending),
     .x_redirect(x_redirect),
     .out(dx_out)
   );
@@ -108,6 +107,7 @@ module traps #(
     .in(dx_out),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
+    .interrupt_pending(interrupt_pending),
     .x_busy(x_busy),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
@@ -392,7 +392,6 @@ module traps #(
     prev_written_by_trap   <= csr_written_by_trap;
     prev_mstatus_addressed <= mstatus_addressed;
     prev_mstatus_static    <= mstatus_static;
-    // Both read dx_out.is_interrupt, X's own captured decision, not CSRs' live interrupt_pending.
     prev_interrupt_pending <= dx_is_interrupt;
     prev_fetch_fault        <= dx_imem_fault;
     prev_interrupt_entry   <= trap_entry && dx_is_interrupt;
@@ -423,7 +422,8 @@ module traps #(
   logic        dx_valid, dx_is_interrupt, dx_imem_fault;
   logic [31:0] dx_instr;
   assign dx_valid = dx_out.valid;
-  assign dx_is_interrupt = dx_out.is_interrupt;
+  // X's own decision, restated -- no longer a captured field on dx_out.
+  assign dx_is_interrupt = dx_valid && !x_busy && interrupt_pending;
   assign dx_imem_fault = dx_out.imem_fault;
   assign dx_instr = dx_out.instr;
 

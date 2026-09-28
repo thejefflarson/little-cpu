@@ -7,7 +7,7 @@ module decoder (
   input  logic clk,
   input  logic reset,
   input  fetcher_output in,
-  input  logic x_busy,  // X still working `out` (the divider, or the region test's wait)
+  input  logic x_busy,  // X still working `out` (the divider)
   input  executor_output executor_out,
   input  logic fetch_stall,  // the fetch port went to a load/store; `in.instr` is data
   input  logic bus_wait,
@@ -20,7 +20,6 @@ module decoder (
   output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
-  input  logic interrupt_pending,
   // `in` was fetched down the wrong path: discard it unconditionally, no counter or list.
   input  logic x_redirect,
   output dx_output out
@@ -364,14 +363,8 @@ module decoder (
       out <= '0;
     end else if (stall) begin
       out <= '0;
-    end else if (interrupt_pending) begin
-      out <= '0;
-      out.valid <= 1'b1;
-      out.is_interrupt <= 1'b1;
-      out.pc <= fetcher_pc;
     end else begin
       out.valid <= 1'b1;
-      out.is_interrupt <= 1'b0;
       out.imem_fault <= imem_fault;
       out.pc <= fetcher_pc;
       out.instr <= instr;
@@ -453,7 +446,7 @@ module decoder (
 
   // Named continuous assigns, not part-selects inside the always_* blocks below: iverilog
   // cannot build a precise sensitivity entry for those (ADR-0037's class of defect).
-  logic out_valid, out_is_interrupt;
+  logic out_valid;
   logic [4:0] out_rd;
   logic [31:0] out_instr, out_immediate;
   assign out_instr = out.instr;
@@ -463,7 +456,6 @@ module decoder (
   logic out_is_amoswap, out_is_amoadd, out_is_amoxor, out_is_amoand, out_is_amoor,
     out_is_amomin, out_is_amomax, out_is_amominu, out_is_amomaxu;
   assign out_valid = out.valid;
-  assign out_is_interrupt = out.is_interrupt;
   assign out_rd = out.rd;
   assign out_is_amoswap = out.is_amoswap;
   assign out_is_amoadd = out.is_amoadd;
@@ -538,7 +530,6 @@ module decoder (
 
   // A bubble is the whole struct zeroed, never just `valid`.
   always_comb if (clocked && !out_valid) assert(out == '0);
-  always_comb if (clocked && out_is_interrupt) assert(out_rd == 0);
 
   always_ff @(posedge clk)
     if (clocked && !reset && !$past(reset) && $past(x_busy)) assert(out == $past(out));
@@ -583,7 +574,6 @@ module decoder (
     instr_jal || instr_jalr,
     instr_beq || instr_bne || instr_blt || instr_bltu || instr_bge || instr_bgeu}));
 
-  // Not `&& !out_is_interrupt`: that bubble zeroes every class flag too.
   always_comb if (clocked && out_valid)
     assert($onehot0({out_is_auipc, out_is_jal, out_is_jalr,
       out_is_beq, out_is_bne, out_is_blt, out_is_bltu, out_is_bge, out_is_bgeu,

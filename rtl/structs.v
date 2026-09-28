@@ -54,7 +54,6 @@ typedef struct packed {
 // can pull the CSR-immediate's uimm field and report RVFI's `insn`/`trap_tval`.
 typedef struct packed {
   logic        valid;
-  logic        is_interrupt;  // the one-cycle interrupt bubble D injects; else all zero
   logic        imem_fault;
   logic [31:0] pc;
   logic [31:0] instr;
