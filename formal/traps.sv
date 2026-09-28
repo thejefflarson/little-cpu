@@ -59,8 +59,8 @@ module traps #(
     .pc(fetch_pc),
     .next_pc(fetch_pc_next),
     .issuing(decoder_issuing),
-    .predicted_taken(dx_out.predicted_taken),
-    .predicted_target_low(dx_out.predicted_target_low),
+    .redirect(x_redirect),
+    .redirect_target(x_redirect_target),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
@@ -426,8 +426,7 @@ module traps #(
   logic        dx_valid, dx_is_interrupt, dx_imem_fault;
   logic [31:0] dx_instr;
   assign dx_valid = dx_out.valid;
-  // X's own decision, restated -- no longer a captured field on dx_out. X reads the
-  // registered copy, not the combinational compare, so the model must match.
+  // X's own decision, restated -- no longer a captured field on dx_out.
   assign dx_is_interrupt = dx_valid && !x_busy && interrupt_pending_reg;
   assign dx_imem_fault = dx_out.imem_fault;
   assign dx_instr = dx_out.instr;

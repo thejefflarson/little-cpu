@@ -131,7 +131,6 @@ STRUCT_PORTS = {
         'is_csrrw', 'is_csrrs', 'is_csrrc', 'is_csr_imm', 'is_csr_access',
         'is_math_imm',
         'fwd_rs1', 'fwd_rs2',
-        'predicted_taken', 'predicted_target_low',
     ]),
 }
 
@@ -139,8 +138,7 @@ STRUCT_PORTS = {
 # classification. `in.rd`/`in.rs1`/`in.rs2` are register NUMBERS, not values, and are
 # `[4:0]` -- below the 5-bit threshold -- so they need no entry here at all.
 STRUCT_FIELD_SEEDS = set()
-# `in.predicted_target_low` is pc plus an immediate, never a register-file or CSR-file read.
-STRUCT_FIELD_NON_VALUE = {'in.pc', 'in.instr', 'in.immediate', 'in.predicted_target_low'}
+STRUCT_FIELD_NON_VALUE = {'in.pc', 'in.instr', 'in.immediate'}
 
 # X has no analogue of D's `out`/`executor_out` feedback (a wide struct field read back
 # into the module's own stall computation): `in`'s own register-NUMBER fields are

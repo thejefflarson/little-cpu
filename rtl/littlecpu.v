@@ -140,8 +140,8 @@ module littlecpu #(
     .pc(fetch_pc),
     .next_pc(fetch_pc_next),
     .issuing(decoder_issuing),
-    .predicted_taken(dx_out.predicted_taken),
-    .predicted_target_low(dx_out.predicted_target_low),
+    .redirect(x_redirect),
+    .redirect_target(x_redirect_target),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .imem_stall(fetch_stall),
@@ -429,25 +429,6 @@ module littlecpu #(
       probe_ls_issues <= probe_ls_issues + 32'd1;
       if (ls_at_edge)    probe_ls_edges    <= probe_ls_edges + 32'd1;
       if (ls_at_bypass)  probe_ls_bypasses <= probe_ls_bypasses + 32'd1;
-    end
-  end
-
-  // A guess is correct when X's real redirect lands exactly where it said.
-  logic probe_guess_active, probe_guess_correct;
-  assign probe_guess_active = dx_out.valid && !x_busy && dx_out.predicted_taken;
-  assign probe_guess_correct = probe_guess_active && x_redirect &&
-    x_redirect_target[7:0] == dx_out.predicted_target_low;
-
-  logic [31:0] probe_guesses, probe_guess_hits, probe_guess_misses;
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      probe_guesses     <= 32'd0;
-      probe_guess_hits   <= 32'd0;
-      probe_guess_misses <= 32'd0;
-    end else if (probe_guess_active) begin
-      probe_guesses <= probe_guesses + 32'd1;
-      if (probe_guess_correct) probe_guess_hits   <= probe_guess_hits + 32'd1;
-      else                     probe_guess_misses <= probe_guess_misses + 32'd1;
     end
   end
  `endif
