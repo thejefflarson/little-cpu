@@ -184,6 +184,9 @@ module littlecpu #(
   logic [31:0] csr_trap_cause, csr_trap_epc, csr_trap_tval;
   logic [31:0] csr_mtvec, csr_mepc;
   logic        csr_interrupt_pending;
+  logic        interrupt_pending_reg;
+  always_ff @(posedge clk)
+    interrupt_pending_reg <= reset ? 1'b0 : csr_interrupt_pending;
  `ifdef RISCV_FORMAL
   rvfi_csr64 csr_rvfi_mcycle, csr_rvfi_minstret;
   rvfi_csr32 csr_rvfi_mscratch;
@@ -254,7 +257,7 @@ module littlecpu #(
     .in(dx_out),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
-    .interrupt_pending(csr_interrupt_pending),
+    .interrupt_pending(interrupt_pending_reg),
     .x_busy(x_busy),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
