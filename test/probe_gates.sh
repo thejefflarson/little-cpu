@@ -1964,7 +1964,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
-  "not the 3 this row swept" \
+  "not the 2 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
@@ -6364,44 +6364,44 @@ MCD="python3 $REPO/formal/check-memcheck-depth.py"
 mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
   local d; d=$(new_case)
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive F 6  worst-case first retire, swept out of `hang`'
+    '#derive F 5  worst-case first retire, swept out of `hang`'
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive G 6  worst-case gap between two retires, swept out of `liveness`'
+    '#derive G 5  worst-case gap between two retires, swept out of `liveness`'
   cat > "$d/checks.cfg" <<CFG
 [depth]
-#derive F 6  worst-case first retire, swept out of \`hang\`
-#derive G 6  worst-case gap between two retires, swept out of \`liveness\`
+#derive F 5  worst-case first retire, swept out of \`hang\`
+#derive G 5  worst-case gap between two retires, swept out of \`liveness\`
 CFG
   printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
   printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
   printf '%s' "$d"
 }
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 12)
 probe "control: a depth exactly at the floor passes" 0 \
-  "depth 14 >= F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 12 >= F+G+2 = 12 (F=5, G=5)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 13)
+d=$(mcd_fixture 11)
 probe "a depth one below the floor is red, naming F and G" 1 \
-  "depth 13 is below F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 11 is below F+G+2 = 12 (F=5, G=5)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 8)
+d=$(mcd_fixture 7)
 probe "control: a one-retire floor is F+2, not F+G+2" 0 \
-  "depth 8 >= F+2 = 8 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
+  "depth 7 >= F+2 = 7 (F=5, G=5)" "$MCD $d dmemcheck.sby 1"
 
 d=$(new_case)
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
   "does not exist" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 12)
 probe "a named .sby that does not exist is refused" 1 \
   "does not exist" "$MCD $d missing.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 12); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
 probe "a missing depth line in the .sby stops rather than comparing nothing" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 12)
 probe "a <retires> argument that is not 1 or 2 is refused" 2 \
   "<retires> must be 1 or 2" "$MCD $d dmemcheck.sby 3"
 
