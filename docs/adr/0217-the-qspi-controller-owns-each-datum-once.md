@@ -103,10 +103,10 @@ equivalent live-read mux, not deleted outright. The combined saving (-3,464.6) e
 two bundles' sum (-2,074.5) by 1,390.1 um2 -- yosys shares logic across the two edits that
 it could not share when either shipped alone, the same pattern ADR-0210 measured.
 
-`NANO_MAX_UM2` is not moved here: Tier 1 (in flight alongside this ticket) owns that line in
-`nano/nano.mk`, and both tiers' savings need to be on one tree before the ceiling is
-re-derived. This ticket's own number for whoever does move it next: 67,408.4 um2 on top of
-Tier 0's clock gating, Tier 1's cuts not included.
+The table above was measured before Tier 1 (`x0`/`mem_wdata`/`mem_wstrb`/`rd`/`rs1`/`rs2`
+losing their own copies, ADR-0216) landed and before the local instrument mirrored the
+flow's clock gating; see "Rebased onto Tier 1", below, for the combined, re-taken number
+`NANO_MAX_UM2` now carries.
 
 ## Cycles: measured before and after, both harnesses
 
@@ -142,6 +142,59 @@ by program, with retire counts unchanged from before this ticket (`alu.S` 66, `b
 builds against `nano/tb/nano_qspi_memory.v`, the abstract bus-timing model, which has no
 reference to `nano/qspi.v` at all and so cannot move with this change.
 
+## Rebased onto Tier 1, and the bus-stability contract proved rather than assumed
+
+Tier 1 (ADR-0216) landed first: `x0` goes unstored, `mem_wdata`/`mem_wstrb` become wires
+read live off `nano.v`'s own registers instead of copies, `rd`/`rs1`/`rs2` read `instr`
+live, and the local instrument (`nano/synth_script.sh`) gained the flow's own `clockgate`
+pass. Rebasing this tier onto that tree is a clean fast-forward -- neither tier's own files
+overlap -- but two things it left undone become owed once both tiers share a tree.
+
+**Area, re-measured under the clock-gated instrument, both halves on their own first.**
+`make nano-area`, this tree, this toolchain:
+
+| variant | um2 |
+| --- | --- |
+| Tier 1 alone (rebased, clock-gated instrument) | 60,626.9 |
+| Tier 1 + this ticket's cuts (combined) | 58,790.1 |
+| delta | -1,836.8 (-3.03%) |
+
+The 60,626.9 figure is this session's own re-measurement of Tier 1 alone, not the
+60,800.8 `nano.mk`'s prior comment quoted -- the ~0.3% gap is toolchain drift of the kind
+this repo's own measurement notes already document (`make nano-area` is quoted with the
+tree and treated as a local sanity check, never merged across sessions without
+re-confirming). `NANO_MAX_UM2` steps 62,300 -> 60,300, the same ~1,500 um2 headroom style
+the prior step used, over this ticket's own fresh 58,790.1 measurement.
+
+**The bus-stability assumption is now a proof.** Invariant 3's restatement (above) needed
+`nano/formal/qspi.sby` to assume `nano.v` holds a request's `mem_valid`/`mem_addr`/
+`mem_wdata`/`mem_wstrb`/`mem_instr` stable from the cycle it is raised until `mem_ready`.
+That assumption was trivially true before Tier 1: `mem_wdata` and `mem_wstrb` were plain
+registers, written once per transaction and read back unchanged. Tier 1 made both wires,
+continuously read off `op_rs2`/`instr`/`cpu_state`/`store_wstrb` -- still stable in every
+reachable execution, since nothing rewrites those registers between an instruction issuing
+its one bus transaction and that transaction's own `mem_ready`, but no longer stable *by
+construction*, so the claim needs its own proof rather than inheriting one from qspi.v's
+assumption of it.
+
+`nano/nano.v` gains its own `` `ifdef FORMAL `` block -- the module that owns the state, so
+no hierarchical reference is needed -- asserting exactly the property qspi.v assumes, one
+cycle at a time: `mem_valid_q`/`mem_ready_q`/`mem_addr_q`/`mem_wdata_q`/`mem_wstrb_q` shadow
+the previous cycle's ports, and whenever a request was outstanding and unanswered last
+cycle, this cycle's ports must match. `nano/formal/memreq.sby` proves it by k-induction
+(`abc pdr`, `mode prove`), converging in 3 frames, about 0.65s. The first two attempts read
+FAIL at step 1 and at frame 0 respectively: `clocked_q`, a one-cycle-delayed copy of the
+standing `clocked` idiom, was needed to keep the reset cycle's own unconstrained
+`mem_valid`/`mem_ready` -- neither has an `initial` value, so before `clocked_q` gated the
+antecedent, PDR was free to pick a free `mem_valid_q`/`mem_ready_q` pair at the very first
+frame and "prove" a violation against a request that was never really outstanding.
+`nano/formal/memreq-probe.py` is the forced-red prerequisite: a mutated `finish_store` that
+bumps `mem_addr` by 4 on every wait cycle instead of holding it fails the assertion at a
+reachable step (8, in the version this ADR was written against). Neither `memreq.sby` nor
+its probe reaches `test/probe_gates.sh` -- `make -C nano/formal components_memreq`, the
+`components_qspi` shape, is where it lives and is graded, the same standing `qspi-probe.py`
+already has.
+
 ## `make nano-coremark` fixed
 
 `NANO_COREMARK_CYCLES`'s default (20,000,000) was smaller than what the zero-wait harness's
@@ -157,8 +210,11 @@ checked path is a question for whoever owns nano's CI shape, not a QSPI-controll
 
 ## Scope
 
-Out of scope, per the brief: `nano/nano.v`, `nano/synth_script.sh`, `nano/timing_script.sh`,
-`nano/nano.mk`'s `NANO_MAX_UM2` line and `.github/workflows/nano-tt-area-selfhosted.yml` are
-Tier 1's and the gate-level-simulation ticket's respectively, and untouched here.
-`stream_next_addr` stays in `nano/qspi.v`, per the brief's own fourth decision: where the
-flash is is a fact about an external device, not the core.
+Out of scope, per the brief: `nano/synth_script.sh`, `nano/timing_script.sh` and
+`.github/workflows/nano-tt-area-selfhosted.yml` are Tier 1's and the gate-level-simulation
+ticket's respectively, and untouched here. `nano/nano.v` and `nano/nano.mk`'s
+`NANO_MAX_UM2` line were both out of scope until Tier 1 merged; once both tiers shared a
+tree, discharging qspi.v's own formal assumption and re-deriving the ceiling both needed
+touching them, and "Rebased onto Tier 1", above, is that record. `stream_next_addr` stays
+in `nano/qspi.v`, per the brief's own fourth decision: where the flash is is a fact about
+an external device, not the core.
