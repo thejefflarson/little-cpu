@@ -975,4 +975,35 @@ module riscv #(
 `endif
   end
  `endif
+
+`ifdef FORMAL
+  logic clocked, clocked_q;
+  initial clocked = 1'b0;
+  initial clocked_q = 1'b0;
+  always_ff @(posedge clk) clocked <= 1'b1;
+  always_ff @(posedge clk) clocked_q <= clocked;
+  initial assume(reset);
+  always_comb if (!clocked) assume(reset);
+  always_comb if (clocked) assume(!reset);
+
+  // nano/qspi.v's own formal harness assumes this bus contract; proved here instead.
+  logic        mem_valid_q, mem_ready_q, mem_instr_q;
+  logic [31:0] mem_addr_q, mem_wdata_q;
+  logic [3:0]  mem_wstrb_q;
+  always_ff @(posedge clk) begin
+    mem_valid_q <= mem_valid;
+    mem_ready_q <= mem_ready;
+    mem_instr_q <= mem_instr;
+    mem_addr_q  <= mem_addr;
+    mem_wdata_q <= mem_wdata;
+    mem_wstrb_q <= mem_wstrb;
+  end
+  always_comb if (clocked_q && mem_valid_q && !mem_ready_q) begin
+    assert(mem_valid == 1'b1);
+    assert(mem_instr == mem_instr_q);
+    assert(mem_addr  == mem_addr_q);
+    assert(mem_wdata == mem_wdata_q);
+    assert(mem_wstrb == mem_wstrb_q);
+  end
+`endif
 endmodule

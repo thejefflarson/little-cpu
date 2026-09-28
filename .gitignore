@@ -108,6 +108,8 @@ nano/formal/ill_e_cover
 nano/formal/ill-e-probe/
 nano/formal/qspi
 nano/formal/qspi-probe/
+nano/formal/memreq
+nano/formal/memreq-probe/
 nano/formal/traps
 nano/formal/region-probe/
 nano/formal/tval-probe/
