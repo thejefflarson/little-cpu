@@ -1,6 +1,6 @@
 # 0207 — A register-only fetch address over a one-window skid ships as the fetch front end
 
-Status: Accepted. 2026-09-21, amended 2026-09-23. The RTL shipped first as a tracked patch
+Status: Accepted. 2026-09-21, amended 2026-09-23 and 2026-09-28. The RTL shipped first as a tracked patch
 (`soc/fetch_ahead/skid.patch`) while its up5k fit was in question; it now ships in `rtl/` as the
 real fetch front end on `thejefflarson/fetch-refactor`, the integration branch the rest of the
 fetch refactor stacks on. The shape is correct, proven, and faster than `main` in cycles. It still
@@ -303,3 +303,64 @@ components_executor components_traps components_pcloop` (all four k-induction pr
 new `fetcher.redirect_served` cover reached at step 2), `make -C formal remeasure-fg` (F = 5,
 G = 5, both reproduce — unchanged, since the fix deletes logic rather than adding a pipeline
 stage).
+
+## Amendment: a D-stage guess was tried again, on top of the fix above, and declined
+
+The trim pass this ADR still owes was approached from two directions, in one working session, on
+`main` (474bb03) plus the fix above: a D-stage BTFN/jal predictor feeding `rtl/fetcher.v`'s
+`fetch_word`, and a register on the timer interrupt's own path into X. Neither survived measurement
+against the shape this ADR already ships.
+
+**The D-stage guess.** The premise — that the fix above left `rtl/fetcher.v` with no guess at all
+and needed one back — misreads what the fix above did: `redirect`/`redirect_target` already give
+`fetch_word` the ROM's own one-cycle lead with **zero** mispredict cost, correct for every redirect
+class. A second, heuristic guess (`predicted_taken`/`predicted_target_low`, D's own class-flag and
+immediate decode, narrowed to 8 bits to place at all) was built beside it anyway, at real cost: it
+took several widths and a mispredict-handling pass to reach parity with this ADR's own placed
+count (5231–5300 against 5277), the 8-bit field's zero-extension made most of its guesses land
+inside the first 256 bytes of the 8 KB ROM only, and Dhrystone read no better than "guess off" —
+the field's real-world benefit was statistically indistinguishable from having no D-stage guess at
+all. It added a struct field, a second immediate decode, and formal/test surface
+(`formal/pcloop.sv`, `formal/traps.sv`, `test/fetcher_tb.v`, `test/decoder_tb.v`,
+`test/zkt_isolation_test.py`) for no measured win over the fix this ADR already ships. Declined;
+the tree reverted to this ADR's own committed shape (`git checkout 7382201 -- <files>`, confirmed
+by an empty `git diff --stat` against it) rather than carrying a second predictor that duplicates
+the first's job at a higher cost.
+
+**The interrupt register.** B3 (ADR-0214) moved the timer interrupt's take into X, reading
+`interrupt_pending` live and combinationally from `csrs.v`'s `irq_timer && mie_mtie && mstatus_mie`
+— one hop from `mtip`'s own flip-flop to X's `redirect`, itself one hop from `fetch_pc`'s flip-flop.
+A registered `interrupt_pending` (`interrupt_pending_reg`, one flop in `rtl/littlecpu.v` between
+`csrs`'s output and `executor`'s input) was proposed as a fix for exactly this hop, since
+`test/timer_tb.v`'s own record already allows the take a cycle late. The register is spec-legal and
+was formally re-verified: `formal/traps.sv`'s reference model (`dx_is_interrupt`) needed the
+identical one-cycle delay to stay in step with the DUT, and once matched `components_traps` closes
+by k-induction the same as without it. But **measured against this ADR's own committed baseline,
+not against the pre-B1 fused decoder or any other tree**, the register does not pay for itself:
+
+| build | `make fit` | `make soc-timing` (ICESTORM_LC) | icetime | critical path |
+|---|---|---|---|---|
+| this ADR's shape (no register) | 4,497 | 5,277/5,280 (99%) | 9.53 MHz | `por_done → imem.rom_even.RDATA[2]` |
+| + `interrupt_pending_reg` | — | 5,300/5,280 (100%) | 9.48 MHz | `por_done → riscv.decoder.out[1]` |
+
+The register costs +23 placed cells and a cycle of interrupt latency, and Fmax moves the wrong way
+by 0.05 MHz — inside the churn band, so not even a clear loss, but not a measured win either. Both
+rows' critical paths start at `por_done` (the power-on-reset release) and end deep in decoder
+logic; neither runs anywhere near `mtip`, `interrupt_pending`, or `csrs.v`. **The hypothesis this
+register was built to test — that B3's move put the timer interrupt on the SoC's critical path —
+does not hold at this pinned seed.** A single pinned-seed placement at 99–100% occupancy is not a
+reliable read of which hop is slow (this file's own curve shows the same design's critical path
+moving between unrelated cells on a one-cell area change), but the register had nothing to show for
+itself even so: no Fmax gain, real area and latency cost. Declined for the same reason as the
+D-stage guess — reverted alongside it, restoring this ADR's own committed shape exactly.
+
+**What both declines leave standing.** `make fit` (4,497) and `make soc-timing` (5,277/5,280,
+9.53 MHz) are unchanged from this ADR's own prior amendment — the trim pass this ADR still owes is
+still owed, and neither direction tried here closed it. `make -C formal remeasure-fg` still reads
+F = 5, G = 5. `make test`, `make lint`, and all four component proofs
+(`components_decoder`/`components_executor`/`components_traps`/`components_pcloop`) pass on the
+exact tree this ADR ships — reconfirmed fresh rather than inherited, since two directions were
+tried and backed out in the same session. `make dhrystone`/`make coremark` are not re-taken here:
+the RTL is byte-identical to what this ADR's prior amendment already measured (0.922 DMIPS/MHz,
+2.661 CoreMark/MHz), confirmed by an empty diff against 7382201 on every file but one test
+program's comment.
