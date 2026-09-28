@@ -223,19 +223,23 @@ Instruction-address-misaligned (0) is unreachable — C makes 2-byte targets leg
 implementing it costs nothing and closes nothing. C stays because code density is a product
 constraint on the up5k (ADR-0002, ADR-0003).
 
-**Every refusal has one shape, except one that is now internal to the core.** `rtl/imemory.v`
-publishes a fetch outside the text window → cause 1. `rtl/memory.v` still answers the platform's
-own range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the nine AMOs and `sc.w`,
-alignment outranking the region, which makes everything outside the data RAM — text, timer, UART,
-SPI controller — `AMONone` and `RsrvNone`; the reservation is refused there too, so a platform that
-tied the fault bit high still could not let an `sc.w` claim a write that went nowhere
-(`test/accessor_tb.v`, `components_accessor`). **The twelve plain load and store encodings no
-longer ask the platform at all**: B3 (ADR-0214) moved their region test into `rtl/executor.v`
-itself, which carries its own copy of the map and answers the effective address's range
-combinationally, the same cycle, with no asymmetry between a wide window and a narrow one — the old
-fast-arm/deferred-arm split, and the layout preference it required, are both gone. The declined
-alternative this retires — answering off `rs1`'s page rather than the effective address — was
-priced against the fused decoder's fetch-loop budget, which no longer exists on this tree (ADR-0129,
+**Every refusal now has one shape: X decodes its own copy of the map and answers combinationally,
+with no round trip to the platform.** `rtl/imemory.v` publishes a fetch outside the text window →
+cause 1. B3 (ADR-0214) moved the twelve plain load and store encodings' region test into
+`rtl/executor.v` itself, which carries its own copy of the map and answers the effective address's
+range combinationally, the same cycle, with no asymmetry between a wide window and a narrow one —
+the old fast-arm/deferred-arm split, and the layout preference it required, are both gone. The
+atomic region test followed the same move (ADR-0207 amendment, 2026-09-28): the eleven A
+instructions' effective address is `rs1` verbatim, so `rtl/executor.v` runs the identical
+combinational test on it that a load or store already runs on `mem_addr_calc` — cause 5 for `lr.w`
+and 7 for the nine AMOs and `sc.w`, alignment outranking the region, which makes everything outside
+the data RAM — text, timer, UART, SPI controller — refuse in X before the access ever reaches the
+bus. `rtl/memory.v` no longer computes an answer about an atomic's address at all; its own write
+gate (`in_range && |mem_wstrb`) is unchanged and is the second, independent guard behind X's
+refusal, so a platform whose own decode disagreed with X's still could not let an `sc.w` claim a
+write that went nowhere (`test/accessor_tb.v`, `components_accessor`). The declined alternative
+both moves retire — answering off `rs1`'s page rather than the effective address — was priced
+against the fused decoder's fetch-loop budget, which no longer exists on this tree (ADR-0129,
 ADR-0109).
 
 **The eleven A instructions are decoded, executed and claimed** (ADR-0106, ADR-0108): Zaamo and

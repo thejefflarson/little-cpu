@@ -28,10 +28,6 @@ module littlecpu #(
   input  logic        fetch_stall,
   input  logic        imem_fault,
   input  logic        mem_reservable,
-  // The address an atomic in decode would use. The platform's answer arrives with it, so
-  // decode commits the fault in the cycle it reads the word.
-  output logic [31:0] atomic_addr,
-  input  logic        atomic_supported,
   // `bus_wait` says the bus is another initiator's this cycle, and `snoop_*` is that
   // initiator's write, which clears a reservation on its word.
   input  logic        bus_wait,
@@ -259,8 +255,6 @@ module littlecpu #(
     .reg_rs2(reg_rs2),
     .interrupt_pending(csr_interrupt_pending),
     .x_busy(x_busy),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),

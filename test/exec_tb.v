@@ -21,8 +21,6 @@ module exec_tb;
   logic [31:0] reg_rs1, reg_rs2;
   logic interrupt_pending = 1'b0;  // never armed; this bench is arithmetic-only
   logic x_busy;
-  logic [31:0] atomic_addr;
-  logic atomic_supported = 1'b1;  // unread here; fixed stub, no vector is an atomic
   logic [11:0] csr_addr;
   logic csr_ren, csr_wen;
   logic [31:0] csr_wdata;
@@ -47,8 +45,6 @@ module exec_tb;
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
     .x_busy(x_busy),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),

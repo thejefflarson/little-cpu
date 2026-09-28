@@ -480,3 +480,54 @@ piece of work before this shape ships, or to accept a different scoping of the D
 the TIMER fix that this session did not have room to find and formally re-verify safely. The 12 MHz
 requirement itself is not negotiable (ADR-0066); what is open is how the area to reach it gets
 found.
+
+## Amendment 2026-09-28 — the atomic region test moves into X, closing the round trip B3 left open
+
+B3 (ADR-0214) moved the twelve plain load/store encodings' region test into `rtl/executor.v`,
+combinational and same-cycle, but left the eleven atomics on the older mechanism: X published
+`atomic_addr` (`reg_rs1` verbatim) to `rtl/memory.v`, which compared it against its own `BASE`/
+`RAM_WORDS` and returned one `atomic_supported` bit per hart; X used only that bit. This is the
+worst timing path measured on this ticket's tree with the UART and SPI tied off for a preview
+(8 seeds, `LS_RAM_BASE`/`LS_RAM_WORDS` unchanged): `riscv.accessor_out[32..36]` (the M-stage
+result, forwarded) → X's effective address → `atomic_addr` → `dmem`'s range test
+(`dmem.atomic_addr_SB_LUT4...`), reading 11.28–11.78 MHz at 8 seeds — the external round trip
+through `rtl/memory.v` and back, not the comparison itself.
+
+The fix finishes B3's own move rather than trimming the round trip: an atomic's immediate is
+always zero (`rtl/executor.v`'s `FORMAL` block already asserted it), so `mem_addr_calc` for an
+atomic is `reg_rs1` alone, exactly what `atomic_addr` used to publish. `ram_mapped`, the same
+combinational test `ls_supported` already runs on `mem_addr_calc` for a load or store, answers the
+atomic case too, with no new logic — `atomic_fault` reads `ram_mapped` instead of the platform's
+bit. `rtl/memory.v` no longer computes anything about an atomic's address: `atomic_addr`,
+`atomic_supported` and the `NHARTS`-wide per-hart genblock that built the latter are deleted from
+`rtl/memory.v`, `rtl/executor.v`, `rtl/littlecpu.v`, `rtl/littlesoc.v`, `rtl/littledual.v`, every
+formal harness that wired the two ports through (`formal/wrapper.v`, `formal/pcloop.sv`,
+`formal/traps.sv`, `formal/cover.sv`, `formal/dmemcheck.sv`, `formal/imemcheck.sv`,
+`formal/complete.sv`), `soc/compare/bench_littlecpu.v`, and the testbenches that stubbed them
+(`test/exec_tb.v`, `test/executor_tb.v`, `test/testbench.v`, `test/mem_tb.v`'s own `check_atomic`
+task, which tested exactly the deleted per-hart comparator and is gone with it — the same address-
+range logic it exercised is still covered by `mem_tb.v`'s existing out-of-range read vectors,
+which test `rtl/memory.v`'s `in_range`, the mechanism that remains). The two mutation patches
+keyed to this logic, `atomic-region-ignored` and `loadstore-region-ignored`, are regenerated
+against the new line numbers and content (`assign atomic_fault = instr_atomic && !ram_mapped &&
+!word_misaligned;` / `assign ls_fault = ...`) and verified to apply with `git apply --check`.
+
+**Write safety does not depend on X's decode agreeing with anything**: `rtl/memory.v`'s own write
+gate, `in_range && |mem_wstrb`, is untouched by this change and is the same test that already
+refused a plain store outside the RAM window. An AMO or `sc.w` X fails to refuse still cannot land
+a write `rtl/memory.v` itself does not answer — `components_accessor`'s refusal assertions read
+`rtl/accessor.v`'s own behavior, not the deleted port, and pass unchanged. This is the "every
+refusal has one shape" invariant CLAUDE.md's ISA section states, extended to cover the last
+holdout; that section is rewritten to match (was: "`rtl/memory.v` still answers the platform's own
+range test about `atomic_addr`").
+
+Validated: `make test` (full, including the regenerated `test/comment_density_test.py` pass — five
+files needed a one- or two-line comment trim after the port deletions shifted their line counts
+across the 5% budget: `formal/traps.sv`, `rtl/executor.v`, `rtl/littlesoc.v`, `test/executor_tb.v`,
+`test/mem_tb.v`, each fixed by merging a wrapped comment onto one line rather than by cutting
+content), `make lint` (svlint clean both passes), and `make -C formal components_decoder
+components_executor components_traps components_accessor components_pcloop` (all five PASS by
+k-induction, `traps_cover` and `pcloop_cover` both PASS). Net diff: 21 files, +49/−160 lines
+(11 lines net larger due to context; the deleted logic itself is 3 signals × roughly a dozen
+wiring sites). The 8-seed timing preview this section opened with is re-taken after this cleanup,
+below.

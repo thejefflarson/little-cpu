@@ -20,15 +20,12 @@ module traps #(
     input logic imem_stall,  // the ROM's stolen-read flag, free; turned into fetch_stall
     input logic bus_wait,  // free; an ungranted hart issues nothing, so it commits no trap either
     input logic rom_fault,  // free, like everything else not instantiated here
-    input logic atomic_supported,  // free; the DUT ignores it (region test is address-only)
     input logic accessor_out_valid,
     input logic irq_timer  // the platform's timer line, free every cycle
 );
   logic [31:0] fetch_pc, fetch_pc_next;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic        fetch_wait, fetch_fault, decoder_issuing, x_redirect;
-  // The address X publishes for a platform to decode.
-  logic [31:0] atomic_addr;
   fetcher_output fetcher_out;
   dx_output dx_out;
   decoder_output decoder_out;
@@ -110,8 +107,6 @@ module traps #(
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
     .x_busy(x_busy),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
@@ -291,8 +286,7 @@ module traps #(
                                 instr[31:27] == 5'b11100);
   assign is_atomic = is_amo || is_lr || is_sc;
   assign atomic_word_aligned = reg_rs1[1:0] == 2'b00;
-  // The DUT no longer round-trips atomic_addr through the platform; its immediate is
-  // always zero, so reg_rs1 alone answers the same region test a load/store would.
+  // The DUT no longer round-trips through the platform; its immediate is always zero, so reg_rs1 alone answers the same region test a load/store would.
   logic atomic_ram_mapped;
   assign atomic_ram_mapped = reg_rs1 >= LS_RAM_BASE && reg_rs1 < LS_RAM_TOP;
   assign atomic_refused = !atomic_ram_mapped && atomic_word_aligned;

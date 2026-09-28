@@ -90,12 +90,12 @@ adds no ratchet.
   `rtl/accessor.v` as the second half of one statement — a platform that
   tied the fault bit high would still not let an `sc.w` claim a write that
   went nowhere — and `accessor_tb` is what grades it.
-- **`atomic-region-ignored`** / **`loadstore-region-ignored`** — the
-  platform's answer about an atomic's address, ignored: every atomic
-  executes wherever it is pointed, which is the behaviour the two causes
-  replaced. `amoregion.S`'s first refused case is what sees the atomic
-  version, and `executor_tb` sees it where the region test now lives, in X.
-  `amo.S`,
+- **`atomic-region-ignored`** / **`loadstore-region-ignored`** — X's own
+  region test zeroed at the fault it feeds: every atomic, or every plain
+  load/store, executes wherever it is pointed, which is the behaviour the
+  two causes replaced. `amoregion.S`'s first refused case is what sees the
+  atomic version, and `executor_tb` sees it where the region test lives, in
+  X. `amo.S`,
   `amominmax.S`, `lrsc.S` and `lrsclock.S` do NOT, and that is right — every
   atomic in them is inside the data RAM, so a core that never refuses one
   finishes them all. `uart.S` is a detector by accident of what it was

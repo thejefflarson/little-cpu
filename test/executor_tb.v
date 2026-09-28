@@ -18,8 +18,6 @@ module executor_tb;
   logic [31:0] reg_rs1, reg_rs2;
   logic interrupt_pending;
   logic x_busy;
-  logic [31:0] atomic_addr;
-  logic atomic_supported;
   logic [11:0] csr_addr;
   logic csr_ren, csr_wen;
   logic [31:0] csr_wdata;
@@ -44,8 +42,6 @@ module executor_tb;
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
     .x_busy(x_busy),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
@@ -111,7 +107,6 @@ module executor_tb;
       reg_rs2 = 32'b0;
       csr_rdata = 32'b0;
       csr_implemented = 1'b1;
-      atomic_supported = 1'b1;
       interrupt_pending = 1'b0;
     end
   endtask
@@ -324,8 +319,7 @@ module executor_tb;
     in.is_amoadd = 1'b1;
     reg_rs1 = 32'h0001_0000;
     #1;
-    check_hex("an atomic's effective address is rs1 alone", atomic_addr, 32'h0001_0000);
-    check_hex("...matching what launch hands the accessor", launch.mem_addr, 32'h0001_0000);
+    check_hex("an atomic's effective address is rs1 alone", launch.mem_addr, 32'h0001_0000);
 
     clear_in();
     in.is_lr = 1'b1;
@@ -351,8 +345,7 @@ module executor_tb;
     check_bit("an lr.w at RAM's own last word does not trap", trap_entry, 1'b0);
     clear_in();
     in.is_lr = 1'b1;
-    reg_rs1 = 32'h0002_0000;   // one word past RAM's top -- the timer's own base, but
-                                // an atomic's region test is RAM-only, unlike a plain load's
+    reg_rs1 = 32'h0002_0000;   // one word past RAM's top -- the timer's own base
     #1;
     check_bit("an lr.w one word past RAM's top traps on region", trap_entry, 1'b1);
     check_hex("...as a LOAD access fault", trap_cause, 32'd5);
@@ -569,7 +562,7 @@ module executor_tb;
     in.fwd_rs1 = 1'b1;
     reg_rs1 = 32'hdead_dead;   // must not be read
     #1;
-    check_hex("...and so does an atomic's address", atomic_addr, 32'd100);
+    check_hex("...and so does an atomic's address", launch.mem_addr, 32'd100);
 
     clear_in();
     in.is_csrrw = 1'b1;

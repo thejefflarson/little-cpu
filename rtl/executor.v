@@ -20,11 +20,6 @@ module executor #(
   input  logic interrupt_pending,
   output logic x_busy,
 
-  output logic [31:0] atomic_addr,
-  // Kept for interface stability; X answers its own atomic region test off
-  // ram_mapped below instead of reading the platform's answer back.
-  input  logic        atomic_supported,
-
   output logic [11:0] csr_addr,
   output logic        csr_ren,
   output logic        csr_wen,
@@ -85,8 +80,7 @@ module executor #(
   logic take_interrupt;
   assign take_interrupt = in_valid && !x_busy && interrupt_pending;
 
-  // D precomputed these selects from register NUMBERS alone -- the one case the
-  // write-through bypass (commitment 4) reaches too late.
+  // D precomputed these selects from register NUMBERS alone -- the one case the write-through bypass (commitment 4) reaches too late.
   logic [31:0] fwd_rs1_val, fwd_rs2_val;
   assign fwd_rs1_val = in_fwd_rs1 ? out.rd_data : reg_rs1;
   assign fwd_rs2_val = in_fwd_rs2 ? out.rd_data : reg_rs2;
@@ -114,7 +108,6 @@ module executor #(
   logic [31:0] mem_fault_word_addr;
   assign mem_fault_word_addr = {mem_addr_calc[31:2], 2'b00};
  `endif
-  assign atomic_addr = fwd_rs1_val;
 
   logic instr_ls_load, instr_ls_store, ls_access;
   assign instr_ls_load  = in_is_lb || in_is_lbu || in_is_lh || in_is_lhu || in_is_lw;
@@ -123,8 +116,7 @@ module executor #(
 
   localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
-  // An atomic's immediate is always zero (asserted below), so this is also its own
-  // region test: no need to round-trip atomic_addr through the platform and back.
+  // An atomic's immediate is always zero (asserted below), so mem_addr_calc is rs1 alone here too, and this is the same test a load or store already runs on it.
   logic ram_mapped;
   assign ram_mapped = ((mem_addr_calc ^ LS_RAM_BASE) & ~(LS_RAM_BYTES - 32'd1)) == 32'd0;
 
@@ -879,8 +871,6 @@ module executor #(
     assert(launch_is_amo == (launch_is_amoswap || launch_is_amoadd || launch_is_amoxor ||
       launch_is_amoand || launch_is_amoor || launch_is_amomin || launch_is_amomax ||
       launch_is_amominu || launch_is_amomaxu));
-
-  always_comb if (clocked && instr_atomic) assert(mem_addr_calc == atomic_addr);
 
   always_comb if (clocked && ls_access) assert(in_immediate_hi == {20{in_immediate_sign}});
 

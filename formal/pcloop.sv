@@ -12,7 +12,6 @@ module pcloop (
     input logic imem_stall,  // the ROM's stolen-read flag; the fetcher turns it into fetch_stall
     input logic bus_wait,  // free, like every stall input here: an ungranted hart holds fetch_pc
     input logic rom_fault,  // free, like everything else not instantiated here
-    input logic atomic_supported,  // free; an unanswered atomic redirects fetch_pc too
     input logic accessor_out_valid,
     input logic [31:0] csr_rdata,
     input logic csr_implemented,
@@ -35,7 +34,6 @@ module pcloop (
   logic [31:0] csr_wdata;
   logic        trap_entry, mret_entry;
   logic [31:0] trap_cause, trap_epc, trap_tval;
-  logic [31:0] atomic_addr;
   logic [31:0] x_redirect_target;
   logic        bus_request;  // unread; an undeclared output net is an error under default_nettype none
 
@@ -91,8 +89,6 @@ module pcloop (
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
     .x_busy(x_busy),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
