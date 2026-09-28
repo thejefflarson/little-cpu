@@ -220,6 +220,41 @@ it — delete a deferred cycle with no regression on the two programs that alrea
 changing its timing — is met by F/G reproducing at 5/5 unchanged and by Dhrystone and
 CoreMark reading digit-for-digit identical to checkpoint 1's own freshly-remeasured figures.
 
+## Cross-core measurement (amendment)
+
+`soc/compare/` (ADR-0139, ADR-0146, ADR-0160) puts this tree against the pinned VexRiscv and
+Hazard3 builds, same part, memories, program, toolchain and seeds, at the pinned
+`riscv-none-elf-gcc` (ADR-0190) both benchmarks build at RV32IM. Cycles, this tree:
+
+| | Dhrystone cycles | vs littlecpu | CoreMark cycles | vs littlecpu |
+|---|---|---|---|---|
+| littlecpu | 278,823 / 279,224 | — | 413,877 / 414,806 | — |
+| VexRiscv | 269,629 | 0.967× | 437,545 | 1.057× |
+| Hazard3 | 252,026 | 0.903× | 666,552 | 1.607× |
+
+littlecpu's own count differs by 401 cycles between the two pairings (278,823 against
+VexRiscv, 279,224 against Hazard3) and by 929 on CoreMark (413,877 / 414,806) — the harness
+runs each pairing as its own simulation and neither figure is cited as the tree's Dhrystone
+or CoreMark floor; `make dhrystone`/`make coremark`'s own 1,394,022-cycle,
+0.816-DMIPS/MHz figures (this ADR's own Measured section, `DHRY_RUNS`-scaled) are that. Both
+readings are still a clear win against `main`'s own pre-refactor pinned-compiler figures
+(ADR-0190's 313,627 Dhrystone / 446,995 CoreMark cycles): 11.1% fewer Dhrystone cycles and
+7.2–7.4% fewer CoreMark cycles than main, on the same one-C-binary-three-cores harness.
+
+Against the other two cores, littlecpu now trails on Dhrystone (0.967× VexRiscv, 0.903×
+Hazard3 — B2's forwarding narrowed but did not close this) and leads on CoreMark against
+Hazard3 (1.607×) while trailing VexRiscv there too (1.057×), the same ordering
+ADR-0160/ADR-0146's own up5k figures showed pre-refactor.
+
+**The programme's own kill criterion — Dhrystone cycles at or below 270,000 after Stage B, or
+re-plan — is missed, at both readings: 278,823 and 279,224 are 3.3% and 3.4% over the line.**
+Put to the owner with the area crisis this ADR already reports (`make fit`/`make soc-timing`
+still red, ADR-0207's expected-red list), the owner's own words: "continue for sure. we need
+to get this on an up5k." The kill criterion is not met on the cycle count it named, and the
+programme continues past it on that explicit direction rather than a re-plan — recorded here
+because a missed kill criterion that is not filed reads, later, like a criterion that was
+never missed.
+
 ## Decision
 
 **SHIPPED.** Both checkpoints are pure simplifications with no measured
