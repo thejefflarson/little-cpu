@@ -16,6 +16,8 @@ module executor #(
   input  dx_output in,
   input  logic [31:0] reg_rs1,
   input  logic [31:0] reg_rs2,
+  // The timer's live level, read fresh every cycle rather than a bit D captured earlier.
+  input  logic interrupt_pending,
   output logic x_busy,
 
   output logic [31:0] atomic_addr,
@@ -52,7 +54,7 @@ module executor #(
  `endif
 );
   // Named continuous assigns, not part-selects: iverilog mis-derives sensitivity for those (ADR-0037).
-  logic        in_valid, in_is_interrupt, in_imem_fault;
+  logic        in_valid, in_imem_fault;
   logic [31:0] in_pc, in_instr, in_immediate;
   logic [4:0]  in_rd, in_rs1, in_rs2;
   logic        in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
@@ -64,7 +66,7 @@ module executor #(
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
     in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2;
-  assign {in_valid, in_is_interrupt, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
+  assign {in_valid, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
     in_rs1, in_rs2, in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
     in_is_mulhu, in_is_mulhsu, in_is_div, in_is_divu, in_is_rem, in_is_remu, in_is_sll,
     in_is_slt, in_is_sltu, in_is_srl, in_is_sra, in_is_lb, in_is_lbu, in_is_lhu, in_is_lh,
@@ -74,6 +76,10 @@ module executor #(
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
     in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2} = in;
+
+  // Gated on x_busy so a divide in progress finishes before X ever looks.
+  logic take_interrupt;
+  assign take_interrupt = in_valid && !x_busy && interrupt_pending;
 
   // D precomputed these selects from register NUMBERS alone -- the one case the
   // write-through bypass (commitment 4) reaches too late.
@@ -163,7 +169,7 @@ module executor #(
     in_is_wfi || in_is_fence || in_is_fencei ||
     instr_atomic || (in_is_csr_access && csr_implemented);
   assign csr_readonly_write = in_is_csr_access && csr_write_op && csr_addr[11:10] == 2'b11;
-  assign instr_illegal = in_valid && !in_is_interrupt && (!instr_valid || csr_readonly_write);
+  assign instr_illegal = in_valid && !take_interrupt && (!instr_valid || csr_readonly_write);
 
   localparam logic [31:0] CAUSE_INSTRUCTION_FAULT   = 32'd1;
   localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;
@@ -185,13 +191,13 @@ module executor #(
 
   logic data_fault, trap_pending, trap_taken;
   assign data_fault = load_misaligned || store_misaligned || atomic_fault || ls_fault;
-  assign trap_pending = in_valid && !in_is_interrupt &&
+  assign trap_pending = in_valid && !take_interrupt &&
     (in_imem_fault || instr_illegal || in_is_ebreak || in_is_ecall || data_fault);
-  assign trap_taken = in_valid && (in_is_interrupt || trap_pending);
+  assign trap_taken = in_valid && (take_interrupt || trap_pending);
 
   always_comb begin
     case (1'b1)
-      in_is_interrupt:    trap_cause = CAUSE_MACHINE_TIMER;
+      take_interrupt:     trap_cause = CAUSE_MACHINE_TIMER;
       in_imem_fault:      trap_cause = CAUSE_INSTRUCTION_FAULT;
       instr_illegal:      trap_cause = CAUSE_ILLEGAL_INSTRUCTION;
       in_is_ebreak:       trap_cause = CAUSE_BREAKPOINT;
@@ -208,7 +214,7 @@ module executor #(
 
   always_comb begin
     case (1'b1)
-      in_is_interrupt: trap_tval = 32'b0;
+      take_interrupt: trap_tval = 32'b0;
       in_imem_fault:   trap_tval = in_pc;
       instr_illegal:   trap_tval = in_instr;
       data_fault:      trap_tval = mem_addr_calc;
@@ -306,8 +312,8 @@ module executor #(
 
   // A trap still retires; `executing` gates that, and `launch.valid` must not.
   logic executing;
-  assign executing = in_valid && !in_is_interrupt && !x_busy && !trap_taken;
-  assign launch.valid = in_valid && !in_is_interrupt && !x_busy;
+  assign executing = in_valid && !take_interrupt && !x_busy && !trap_taken;
+  assign launch.valid = in_valid && !take_interrupt && !x_busy;
   assign launch.rd = executing ? in_rd : 5'b0;
   assign launch.rs1 = alu_rs1;
   assign launch.rs2 = fwd_rs2_val;
@@ -370,7 +376,7 @@ module executor #(
   logic pending_intr;
   always_ff @(posedge clk) begin
     if (reset) pending_intr <= 1'b0;
-    else if (in_valid && in_is_interrupt) pending_intr <= 1'b1;
+    else if (take_interrupt) pending_intr <= 1'b1;
     else if (launch.valid) pending_intr <= 1'b0;
   end
 
@@ -872,9 +878,9 @@ module executor #(
   // The trap-cause priority chain: exactly one arm decides, in this order, whenever the
   // word alone (no interrupt, no fetch fault) is what is deciding.
   logic word_decides;
-  assign word_decides = !in_is_interrupt && !in_imem_fault;
-  always_comb if (clocked && in_is_interrupt) assert(trap_cause == CAUSE_MACHINE_TIMER);
-  always_comb if (clocked && !in_is_interrupt && in_imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
+  assign word_decides = !take_interrupt && !in_imem_fault;
+  always_comb if (clocked && take_interrupt) assert(trap_cause == CAUSE_MACHINE_TIMER);
+  always_comb if (clocked && !take_interrupt && in_imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
   always_comb if (clocked && word_decides && instr_illegal) assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
   always_comb if (clocked && word_decides && in_is_ebreak) assert(trap_cause == CAUSE_BREAKPOINT);
   always_comb if (clocked && word_decides && in_is_ecall) assert(trap_cause == CAUSE_ECALL_M);
@@ -899,9 +905,8 @@ module executor #(
 
   always_comb if (clocked && trap_taken) assert(!instret && !csr_wen && !csr_ren);
   always_comb if (clocked) assert(!(trap_entry && mret_entry));
-  // NOT asserted here: "in_is_interrupt implies trap_entry" depends on D never handing X
-  // an interrupt while x_busy holds -- a claim about D's own behavior this module cannot
-  // see standalone. formal/traps.sv checks it composed.
+  // Provable standalone now: take_interrupt already carries its own in_valid/x_busy gate.
+  always_comb if (clocked && take_interrupt) assert(trap_entry);
 
   logic signed [31:0] cmp_ref_x, cmp_ref_y;
   assign cmp_ref_x = fwd_rs1_val;

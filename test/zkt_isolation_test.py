@@ -114,7 +114,7 @@ NON_VALUE_PORTS = {
 # removed or resized field rather than silently misreading one.
 STRUCT_PORTS = {
     'in': ('dx_output', [
-        'valid', 'is_interrupt', 'imem_fault', 'pc', 'instr', 'immediate',
+        'valid', 'imem_fault', 'pc', 'instr', 'immediate',
         'rd', 'rs1', 'rs2',
         'is_add', 'is_sub', 'is_xor', 'is_or', 'is_and',
         'is_mul', 'is_mulh', 'is_mulhu', 'is_mulhsu',

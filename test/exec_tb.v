@@ -19,6 +19,7 @@ module exec_tb;
   logic reset;
   dx_output in;
   logic [31:0] reg_rs1, reg_rs2;
+  logic interrupt_pending = 1'b0;  // never armed; this bench is arithmetic-only
   logic x_busy;
   logic [31:0] atomic_addr;
   logic atomic_supported = 1'b1;  // unread here; fixed stub, no vector is an atomic
@@ -44,6 +45,7 @@ module exec_tb;
     .in(in),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
+    .interrupt_pending(interrupt_pending),
     .x_busy(x_busy),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),

@@ -78,7 +78,6 @@ module pcloop (
     .predicted_pc(decoder_predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
-    .interrupt_pending(interrupt_pending),
     .x_redirect(x_redirect),
     .out(dx_out)
   );
@@ -89,6 +88,7 @@ module pcloop (
     .in(dx_out),
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
+    .interrupt_pending(interrupt_pending),
     .x_busy(x_busy),
     .atomic_addr(atomic_addr),
     .atomic_supported(atomic_supported),
