@@ -47,8 +47,8 @@ module timer #(
   logic [63:0] mtime_next;
   assign mtime_next = (wr_time_lo || wr_time_hi) ? mtime : mtime + 64'd1;
 
-  // Hart 0 has an arm of its own because folding it into the general mux maps the
-  // single-hart SoC to a different netlist. Change one arm, change both.
+  // Hart 0 has an arm of its own: folding it into the general mux maps to a different
+  // netlist. Change one arm, change both.
   logic [31:0] read_word;
   generate if (NHARTS == 1) begin : l_read_one
     always_comb begin
@@ -92,7 +92,7 @@ module timer #(
             if (mem_wstrb[2]) cmp[55:48] <= mem_wdata[23:16];
             if (mem_wstrb[3]) cmp[63:56] <= mem_wdata[31:24];
           end
-          mtip[h] <= mtime_next >= cmp;
+          mtip[h] <= mtime >= cmp;
         end
       end
     end
@@ -111,8 +111,7 @@ module timer #(
   always_ff @(posedge clk) begin
     if (reset) begin
       mtime    <= 64'b0;
-      // Zero puts `mtip` up from the first cycle. rtl/csrs.v resets both interrupt
-      // enables to zero, so nothing is taken until software arms it.
+      // Zero puts `mtip` up from reset; csrs.v resets both enables to zero, so it is harmless.
       mtimecmp  <= 64'b0;
       mtip[0]   <= 1'b0;
       mem_rdata <= 32'b0;
@@ -142,7 +141,8 @@ module timer #(
         if (mem_wstrb[2]) mtimecmp[55:48] <= mem_wdata[23:16];
         if (mem_wstrb[3]) mtimecmp[63:56] <= mem_wdata[31:24];
       end
-      mtip[0] <= mtime_next >= mtimecmp;
+      // The plain register, not `mtime_next`: `mtip` is registered, so a cycle-stale compare is legal.
+      mtip[0] <= mtime >= mtimecmp;
       mem_rdata <= in_range ? read_word : 32'b0;
     end
   end

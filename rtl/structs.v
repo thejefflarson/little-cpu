@@ -125,11 +125,7 @@ typedef struct packed {
   logic        fwd_rs1;
   logic        fwd_rs2;
   logic        predicted_taken;
-  // 14 bits: the byte-address width of the widest LS_TEXT_WORDS this design synthesizes
-  // (the Makefile's ICESUGAR_COREMARK_ROM_WORDS, 4096 words / 16 KB). rtl/decoder.v derives
-  // its own guess from its LS_TEXT_WORDS parameter; rtl/littlecpu.v's elaboration check
-  // refuses a build whose window needs more bits than this field has.
-  logic [13:0] predicted_target_low;
+  logic [13:0] predicted_target_low;  // widest LS_TEXT_WORDS synthesized; see decoder.v
 } dx_output;
 
 typedef struct packed {

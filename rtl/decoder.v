@@ -302,7 +302,6 @@ module decoder #(
   assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
   assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
 
-  // Mirrors executor.v's `in_has_result`.
   logic out_has_result;
   assign out_has_result = out.is_add || out.is_sub || out.is_xor || out.is_or || out.is_and ||
     out.is_sll || out.is_slt || out.is_sltu || out.is_srl || out.is_sra ||
@@ -356,13 +355,12 @@ module decoder #(
   assign issuing = !reset && !stall;
   assign predicted_pc = fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
 
-  // A BTFN/jal-taken guess off the class flags and `immediate` decode already computes.
+  // A BTFN/jal-taken guess off the class flags and `immediate` decode already computes,
+  // its own low bits sized to this window and zero-extended into dx_output's wider field.
   logic predict_taken;
   assign predict_taken = instr_jal || ((instr_beq || instr_bne || instr_blt || instr_bge ||
     instr_bltu || instr_bgeu) && immediate[31]);
 
-  // The guess's own low bits, sized to this window rather than dx_output's fixed-width
-  // field: zero-extended into it below, so a narrower LS_TEXT_WORDS costs no extra carry.
   localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
   localparam int PREDICT_LOW_BITS  = LS_TEXT_ADDR_BITS + 2;
   logic [PREDICT_LOW_BITS-1:0] predict_target_low;

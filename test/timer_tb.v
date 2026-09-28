@@ -179,6 +179,7 @@ module timer_tb;
     store(MTIME_LO, 32'h0000_01ff, 4'b1111);
     check_bit("mtime below mtimecmp raises nothing", mtip, 1'b0);
     idle();
+    idle();  // mtip compares the pre-edge mtime register, one cycle behind mtime's own tick
     check_bit("mtime EQUAL to mtimecmp is pending -- the compare is >=, not >",
               mtip, 1'b1);
 
@@ -209,6 +210,7 @@ module timer_tb;
     idle();
     check_bit("...one, and this is the tick an early compare would fire on",
               mtip, 1'b0);
+    idle();
     idle();
     check_bit("...and the tick that reaches mtimecmp raises it", mtip, 1'b1);
 
