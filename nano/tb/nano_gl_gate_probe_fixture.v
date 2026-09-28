@@ -1,5 +1,4 @@
-`include "sky130_fd_sc_hd__dlclkp_1.v"
-// One real dlclkp_1 gating a counter; nano_gl_gate_probe.sh forces GATE to 0 in a copy.
+// One real dlclkp_1 gating a counter, resolved from the cell library as a netlist's cells are; the probe forces GATE to 0 in a copy.
 module nano_gl_gate_probe_fixture (
   input  wire clk,
   input  wire gate,

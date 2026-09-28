@@ -61,8 +61,7 @@ LibreLane run -- there is nothing to point it at in ordinary CI or on a fresh ch
 
 **The self-hosted workflow gates on it, rather than only publishing a result.** After
 hardening, a new step looks for `nano/tt/runs/wokwi/final/nl/*.nl.v` (`always()`, since a
-stop-after-synthesis dispatch or a routing run the job's timeout cancelled produces no
-`final/` view at all, and that is a fact to check rather than assume from the harden
+routing run the job's timeout cancelled produces no `final/` view at all, and that is a fact to check rather than assume from the harden
 step's own outcome). When one exists, `make nano-gl-test` runs and a failure fails the
 job: an unverified hardened netlist reaching tapeout is exactly the risk this whole change
 exists to close, and a report nobody is required to act on is not a check. When none
@@ -78,13 +77,24 @@ and `nano-gl-census-probe` both pass, each demonstrating its control and its for
 mutant for the reason the probe names. `make test` and `make probe-gates` are unaffected
 (`nano-gl-test` is off both paths, as stated above).
 
-A 4×2 `AREA 2` full-flow dispatch (congestion allowed) is running against this branch to
-produce a real hardened netlist and exercise `nano-gl-test` against it end to end,
-including the gate-level simulation's own peak memory against the runner's 6 GiB limit; if
-detailed routing does not finish there, the 6×2 fallback the ticket names does. That
-result is not yet in hand as of this ADR landing and is owed as a follow-up run before any
-tapeout decision reads this gate as exercised against real silicon-bound output --
-tracked outside this file, per this repo's own rule against ticket references here.
+The first real netlist found a defect the probes could not. A `6x2` synthesis-only
+dispatch (run 36410116279) wrote `final/nl/tt_um_thejefflarson_nanocpu.nl.v` with 45
+`dlclkp_1`, and `nano-gl-test` failed to elaborate it: 6,419 `Unknown module type` errors,
+one per cell instance. The run passed `-I` alone, which only resolves `` `include ``, and
+the probe's fixture `` `include ``d its one cell, so the probe elaborated and the netlist,
+which includes nothing, could not. Both now pass `-y "$CELL_DIR" -Y .v`, which resolves
+each cell as a library module, and the fixture no longer includes its cell, so the probe
+exercises the path a netlist uses. Both also pass `-D UNIT_DELAY=`, which the models'
+flip-flops read and iverilog warned about when left undefined.
+
+Against a local clock-gated netlist (yosys `synth`, then the flow's `clockgate` pass, with
+`dfflibmap` and `abc` told not to use `edfx*` the way LibreLane's cell exclusions do, 27
+`dlclkp_1`), `nano-gl-test` elaborates warning-free and prints `PASS`; `vvp` takes 1.4 s
+and 72 MB peak resident on an M-series Mac. The same netlist with every `dlclkp_1`'s `GATE`
+tied to `1'b0` fails with `uio_oe is X`, so the check can go red on a real netlist and not
+only on the fixture. No routed netlist has been tested yet: a 4×2 `AREA 2` full-flow
+dispatch on this branch (run 36377874205) reached the job's 360-minute limit in detailed
+routing with 46,828 violations after seven iterations and wrote no netlist.
 
 ## Consequences
 

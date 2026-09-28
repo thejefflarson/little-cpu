@@ -37,7 +37,7 @@ if cmp -s "$FIXTURE" "$mutant"; then
 fi
 
 run() {  # $1 = fixture path, $2 = output vvp path
-  iverilog -g2012 -D FUNCTIONAL -I "$CELL_DIR" -o "$2" "$1"
+  iverilog -g2012 -D FUNCTIONAL -D UNIT_DELAY= -I "$CELL_DIR" -y "$CELL_DIR" -Y .v -o "$2" "$1"
   vvp "$2"
 }
 
