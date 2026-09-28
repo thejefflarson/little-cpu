@@ -18,13 +18,13 @@ instead (the pattern `make -C formal traps-region-probe` and
 `make -C formal components_decoder` both set).
 
 One core is built, three lines of rtl/executor.v from the shipping one: `MUL`
-with `reg_rs1 == 0 && reg_rs2 != 0` is diverted into the divider's own arm
+with `fwd_rs1_val == 0 && fwd_rs2_val != 0` (the operands after forwarding) is diverted into the divider's own arm
 instead of resolving in `init`, latching `op_is_divu` alongside it so the
-arm's own onehot invariant over its four op flags still holds. `reg_rs2 != 0`
-is not incidental: the divide arm's OWN first branch is `if (reg_rs2 == 0)`,
+arm's own onehot invariant over its four op flags still holds. `fwd_rs2_val != 0`
+is not incidental: the divide arm's OWN first branch is `if (fwd_rs2_val == 0)`,
 which -- with `is_rem`/`is_remu` forced low by the $onehot0 assume, since only
 `launch.is_mul` is set -- writes `32'hffffffff` into `out.rd_data` while a
-real `MUL(0, 0)`'s `mul_lo` is 0. Diverting `reg_rs2 == 0` too would therefore
+real `MUL(0, 0)`'s `mul_lo` is 0. Diverting `fwd_rs2_val == 0` too would therefore
 ALSO break the pre-existing MUL-value assertion above this one, reachable
 from reset in the same steps as the latency assertion -- a second, genuine
 defect the mutation would have introduced, not evidence about the assertion
@@ -32,9 +32,9 @@ this file exists to probe. Excluding it leaves exactly one arm reachable for
 the diverted operands: the real divide, `state <= divide` with the loop
 loaded sixteen iterations in because the diverted dividend's top half is
 zero, which completes at
-`divu_ref = div_ghost_rs1 / div_ghost_rs2 == 0 / reg_rs2 == 0`
+`divu_ref = div_ghost_rs1 / div_ghost_rs2 == 0 / fwd_rs2_val == 0`
 -- so the diverted core's mul-value assertion holds for every choice of
-reg_rs2 the mutation can reach, and only the latency assertion this file is
+fwd_rs2_val the mutation can reach, and only the latency assertion this file is
 about can fail on the basecase's own reachable trace. Diverting through the
 divider's own arm, rather than inventing a new state, also keeps every line
 in the file at its shipping line number, which is what lets this probe pin
@@ -50,7 +50,7 @@ arbitrary state that need not be reachable from reset at all, and once one
 assertion in the file is generally false its counterexamples can name a
 DIFFERENT, otherwise-true assertion -- observed here as the pre-existing
 MUL-value assertion above this file's mutation site, well before this file's
-mutation was narrowed to exclude `reg_rs2 == 0`. Which line the induction leg
+mutation was narrowed to exclude `fwd_rs2_val == 0`. Which line the induction leg
 reports is the solver's own arbitrary choice among the states it is free to
 start from, not a property of the mutation, so it is not evidence either way
 and this file's regex requires an `engine_N.basecase:` prefix on the same log
@@ -112,13 +112,13 @@ MUTATIONS = (
     (
         "            launch.is_mul || launch.is_mulh || launch.is_mulhu || "
         "launch.is_mulhsu: begin\n",
-        "            (launch.is_mul && (reg_rs1 != 32'b0 || reg_rs2 == 32'b0)) || "
+        "            (launch.is_mul && (fwd_rs1_val != 32'b0 || fwd_rs2_val == 32'b0)) || "
         "launch.is_mulh || launch.is_mulhu || launch.is_mulhsu: begin\n",
     ),
     (
         "            launch.is_div || launch.is_divu || launch.is_rem || "
         "launch.is_remu: begin\n",
-        "            (launch.is_mul && reg_rs1 == 32'b0 && reg_rs2 != 32'b0) || "
+        "            (launch.is_mul && fwd_rs1_val == 32'b0 && fwd_rs2_val != 32'b0) || "
         "launch.is_div || launch.is_divu || launch.is_rem || launch.is_remu: begin\n",
     ),
     (

@@ -124,8 +124,7 @@ scripts and `test/probe_gates.sh`'s layout `ASSERT`s are left in place as harmle
   it would otherwise have processed whatever D handed it — the identical number of cycles
   from "interrupt becomes pending" to "fetch redirects to `mtvec`". `formal/checks.cfg`
   needed no edit.
-- `make -C formal all`'s individual targets, run directly since `components_executor`'s own
-  prerequisite is broken independently of this PR (see "Known gap" below): `check` (86/86
+- `make -C formal all`'s individual targets: `check` (86/86
   generated riscv-formal checks, `EXPECTED_FAIL`/`EXPECTED_CHECKS` both match), `complete`
   and `complete_cover` (depth 50, 13 cover goals all reached by step 4), `imemcheck`/
   `imemcheck_cover`, `dmemcheck`/`dmemcheck_cover`, and `components_decoder`/
@@ -152,35 +151,19 @@ scripts and `test/probe_gates.sh`'s layout `ASSERT`s are left in place as harmle
   `components_traps`, which does close (above); `components_executor`'s own copy could not
   be obtained this run for the unrelated, pre-existing reason below.
 
-## Known gap: `executor-zkt-probe.py`, not this checkpoint's
+## `executor-zkt-probe.py` re-keyed on the forwarded operands
 
-`components_executor` — the one target under `make -C formal all` this ADR could not
-report — is gated on `executor-zkt-probe.py`, a forced-red control that mutates a copy of
-`rtl/executor.v` (diverting `MUL(0, nonzero)` into the divider's own arm) and requires the
-BASECASE leg to fail at exactly the MUL constant-latency assertion's own line, on the theory
-that the mutated core's *value* stays correct (`0 / reg_rs2 == 0 == mul_lo`) and only its
-*latency* breaks. On this session's toolchain it instead fails at the pre-existing
-MUL-value assertion a few lines above (`out_rd_data == $past(mul_lo)`), because that
-assertion is checked one cycle after ANY launch, and the mutated arm leaves `out.rd_data`
-holding whatever a PRIOR instruction last wrote there rather than freshly computing
-`mul_lo` — a case the probe's own docstring argues around but does not appear to rule out
-for a trace where the diverted MUL is not the first instruction since reset.
-
-**This is not a regression from either checkpoint.** Rebuilding `rtl/executor.v` at this
-PR's parent commit (`4ddd7d0`, checkpoint 1's own tip) and re-running the identical probe
-reproduces a different but equally red outcome: the mutated core PROVES (`mode prove`
-reports no counterexample within the induction bound at all), which the probe's own script
-also treats as a failure — "an arm that admits [an operand-dependent second cycle] is
-asking nothing at all." Neither tree passes this probe; they fail it two different ways,
-consistent with a toolchain-sensitive (solver-order-dependent) gap in the probe's own
-mutation rather than anything either checkpoint's RTL touched — neither touches
-`launch.is_mul`, the divide arm, or `out.rd_data`'s own assignment. Fixing the probe is a
-design decision about its own reachability argument (whether to require `out.rd_data`
-reset alongside `state`, or to scope the value check to `$past(state) == init` from a fresh
-launch only) that belongs to whoever owns `formal/executor-zkt-probe.py`, not to this
-checkpoint. Filed here rather than silently worked around, per this repo's own rule that a
-graded comparison's forced-red direction is load-bearing: this one is currently forcing red
-for the wrong reason, on both the tree behind this PR and the tree in front of it.
+`components_executor` is gated on `executor-zkt-probe.py`, a forced-red control that
+diverts `MUL(0, nonzero)` into the divider's own arm and requires the mutated core's
+BASECASE leg to fail at exactly the MUL constant-latency assertion. The probe keyed its
+mutation on `reg_rs1`/`reg_rs2`, the register file's outputs. Since B2 (ADR-0213) the
+multiplier and the divider both read `fwd_rs1_val`/`fwd_rs2_val`, which differ from the
+register file's value whenever a forward is live. So the divert could fire on operands
+the divider did not use, producing a quotient that is not `mul_lo`, and the MUL-value
+assertion above the latency assertion failed first. CI's `components-proof (executor)`
+went red on that for this PR. Re-keying the three mutated lines and the docstring on the
+forwarded operands restores the probe's own argument: the mutated core fails at the
+latency assertion's line and no other. No RTL changed.
 
 ## Measured
 
@@ -239,10 +222,7 @@ CoreMark reading digit-for-digit identical to checkpoint 1's own freshly-remeasu
 
 ## Decision
 
-**SHIPPED**, with one gap filed rather than fixed: `components_executor` could not be
-obtained this run for a pre-existing, toolchain-sensitive reason in `executor-zkt-probe.py`
-unrelated to either checkpoint (reproduced identically on this PR's parent commit; see
-"Known gap" above). Both checkpoints are otherwise pure simplifications with no measured
+**SHIPPED.** Both checkpoints are pure simplifications with no measured
 cost: checkpoint 1 deletes a deferred answer nothing needed once it left the fetch loop, and
 checkpoint 2 moves a decision to the stage that actually owns it, provable standalone where
 it used to depend on a cross-module argument. `make fit`/`make soc-timing` stay on the
