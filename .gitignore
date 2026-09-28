@@ -162,6 +162,9 @@ nano/tb/nano_qspi_latency.vvp
 nano/tb/nano-qspi-latency-probe/
 nano/tb/nano-tt-test/
 nano/tb/nano-uio-oe-probe/
+nano/tb/nano-gl-test/
+nano/tb/nano-gl-gate-probe/
+nano/gl-census-probe/
 tools/
 test/a.out.dSYM/
 .claude/worktrees/
