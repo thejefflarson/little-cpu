@@ -49,8 +49,8 @@ nano-liberty-setup:
 	fetch '$(NANO_LIBERTY_URL)' '$(NANO_LIBERTY)' '$(NANO_LIBERTY_SHA256)' || rc=1; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped down for mtval read-only zero and the one-read-port register file going unconditional: the tt_um top measures 70,873.0 um2 against the prior step's 74,574.0.
-override NANO_MAX_UM2 := 72700
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped down for x0 going unstored, mem_wdata/mem_wstrb becoming wires, rd/rs1/rs2 reading instr live, and the local instrument mirroring the flow's clock gating: the tt_um top measures 60,800.8 um2 against the prior step's 70,873.0.
+override NANO_MAX_UM2 := 62300
 
 NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
              nano/tt/src/tt_um_thejefflarson_nanocpu.v

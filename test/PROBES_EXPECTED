@@ -999,6 +999,8 @@ the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence either
 the exemption does not extend to a write of the WRONG register
+the flow's clock-gating pass runs before dfflibmap, not after
+the flow's clock-gating pass runs before dfflibmap, not after
 the gate proof going red somewhere else is not evidence
 the generated check set's isa line swept along with the flags is red
 the harness giving the UART its own baud rate is red

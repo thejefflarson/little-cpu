@@ -8174,6 +8174,10 @@ probe "control: a plain liberty and source produce the expected yosys script" 0 
   'dfflibmap -liberty "/tmp/lib.lib"' \
   "$SS_SCRIPT /tmp/lib.lib nano/nano.v"
 
+probe "the flow's clock-gating pass runs before dfflibmap, not after" 0 \
+  'synth; clockgate -min_net_size 8 -pos sky130_fd_sc_hd__dlclkp_1 GATE:CLK:GCLK; dfflibmap' \
+  "$SS_SCRIPT /tmp/lib.lib nano/nano.v"
+
 probe "a semicolon in the liberty path stays inside its own quoted token" 0 \
   '"/tmp/lib;evil.lib"' \
   "$SS_SCRIPT '/tmp/lib;evil.lib' nano/nano.v"
@@ -8188,6 +8192,10 @@ TS_SCRIPT="$REPO/nano/timing_script.sh"
 
 probe "control: a plain liberty and source produce the expected yosys script" 0 \
   'abc -liberty "/tmp/lib.lib" -script +strash;dch,-f;map,-B,0.2;topo;stime,-c' \
+  "$TS_SCRIPT /tmp/lib.lib /tmp/out.json nano/nano.v"
+
+probe "the flow's clock-gating pass runs before dfflibmap, not after" 0 \
+  'synth; clockgate -min_net_size 8 -pos sky130_fd_sc_hd__dlclkp_1 GATE:CLK:GCLK; dfflibmap' \
   "$TS_SCRIPT /tmp/lib.lib /tmp/out.json nano/nano.v"
 
 probe "a semicolon in the liberty path stays inside its own quoted token" 0 \

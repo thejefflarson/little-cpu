@@ -7,5 +7,5 @@ srcs=""
 for f in "$@"; do
   srcs="$srcs \"$f\""
 done
-printf 'read_verilog -sv%s; hierarchy -auto-top; flatten -noscopeinfo; synth; dfflibmap -liberty "%s"; abc -liberty "%s"; tee -o nano/area.json stat -liberty "%s" -json\n' \
+printf 'read_verilog -sv%s; hierarchy -auto-top; flatten -noscopeinfo; synth; clockgate -min_net_size 8 -pos sky130_fd_sc_hd__dlclkp_1 GATE:CLK:GCLK; dfflibmap -liberty "%s"; abc -liberty "%s"; tee -o nano/area.json stat -liberty "%s" -json\n' \
   "$srcs" "$liberty" "$liberty" "$liberty"
