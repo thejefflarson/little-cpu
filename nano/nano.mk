@@ -79,3 +79,26 @@ nano-timing:
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' \
 	  --variant flops:nano/timing.flops.log:nano/timing.flops.json \
 	  --flow-correlation nano/timing_flow_correlation.json
+
+# The sky130_fd_sc_hd behavioral Verilog a gate-level simulation reads, pinned like the liberty above.
+ifneq ($(filter command line environment,$(origin NANO_SKY130_VERILOG_COMMIT)),)
+$(error NANO_SKY130_VERILOG_COMMIT cannot be set from the command line or the \
+  environment: it pins bytes this repo executes. Change it in nano/nano.mk, \
+  together with the SHA-256 digest below it)
+endif
+override NANO_SKY130_VERILOG_COMMIT := ac7fb61f06e6470b94e8afdf7c25268f62fbd7b1
+
+ifeq ($(shell printf '%s' '$(NANO_SKY130_VERILOG_COMMIT)' | grep -cE '^[0-9a-f]{40}$$'),0)
+$(error NANO_SKY130_VERILOG_COMMIT must be a full 40-hex commit id, not a branch or tag: \
+  '$(NANO_SKY130_VERILOG_COMMIT)')
+endif
+
+override NANO_SKY130_VERILOG_SHA256 := c613384ff89ea065c0d91e31db223471d7d70e546f6972c3b96f2abb8e7a8faf
+override NANO_SKY130_VERILOG_URL := https://codeload.github.com/google/skywater-pdk-libs-sky130_fd_sc_hd/tar.gz/$(NANO_SKY130_VERILOG_COMMIT)
+
+NANO_SKY130_VERILOG_DIR := $(TOOL_CACHE)/sky130-fd-sc-hd-verilog
+
+.PHONY: nano-sky130-verilog-setup
+nano-sky130-verilog-setup:
+	@./nano/sky130_verilog_setup.sh '$(NANO_SKY130_VERILOG_URL)' '$(NANO_SKY130_VERILOG_SHA256)' \
+	  '$(NANO_SKY130_VERILOG_DIR)'

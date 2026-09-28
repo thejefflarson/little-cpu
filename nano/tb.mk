@@ -148,6 +148,23 @@ nano-uio-oe-probe:
 nano-tt-test: nano-uio-oe-probe
 	@./nano/tb/run_nano_tt_test.sh '$(NANO_CFLAGS)'
 
+# Runs a hardened netlist through the pins-only test. Off `make test`'s path, like nano-area.
+.PHONY: nano-gl-gate-probe
+nano-gl-gate-probe: nano-sky130-verilog-setup
+	@./nano/tb/nano_gl_gate_probe.sh '$(NANO_SKY130_VERILOG_DIR)'
+
+.PHONY: nano-gl-census-probe
+nano-gl-census-probe:
+	@./nano/gl_census_probe.sh
+
+.PHONY: nano-gl-test
+nano-gl-test: nano-sky130-verilog-setup nano-gl-gate-probe nano-gl-census-probe
+	@if [ -z "$(NETLIST)" ]; then \
+	  echo "usage: make nano-gl-test NETLIST=<path to a hardened .nl.v netlist>" >&2; \
+	  exit 2; \
+	fi
+	@./nano/tb/run_nano_gl_test.sh '$(NANO_CFLAGS)' '$(NETLIST)' '$(NANO_SKY130_VERILOG_DIR)'
+
 # nano-qspi-resume-test's reproduction, plus one clk of injected round-trip latency. On `make test`'s path.
 nano/tb/nano_qspi_latency.vvp: $(NANO_QSPI_RESUME_SRCS)
 	iverilog -g2012 -DQSPI_RESUME_TB_DELAY_CYCLES=1 -o $@ $(NANO_QSPI_RESUME_SRCS)

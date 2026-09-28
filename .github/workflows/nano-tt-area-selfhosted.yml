@@ -184,6 +184,51 @@ jobs:
           path: ${{ env.PDK_ROOT }}
           key: ${{ env.PDK_CACHE_KEY }}
 
+      # always(): a stop-after-synthesis or timeout-cancelled run produces no final/ view, which this looks up rather than assumes.
+      - name: Locate the hardened netlist
+        id: gl_netlist
+        if: always()
+        working-directory: nano/tt
+        run: |
+          netlist=$(find runs/wokwi/final/nl -maxdepth 1 -name '*.nl.v' 2>/dev/null | head -1 || true)
+          if [ -n "$netlist" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "path=$(pwd)/$netlist" >> "$GITHUB_OUTPUT"
+            echo "found the hardened netlist: $netlist"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "no final/nl netlist this run -- nothing to gate-level simulate"
+          fi
+
+      - name: Set up the pinned RISC-V gcc
+        if: steps.gl_netlist.outputs.found == 'true'
+        uses: ./.github/actions/setup-riscv-gcc
+
+      - name: Set up OSS CAD Suite
+        if: steps.gl_netlist.outputs.found == 'true'
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      # Gates the job rather than only publishing a result: an unverified hardened netlist reaching tapeout is the exact risk clock gating owes a check for.
+      - name: Gate-level simulate the hardened netlist
+        id: gl_test
+        if: steps.gl_netlist.outputs.found == 'true'
+        run: make nano-gl-test NETLIST="${{ steps.gl_netlist.outputs.path }}"
+
+      - name: Report the gate-level simulation
+        if: always()
+        run: |
+          summary_line() {
+            echo "$1"
+            echo "$1" >> "$GITHUB_STEP_SUMMARY"
+          }
+          summary_line "### nano gate-level simulation"
+          if [ "${{ steps.gl_netlist.outputs.found }}" = "true" ]; then
+            summary_line "netlist: ${{ steps.gl_netlist.outputs.path }}"
+            summary_line "result: ${{ steps.gl_test.outcome || 'did not run' }}"
+          else
+            summary_line "not run: this dispatch produced no final/nl netlist (a stop-after-synthesis run, or routing did not finish before the job's timeout)."
+          fi
+
       - name: Report peak memory and job wall time
         if: always()
         run: |
