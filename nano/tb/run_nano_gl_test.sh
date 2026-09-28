@@ -56,23 +56,20 @@ iverilog -g2012 -D FUNCTIONAL -I "$CELL_DIR" -o "$WORKDIR/nano_gl.vvp" \
   "$REPO/nano/tb/nano_tt_tb.v"
 
 cd "$WORKDIR"
-TIME_LOG="$WORKDIR/gl_test.time.log"
+OUT_LOG="$WORKDIR/gl_test.out"
+set +e
 if command -v /usr/bin/time >/dev/null 2>&1 && /usr/bin/time -v true >/dev/null 2>&1; then
-  set +e
   /usr/bin/time -v vvp nano_gl.vvp "+ROM=$WORKDIR/tt_gpio_uart.rom.hex" \
-    "+RAM=$WORKDIR/tt_gpio_uart.ram.hex" > "$WORKDIR/gl_test.out" 2> "$TIME_LOG"
+    "+RAM=$WORKDIR/tt_gpio_uart.ram.hex" > "$OUT_LOG" 2> "$WORKDIR/gl_test.time.log"
   rc=$?
-  set -e
-  cat "$WORKDIR/gl_test.out"
-  peak=$(grep 'Maximum resident set size' "$TIME_LOG" | awk '{print $NF}')
-  if [ -n "$peak" ]; then
-    echo "peak RSS: ${peak} KB"
-  fi
-  [ "$rc" -eq 0 ] || exit "$rc"
-  out=$(cat "$WORKDIR/gl_test.out")
+  peak=$(grep 'Maximum resident set size' "$WORKDIR/gl_test.time.log" | awk '{print $NF}')
+  [ -n "$peak" ] && echo "peak RSS: ${peak} KB"
 else
   echo "note: GNU time -v is not on PATH, so this run does not report peak RSS." >&2
-  out=$(vvp nano_gl.vvp "+ROM=$WORKDIR/tt_gpio_uart.rom.hex" "+RAM=$WORKDIR/tt_gpio_uart.ram.hex")
-  echo "$out"
+  vvp nano_gl.vvp "+ROM=$WORKDIR/tt_gpio_uart.rom.hex" "+RAM=$WORKDIR/tt_gpio_uart.ram.hex" > "$OUT_LOG"
+  rc=$?
 fi
-printf '%s\n' "$out" | grep -q '^PASS$'
+set -e
+cat "$OUT_LOG"
+[ "$rc" -eq 0 ] || exit "$rc"
+grep -q '^PASS$' "$OUT_LOG"
