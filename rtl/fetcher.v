@@ -25,7 +25,10 @@ module fetcher (
 );
   logic [29:0] word, rom_addr, fetch_word;
   logic        rom_hit, hit, pop, skid_load, capture, skid_valid, skid_fault;
-  logic [31:0] skid_lo, skid_hi;
+  // Only the straddle case reads skid_hi, and only its low half: windowed_instr never
+  // depends on skid_hi[31:16] either way, so the skid does not cache it.
+  logic [31:0] skid_lo;
+  logic [15:0] skid_hi;
 
   assign word     = pc[31:2];
   assign rom_hit  = !imem_stall && rom_addr == word;
@@ -49,17 +52,18 @@ module fetcher (
     else       skid_valid <= capture || (skid_valid && !pop);
     if (skid_load) begin
       skid_lo    <= imem_data;
-      skid_hi    <= imem_data2;
+      skid_hi    <= imem_data2[15:0];
       skid_fault <= imem_fault;
     end
   end
 
-  logic [31:0] win_lo, win_hi;
+  logic [31:0] win_lo;
+  logic [15:0] win_hi;
   assign win_lo = skid_valid ? skid_lo : imem_data;
-  assign win_hi = skid_valid ? skid_hi : imem_data2;
+  assign win_hi = skid_valid ? skid_hi : imem_data2[15:0];
   assign fault  = skid_valid ? skid_fault : imem_fault;
 
-  logic [63:0] fetch_pair;
+  logic [47:0] fetch_pair;
   assign fetch_pair = {win_hi, win_lo} >> (pc[1] ? 16 : 0);
   logic [31:0] windowed_instr;
   assign windowed_instr = fetch_pair[31:0];
