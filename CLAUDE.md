@@ -93,7 +93,12 @@ references still resolve.
   unstarted work. Enforced by `components_traps` over
   `formal/traps.sv` (rebuilt on the D/X topology) and `rtl/executor.v`'s `FORMAL` block;
   `test/executor_tb.v` is the region test's and the trap-cause priority chain's own directed bench,
-  driving `rtl/executor.v` the way `test/exec_tb.v` drives its arithmetic.
+  driving `rtl/executor.v` the way `test/exec_tb.v` drives its arithmetic. **The one cause with no
+  instruction word to detect it from is the timer interrupt**, and it too moved: X now reads the
+  live `interrupt_pending` line itself and displaces whatever D has handed it, rather than D
+  pre-empting a cycle ahead with a bubble of its own (B3, ADR-0214) — so "detected by D" describes
+  every synchronous trap here, and the one asynchronous cause is detected and committed by X alone,
+  in the same cycle, with nothing for D to carry.
 - **Every inter-stage struct carries a `valid` bit** (3). A bubble is `valid = 0`; retire is
   `valid` reaching writeback, which gates `wen` and drives `rvfi_valid`.
 - **Hazards are stall-only except where the executor's own slot already holds the answer**
@@ -218,19 +223,20 @@ Instruction-address-misaligned (0) is unreachable — C makes 2-byte targets leg
 implementing it costs nothing and closes nothing. C stays because code density is a product
 constraint on the up5k (ADR-0002, ADR-0003).
 
-**Every refusal has one shape: the platform decodes its own map and hands the core one bit that
-arrives with the address.** `rtl/imemory.v` publishes a fetch outside the text window → cause 1.
-`rtl/memory.v` answers its range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the nine
-AMOs and `sc.w`, alignment outranking the region, which makes everything outside the data RAM —
-text, timer, UART, SPI controller — `AMONone` and `RsrvNone`; the reservation is refused there too,
-so a platform that tied the fault bit high still could not let an `sc.w` claim a write that went
-nowhere (`test/accessor_tb.v`, `components_accessor`). The twelve plain load and store encodings
-raise 5 and 7 a cycle late through the region wait. **The fast arm is one-sided on purpose**: a
-miss means "wait for the flip-flop", never "fault", so a window narrower than three 2 KB blocks —
-the timer's, the UART's, the SPI controller's — never reaches it; asking about `rs1`'s page instead
-holds 12 MHz everywhere and is declined because it makes `mcause` a function of the base register
-rather than of the access (ADR-0129). **One term reaches `next_pc`** — "an atomic faults" — with
-the cause split answered off the fetch loop; two terms missed 12 MHz (ADR-0109).
+**Every refusal has one shape, except one that is now internal to the core.** `rtl/imemory.v`
+publishes a fetch outside the text window → cause 1. `rtl/memory.v` still answers the platform's
+own range test about `atomic_addr` → cause 5 for `lr.w` and 7 for the nine AMOs and `sc.w`,
+alignment outranking the region, which makes everything outside the data RAM — text, timer, UART,
+SPI controller — `AMONone` and `RsrvNone`; the reservation is refused there too, so a platform that
+tied the fault bit high still could not let an `sc.w` claim a write that went nowhere
+(`test/accessor_tb.v`, `components_accessor`). **The twelve plain load and store encodings no
+longer ask the platform at all**: B3 (ADR-0214) moved their region test into `rtl/executor.v`
+itself, which carries its own copy of the map and answers the effective address's range
+combinationally, the same cycle, with no asymmetry between a wide window and a narrow one — the old
+fast-arm/deferred-arm split, and the layout preference it required, are both gone. The declined
+alternative this retires — answering off `rs1`'s page rather than the effective address — was
+priced against the fused decoder's fetch-loop budget, which no longer exists on this tree (ADR-0129,
+ADR-0109).
 
 **The eleven A instructions are decoded, executed and claimed** (ADR-0106, ADR-0108): Zaamo and
 Zalrsc in full, `.aq`/`.rl` decoded and ignored, cause 4 for a misaligned `lr.w` and 6 for the
@@ -261,14 +267,16 @@ cache state, and the constant-time model treats addresses as non-secret. Three g
 `test/zkt_isolation_test.py` grades the taint half on the ELABORATED NETLIST (ADR-0137 records why
 the source-text version was replaced) — it seeds taint at `rtl/executor.v`'s `reg_rs1`/`reg_rs2`,
 follows a flip-flop's D to its Q, and requires that `x_busy` (X's one timing output) is not
-reachable except through `region_stall` or the divider's own `divider_busy` — Zkt's own two named
-exclusions, both blocked as taint sources past their own hop; its header carries the argument. D's
-own nine former stall reasons dropped out of this check with the D/X split: none of them reads a
-bit of register-file data anymore (ADR-0208). `rtl/executor.v`'s `FORMAL` block asserts
-`region_stall`'s gate and `ls_access`'s exact membership as single-trace equalities and
-`components_executor` proves them, with `formal/decoder-zkt-probe.py` as the red direction and
-prerequisite (retargeted at `rtl/executor.v` with the split, not renamed). That same block asserts
-that the four
+reachable except through `state`, the divider's own register — Zkt's one remaining named exclusion,
+DIV/REM, blocked as a taint source past its own hop; its header carries the argument. D's own nine
+former stall reasons dropped out of this check with the D/X split: none of them reads a bit of
+register-file data anymore (ADR-0208), and B3 (ADR-0214) deleted the load/store region wait
+outright, so `region_stall` is not a second exclusion to name — it does not exist. `rtl/executor.v`'s
+`FORMAL` block asserts `ls_access`'s exact membership as a single-trace equality and
+`components_executor` proves it, with `formal/decoder-zkt-probe.py` as the red direction and
+prerequisite (retargeted at `rtl/executor.v` with the split, not renamed; its own header records
+that the sibling `region_stall` assertion it used to probe alongside `ls_access` went with the
+deletion). That same block asserts that the four
 multiplies resolve in the `init` state with no counter and `components_executor` proves it, with
 `formal/executor-zkt-probe.py` as the red direction and prerequisite; its header says why the
 mutation is narrowed to `rs2 != 0` and why only the basecase leg is read.
@@ -278,11 +286,13 @@ mutation is narrowed to `rs2 != 0` and why only the basecase leg is read.
 which the spec allows for an interrupt that can never become pending. `mtime`/`mtimecmp` are four
 words at `0x0002_0000` and **the map reserves eight**, one `mtimecmp` and one `mtip` per hart
 (`NHARTS`, ADR-0124); `test/memmap_test.sh` reads every `BASE` under `rtl/` and refuses one inside
-the span. The layout is **deliberately not a CLINT's**. The interrupt is taken on a cycle that
-would otherwise issue a new instruction into X, which (B3 deleted the region wait, ADR-0214) is now
-also the cycle X would otherwise commit whatever it already holds: `stall` outranks the trap arm of
-`next_pc`, so it waits out only a divide and a serialization now, with no logic of its own, and is
-**not** a stall reason. Worst-case response: 33 cycles, set by the divider. `mtimecmp` resets to zero, so `mtip` is
+the span. The layout is **deliberately not a CLINT's**. **The take is X's own decision, not D's**
+(B3, ADR-0214): X reads the live `interrupt_pending` line every cycle it is not mid-divide, and
+displaces whatever real instruction D has handed it rather than D pre-empting the decode a cycle
+ahead of time — D never sees `interrupt_pending` at all now, and carries no bubble for it.
+`stall` still outranks the trap arm of `next_pc`, so the take waits out only a divide and a
+serialization, with no logic of its own, and is **not** a stall reason. Worst-case response:
+33 cycles, set by the divider. `mtimecmp` resets to zero, so `mtip` is
 asserted out of reset, and both enables resetting to zero makes that harmless (ADR-0082). Three
 facts are the platform's to state and firmware cannot derive them: **`mtime` ticks once per clock
 cycle**; **MTIP is a level**, posted until `mtimecmp` exceeds `mtime`, so a handler that returns
@@ -796,7 +806,7 @@ make board-elaborate # read soc/board_upduino.v warning-free and force two break
                     # Does not read soc/upduino.pcf -- a stale pin there is nextpnr's to catch
 make imem-share-test # map rtl/imemory.v at one and two fetch windows on both parts and
                     # require two windows to be two copies of ONE storage
-make cycles         # the suite, every cycle charged to an issue or one of the eight stall
+make cycles         # the suite, every cycle charged to an issue or one of the six stall
                     # reasons; nonzero on a cycle none explains -- the same check `make test`
                     # now runs by default, but this target also prints the full CPI table and
                     # the two load/store locality counters. Not on CI -- there is no CPI ratchet
