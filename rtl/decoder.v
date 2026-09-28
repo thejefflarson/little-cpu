@@ -1,8 +1,9 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// D decodes the buffered word, presents the register file its own pair (never a guess) and
-// guesses whether it branches/jumps taken. Fetch-address ownership lives in rtl/littlecpu.v.
+// D decodes the buffered word, presents the register file its own pair (never a guess), and
+// guesses whether it branches/jumps taken: `predicted_pc` is the guessed target itself, and
+// fetch follows it directly. Fetch-address ownership lives in rtl/littlecpu.v.
 module decoder #(
   parameter integer LS_TEXT_WORDS = 2048
 ) (
@@ -18,12 +19,17 @@ module decoder #(
   input  logic imem_fault,
   input  logic accessor_out_valid,
   output logic issuing,
-  // The sequential guess `+2`/`+4`, never F's word-granular ROM address.
+  // The guessed next fetch: the BTFN/jal target when the guess is taken, else the
+  // sequential `+2`/`+4`. Never F's word-granular ROM address.
   output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
   // `in` was fetched down the wrong path: discard it unconditionally, no counter or list.
+  // `x_redirect` is X's same-cycle verification; `x_redirect_delayed` is that same
+  // verdict a cycle later, off `fetch_pc_next`'s own register (rtl/littlecpu.v), and
+  // discards the second wrong-path word that register delay lets D capture in between.
   input  logic x_redirect,
+  input  logic x_redirect_delayed,
   output dx_output out
 );
   logic [31:0] instr;
@@ -353,7 +359,6 @@ module decoder #(
   assign read_rs2 = x_busy ? out.rs2 : rs2;
 
   assign issuing = !reset && !stall;
-  assign predicted_pc = fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
 
   // A BTFN/jal-taken guess off the class flags and `immediate` decode already computes,
   // its own low bits sized to this window and zero-extended into dx_output's wider field.
@@ -366,12 +371,21 @@ module decoder #(
   logic [PREDICT_LOW_BITS-1:0] predict_target_low;
   assign predict_target_low = fetcher_pc[PREDICT_LOW_BITS-1:0] + immediate[PREDICT_LOW_BITS-1:0];
 
+  // Fetch follows the guess: a predicted-taken instruction's successor is fetched from
+  // the guessed target directly, not the sequential word X will later have to redirect
+  // away from.
+  assign predicted_pc = predict_taken
+    ? {fetcher_pc[31:PREDICT_LOW_BITS], predict_target_low}
+    : fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
+
   always_ff @(posedge clk) begin
     if (reset) begin
       out <= '0;
     end else if (x_busy) begin
       out <= out;
     end else if (x_redirect) begin
+      out <= '0;
+    end else if (x_redirect_delayed) begin
       out <= '0;
     end else if (stall) begin
       out <= '0;

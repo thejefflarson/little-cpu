@@ -141,6 +141,21 @@ module executor_tb;
 
     clear_in();
     in.pc = 32'h0000_00a0;
+    in.is_jal = 1'b1;
+    in.immediate = 32'd8;
+    in.predicted_taken = 1'b1;
+    in.predicted_target_low = 14'h0a8;   // D's own guess, matching jal's real target
+    #1;
+    check_hex("a correctly guessed jal still resolves to its target",
+              redirect_target, 32'h0000_00a8);
+    check_bit("...but is not a redirect: D already fetched it", redirect, 1'b0);
+    in.predicted_target_low = 14'h0ac;   // a wrong guess -- jal's target is deterministic,
+                                          // but the redirect condition must still catch it
+    #1;
+    check_bit("a wrongly guessed jal target IS a redirect", redirect, 1'b1);
+
+    clear_in();
+    in.pc = 32'h0000_00a0;
     in.is_jalr = 1'b1;
     in.immediate = 32'd5;       // odd, to prove the low bit is masked
     reg_rs1 = 32'h0000_1000;
@@ -169,6 +184,23 @@ module executor_tb;
     in.is_blt = 1'b0; in.is_bltu = 1'b1;
     #1;
     check_hex("bltu compares unsigned, so the same operands do not take it",
+              redirect_target, 32'h0000_00a4);
+
+    clear_in();
+    in.pc = 32'h0000_00a0;
+    in.is_blt = 1'b1;
+    in.immediate = -32'd4;              // backward: BTFN's own guess is taken
+    reg_rs1 = -32'd1; reg_rs2 = 32'd1;  // -1 < 1: actually taken, matching the guess
+    in.predicted_taken = 1'b1;
+    in.predicted_target_low = 14'h009c; // pc - 4
+    #1;
+    check_hex("a correctly guessed taken branch still resolves to its target",
+              redirect_target, 32'h0000_009c);
+    check_bit("...but is not a redirect: fetch already followed it", redirect, 1'b0);
+    reg_rs2 = -32'd1;                   // -1 < -1 is false: resolves not-taken instead
+    #1;
+    check_bit("a guessed-taken branch that resolves not-taken IS a redirect", redirect, 1'b1);
+    check_hex("...to the sequential pc, not the guessed target",
               redirect_target, 32'h0000_00a4);
 
     clear_in();

@@ -131,6 +131,16 @@ module littlecpu #(
   logic         x_redirect;
   logic  [31:0] x_redirect_target;
   logic  [31:0] decoder_predicted_pc;
+  // X's verdict, restated one register later: this is what reaches `fetch_pc_next`, so
+  // no branch-compare/jalr result drives the ROM address combinationally. D's discard
+  // (below) fires off both copies, since the register delay lets D capture one more
+  // wrong-path word before the correction lands.
+  logic         x_redirect_q;
+  logic  [31:0] x_redirect_target_q;
+  always_ff @(posedge clk) begin
+    x_redirect_q         <= reset ? 1'b0 : x_redirect;
+    x_redirect_target_q  <= x_redirect_target;
+  end
   fetcher_output fetcher_out;
   logic  [31:0] fetcher_imem_addr_next;
   fetcher fetcher(
@@ -154,7 +164,7 @@ module littlecpu #(
   );
   assign imem_addr_next = fetcher_imem_addr_next;
   // Never F's word-granular `imem_addr_next`. The redirect always wins over D's stall.
-  assign fetch_pc_next = x_redirect        ? x_redirect_target :
+  assign fetch_pc_next = x_redirect_q      ? x_redirect_target_q :
                          !decoder_issuing  ? fetch_pc :
                                              decoder_predicted_pc;
   always_ff @(posedge clk) fetch_pc <= reset ? 32'b0 : fetch_pc_next;
@@ -207,6 +217,7 @@ module littlecpu #(
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .x_redirect(x_redirect),
+    .x_redirect_delayed(x_redirect_q),
     .out(dx_out)
   );
 
@@ -426,11 +437,11 @@ module littlecpu #(
     end
   end
 
-  // A guess is correct when X's real redirect lands exactly where it said.
+  // Fetch already followed the guess, so a correct one is the ABSENCE of a redirect --
+  // X found nothing to correct.
   logic probe_guess_active, probe_guess_correct;
   assign probe_guess_active = dx_out.valid && !x_busy && dx_out.predicted_taken;
-  assign probe_guess_correct = probe_guess_active && x_redirect &&
-    x_redirect_target[13:0] == dx_out.predicted_target_low;
+  assign probe_guess_correct = probe_guess_active && !x_redirect;
 
   logic [31:0] probe_guesses, probe_guess_hits, probe_guess_misses;
   always_ff @(posedge clk) begin

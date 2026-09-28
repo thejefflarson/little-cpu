@@ -26,6 +26,8 @@ module traps #(
   logic [31:0] fetch_pc, fetch_pc_next;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic        fetch_wait, fetch_fault, decoder_issuing, x_redirect;
+  logic        x_redirect_q;
+  logic [31:0] x_redirect_target_q;
   fetcher_output fetcher_out;
   dx_output dx_out;
   decoder_output decoder_out;
@@ -67,11 +69,16 @@ module traps #(
     .out(fetcher_out)
   );
   // fetch_pc ownership lives in the integrator, not in either stage: the guess is D's
-  // (`decoder_predicted_pc`) and the override is X's (`x_redirect`/`x_redirect_target`).
-  assign fetch_pc_next = x_redirect       ? x_redirect_target :
+  // (`decoder_predicted_pc`) and the override is X's (`x_redirect`/`x_redirect_target`),
+  // restated a register later so no branch-compare/jalr result drives it combinationally.
+  assign fetch_pc_next = x_redirect_q     ? x_redirect_target_q :
                          !decoder_issuing ? fetch_pc :
                                             decoder_predicted_pc;
   always_ff @(posedge clk) fetch_pc <= reset ? 32'b0 : fetch_pc_next;
+  always_ff @(posedge clk) begin
+    x_redirect_q        <= reset ? 1'b0 : x_redirect;
+    x_redirect_target_q <= x_redirect_target;
+  end
 
   decoder decoder (
     .clk(clk),
@@ -89,6 +96,7 @@ module traps #(
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .x_redirect(x_redirect),
+    .x_redirect_delayed(x_redirect_q),
     .out(dx_out)
   );
 
@@ -370,9 +378,10 @@ module traps #(
   logic prev_mstatus_addressed, prev_mstatus_static;
   logic prev_interrupt_pending, prev_interrupt_entry, prev_fetch_fault;
   logic [31:0] prev2_rdata, past2_dx_pc, prev2_cause, prev2_tval;
+  logic [31:0] prev2_mtvec, prev2_mepc;
   logic prev2_reset, prev2_mstatus_addressed, prev2_mstatus_static;
   logic prev2_trap_entry, prev2_interrupt_pending, prev2_fetch_fault, prev2_cause_modelled;
-  logic prev2_interrupt_entry;
+  logic prev2_interrupt_entry, prev2_mret_entry;
   always_ff @(posedge clk) begin
     past_fetch_pc          <= fetch_pc;
     past_dx_pc              <= dx_pc;
@@ -399,11 +408,16 @@ module traps #(
     prev2_reset             <= prev_reset;
     prev2_mstatus_addressed <= prev_mstatus_addressed;
     prev2_mstatus_static    <= prev_mstatus_static;
-    // A second tap: a CSR-read instruction reaches X a cycle behind trap_entry itself.
+    // A second tap: a CSR-read instruction reaches X a cycle behind trap_entry itself,
+    // and `fetch_pc` reaches `mtvec`/`mepc` a cycle behind THAT, off the redirect's own
+    // register (rtl/littlecpu.v's `x_redirect_q`).
     past2_dx_pc              <= past_dx_pc;
     prev2_cause              <= prev_cause;
     prev2_tval                <= prev_tval;
     prev2_trap_entry        <= prev_trap_entry;
+    prev2_mret_entry         <= prev_mret_entry;
+    prev2_mtvec              <= prev_mtvec;
+    prev2_mepc                <= prev_mepc;
     prev2_interrupt_pending <= prev_interrupt_pending;
     prev2_fetch_fault        <= prev_fetch_fault;
     prev2_cause_modelled    <= prev_cause_modelled;
@@ -602,8 +616,11 @@ module traps #(
                   !prev_written_by_trap)
     assert(csr_rdata == prev_rdata);
 
-  always_comb if (settled && prev_trap_entry) assert(fetch_pc == prev_mtvec);
-  always_comb if (settled && prev_mret_entry) assert(fetch_pc == prev_mepc);
+  // `fetch_pc` lands on `mtvec`/`mepc` two cycles after entry, not one: the redirect that
+  // carries it is registered (rtl/littlecpu.v's `x_redirect_q`) so no branch-compare/jalr
+  // result drives `fetch_pc_next` combinationally on the common path.
+  always_comb if (settled2 && prev2_trap_entry) assert(fetch_pc == prev2_mtvec);
+  always_comb if (settled2 && prev2_mret_entry) assert(fetch_pc == prev2_mepc);
 
   always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_dx_pc_hi, 1'b0});
  `endif

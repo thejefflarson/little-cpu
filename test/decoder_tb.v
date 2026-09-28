@@ -22,6 +22,7 @@ module decoder_tb;
   logic [31:0] predicted_pc;
   logic [4:0] read_rs1, read_rs2;
   logic x_redirect = 1'b0;
+  logic x_redirect_delayed = 1'b0;
   dx_output out;
 
   decoder dut (
@@ -40,6 +41,7 @@ module decoder_tb;
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .x_redirect(x_redirect),
+    .x_redirect_delayed(x_redirect_delayed),
     .out(out)
   );
 
@@ -230,21 +232,31 @@ module decoder_tb;
 
     // D's own branch/jal predictor: off the class flags and `immediate` decode already
     // computes for the instruction it is issuing, so the guess lands in `out` the same
-    // cycle every other field of that instruction does.
+    // cycle every other field of that instruction does. `predicted_pc` -- the live guess
+    // fetch itself follows -- takes the same target while the guess is taken.
     in.pc = 32'h0000_0084;
     in.instr = 32'hfe62_9ee3;      // bne x5, x6, -4 -- backward, guessed taken
-    settle_issue(in.instr);
+    present(in.instr);
+    check_hex("fetch follows a taken guess to its target", predicted_pc, 32'h0000_0080);
+    @(posedge clk);
+    #1;
     check_bit("a backward branch is guessed taken", out.predicted_taken, 1'b1);
     check_hex("...to its own pc plus its immediate", out.predicted_target_low, 32'h0000_0080);
 
     in.pc = 32'h0000_0088;
     in.instr = 32'h0000_0463;      // beq x0, x0, +8 -- forward, not guessed
-    settle_issue(in.instr);
+    present(in.instr);
+    check_hex("an unguessed branch predicts sequentially", predicted_pc, 32'h0000_008c);
+    @(posedge clk);
+    #1;
     check_bit("a forward branch is not guessed", out.predicted_taken, 1'b0);
 
     in.pc = 32'h0000_008c;
     in.instr = 32'h0080_00ef;      // jal x1, +8 -- unconditional, always guessed taken
-    settle_issue(in.instr);
+    present(in.instr);
+    check_hex("fetch follows jal's own guessed target", predicted_pc, 32'h0000_0094);
+    @(posedge clk);
+    #1;
     check_bit("a jal is guessed taken", out.predicted_taken, 1'b1);
     check_hex("...to its own pc plus its immediate", out.predicted_target_low, 32'h0000_0094);
 
@@ -459,6 +471,17 @@ module decoder_tb;
     check_bit("...so out is bubbled, not the wrong-path word", out.valid, 1'b0);
     x_redirect = 1'b0;
 
+    in.pc = 32'h0000_08e0;   // x_redirect_delayed discards the SECOND wrong-path word
+    settle_issue(32'h00100093);   // addi x1, x0, 1 -- a harmless word, otherwise issuable
+    check_bit("an unrelated word would issue on its own", issuing, 1'b1);
+    x_redirect_delayed = 1'b1;
+    #1;
+    check_bit("issuing still tracks !stall, not the kill", issuing, 1'b1);
+    @(posedge clk);
+    #1;
+    check_bit("...so out is bubbled by the delayed kill too", out.valid, 1'b0);
+    x_redirect_delayed = 1'b0;
+
     in.pc = 32'h0000_0900;   // bus_request over-asks on purpose, never on a stalled cycle
     present(32'h00100093);   // addi x1, x0, 1 -- not a memory access
     check_bit("a non-memory instruction asks for nothing", bus_request, 1'b0);
@@ -491,7 +514,7 @@ module decoder_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: D vectors (decode, hazard, serialize, atomic wait, x_busy hold/bubble, x_redirect, bus_request)");
+      $display("PASSED: D vectors (decode, hazard, serialize, atomic wait, x_busy hold/bubble, x_redirect, x_redirect_delayed, bus_request)");
       $finish;
     end
   end
