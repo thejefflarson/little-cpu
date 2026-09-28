@@ -66,7 +66,7 @@ slot, the four pending copies, `mem_rdata`, `second_parcel_first_data` (into `rx
 `tx_shift` (a nibble mux feeding a registered `sio_out`, keeping ADR-0204's pad timing). Invariant 3 is
 restated, not weakened. About one cycle faster per fetch. Only if Tier 1's run still does not route.
 
-**Tier 3 — the core state machine collapses** (derived, about −3k local, roughly 10% slower). Conditional
+**Tier 3 — the core state machine collapses** (derived, about −3k local, and about three fewer cycles per instruction — roughly 10% faster on the pin-level benchmarks, at the price of longer combinational paths). Conditional
 on Tier 2's run still failing; F and G are re-measured before it lands.
 
 ## Decisions
