@@ -68,8 +68,7 @@ module traps #(
     .fault(fetch_fault),
     .out(fetcher_out)
   );
-  // fetch_pc ownership lives in the integrator, not in either stage: the guess is D's
-  // (`decoder_predicted_pc`) and the override is X's (`x_redirect`/`x_redirect_target`),
+  // fetch_pc ownership lives in the integrator: the guess is D's, the override X's,
   // restated a register later so no branch-compare/jalr result drives it combinationally.
   assign fetch_pc_next = x_redirect_q     ? x_redirect_target_q :
                          !decoder_issuing ? fetch_pc :
@@ -408,9 +407,7 @@ module traps #(
     prev2_reset             <= prev_reset;
     prev2_mstatus_addressed <= prev_mstatus_addressed;
     prev2_mstatus_static    <= prev_mstatus_static;
-    // A second tap: a CSR-read instruction reaches X a cycle behind trap_entry itself,
-    // and `fetch_pc` reaches `mtvec`/`mepc` a cycle behind THAT, off the redirect's own
-    // register (rtl/littlecpu.v's `x_redirect_q`).
+    // A second tap: a CSR read, and fetch_pc's own mtvec/mepc landing, trail by two.
     past2_dx_pc              <= past_dx_pc;
     prev2_cause              <= prev_cause;
     prev2_tval                <= prev_tval;
@@ -616,9 +613,7 @@ module traps #(
                   !prev_written_by_trap)
     assert(csr_rdata == prev_rdata);
 
-  // `fetch_pc` lands on `mtvec`/`mepc` two cycles after entry, not one: the redirect that
-  // carries it is registered (rtl/littlecpu.v's `x_redirect_q`) so no branch-compare/jalr
-  // result drives `fetch_pc_next` combinationally on the common path.
+  // Two cycles behind entry, not one: `x_redirect_q`'s register sits in between.
   always_comb if (settled2 && prev2_trap_entry) assert(fetch_pc == prev2_mtvec);
   always_comb if (settled2 && prev2_mret_entry) assert(fetch_pc == prev2_mepc);
 

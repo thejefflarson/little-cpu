@@ -1,9 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// D decodes the buffered word, presents the register file its own pair (never a guess), and
-// guesses whether it branches/jumps taken: `predicted_pc` is the guessed target itself, and
-// fetch follows it directly. Fetch-address ownership lives in rtl/littlecpu.v.
+// D decodes the buffered word, presents the register file its own pair (never a guess).
 module decoder #(
   parameter integer LS_TEXT_WORDS = 2048
 ) (
@@ -19,16 +17,13 @@ module decoder #(
   input  logic imem_fault,
   input  logic accessor_out_valid,
   output logic issuing,
-  // The guessed next fetch: the BTFN/jal target when the guess is taken, else the
-  // sequential `+2`/`+4`. Never F's word-granular ROM address.
+  // The guessed target when taken, else the sequential `+2`/`+4`; never F's ROM address.
   output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
   // `in` was fetched down the wrong path: discard it unconditionally, no counter or list.
-  // `x_redirect` is X's same-cycle verification; `x_redirect_delayed` is that same
-  // verdict a cycle later, off `fetch_pc_next`'s own register (rtl/littlecpu.v), and
-  // discards the second wrong-path word that register delay lets D capture in between.
   input  logic x_redirect,
+  // The same verdict a register later (rtl/littlecpu.v): the extra wrong-path word.
   input  logic x_redirect_delayed,
   output dx_output out
 );
@@ -371,9 +366,7 @@ module decoder #(
   logic [PREDICT_LOW_BITS-1:0] predict_target_low;
   assign predict_target_low = fetcher_pc[PREDICT_LOW_BITS-1:0] + immediate[PREDICT_LOW_BITS-1:0];
 
-  // Fetch follows the guess: a predicted-taken instruction's successor is fetched from
-  // the guessed target directly, not the sequential word X will later have to redirect
-  // away from.
+  // Fetch follows the guess directly, not the word X would otherwise redirect away from.
   assign predicted_pc = predict_taken
     ? {fetcher_pc[31:PREDICT_LOW_BITS], predict_target_low}
     : fetcher_pc + (uncompressed ? 32'd4 : 32'd2);

@@ -250,10 +250,7 @@ module executor #(
   logic [31:0] pc_inc, seq_pc, resolved_target, guessed_pc;
   assign pc_inc = in_instr[1:0] == 2'b11 ? 4 : 2;
   assign seq_pc = in_pc + pc_inc;
-  // What D actually fetched after this instruction: the BTFN/jal target it predicted
-  // taken, or the sequential word otherwise -- the same value that drove `fetch_pc_next`
-  // (rtl/decoder.v's `predicted_pc`) while this instruction was issuing.
-  assign guessed_pc = in_predicted_taken
+  assign guessed_pc = in_predicted_taken  // rtl/decoder.v's own `predicted_pc`
     ? {in_pc[31:PREDICT_LOW_BITS], in_predicted_target_low[PREDICT_LOW_BITS-1:0]}
     : seq_pc;
   always_comb begin
@@ -267,8 +264,6 @@ module executor #(
     endcase
   end
 
-  // A misprediction: D's guess disagreed with what X resolved, or D could never have
-  // guessed this outcome at all -- a trap or mret, neither of which D ever predicts.
   assign redirect = in_valid && !x_busy && (resolved_target != guessed_pc ||
     trap_taken || in_is_mret);
   assign redirect_target = resolved_target;

@@ -131,10 +131,8 @@ module littlecpu #(
   logic         x_redirect;
   logic  [31:0] x_redirect_target;
   logic  [31:0] decoder_predicted_pc;
-  // X's verdict, restated one register later: this is what reaches `fetch_pc_next`, so
-  // no branch-compare/jalr result drives the ROM address combinationally. D's discard
-  // (below) fires off both copies, since the register delay lets D capture one more
-  // wrong-path word before the correction lands.
+  // X's verdict, restated a register later so no branch-compare/jalr result drives
+  // `fetch_pc_next` combinationally; D's discard (below) fires off both copies.
   logic         x_redirect_q;
   logic  [31:0] x_redirect_target_q;
   always_ff @(posedge clk) begin
@@ -437,8 +435,7 @@ module littlecpu #(
     end
   end
 
-  // Fetch already followed the guess, so a correct one is the ABSENCE of a redirect --
-  // X found nothing to correct.
+  // Fetch already followed the guess, so a correct one is the ABSENCE of a redirect.
   logic probe_guess_active, probe_guess_correct;
   assign probe_guess_active = dx_out.valid && !x_busy && dx_out.predicted_taken;
   assign probe_guess_correct = probe_guess_active && !x_redirect;
