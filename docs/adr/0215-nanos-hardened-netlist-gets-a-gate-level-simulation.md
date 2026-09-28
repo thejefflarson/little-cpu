@@ -73,9 +73,18 @@ already uses on the same runner pool.
 
 ## Measurement
 
-TODO once the dispatched run (4x2, `AREA 2`, congestion allowed, full flow) or its 6x2
-fallback produces a `final/nl` netlist: the cell census, `nano-gl-test`'s result, and the
-gate-level simulation's own peak memory against the runner's 6 GiB limit.
+The mechanism is proved against real tooling short of a full chip run: `nano-gl-gate-probe`
+and `nano-gl-census-probe` both pass, each demonstrating its control and its forced-red
+mutant for the reason the probe names. `make test` and `make probe-gates` are unaffected
+(`nano-gl-test` is off both paths, as stated above).
+
+A 4×2 `AREA 2` full-flow dispatch (congestion allowed) is running against this branch to
+produce a real hardened netlist and exercise `nano-gl-test` against it end to end,
+including the gate-level simulation's own peak memory against the runner's 6 GiB limit; if
+detailed routing does not finish there, the 6×2 fallback the ticket names does. That
+result is not yet in hand as of this ADR landing and is owed as a follow-up run before any
+tapeout decision reads this gate as exercised against real silicon-bound output --
+tracked outside this file, per this repo's own rule against ticket references here.
 
 ## Consequences
 
