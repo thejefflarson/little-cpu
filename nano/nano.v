@@ -130,11 +130,12 @@ module riscv #(
   logic [3:0] cpu_state;
   logic skip_reg_write;
 
-  // One held register per operand; `rf_raddr` is the one address that reads `regs[]`.
-  logic [31:0] op_rs1, op_rs2;
+  // `rf_raddr` is the one address that reads `regs[]`: rs1 once into `op_rs1`, then rs2 live
+  // for as long as the instruction is held.
+  logic [31:0] op_rs1, rf_rdata;
   logic [3:0] rf_raddr;
 `define RF_RS1 op_rs1
-`define RF_RS2 op_rs2
+`define RF_RS2 rf_rdata
 
   assign opcode = instr[6:2];
   assign quadrant = instr[1:0];
@@ -455,7 +456,6 @@ module riscv #(
   localparam check_pc = 4'b0111;
   localparam reg_write = 4'b1000;
   localparam fetch_rs1 = 4'b1100;
-  localparam fetch_rs2 = 4'b1101;
 
   assign rd = (is_branch || is_store || is_cj || is_cjr) ? 5'b0 :
               (is_cjal || is_cjalr) ? 5'd1 :
@@ -479,7 +479,8 @@ module riscv #(
                (is_cbeqz || is_cbnez) ? 5'b0 :
                instr[24:20];
 
-  assign rf_raddr = cpu_state == fetch_rs2 ? rs2[3:0] : rs1[3:0];
+  assign rf_raddr = cpu_state == fetch_rs1 ? rs1[3:0] : rs2[3:0];
+  assign rf_rdata = |rf_raddr ? regs[rf_raddr] : 32'b0;
 
   // Nano completes one instruction fully before returning here to redirect.
   assign take_interrupt = interrupt_pending && cpu_state == fetch_instr;
@@ -525,12 +526,7 @@ module riscv #(
         end
 
         fetch_rs1: begin
-          op_rs1 <= |rf_raddr ? regs[rf_raddr] : 32'b0;
-          cpu_state <= rs2_valid ? fetch_rs2 : execute_instr;
-        end
-
-        fetch_rs2: begin
-          op_rs2 <= |rf_raddr ? regs[rf_raddr] : 32'b0;
+          op_rs1 <= rf_rdata;
           cpu_state <= execute_instr;
         end
 
