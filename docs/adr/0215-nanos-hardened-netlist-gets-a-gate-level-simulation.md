@@ -96,6 +96,17 @@ only on the fixture. No routed netlist has been tested yet: a 4×2 `AREA 2` full
 dispatch on this branch (run 36377874205) reached the job's 360-minute limit in detailed
 routing with 46,828 violations after seven iterations and wrote no netlist.
 
+The first routed netlist found a second defect. A 4×2 run on main at 7b111c6 (run
+36568965575) routed clean and failed `nano-gl-test` with one `Unknown module type` for each
+of 53 cell types, all larger drive strengths the resizer added. iverilog preprocesses
+each `-y` library file on its own, so the models' include guards do not hold across files:
+`buf_1.v` and `buf_12.v` each include the shared `sky130_fd_sc_hd__buf` model, and the
+second read declares it again. `gl_census.py --includes` now writes one `` `include `` per
+cell type the netlist uses, and the run reads that file with `-I` alone, so every model is
+preprocessed in one unit. The probe fixture now clocks its gate through `buf_1` and
+`buf_2`, which the old command fails to elaborate. The census pattern also stopped at a
+cell name's first underscore, so `lpflow_*` cells went uncounted and unincluded.
+
 ## Consequences
 
 - `nano-gl-gate-probe`'s fixture is intentionally not a slice of the real chip: forcing one
