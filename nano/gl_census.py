@@ -10,7 +10,7 @@ import argparse
 import re
 import sys
 
-CELL_RE = re.compile(r"\bsky130_fd_sc_hd__([A-Za-z0-9]+)_(\d+)\b")
+CELL_RE = re.compile(r"\bsky130_fd_sc_hd__([A-Za-z0-9_]+?)_(\d+)\b")
 
 
 def census(text):
