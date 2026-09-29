@@ -76,8 +76,8 @@ echo "compiler    : $CC $($CC -dumpversion)"
 echo "flags       : $CFLAGS"
 echo "iterations  : $ITERATIONS"
 echo "memory model: nano/tb/nano_memory.v, behavioural, zero-wait-state, 20480 words (80 KB) flat"
-echo "              -- a core-only figure. No QSPI/PSRAM front end exists yet, so this is not"
-echo "              the Tiny Tapeout board's own timing."
+echo "              -- a core-only figure, not the Tiny Tapeout board's own timing. See"
+echo "              'make nano-qspi-pins-coremark' for the real bit-serial QSPI/PSRAM front end."
 echo
 
 set +e

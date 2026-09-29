@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 // The root-caused chained-resume nibble drift, reproduced against nano_qspi_ctrl and the
-// pin-level flash model directly: two "fetch_hit0 && !queue_full" resumes back to back.
+// pin-level flash model directly: two sequential-fetch resumes back to back.
 // QSPI_RESUME_TB_DELAY_CYCLES delays sio's return half that many clocks, for a pad-mux round trip.
 `ifndef QSPI_RESUME_TB_DELAY_CYCLES
 `define QSPI_RESUME_TB_DELAY_CYCLES 0
@@ -92,7 +92,7 @@ module nano_qspi_resume_tb;
       errors++;
     end
 
-    do_fetch(32'h2, rd);  // resume #1: fetch_hit0 && !queue_full, streams parcel2, pauses
+    do_fetch(32'h2, rd);  // resume #1: sequential fetch, streams parcel2, pauses
     if (rd !== 32'h10041003) begin
       $display("FAIL: fetch(2) expected parcel1:2=10041003, got %h", rd);
       errors++;

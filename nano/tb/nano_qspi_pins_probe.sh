@@ -92,8 +92,8 @@ fi
 
 # Keeps the OLD byte and discards the new one on a partial-word store.
 mutant_qspi="$WORKDIR/qspi.mutant.v"
-if ! sed "s/(psram_wdata_pending & psram_byte_mask) |/(psram_wdata_pending \& ~psram_byte_mask) |/;
-          s/(rx_shift & ~psram_byte_mask);/(rx_shift \& psram_byte_mask);/" \
+if ! sed "s/(mem_wdata & psram_byte_mask) |/(mem_wdata \& ~psram_byte_mask) |/;
+          s/& ~psram_byte_mask);/\& psram_byte_mask);/" \
   "$REPO/nano/qspi.v" > "$mutant_qspi"; then
   echo "error: could not write the mutant qspi.v." >&2
   exit 2

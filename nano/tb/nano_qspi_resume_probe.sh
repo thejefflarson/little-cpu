@@ -20,17 +20,13 @@ mutant="$WORKDIR/qspi.mutant.v"
 python3 - "$REPO/nano/qspi.v" "$mutant" <<'PYEOF'
 import sys
 src = open(sys.argv[1]).read()
-old = ("            end else if (fetch_needs_second_parcel) begin\n"
-       "              // The second parcel is owed and has nowhere to wait: stream it"
-       " and complete.\n"
-       "              second_parcel_pending    <= 1'b1;\n"
-       "              second_parcel_first_data <= slot0_data;\n"
-       "              slot0_valid <= 1'b0;\n"
-       "              active_dev <= DEV_FLASH;\n"
-       "              sck_run    <= 1'b1;\n"
-       "              sio_phase  <= 1'b0;\n"
-       "              nibbles_left <= 4'd4;\n")
-new = old.replace("nibbles_left <= 4'd4;", "nibbles_left <= 4'd3;")
+old = ("              end else if (sio_in[1:0] == 2'b11) begin\n"
+       "                // The other half of a four-byte instruction is owed: keep"
+       " streaming.\n"
+       "                second_parcel_pending <= 1'b1;\n"
+       "                rx_shift[31:16]       <= {rx_shift[11:0], sio_in};\n"
+       "                nibbles_left          <= 4'd4;\n")
+new = old.replace("nibbles_left          <= 4'd4;", "nibbles_left          <= 4'd3;")
 if old not in src:
     sys.exit("error: resume branch text not found -- probe is stale")
 open(sys.argv[2], "w").write(src.replace(old, new, 1))

@@ -1,0 +1,12 @@
+[options]
+mode prove
+
+[engines]
+abc pdr
+
+[script]
+read -sv -formal nano.v
+prep -top riscv
+
+[files]
+../nano.v
