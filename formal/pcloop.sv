@@ -136,6 +136,8 @@ module pcloop (
   logic [31:0] past_fetch_pc, prev_mtvec, prev_mepc, prev_predicted_pc, prev_redirect_target_q;
   logic prev_reset, prev_issuing, prev_uncompressed, prev_x_redirect_q;
   logic prev_trap_entry, prev_mret_entry;
+  logic prev2_trap_entry, prev2_mret_entry, prev2_reset;
+  logic [31:0] prev2_mtvec, prev2_mepc;
   always_ff @(posedge clk) begin
     past_fetch_pc        <= fetch_pc;
     prev_reset            <= reset;
@@ -148,6 +150,11 @@ module pcloop (
     prev_mret_entry         <= mret_entry;
     prev_mtvec              <= mtvec;
     prev_mepc                <= mepc;
+    prev2_trap_entry         <= prev_trap_entry;
+    prev2_mret_entry         <= prev_mret_entry;
+    prev2_reset              <= prev_reset;
+    prev2_mtvec              <= prev_mtvec;
+    prev2_mepc               <= prev_mepc;
   end
 
   always_comb if (clocked && !reset) assert(fetcher_out_pc == fetch_pc);
@@ -184,13 +191,13 @@ module pcloop (
     end
 
   always_ff @(posedge clk)
-    if (f_settled && prev_trap_entry) begin
-      assert(fetch_pc == prev_mtvec);
+    if (f_settled && !prev2_reset && prev2_trap_entry) begin
+      assert(fetch_pc == prev2_mtvec);
       trap_reached: cover (1'b1);
     end
   always_ff @(posedge clk)
-    if (f_settled && prev_mret_entry) begin
-      assert(fetch_pc == prev_mepc);
+    if (f_settled && !prev2_reset && prev2_mret_entry) begin
+      assert(fetch_pc == prev2_mepc);
       mret_reached: cover (1'b1);
     end
  `endif
