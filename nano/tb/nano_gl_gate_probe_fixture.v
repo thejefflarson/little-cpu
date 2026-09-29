@@ -1,11 +1,13 @@
-// One real dlclkp_1 gating a counter, resolved from the cell library as a netlist's cells are; the probe forces GATE to 0 in a copy.
+// A real dlclkp_1 gating a counter, its clock through buf_1 and buf_2 so two drive strengths share one base model as a routed netlist's do; the probe forces GATE to 0 in a copy.
 module nano_gl_gate_probe_fixture (
   input  wire clk,
   input  wire gate,
   output reg [7:0] count
 );
-  wire gclk;
-  sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(gclk), .GATE(gate), .CLK(clk));
+  wire gclk, clk_b1, clk_b2;
+  sky130_fd_sc_hd__buf_1 b1 (.X(clk_b1), .A(clk));
+  sky130_fd_sc_hd__buf_2 b2 (.X(clk_b2), .A(clk_b1));
+  sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(gclk), .GATE(gate), .CLK(clk_b2));
 
   initial count = 8'b0;
   always @(posedge gclk) count <= count + 8'd1;

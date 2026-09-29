@@ -37,10 +37,10 @@ if ! command -v iverilog >/dev/null 2>&1; then
   exit 2
 fi
 
-python3 "$REPO/nano/gl_census.py" "$NETLIST" --require dlclkp
-
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
+
+python3 "$REPO/nano/gl_census.py" "$NETLIST" --require dlclkp --includes "$WORKDIR/cells.v"
 
 # shellcheck disable=SC2086
 "$CC" $CFLAGS -nostdlib -I "$REPO/test/asm" -T "$REPO/nano/tb/asm/nano_tt.lds" \
@@ -50,8 +50,8 @@ mkdir -p "$WORKDIR"
 "$OBJCOPY" -O verilog --verilog-data-width=4 --remove-section=.text \
   --adjust-vma=-0x10000000 "$WORKDIR/tt_gpio_uart.elf" "$WORKDIR/tt_gpio_uart.ram.hex"
 
-iverilog -g2012 -D FUNCTIONAL -D UNIT_DELAY= -I "$CELL_DIR" -y "$CELL_DIR" -Y .v -o "$WORKDIR/nano_gl.vvp" \
-  "$NETLIST" \
+iverilog -g2012 -D FUNCTIONAL -D UNIT_DELAY= -I "$CELL_DIR" -o "$WORKDIR/nano_gl.vvp" \
+  "$WORKDIR/cells.v" "$NETLIST" \
   "$REPO/nano/tb/nano_qspi_flash_model.v" "$REPO/nano/tb/nano_qspi_psram_model.v" \
   "$REPO/nano/tb/nano_tt_tb.v"
 

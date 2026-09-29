@@ -15,9 +15,11 @@ CELL_RE = re.compile(r"\bsky130_fd_sc_hd__([A-Za-z0-9]+)_(\d+)\b")
 
 def census(text):
     counts = {}
-    for name, _strength in CELL_RE.findall(text):
+    types = set()
+    for name, strength in CELL_RE.findall(text):
         counts[name] = counts.get(name, 0) + 1
-    return counts
+        types.add("sky130_fd_sc_hd__%s_%s" % (name, strength))
+    return counts, types
 
 
 def main(argv):
@@ -29,12 +31,17 @@ def main(argv):
         default=[],
         help="a cell family (e.g. dlclkp) that must appear at least once; repeatable",
     )
+    parser.add_argument(
+        "--includes",
+        help="write one `include per cell type here, so every model is read in one "
+        "compilation unit and its include guards hold across drive strengths",
+    )
     args = parser.parse_args(argv)
 
     with open(args.netlist) as f:
         text = f.read()
 
-    counts = census(text)
+    counts, types = census(text)
     total = sum(counts.values())
     if total == 0:
         print(
@@ -47,6 +54,10 @@ def main(argv):
     for name in sorted(counts):
         print("%6d  %s" % (counts[name], name))
     print("%6d  TOTAL" % total)
+
+    if args.includes:
+        with open(args.includes, "w") as f:
+            f.writelines('`include "%s.v"\n' % t for t in sorted(types))
 
     missing = [name for name in args.require if counts.get(name, 0) == 0]
     if missing:
