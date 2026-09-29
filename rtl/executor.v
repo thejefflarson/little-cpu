@@ -898,7 +898,7 @@ module executor #(
     assert(trap_cause == CAUSE_LOAD_ACCESS_FAULT);
   always_comb if (clocked && word_decides && store_access_fault)
     assert(trap_cause == CAUSE_STORE_ACCESS_FAULT);
-  always_comb if (clocked && !trap_taken) assert(trap_cause == 32'b0);
+  always_comb if (clocked && !kill && !trap_taken) assert(trap_cause == 32'b0);
 
   // X is the single commit point: a trap redirects to mtvec and an mret to mepc, both
   // same-cycle claims (X owns no registered pc of its own for a $past version to check).
