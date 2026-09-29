@@ -2063,7 +2063,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
-  "not the 10 this row swept" \
+  "not the 8 this row swept" \
   "$RFG && python3 ../../formal/remeasure-fg.py . --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \

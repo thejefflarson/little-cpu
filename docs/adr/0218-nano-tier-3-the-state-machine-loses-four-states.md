@@ -81,12 +81,11 @@ value, both run clean); `dmemcheck` and its cover 26 → 22 (F+G+2); `imemcheck`
 every goal earlier, so those depths only gain slack, and `complete_cover` and its tie probe stay green.
 `test/probe_gates.sh`'s nano depth fixture followed `hang`'s new value.
 
-`nano/bench/run_qspi_loop_buffer_test.sh`'s `WINDOW_BOUND` returns to 11 cycles per rep: a resident loop
-measures exactly 10 (2,000 cycles over 200 reps, both loop-buffer shapes), and 11 is the measured figure
-plus one cycle of slack. **One forced-red mutation of that test is retired**: `loop-hit-gated-on-xfer-active`
-delays a loop-buffer hit by a cycle, and the loop still measured 2,000 cycles with it, because the core,
-not the fetch, sets a resident loop's pace now. It passed only when the old bound was loose. It is replaced
-by `loop-hit-never-recognized`, which the marginal preamble/wait check must catch.
+`nano/bench/run_qspi_loop_buffer_test.sh`'s `WINDOW_BOUND` returns to its pre-one-port shape, 9 cycles per
+rep: a resident loop measures exactly 8 (1,600 cycles and 400 loop hits over 200 extra reps, both
+loop-buffer shapes; it was 13), and 9 is the measured figure plus one cycle of slack. The old bound of 14 had been masking the probe: with the bound at 9, the probe's
+`loop-hit-gated-on-xfer-active` mutation (+400 cycles, 2,000 against a bound of 1,800) is caught again,
+and all four probe mutations stay red for their own text.
 `meip.S`'s retire floor (42) does not depend on cycle counts and is unchanged; its forced-red probe passes.
 
 ## Checks
