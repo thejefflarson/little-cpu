@@ -39,9 +39,9 @@ run_mutation() {  # <label> <sed-expr> <expected-text>
 }
 
 status=0
-run_mutation "loop-hit-gated-on-xfer-active" \
-  "s/loop_hit_now ? 1'b1 :/loop_hit_now ? xfer_active :/" \
-  "near-execute-time bound" || status=1
+run_mutation "loop-hit-never-recognized" \
+  "s/assign loop_hit_now = xfer_active ? xfer_loophit : (mem_valid \&\& mem_instr \&\& loop_hit_full);/assign loop_hit_now = 1'b0;/" \
+  "still pays a marginal preamble/wait cost" || status=1
 run_mutation "cam-lookup-never-hits" \
   "s/if (cam_valid\[i\] && cam_idx\[i\] == target_index) cam_has0 = 1'b1;/if (1'b0) cam_has0 = 1'b1;/" \
   "still pays a marginal preamble/wait cost" || status=1

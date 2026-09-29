@@ -1896,9 +1896,9 @@ ga_nano_fixture() {
 }
 
 d=$(ga_nano_fixture)
-mutate "$d/checks.cfg" 's/^hang     1     15$/hang     1     10/'
+mutate "$d/checks.cfg" 's/^hang     1     13$/hang     1     8/'
 probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
-  "hang: depth 10 is below F+1 = 14" "cd '$d' && $GA ."
+  "hang: depth 8 is below F+1 = 12" "cd '$d' && $GA ."
 
 d=$(ga_nano_fixture)
 probe "control: nano's declared fork redirects every generated insn_* check" 0 \
