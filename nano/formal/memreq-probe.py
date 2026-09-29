@@ -21,7 +21,7 @@ OLD = """        finish_store: begin
           if (mem_ready) begin
             cpu_state <= fetch_instr;
             mem_valid <= 0;
-            next_pc <= pc + pc_inc;
+            mem_addr <= pc + pc_inc;
           end
         end
 """
@@ -29,7 +29,7 @@ NEW = """        finish_store: begin
           if (mem_ready) begin
             cpu_state <= fetch_instr;
             mem_valid <= 0;
-            next_pc <= pc + pc_inc;
+            mem_addr <= pc + pc_inc;
           end else begin
             mem_addr <= mem_addr + 32'd4;
           end
@@ -130,14 +130,14 @@ def main():
     if status != "FAIL":
         red.append(
             "the 'unmasked-jalr' mutant passes memreq.sby. A jalr target that keeps its "
-            "bit 0 reaches next_pc and must be caught by the alignment assertions."
+            "bit 0 reaches mem_addr and must be caught by the alignment assertions."
         )
     else:
         log = (workdir / "unmasked-jalr" / "nano" / "formal" / "memreq" / "logfile.txt").read_text()
         lines = mutant_v.splitlines()
         aligned = {
             i + 1 for i, line in enumerate(lines)
-            if line.strip() in ("assert(!pc[0]);", "assert(!next_pc[0]);", "assert(!mem_addr[0]);")
+            if line.strip() in ("assert(!pc[0]);", "assert(!mem_addr[0]);")
         }
         failed = {int(m) for m in re.findall(r"Assert failed in riscv: nano\.v:(\d+)", log)}
         if not failed & aligned:
