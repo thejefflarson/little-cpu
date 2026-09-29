@@ -126,9 +126,7 @@ module riscv #(
   logic [31:0] next_pc;
   logic [31:0] pc_inc;
   logic [31:0] reg_wdata;
-  logic [31:0] pc_wdata;
   logic [3:0] cpu_state;
-  logic skip_reg_write;
 
   // `rf_raddr` is the one address that reads `regs[]`: rs1 once into `op_rs1`, then rs2 live
   // for as long as the instruction is held.
@@ -453,7 +451,6 @@ module riscv #(
   localparam execute_instr = 4'b0100;
   localparam finish_load = 4'b0101;
   localparam finish_store = 4'b0110;
-  localparam check_pc = 4'b0111;
   localparam reg_write = 4'b1000;
   localparam fetch_rs1 = 4'b1100;
 
@@ -503,7 +500,6 @@ module riscv #(
       (* parallel_case, full_case *)
       case (cpu_state)
         fetch_instr: begin
-          skip_reg_write <= 0;
           if (take_interrupt) begin
             // Nothing issues this cycle: next_pc becomes mtvec, and mstatus_mie
             // reads already cleared next cycle, so the fetch below runs then.
@@ -532,7 +528,6 @@ module riscv #(
 
         execute_instr: begin
           if (take_trap) begin
-            skip_reg_write <= 1;
             next_pc <= mtvec_value;
             cpu_state <= fetch_instr;
           end else begin
@@ -551,24 +546,22 @@ module riscv #(
               end
 
               is_jal || is_jalr: begin
-                pc_wdata <= jump_address;
+                next_pc <= jump_address;
                 reg_wdata <= pc + pc_inc;
-                skip_reg_write <= 0;
-                cpu_state <= check_pc;
+                cpu_state <= reg_write;
               end
 
               is_branch: begin
                 (* parallel_case, full_case *)
                 case(1'b1)
-                  is_beq: pc_wdata <= `RF_RS1 == `RF_RS2 ? pc + immediate : pc + pc_inc;
-                  is_bne: pc_wdata <= `RF_RS1 != `RF_RS2 ? pc + immediate : pc + pc_inc;
-                  is_blt: pc_wdata <= $signed(`RF_RS1) < $signed(`RF_RS2) ? pc + immediate : pc + 4;
-                  is_bltu: pc_wdata <= `RF_RS1 < `RF_RS2 ? pc + immediate : pc + 4;
-                  is_bge: pc_wdata <= $signed(`RF_RS1) >= $signed(`RF_RS2) ? pc + immediate : pc + 4;
-                  is_bgeu: pc_wdata <= `RF_RS1 >= `RF_RS2 ? pc + immediate : pc + 4;
+                  is_beq: next_pc <= `RF_RS1 == `RF_RS2 ? pc + immediate : pc + pc_inc;
+                  is_bne: next_pc <= `RF_RS1 != `RF_RS2 ? pc + immediate : pc + pc_inc;
+                  is_blt: next_pc <= $signed(`RF_RS1) < $signed(`RF_RS2) ? pc + immediate : pc + 4;
+                  is_bltu: next_pc <= `RF_RS1 < `RF_RS2 ? pc + immediate : pc + 4;
+                  is_bge: next_pc <= $signed(`RF_RS1) >= $signed(`RF_RS2) ? pc + immediate : pc + 4;
+                  is_bgeu: next_pc <= `RF_RS1 >= `RF_RS2 ? pc + immediate : pc + 4;
                 endcase
-                skip_reg_write <= 1;
-                cpu_state <= check_pc;
+                cpu_state <= fetch_instr;
               end
 
               is_math || is_math_immediate: begin
@@ -639,7 +632,6 @@ module riscv #(
               end
 
               is_mret: begin
-                skip_reg_write <= 1;
                 next_pc <= mepc_value;
                 cpu_state <= fetch_instr;
               end
@@ -648,15 +640,6 @@ module riscv #(
                 cpu_state <= cpu_trap;
               end
             endcase
-          end
-        end
-
-        check_pc: begin
-          if (pc_wdata[0]) begin
-            cpu_state <= cpu_trap;
-          end else begin
-            next_pc <= pc_wdata;
-            cpu_state <= skip_reg_write ? fetch_instr : reg_write;
           end
         end
 
@@ -995,6 +978,15 @@ module riscv #(
     assert(mem_addr  == mem_addr_q);
     assert(mem_wdata == mem_wdata_q);
     assert(mem_wstrb == mem_wstrb_q);
+  end
+
+  // C makes every jump target 2-byte aligned, so no control transfer checks its target
+  // and nothing can trap on one: jalr clears bit 0, every offset is even, and pc, next_pc
+  // and mem_addr are only ever loaded from those or from a word-aligned address.
+  always_comb if (clocked_q) begin
+    assert(!pc[0]);
+    assert(!next_pc[0]);
+    assert(!mem_addr[0]);
   end
 `endif
 endmodule

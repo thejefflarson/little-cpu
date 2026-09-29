@@ -144,9 +144,6 @@ std::string classify_trap_cause(const CauseSignals &s) {
     return "ecall";
   if (s.flag("uut is_ebreak"))
     return "ebreak";
-  if ((s.flag("uut is_jal") || s.flag("uut is_jalr") || s.flag("uut is_branch")) &&
-      (s.raw("uut pc_wdata") & 1) != 0)
-    return "misaligned jump/branch target";
   bool addr24_nonzero = s.raw("uut addr24") != 0;
   bool addr8_set = s.flag("uut addr8");
   if ((s.flag("uut is_load_op") || s.flag("uut is_clwsp") || s.flag("uut is_clw")) &&
@@ -255,9 +252,8 @@ int main(int argc, char **argv) {
   };
   CauseSignals cause_signals;
   for (const char *name :
-       {"uut is_valid", "uut is_e_illegal", "uut is_ecall", "uut is_ebreak", "uut is_jal",
-        "uut is_jalr", "uut is_branch", "uut pc_wdata", "uut addr24", "uut addr8",
-        "uut is_load_op", "uut is_clwsp", "uut is_clw", "uut is_lw", "uut is_lh", "uut is_lhu",
+       {"uut is_valid", "uut is_e_illegal", "uut is_ecall", "uut is_ebreak",
+        "uut addr24", "uut addr8", "uut is_load_op", "uut is_clwsp", "uut is_clw", "uut is_lw", "uut is_lh", "uut is_lhu",
         "uut is_store_op", "uut is_cswsp", "uut is_csw", "uut is_sw", "uut is_sh"}) {
     cause_signals.bits[name] = items.count(name) != 0 ? &items.at(name).at(0) : nullptr;
   }
