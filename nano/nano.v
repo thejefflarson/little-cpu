@@ -449,7 +449,6 @@ module riscv #(
   localparam cpu_trap = 4'b0000;
   localparam fetch_instr = 4'b0001;
   localparam ready_instr = 4'b0010;
-  localparam decode_instr = 4'b0011;
   localparam execute_instr = 4'b0100;
   localparam finish_load = 4'b0101;
   localparam finish_store = 4'b0110;
@@ -521,12 +520,8 @@ module riscv #(
             mem_valid <= 0;
             pc <= mem_addr;
             instr <= mem_rdata[1:0] == 2'b11 ? mem_rdata : {16'b0, mem_rdata[15:0]};
-            cpu_state <= decode_instr;
+            cpu_state <= fetch_rs1;
           end
-        end
-
-        decode_instr: begin
-          cpu_state <= fetch_rs1;
         end
 
         fetch_rs1: begin
