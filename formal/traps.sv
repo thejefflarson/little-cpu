@@ -410,7 +410,6 @@ module traps #(
     prev2_reset             <= prev_reset;
     prev2_mstatus_addressed <= prev_mstatus_addressed;
     prev2_mstatus_static    <= prev_mstatus_static;
-    // A second tap: a CSR read, and fetch_pc's own mtvec/mepc landing, trail by two.
     past2_dx_pc              <= past_dx_pc;
     prev2_cause              <= prev_cause;
     prev2_tval                <= prev_tval;
@@ -629,7 +628,6 @@ module traps #(
                   !prev_written_by_trap)
     assert(csr_rdata == prev_rdata);
 
-  // Two cycles behind entry, not one: `x_redirect_q`'s register sits in between.
   always_comb if (settled2 && prev2_trap_entry) assert(fetch_pc == prev2_mtvec);
   always_comb if (settled2 && prev2_mret_entry) assert(fetch_pc == prev2_mepc);
 

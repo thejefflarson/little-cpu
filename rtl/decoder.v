@@ -1,7 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// D decodes the buffered word, presents the register file its own pair (never a guess).
 module decoder #(
   parameter integer LS_TEXT_WORDS = 2048
 ) (
@@ -17,7 +16,7 @@ module decoder #(
   input  logic imem_fault,
   input  logic accessor_out_valid,
   output logic issuing,
-  // The guessed target when taken, else the sequential `+2`/`+4`; never F's ROM address.
+  // The guessed target when taken, else `+2`/`+4`.
   output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
@@ -366,7 +365,6 @@ module decoder #(
   logic [PREDICT_LOW_BITS-1:0] predict_target_low;
   assign predict_target_low = fetcher_pc[PREDICT_LOW_BITS-1:0] + immediate[PREDICT_LOW_BITS-1:0];
 
-  // Fetch follows the guess directly, not the word X would otherwise redirect away from.
   assign predicted_pc = predict_taken
     ? {fetcher_pc[31:PREDICT_LOW_BITS], predict_target_low}
     : fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
