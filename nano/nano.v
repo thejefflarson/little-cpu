@@ -125,7 +125,6 @@ module riscv #(
   logic [3:0] store_wstrb;
   logic [31:0] next_pc;
   logic [31:0] pc_inc;
-  logic [31:0] reg_wdata;
   logic [3:0] cpu_state;
 
   // `rf_raddr` is the one address that reads `regs[]`: rs1 once into `op_rs1`, then rs2 live
@@ -451,7 +450,6 @@ module riscv #(
   localparam execute_instr = 4'b0100;
   localparam finish_load = 4'b0101;
   localparam finish_store = 4'b0110;
-  localparam reg_write = 4'b1000;
   localparam fetch_rs1 = 4'b1100;
 
   assign rd = (is_branch || is_store || is_cj || is_cjr) ? 5'b0 :
@@ -533,22 +531,9 @@ module riscv #(
           end else begin
             (* parallel_case, full_case *)
             case (1'b1)
-              is_lui: begin
-                reg_wdata <= immediate;
-                cpu_state <= reg_write;
-                next_pc <= pc + pc_inc;
-              end
-
-              is_auipc: begin
-                reg_wdata <= immediate + pc;
-                cpu_state <= reg_write;
-                next_pc <= pc + 4;
-              end
-
               is_jal || is_jalr: begin
                 next_pc <= jump_address;
-                reg_wdata <= pc + pc_inc;
-                cpu_state <= reg_write;
+                cpu_state <= fetch_instr;
               end
 
               is_branch: begin
@@ -564,51 +549,9 @@ module riscv #(
                 cpu_state <= fetch_instr;
               end
 
-              is_math || is_math_immediate: begin
-                cpu_state <= reg_write;
+              is_lui || is_auipc || is_math || is_math_immediate || is_csr: begin
+                cpu_state <= fetch_instr;
                 next_pc <= pc + pc_inc;
-                (* parallel_case, full_case *)
-                case(1'b1)
-                  is_add || is_addi: begin
-                    reg_wdata <= `RF_RS1 + math_arg;
-                  end
-
-                  is_sub: begin
-                    reg_wdata <= `RF_RS1 - math_arg;
-                  end
-
-                  is_sll || is_slli: begin
-                    reg_wdata <= `RF_RS1 << shamt;
-                  end
-
-                  is_slt || is_slti: begin
-                    reg_wdata <= {31'b0, $signed(`RF_RS1) < $signed(math_arg)};
-                  end
-
-                  is_sltu || is_sltiu: begin
-                    reg_wdata <= {31'b0, `RF_RS1 < math_arg};
-                  end
-
-                  is_xor || is_xori: begin
-                    reg_wdata <= `RF_RS1 ^ math_arg;
-                  end
-
-                  is_srl || is_srli: begin
-                    reg_wdata <= `RF_RS1 >> shamt;
-                  end
-
-                  is_sra || is_srai: begin
-                    reg_wdata <= $signed(`RF_RS1) >>> shamt;
-                  end
-
-                  is_or || is_ori: begin
-                    reg_wdata <= `RF_RS1 | math_arg;
-                  end
-
-                  is_and || is_andi: begin
-                    reg_wdata <= `RF_RS1 & math_arg;
-                  end
-                endcase
               end
 
               is_load_op || is_clwsp || is_clw: begin
@@ -625,12 +568,6 @@ module riscv #(
                 cpu_state <= finish_store;
               end
 
-              is_csr: begin
-                reg_wdata <= csr_rdata;
-                cpu_state <= reg_write;
-                next_pc   <= pc + pc_inc;
-              end
-
               is_mret: begin
                 next_pc <= mepc_value;
                 cpu_state <= fetch_instr;
@@ -643,50 +580,9 @@ module riscv #(
           end
         end
 
-        reg_write: begin
-          if (|rd[3:0]) regs[rd[3:0]] <= reg_wdata;
-          cpu_state <= fetch_instr;
-        end
-
         finish_load: begin
           if (mem_ready) begin
-            (* parallel_case, full_case *)
-            case (1'b1)
-              is_lb: begin
-                case (addr24)
-                  2'b00: reg_wdata <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
-                  2'b01: reg_wdata <= {{24{mem_rdata[15]}}, mem_rdata[15:8]};
-                  2'b10: reg_wdata <= {{24{mem_rdata[23]}}, mem_rdata[23:16]};
-                  2'b11: reg_wdata <= {{24{mem_rdata[31]}}, mem_rdata[31:24]};
-                endcase
-              end
-
-              is_lbu: begin
-                case (addr24)
-                  2'b00: reg_wdata <= {24'b0, mem_rdata[7:0]};
-                  2'b01: reg_wdata <= {24'b0, mem_rdata[15:8]};
-                  2'b10: reg_wdata <= {24'b0, mem_rdata[23:16]};
-                  2'b11: reg_wdata <= {24'b0, mem_rdata[31:24]};
-                endcase
-              end
-
-              is_lh: begin
-                case (addr16)
-                  1'b0: reg_wdata <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
-                  1'b1: reg_wdata <= {{16{mem_rdata[31]}}, mem_rdata[31:16]};
-                endcase
-              end
-
-              is_lhu: begin
-                case (addr16)
-                  1'b0: reg_wdata <= {16'b0, mem_rdata[15:0]};
-                  1'b1: reg_wdata <= {16'b0, mem_rdata[31:16]};
-                endcase
-              end
-
-              is_lw: reg_wdata <= mem_rdata;
-            endcase
-            cpu_state <= reg_write;
+            cpu_state <= fetch_instr;
             mem_valid <= 0;
             next_pc <= pc + pc_inc;
           end
@@ -705,6 +601,79 @@ module riscv #(
         end
       endcase
     end
+  end
+
+  // The register file is written on the edge that ends the instruction's last state:
+  // execute_instr for everything with a result but a load, finish_load for a load.
+  logic [31:0] alu_result, load_data, wb_data;
+  logic        wb_en;
+  always_comb begin
+    (* parallel_case, full_case *)
+    case (1'b1)
+      is_add || is_addi:   alu_result = `RF_RS1 + math_arg;
+      is_sub:              alu_result = `RF_RS1 - math_arg;
+      is_sll || is_slli:   alu_result = `RF_RS1 << shamt;
+      is_slt || is_slti:   alu_result = {31'b0, $signed(`RF_RS1) < $signed(math_arg)};
+      is_sltu || is_sltiu: alu_result = {31'b0, `RF_RS1 < math_arg};
+      is_xor || is_xori:   alu_result = `RF_RS1 ^ math_arg;
+      is_srl || is_srli:   alu_result = `RF_RS1 >> shamt;
+      is_sra || is_srai:   alu_result = $signed(`RF_RS1) >>> shamt;
+      is_or || is_ori:     alu_result = `RF_RS1 | math_arg;
+      default:             alu_result = `RF_RS1 & math_arg; // is_and || is_andi
+    endcase
+  end
+
+  assign wb_data = is_lui ? immediate :
+                   is_auipc ? immediate + pc :
+                   (is_jal || is_jalr) ? pc + pc_inc :
+                   is_csr ? csr_rdata :
+                            alu_result;
+
+  always_comb begin
+    (* parallel_case, full_case *)
+    case (1'b1)
+      is_lb: begin
+        case (addr24)
+          2'b00: load_data = {{24{mem_rdata[7]}}, mem_rdata[7:0]};
+          2'b01: load_data = {{24{mem_rdata[15]}}, mem_rdata[15:8]};
+          2'b10: load_data = {{24{mem_rdata[23]}}, mem_rdata[23:16]};
+          2'b11: load_data = {{24{mem_rdata[31]}}, mem_rdata[31:24]};
+        endcase
+      end
+
+      is_lbu: begin
+        case (addr24)
+          2'b00: load_data = {24'b0, mem_rdata[7:0]};
+          2'b01: load_data = {24'b0, mem_rdata[15:8]};
+          2'b10: load_data = {24'b0, mem_rdata[23:16]};
+          2'b11: load_data = {24'b0, mem_rdata[31:24]};
+        endcase
+      end
+
+      is_lh: begin
+        case (addr16)
+          1'b0: load_data = {{16{mem_rdata[15]}}, mem_rdata[15:0]};
+          1'b1: load_data = {{16{mem_rdata[31]}}, mem_rdata[31:16]};
+        endcase
+      end
+
+      is_lhu: begin
+        case (addr16)
+          1'b0: load_data = {16'b0, mem_rdata[15:0]};
+          1'b1: load_data = {16'b0, mem_rdata[31:16]};
+        endcase
+      end
+
+      default: load_data = mem_rdata; // is_lw
+    endcase
+  end
+
+  assign wb_en = |rd[3:0] && (cpu_state == finish_load ? mem_ready :
+    cpu_state == execute_instr && !take_trap &&
+    (is_lui || is_auipc || is_jal || is_jalr || is_math || is_math_immediate || is_csr));
+
+  always_ff @(posedge clk) begin
+    if (wb_en) regs[rd[3:0]] <= cpu_state == finish_load ? load_data : wb_data;
   end
 
   // !take_trap excludes an E-illegal CSR instruction, which is_valid alone does not.
