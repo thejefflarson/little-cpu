@@ -21,7 +21,6 @@ module decoder_tb;
   logic issuing;
   logic [31:0] predicted_pc;
   logic [4:0] read_rs1, read_rs2;
-  logic x_redirect = 1'b0;
   logic x_redirect_delayed = 1'b0;
   dx_output out;
 
@@ -40,7 +39,6 @@ module decoder_tb;
     .predicted_pc(predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
-    .x_redirect(x_redirect),
     .x_redirect_delayed(x_redirect_delayed),
     .out(out)
   );
@@ -288,10 +286,10 @@ module decoder_tb;
     #1;
     check_bit("the forward select rode along into out", out.fwd_rs1, 1'b1);
 
-    x_redirect = 1'b1;
+    x_redirect_delayed = 1'b1;
     @(posedge clk);
     #1;
-    x_redirect = 1'b0;
+    x_redirect_delayed = 1'b0;
     check_bit("drained ahead of the load-use vector", out.valid, 1'b0);
 
     in.pc = 32'h0000_00d0;
@@ -304,10 +302,10 @@ module decoder_tb;
     check_bit("...so it is a genuine (load-use) hazard", dut.hazard_rs1, 1'b1);
     check_bit("...and it stalls", issuing, 1'b0);
 
-    x_redirect = 1'b1;
+    x_redirect_delayed = 1'b1;
     @(posedge clk);
     #1;
-    x_redirect = 1'b0;
+    x_redirect_delayed = 1'b0;
     check_bit("drained ahead of the ex_match vectors", out.valid, 1'b0);
 
     executor_out = '0;
@@ -352,10 +350,10 @@ module decoder_tb;
 
     // A CSR access's own rs1 feeds csr_arg, which reads reg_rs1 verbatim: dx_match
     // against a ready producer must still stall, never forward.
-    x_redirect = 1'b1;
+    x_redirect_delayed = 1'b1;
     @(posedge clk);
     #1;
-    x_redirect = 1'b0;
+    x_redirect_delayed = 1'b0;
     check_bit("drained ahead of the CSR forwarding-exclusion vector", out.valid, 1'b0);
 
     in.pc = 32'h0000_00f0;
@@ -367,10 +365,10 @@ module decoder_tb;
 
     // `out` still holds "add x1, x2, x0" from the hazard vectors above; drain it so the
     // serialize checks below start from a genuinely empty pipe, matching their own comment.
-    x_redirect = 1'b1;
+    x_redirect_delayed = 1'b1;
     @(posedge clk);
     #1;
-    x_redirect = 1'b0;
+    x_redirect_delayed = 1'b0;
     check_bit("out is drained ahead of the serialize block", out.valid, 1'b0);
 
     executor_out.valid = 1'b1;   // serialize waits for out/executor_out/accessor all empty
@@ -460,18 +458,7 @@ module decoder_tb;
     check_bit("...and it bubbles out, unlike x_busy", out.valid, 1'b0);
     fetch_stall = 1'b0;
 
-    in.pc = 32'h0000_08c0;   // x_redirect discards a wrong-path word unconditionally
-    settle_issue(32'h00100093);   // addi x1, x0, 1 -- a harmless word, otherwise issuable
-    check_bit("an unrelated word would issue on its own", issuing, 1'b1);
-    x_redirect = 1'b1;
-    #1;
-    check_bit("issuing still tracks !stall, not the kill", issuing, 1'b1);
-    @(posedge clk);
-    #1;
-    check_bit("...so out is bubbled, not the wrong-path word", out.valid, 1'b0);
-    x_redirect = 1'b0;
-
-    in.pc = 32'h0000_08e0;   // x_redirect_delayed discards the SECOND wrong-path word
+    in.pc = 32'h0000_08e0;   // x_redirect_delayed discards the wrong-path word D holds a cycle after X's verdict
     settle_issue(32'h00100093);   // addi x1, x0, 1 -- a harmless word, otherwise issuable
     check_bit("an unrelated word would issue on its own", issuing, 1'b1);
     x_redirect_delayed = 1'b1;
@@ -514,7 +501,7 @@ module decoder_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: D vectors (decode, hazard, serialize, atomic wait, x_busy hold/bubble, x_redirect, x_redirect_delayed, bus_request)");
+      $display("PASSED: D vectors (decode, hazard, serialize, atomic wait, x_busy hold/bubble, x_redirect_delayed, bus_request)");
       $finish;
     end
   end

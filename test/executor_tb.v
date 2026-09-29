@@ -18,6 +18,7 @@ module executor_tb;
   logic [31:0] reg_rs1, reg_rs2;
   logic interrupt_pending;
   logic x_busy;
+  logic kill = 1'b0;
   logic [11:0] csr_addr;
   logic csr_ren, csr_wen;
   logic [31:0] csr_wdata;
@@ -41,6 +42,7 @@ module executor_tb;
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
+    .kill(kill),
     .x_busy(x_busy),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
@@ -153,6 +155,19 @@ module executor_tb;
                                           // but the redirect condition must still catch it
     #1;
     check_bit("a wrongly guessed jal target IS a redirect", redirect, 1'b1);
+
+    kill = 1'b1;   // the word behind a mispredicted branch: issued, never executed
+    #1;
+    check_bit("a killed word redirects nothing", redirect, 1'b0);
+    check_bit("...launches nothing", launch.valid, 1'b0);
+    check_bit("...and enters no trap", trap_entry, 1'b0);
+    in.is_jal = 1'b0;
+    in.is_ecall = 1'b1;
+    #1;
+    check_bit("a killed ecall does not trap either", trap_entry, 1'b0);
+    kill = 1'b0;
+    #1;
+    check_bit("...but the same ecall traps once the kill lifts", trap_entry, 1'b1);
 
     clear_in();
     in.pc = 32'h0000_00a0;

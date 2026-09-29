@@ -18,6 +18,7 @@ module executor #(
   input  logic [31:0] reg_rs2,
   // The timer's live level, read fresh every cycle rather than a bit D captured earlier.
   input  logic interrupt_pending,
+  input  logic kill,
   output logic x_busy,
 
   output logic [11:0] csr_addr,
@@ -51,7 +52,7 @@ module executor #(
  `endif
 );
   // Named continuous assigns, not part-selects: iverilog mis-derives sensitivity for those (ADR-0037).
-  logic        in_valid, in_imem_fault;
+  logic        in_valid, in_valid_raw, in_imem_fault;
   logic [31:0] in_pc, in_instr, in_immediate;
   logic [4:0]  in_rd, in_rs1, in_rs2;
   logic        in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
@@ -64,7 +65,7 @@ module executor #(
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
     in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2, in_predicted_taken;
   logic [13:0] in_predicted_target_low;
-  assign {in_valid, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
+  assign {in_valid_raw, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
     in_rs1, in_rs2, in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
     in_is_mulhu, in_is_mulhsu, in_is_div, in_is_divu, in_is_rem, in_is_remu, in_is_sll,
     in_is_slt, in_is_sltu, in_is_srl, in_is_sra, in_is_lb, in_is_lbu, in_is_lhu, in_is_lh,
@@ -75,6 +76,8 @@ module executor #(
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
     in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2, in_predicted_taken,
     in_predicted_target_low} = in;
+  // A word issued behind a mispredicted branch retires nothing: `kill` is the redirect a register later.
+  assign in_valid = in_valid_raw && !kill;
 
   // Gated on x_busy so a divide in progress finishes before X ever looks.
   logic take_interrupt;
@@ -615,7 +618,7 @@ module executor #(
   always_comb if (clocked) assume(!reset);
 
   // D writes the whole struct `'0` on every bubble path, never just `valid`.
-  always_comb if (!in_valid) assume(in == '0);
+  always_comb if (!in_valid_raw) assume(in == '0);
 
   // decoder.v's own `one_of` set: a free `in` must not manufacture a spurious trap-cause conflict.
   always_comb assume($onehot0({in_is_auipc, in_is_jal, in_is_jalr,

@@ -21,9 +21,9 @@ module decoder #(
   output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
-  // `in` was fetched down the wrong path: discard it unconditionally, no counter or list.
-  input  logic x_redirect,
-  // The same verdict a register later (rtl/littlecpu.v): the extra wrong-path word.
+  // X's redirect a register later (rtl/littlecpu.v): `in` was fetched down the wrong path, so
+  // discard it unconditionally, no counter or list. The word issued alongside the redirect
+  // itself is X's to drop.
   input  logic x_redirect_delayed,
   output dx_output out
 );
@@ -376,8 +376,6 @@ module decoder #(
       out <= '0;
     end else if (x_busy) begin
       out <= out;
-    end else if (x_redirect) begin
-      out <= '0;
     end else if (x_redirect_delayed) begin
       out <= '0;
     end else if (stall) begin

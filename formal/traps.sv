@@ -94,7 +94,6 @@ module traps #(
     .predicted_pc(decoder_predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
-    .x_redirect(x_redirect),
     .x_redirect_delayed(x_redirect_q),
     .out(dx_out)
   );
@@ -113,6 +112,7 @@ module traps #(
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
+    .kill(x_redirect_q),
     .x_busy(x_busy),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
@@ -431,7 +431,7 @@ module traps #(
   // Below, X's trap_entry is checked against a model rebuilt fresh every cycle from `dx_out.instr`.
   logic        dx_valid, dx_is_interrupt, dx_imem_fault;
   logic [31:0] dx_instr;
-  assign dx_valid = dx_out.valid;
+  assign dx_valid = dx_out.valid && !x_redirect_q;
   // X's own decision, restated -- no longer a captured field on dx_out.
   assign dx_is_interrupt = dx_valid && !x_busy && interrupt_pending;
   assign dx_imem_fault = dx_out.imem_fault;
