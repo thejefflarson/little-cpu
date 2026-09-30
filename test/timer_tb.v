@@ -213,6 +213,7 @@ module timer_tb;
     idle();
     check_bit("...two", mtip, 1'b0);
     idle();
+    idle();
     check_bit("...one, and this is the tick an early compare would fire on",
               mtip, 1'b0);
     idle();

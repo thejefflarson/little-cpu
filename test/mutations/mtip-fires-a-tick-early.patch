@@ -1,21 +1,21 @@
 diff --git a/rtl/timer.v b/rtl/timer.v
 --- a/rtl/timer.v
 +++ b/rtl/timer.v
-@@ -92,7 +92,7 @@
-             if (mem_wstrb[2]) cmp[55:48] <= mem_wdata[23:16];
-             if (mem_wstrb[3]) cmp[63:56] <= mem_wdata[31:24];
+@@ -103,7 +103,7 @@ module timer #(
+             if (wstrb_q[2]) cmp[55:48] <= wdata_q[23:16];
+             if (wstrb_q[3]) cmp[63:56] <= wdata_q[31:24];
            end
--          mtip[h] <= mtime_next >= cmp;
-+          mtip[h] <= mtime_next + 64'd1 >= cmp;
+-          mtip[h] <= mtime >= cmp;
++          mtip[h] <= mtime + 64'd1 >= cmp;
          end
        end
      end
-@@ -142,7 +142,7 @@
-         if (mem_wstrb[2]) mtimecmp[55:48] <= mem_wdata[23:16];
-         if (mem_wstrb[3]) mtimecmp[63:56] <= mem_wdata[31:24];
+@@ -157,7 +157,7 @@ module timer #(
+         if (wstrb_q[3]) mtimecmp[63:56] <= wdata_q[31:24];
        end
--      mtip[0] <= mtime_next >= mtimecmp;
-+      mtip[0] <= mtime_next + 64'd1 >= mtimecmp;
-       mem_rdata <= in_range ? read_word : 32'b0;
+       // The plain register, not `mtime_next`: `mtip` is registered, so a cycle-stale compare is legal.
+-      mtip[0] <= mtime >= mtimecmp;
++      mtip[0] <= mtime + 64'd1 >= mtimecmp;
+       mem_rdata <= in_range ? bypassed : 32'b0;
      end
    end

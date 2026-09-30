@@ -1076,7 +1076,7 @@ that it advances by exactly the non-trapping issues; `test/asm/minstret.S`, `tes
 `make -C formal check` as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is necessary,
 not sufficient.
 
-On the fetch-refactor tree `make fit` reads 4,347 packed cells against `FIT_MAX_LC` 4,441 and `make
+On the fetch-refactor tree `make fit` reads 4,347 packed cells locally and 4,332 in the `fit` job, against `FIT_MAX_LC` 4,441 and `make
 soc-timing` places at 5,084 of 5,280 `ICESTORM_LC`, with eight seeds at 12.57–13.24 MHz and
 `soc/pin.json` holding seed 20382078 at 13.24 MHz (ADR-0220 derives the budget and records the
 sweep; the ECP5 and dual figures are not re-taken there).

@@ -832,11 +832,11 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 4441 = 4347 + 40 + 54: the measured count, the churn band measured on this tree, and the
-# widest toolchain gap measured on one tree (derivation: ADR-0220).
+# 4441 = 4347 + 40 + 54: the higher of this tree's local and job counts, the churn band measured
+# on this tree, and the widest toolchain gap measured on one tree (derivation: ADR-0220).
 FIT_MAX_LC := 4441
 
-FIT_LAST_LC := 4347
+FIT_LAST_LC := 4332
 
 FIT_TOOLS := yosys nextpnr-ice40
 

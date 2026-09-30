@@ -74,7 +74,10 @@ adds no ratchet.
   against the fetch behind it, deleted together. `test/asm/selfmod.S` is a
   live grader for the pair and for neither term alone, which is why this
   mutation is two deletions and the one above is one. `imem_tb` sees the port
-  half by itself.
+  half by itself. `spioverlay.S` joined as a `TIMEOUT`
+  (not a `FAIL n`) once a text store cycle stopped reading beside its write
+  (measured 2026-09-30): it patches text and runs it, and with the port half
+  gone it never reaches its verdict.
 - **`sc-reports-success`** — a store-conditional that reports SUCCESS
   whatever the reservation says. `rd` is the only thing an `sc.w` writes, so
   this is the whole instruction going wrong, and `lrsc.S`'s first case

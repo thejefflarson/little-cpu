@@ -32,7 +32,7 @@ All on the shipped tree, `thejefflarson/jef-1056-area-trim`, 2026-09-30, gcc 15.
 | `make soc-timing` packed cells | 5,321 of 5,280, placement fails | 5,084 of 5,280 |
 | `make soc-timing` MHz, 8 seeds one at a time | not placed | 12.57 to 13.24, all at least 12.0 |
 | `soc/pin.json` | stale | seed 20382078 at 13.24 MHz |
-| `make fit` packed cells (local) | 4,524 | 4,347 |
+| `make fit` packed cells | 4,524 (local) | 4,332 (CI job), 4,347 (local) |
 | F and G | 5 and 5 | 5 and 4 |
 | Dhrystone, `make dhrystone` | 1,613,644 cycles (main, 0.722 DMIPS/MHz) | 1,206,025 cycles at 2,000 runs, 0.943 DMIPS/MHz |
 | CoreMark, `make coremark` | 2.155 per MHz (main) | 2.776 per MHz (36,010,251 ticks, 100 iterations, 16 KB simulated ROM) |
@@ -49,9 +49,10 @@ the predictor's target adder and the registered redirect) is now paid by a SoC t
 
 4441 = 4347 + 40 + 54.
 
-- **4347** a local `make fit` on this tree. The `fit` CI job's count is the figure the ratchet is
-  graded against and can differ from a local run by the third term, so this number is re-read from
-  the job on this PR's CI and the budget re-derived if it disagrees by more than the band.
+- **4347** the higher of this tree's pair: a local `make fit` reads 4,347 and the `fit` CI job on
+  this PR (run 36686078168) reads 4,332, a gap of 15 with the local run above. ADR-0142 grades the
+  job's count, and its rule that the budget clear the higher of the pair by more than a band holds:
+  4,441 clears 4,347 by 94.
 - **+40** the churn band measured on this tree. Seven edits that change no logic, each setting one
   further bit of the read-only `misa` constant in `rtl/csrs.v` (`0x4000_1107`, `110D`, `1145`,
   `1905`, `0x4001_1105`, `0x4010_1105`, `0x4000_1125`), read 4,362, 4,362, 4,376, 4,376, 4,357,
@@ -61,7 +62,7 @@ the predictor's target adder and the registered redirect) is now paid by a SoC t
 - **+54** ADR-0142's widest gap between two toolchains on one tree, carried over: it is a property
   of yosys builds and CI floats the suite, and one local toolchain cannot re-measure it.
 
-`FIT_LAST_LC` moves to 4,347. Nothing here is headroom for the next change.
+`FIT_LAST_LC` moves to 4,332, the job's count. Nothing here is headroom for the next change.
 
 ## Cross-core measurement
 
