@@ -755,15 +755,14 @@ module riscv #(
 
   // Held from execute_instr, not re-read live: a load/store whose rd aliases its rs1
   // moves regs[rs1] (and so load_store_address/take_trap) before its own retirement.
-  logic captured_take_trap, captured_is_opm, captured_load_fault, captured_store_fault;
+  logic captured_take_trap, captured_load_fault, captured_store_fault;
   logic [3:0]  captured_store_wstrb;
   logic [31:0] captured_ls_addr;
   always_ff @(posedge clk) begin
     if (cpu_state == execute_instr) begin
       captured_take_trap   <= take_trap;
-      captured_is_opm      <= is_opm_encoding;
-      captured_load_fault  <= load_region_fault;
-      captured_store_fault <= store_region_fault;
+      captured_load_fault  <= trap_cause_value == CAUSE_LOAD_ACCESS_FAULT;
+      captured_store_fault <= trap_cause_value == CAUSE_STORE_ACCESS_FAULT;
       captured_store_wstrb <= store_wstrb;
       // Word-aligned, matching both the non-faulting mem_addr and RISCV_FORMAL_ALIGNED_MEM's spec model.
       captured_ls_addr     <= {load_store_address[31:2], 2'b00};
@@ -835,6 +834,15 @@ module riscv #(
   assign rvfi_csr_mscratch_wdata = rvfi_csr_mscratch_wdata_q;
 `endif
 
+`ifdef RISCV_FORMAL_CSR_MCAUSE
+  logic [31:0] rvfi_csr_mcause_rmask_q, rvfi_csr_mcause_wmask_q, rvfi_csr_mcause_rdata_q,
+               rvfi_csr_mcause_wdata_q;
+  assign rvfi_csr_mcause_rmask = rvfi_csr_mcause_rmask_q;
+  assign rvfi_csr_mcause_wmask = rvfi_csr_mcause_wmask_q;
+  assign rvfi_csr_mcause_rdata = rvfi_csr_mcause_rdata_q;
+  assign rvfi_csr_mcause_wdata = rvfi_csr_mcause_wdata_q;
+`endif
+
 `ifdef RISCV_FORMAL_MEM_FAULT
   wire fault_load  = is_fetch_entry && captured_load_fault;
   wire fault_store = is_fetch_entry && captured_store_fault;
@@ -861,7 +869,7 @@ module riscv #(
     rvfi_halt_q <= trap;
 `ifdef RISCV_FORMAL_MEM_FAULT
     rvfi_mem_fault_q       <= is_fetch_entry &&
-      (captured_is_opm || fault_load || fault_store);
+      (fault_load || fault_store);
     rvfi_mem_fault_rmask_q <= fault_load ? 4'b1111 : 4'b0;
     rvfi_mem_fault_wmask_q <= fault_store ? captured_store_wstrb : 4'b0;
 `endif
@@ -899,6 +907,17 @@ module riscv #(
       rvfi_csr_mscratch_wmask_q <= {32{csr_wen && csr_addr == CSR_MSCRATCH}};
       rvfi_csr_mscratch_rdata_q <= mscratch;
       rvfi_csr_mscratch_wdata_q <= (csr_wen && csr_addr == CSR_MSCRATCH) ? csr_new_value : mscratch;
+    end
+`endif
+
+`ifdef RISCV_FORMAL_CSR_MCAUSE
+    if (cpu_state == execute_instr) begin
+      rvfi_csr_mcause_rmask_q <= {32{is_csr && csr_addr == CSR_MCAUSE}};
+      rvfi_csr_mcause_wmask_q <= {32{take_trap || (csr_wen && csr_addr == CSR_MCAUSE)}};
+      rvfi_csr_mcause_rdata_q <= mcause_value;
+      rvfi_csr_mcause_wdata_q <= take_trap ? trap_cause_value :
+                                 (csr_wen && csr_addr == CSR_MCAUSE) ?
+                                   {csr_new_value[31], 27'b0, csr_new_value[3:0]} : mcause_value;
     end
 `endif
 

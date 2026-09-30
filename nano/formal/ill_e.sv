@@ -37,7 +37,5 @@ module rvfi_testbench (
 
   always @* if (live && e_illegal) assert(rvfi_trap);
 
-  // A LOAD whose rs1 is x17, retired as a trap. rd is not the field to name: a trapping
-  // retirement reports rd as 0, so an rd-only or rd-and-rs1 goal is unreachable on a correct core.
-  cover property (live && rvfi_insn[6:0] == 7'b0000011 && rvfi_rs1_addr == 5'd17 && rvfi_trap);
+  cover property (live && rvfi_insn[6:0] == 7'b0000011 && rvfi_rs1_addr == 5'd17 && rvfi_trap); // not rd: a trap reports rd as 0
 endmodule

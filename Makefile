@@ -660,8 +660,6 @@ probes-header-test:
 stall-sites-test:
 	@python3 ./test/stall_sites_test.py
 
-# Every target in formal/Makefile's and nano/formal/Makefile's `all` must be run by a CI step,
-# so a proof added to a suite cannot sit ungraded.
 .PHONY: formal-ci-coverage-test
 formal-ci-coverage-test:
 	@python3 ./test/formal_ci_coverage_test.py

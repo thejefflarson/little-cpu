@@ -117,7 +117,8 @@ DESIGNS = {
                     "-D RISCV_FORMAL_ILEN=32 -D RISCV_FORMAL_COMPRESSED "
                     "-D RISCV_FORMAL_ALIGNED_MEM -D RISCV_FORMAL_E "
                     "-D RISCV_FORMAL_MEM_FAULT -D RISCV_FORMAL_CSR_MCYCLE "
-                    "-D RISCV_FORMAL_CSR_MINSTRET -D RISCV_FORMAL_CSR_MSCRATCH "),
+                    "-D RISCV_FORMAL_CSR_MINSTRET -D RISCV_FORMAL_CSR_MSCRATCH "
+                    "-D RISCV_FORMAL_CSR_MCAUSE "),
         "header": os.path.join(ROOT, "formal", "riscv-formal", "checks", "rvfi_macros.vh"),
     },
 }
