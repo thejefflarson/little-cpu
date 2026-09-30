@@ -4,8 +4,7 @@
 module littlesoc #(
   // The board's clock, so rtl/uart.v can derive its divisor.
   parameter integer CLOCK_HZ = 12_000_000,
-  // One parameter drives both the fetch window and the ROM behind it, so the two cannot
-  // disagree the way two separate literals could.
+  // One parameter drives both the fetch window and the ROM behind it, so the two cannot disagree.
   parameter integer ROM_WORDS = 2048
 ) (
   input  logic clk,
@@ -41,8 +40,7 @@ module littlesoc #(
   logic [31:0] flash_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
-  logic        atomic_supported, mem_lock, bus_request;
-  logic [31:0] atomic_addr;
+  logic        mem_lock, bus_request;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic [31:0] imem_data, imem_data2;
 
@@ -62,8 +60,6 @@ module littlesoc #(
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
     .mem_reservable(mem_reservable),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
@@ -97,9 +93,7 @@ module littlesoc #(
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(dmem_mem_rdata),
-    .reservable(mem_reservable),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported)
+    .reservable(mem_reservable)
   );
 
   timer mtimer (

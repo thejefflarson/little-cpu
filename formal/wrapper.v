@@ -28,9 +28,6 @@ module rvfi_wrapper (
 
   (* keep *) `rvformal_rand_reg mem_reservable;
 
-  (* keep *) `rvformal_rand_reg atomic_supported;
-  wire [31:0] atomic_addr;
-
   wire mem_lock;
   wire bus_request;
 
@@ -90,8 +87,6 @@ module rvfi_wrapper (
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
     .mem_reservable(mem_reservable),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),

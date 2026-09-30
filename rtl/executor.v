@@ -18,10 +18,8 @@ module executor #(
   input  logic [31:0] reg_rs2,
   // The timer's live level, read fresh every cycle rather than a bit D captured earlier.
   input  logic interrupt_pending,
+  input  logic kill,
   output logic x_busy,
-
-  output logic [31:0] atomic_addr,
-  input  logic        atomic_supported,
 
   output logic [11:0] csr_addr,
   output logic        csr_ren,
@@ -54,7 +52,7 @@ module executor #(
  `endif
 );
   // Named continuous assigns, not part-selects: iverilog mis-derives sensitivity for those (ADR-0037).
-  logic        in_valid, in_imem_fault;
+  logic        in_valid, in_valid_raw, in_imem_fault;
   logic [31:0] in_pc, in_instr, in_immediate;
   logic [4:0]  in_rd, in_rs1, in_rs2;
   logic        in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
@@ -65,8 +63,9 @@ module executor #(
     in_is_lr, in_is_sc, in_is_auipc, in_is_lui, in_is_jal, in_is_jalr, in_is_beq, in_is_bne,
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
-    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2;
-  assign {in_valid, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
+    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2, in_predicted_taken;
+  logic [13:0] in_predicted_target_low;
+  assign {in_valid_raw, in_imem_fault, in_pc, in_instr, in_immediate, in_rd,
     in_rs1, in_rs2, in_is_add, in_is_sub, in_is_xor, in_is_or, in_is_and, in_is_mul, in_is_mulh,
     in_is_mulhu, in_is_mulhsu, in_is_div, in_is_divu, in_is_rem, in_is_remu, in_is_sll,
     in_is_slt, in_is_sltu, in_is_srl, in_is_sra, in_is_lb, in_is_lbu, in_is_lhu, in_is_lh,
@@ -75,14 +74,16 @@ module executor #(
     in_is_lr, in_is_sc, in_is_auipc, in_is_lui, in_is_jal, in_is_jalr, in_is_beq, in_is_bne,
     in_is_blt, in_is_bltu, in_is_bge, in_is_bgeu, in_is_ecall, in_is_ebreak, in_is_mret,
     in_is_wfi, in_is_fence, in_is_fencei, in_is_csrrw, in_is_csrrs, in_is_csrrc, in_is_csr_imm,
-    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2} = in;
+    in_is_csr_access, in_is_math_imm, in_fwd_rs1, in_fwd_rs2, in_predicted_taken,
+    in_predicted_target_low} = in;
+  // A word issued behind a mispredicted branch retires nothing: `kill` is the redirect a register later.
+  assign in_valid = in_valid_raw && !kill;
 
   // Gated on x_busy so a divide in progress finishes before X ever looks.
   logic take_interrupt;
   assign take_interrupt = in_valid && !x_busy && interrupt_pending;
 
-  // D precomputed these selects from register NUMBERS alone -- the one case the
-  // write-through bypass (commitment 4) reaches too late.
+  // D precomputed these selects from register NUMBERS alone -- the one case the write-through bypass (commitment 4) reaches too late.
   logic [31:0] fwd_rs1_val, fwd_rs2_val;
   assign fwd_rs1_val = in_fwd_rs1 ? out.rd_data : reg_rs1;
   assign fwd_rs2_val = in_fwd_rs2 ? out.rd_data : reg_rs2;
@@ -110,7 +111,6 @@ module executor #(
   logic [31:0] mem_fault_word_addr;
   assign mem_fault_word_addr = {mem_addr_calc[31:2], 2'b00};
  `endif
-  assign atomic_addr = fwd_rs1_val;
 
   logic instr_ls_load, instr_ls_store, ls_access;
   assign instr_ls_load  = in_is_lb || in_is_lbu || in_is_lh || in_is_lhu || in_is_lw;
@@ -119,10 +119,14 @@ module executor #(
 
   localparam logic [31:0] LS_TEXT_BYTES = LS_TEXT_WORDS * 4;
   localparam logic [31:0] LS_RAM_BYTES  = LS_RAM_WORDS * 4;
+  // An atomic's immediate is always zero (asserted below), so mem_addr_calc is rs1 alone here too, and this is the same test a load or store already runs on it.
+  logic ram_mapped;
+  assign ram_mapped = ((mem_addr_calc ^ LS_RAM_BASE) & ~(LS_RAM_BYTES - 32'd1)) == 32'd0;
+
   logic ls_supported;
   assign ls_supported =
     ((mem_addr_calc & ~(LS_TEXT_BYTES - 32'd1)) == 32'd0) ||
-    (((mem_addr_calc ^ LS_RAM_BASE) & ~(LS_RAM_BYTES - 32'd1)) == 32'd0) ||
+    ram_mapped ||
     (mem_addr_calc[31:5] == LS_TIMER_BASE[31:5]) ||
     (mem_addr_calc[31:3] == LS_UART_BASE[31:3]) ||
     (mem_addr_calc[31:3] == LS_FLASH_BASE[31:3]);
@@ -151,7 +155,7 @@ module executor #(
                             (instr_atomic_write && word_misaligned);
 
   logic atomic_fault;
-  assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
+  assign atomic_fault = instr_atomic && !ram_mapped && !word_misaligned;
   assign ls_fault = ls_access && !ls_supported && !load_misaligned && !store_misaligned;
 
   logic load_access_fault, store_access_fault;
@@ -243,9 +247,15 @@ module executor #(
     endcase
   end
 
-  logic [31:0] pc_inc, seq_pc, resolved_target;
+  localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
+  localparam int PREDICT_LOW_BITS  = LS_TEXT_ADDR_BITS + 2;
+
+  logic [31:0] pc_inc, seq_pc, resolved_target, guessed_pc;
   assign pc_inc = in_instr[1:0] == 2'b11 ? 4 : 2;
   assign seq_pc = in_pc + pc_inc;
+  assign guessed_pc = in_predicted_taken  // rtl/decoder.v's own `predicted_pc`
+    ? {in_pc[31:PREDICT_LOW_BITS], in_predicted_target_low[PREDICT_LOW_BITS-1:0]}
+    : seq_pc;
   always_comb begin
     case (1'b1)
       trap_taken:                resolved_target = mtvec;
@@ -257,7 +267,7 @@ module executor #(
     endcase
   end
 
-  assign redirect = in_valid && !x_busy && (resolved_target != seq_pc ||
+  assign redirect = in_valid && !x_busy && (resolved_target != guessed_pc ||
     trap_taken || in_is_mret);
   assign redirect_target = resolved_target;
 
@@ -608,7 +618,7 @@ module executor #(
   always_comb if (clocked) assume(!reset);
 
   // D writes the whole struct `'0` on every bubble path, never just `valid`.
-  always_comb if (!in_valid) assume(in == '0);
+  always_comb if (!in_valid_raw) assume(in == '0);
 
   // decoder.v's own `one_of` set: a free `in` must not manufacture a spurious trap-cause conflict.
   always_comb assume($onehot0({in_is_auipc, in_is_jal, in_is_jalr,
@@ -871,8 +881,6 @@ module executor #(
       launch_is_amoand || launch_is_amoor || launch_is_amomin || launch_is_amomax ||
       launch_is_amominu || launch_is_amomaxu));
 
-  always_comb if (clocked && instr_atomic) assert(mem_addr_calc == atomic_addr);
-
   always_comb if (clocked && ls_access) assert(in_immediate_hi == {20{in_immediate_sign}});
 
   // The trap-cause priority chain: exactly one arm decides, in this order, whenever the
@@ -890,7 +898,7 @@ module executor #(
     assert(trap_cause == CAUSE_LOAD_ACCESS_FAULT);
   always_comb if (clocked && word_decides && store_access_fault)
     assert(trap_cause == CAUSE_STORE_ACCESS_FAULT);
-  always_comb if (clocked && !trap_taken) assert(trap_cause == 32'b0);
+  always_comb if (clocked && !kill && !trap_taken) assert(trap_cause == 32'b0);
 
   // X is the single commit point: a trap redirects to mtvec and an mret to mepc, both
   // same-cycle claims (X owns no registered pc of its own for a $past version to check).

@@ -36,10 +36,12 @@ module uart #(
   assign busy = |bits_left;
   assign tx   = shift[0];
 
-  logic in_range, is_status, start_frame;
+  logic in_range, is_status, accept, start_frame, busy_now;
+  logic [7:0] data_q;
   assign in_range  = mem_addr[31:3] == BASE[31:3];
   assign is_status = mem_addr[2];
-  assign start_frame = in_range && !is_status && mem_wstrb[0] && !busy;
+  assign busy_now  = busy || start_frame;
+  assign accept    = in_range && !is_status && mem_wstrb[0] && !busy_now;
 
   logic baud_tick;
   assign baud_tick = busy && baud_count == '0;
@@ -47,15 +49,19 @@ module uart #(
   logic rd_busy;
   assign mem_rdata = {31'b0, rd_busy};
 
+  always_ff @(posedge clk) data_q <= mem_wdata[7:0];
+
   always_ff @(posedge clk) begin
     if (reset) begin
       shift      <= '1;
       bits_left  <= '0;
       baud_count <= '0;
       rd_busy    <= 1'b0;
+      start_frame <= 1'b0;
     end else begin
+      start_frame <= accept;
       if (start_frame) begin
-        shift      <= {1'b1, mem_wdata[7:0], 1'b0};
+        shift      <= {1'b1, data_q, 1'b0};
         bits_left  <= FRAME_BITS;
         baud_count <= DIVISOR - 1;
       end else if (baud_tick) begin
@@ -65,7 +71,7 @@ module uart #(
       end else if (busy) begin
         baud_count <= baud_count - 1'b1;
       end
-      rd_busy <= in_range && is_status && busy;
+      rd_busy <= in_range && is_status && busy_now;
     end
   end
 endmodule

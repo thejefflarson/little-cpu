@@ -43,8 +43,6 @@ module littledual #(
   logic [32*NHARTS-1:0] imem_addr, imem_addr2, imem_addr_next;
   logic [32*NHARTS-1:0] imem_data, imem_data2;
   logic [NHARTS-1:0]    fetch_stall, imem_fault;
-  logic [32*NHARTS-1:0] atomic_addr;
-  logic [NHARTS-1:0]    atomic_supported;
   logic [NHARTS-1:0]    irq_timer;
   logic [NHARTS-1:0]    bus_request, bus_wait, mem_lock, grant;
   logic [32*NHARTS-1:0] hart_mem_addr, hart_mem_wdata;
@@ -118,8 +116,6 @@ module littledual #(
       .fetch_stall(fetch_stall[h]),
       .imem_fault(imem_fault[h]),
       .mem_reservable(mem_reservable),
-      .atomic_addr(atomic_addr[32*h+31:32*h]),
-      .atomic_supported(atomic_supported[h]),
       .bus_wait(bus_wait[h]),
       // From the other hart's own port, so a hart never snoops its own store.
       .snoop_write(|hart_mem_wstrb[4*OTHER+3:4*OTHER]),
@@ -183,15 +179,13 @@ module littledual #(
     .imem_fault(imem_fault)
   );
 
-  memory #(.NHARTS(NHARTS)) dmem (
+  memory dmem (
     .clk(clk),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(dmem_mem_rdata),
-    .reservable(mem_reservable),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported)
+    .reservable(mem_reservable)
   );
 
   timer #(.NHARTS(NHARTS)) mtimer (

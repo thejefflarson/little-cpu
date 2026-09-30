@@ -22,10 +22,8 @@ module testbench(
   logic        fetch_stall;
   logic        imem_fault;
   logic        mem_reservable;
-  logic        atomic_supported;
   logic        mem_lock;
   logic        bus_request;
-  logic [31:0] atomic_addr;
   logic        irq_timer;
   // All five memories answer zero outside their own range, so the buses join with an OR,
   // exactly as rtl/littlesoc.v joins them.
@@ -78,9 +76,7 @@ module testbench(
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(dmem_mem_rdata),
-    .reservable(mem_reservable),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported)
+    .reservable(mem_reservable)
   );
 
   // No init files: the cxxrtl runners fill the banks through `debug_items`
@@ -158,8 +154,6 @@ module testbench(
     .fetch_stall(fetch_stall),
     .imem_fault(imem_fault),
     .mem_reservable(mem_reservable),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     // One bus initiator in this machine, so the bus is never withheld and nothing but the
     // core writes memory.
     .bus_wait(1'b0),

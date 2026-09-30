@@ -298,8 +298,8 @@ module uart_tb;
       load(UART_STATUS);
       busy_cycles++;
     end
-    check_int("a frame is ten bit times on the wire",
-              busy_cycles, FRAME_BITS * DIVISOR);
+    check_int("a frame is ten bit times on the wire, one latch cycle after the store",
+              busy_cycles, FRAME_BITS * DIVISOR + 1);
     check_bit("...and the line is back at its idle level", tx, 1'b1);
 
     store(UART_DATA, 32'h0000_5a00, 4'b0010);

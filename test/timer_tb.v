@@ -107,9 +107,9 @@ module timer_tb;
   logic level;
   assign level = dut.mtime >= dut.mtimecmp;
 
-  // A store lands on the edge that ends the cycle driving it and both sides of the
-  // comparison come out of flip-flops, so the cycle after one is a cycle the spec lets
-  // mtip be stale for -- a change in the comparison is reflected eventually, not
+  // A store is latched on the edge that ends the cycle driving it and lands one edge later
+  // (`writing_q` is the cycle it lands in), and both sides of the comparison come out of
+  // flip-flops, so the cycle after that is a cycle the spec lets mtip be stale for -- a change in the comparison is reflected eventually, not
   // immediately.
   logic level_prev, wrote_prev;
   int high_checks = 0, low_checks = 0;
@@ -128,7 +128,7 @@ module timer_tb;
         end
       end
       level_prev <= level;
-      wrote_prev <= dut.writing;
+      wrote_prev <= dut.writing_q;
     end
   end
 
@@ -155,6 +155,7 @@ module timer_tb;
     store(MTIMECMP_HI, 32'hffff_ffff, 4'b1111);
     store(MTIMECMP_LO, 32'hffff_ffff, 4'b1111);
     idle();
+    idle();
     check_bit("moving mtimecmp out of reach disarms it", mtip, 1'b0);
 
     load(MTIME_LO);
@@ -177,8 +178,10 @@ module timer_tb;
     store(MTIMECMP_LO, 32'h0000_0200, 4'b1111);
     store(MTIME_HI, 32'h0000_0000, 4'b1111);
     store(MTIME_LO, 32'h0000_01ff, 4'b1111);
+    idle();
     check_bit("mtime below mtimecmp raises nothing", mtip, 1'b0);
     idle();
+    idle();  // mtip compares the pre-edge mtime register, one cycle behind mtime's own tick
     check_bit("mtime EQUAL to mtimecmp is pending -- the compare is >=, not >",
               mtip, 1'b1);
 
@@ -190,10 +193,12 @@ module timer_tb;
 
     store(MTIMECMP_LO, 32'hffff_ffff, 4'b1111);
     idle();
+    idle();
     check_bit("moving mtimecmp forward is what clears it", mtip, 1'b0);
 
     store(MTIME_HI, 32'h0000_0001, 4'b1111);
     store(MTIME_LO, 32'h0000_0000, 4'b1111);
+    idle();
     idle();
     check_bit("the compare is over all 64 bits, not the low half", mtip, 1'b1);
 
@@ -201,14 +206,17 @@ module timer_tb;
     store(MTIMECMP_LO, 32'h0000_0204, 4'b1111);
     store(MTIME_HI, 32'h0000_0000, 4'b1111);
     store(MTIME_LO, 32'h0000_0200, 4'b1111);
+    idle();
     check_bit("armed four ticks short of mtimecmp", mtip, 1'b0);
     idle();
     check_bit("...three ticks short is still nothing", mtip, 1'b0);
     idle();
     check_bit("...two", mtip, 1'b0);
     idle();
+    idle();
     check_bit("...one, and this is the tick an early compare would fire on",
               mtip, 1'b0);
+    idle();
     idle();
     check_bit("...and the tick that reaches mtimecmp raises it", mtip, 1'b1);
 
@@ -217,13 +225,16 @@ module timer_tb;
     store(MTIME_HI, 32'h0000_0001, 4'b1111);
     store(MTIME_LO, 32'h0000_0050, 4'b1111);
     idle();
+    idle();
     check_bit("mtime under mtimecmp over 64 bits raises nothing", mtip, 1'b0);
 
     store(MTIMECMP_HI, 32'h0000_0001, 4'b1111);
     idle();
+    idle();
     check_bit("high half first passes through a reachable pair, and it FIRES",
               mtip, 1'b1);
     store(MTIMECMP_LO, 32'hffff_fff0, 4'b1111);
+    idle();
     idle();
     check_bit("...even though the end state it reaches is out of reach again",
               mtip, 1'b0);
@@ -233,23 +244,28 @@ module timer_tb;
     store(MTIME_HI, 32'h0000_0001, 4'b1111);
     store(MTIME_LO, 32'h0000_0050, 4'b1111);
     idle();
+    idle();
     check_bit("back to the starting point", mtip, 1'b0);
 
     store(MTIMECMP_LO, 32'hffff_ffff, 4'b1111);
+    idle();
     idle();
     check_bit("step 1: the low half all ones, no smaller than the old value",
               mtip, 1'b0);
     store(MTIMECMP_HI, 32'h0000_0001, 4'b1111);
     idle();
+    idle();
     check_bit("step 2: the new high half, no smaller than the new value",
               mtip, 1'b0);
     store(MTIMECMP_LO, 32'hffff_fff0, 4'b1111);
+    idle();
     idle();
     check_bit("step 3: the new low half, and nothing fired on the way",
               mtip, 1'b0);
 
     store(MTIME_HI, 32'hffff_ffff, 4'b1111);
     store(MTIME_LO, 32'hffff_ffff, 4'b1111);
+    idle();
     idle();
     load(MTIME_LO);
     check_hex("mtime wraps past all ones rather than saturating there",
@@ -275,6 +291,7 @@ module timer_tb;
 
     store(MTIME_LO, 32'hffff_ffff, 4'b1111);
     idle();
+    idle();
     load(MTIME_LO);
     check_hex("mtime wraps its low half", mem_rdata, 32'h0000_0000);
     load(MTIME_HI);
@@ -283,6 +300,7 @@ module timer_tb;
     store(MTIME_HI, 32'h0000_0000, 4'b1111);
     store(MTIME_LO, 32'hffff_ffff, 4'b1111);
     store(MTIME_LO, 32'h0000_0000, 4'b1111);
+    idle();
     load(MTIME_HI);
     check_hex("a write at the carry boundary discards the carry too", mem_rdata, 32'h0000_0000);
     load(MTIME_LO);
@@ -293,6 +311,7 @@ module timer_tb;
     store(MTIMECMP_HI, 32'hffff_ffff, 4'b1111);
     store(CMP1_LO,     32'hffff_ffff, 4'b1111);
     store(CMP1_HI,     32'hffff_ffff, 4'b1111);
+    idle();
     idle();
     check_hex("two harts: neither mtip is posted with both disarmed",
               {30'b0, d_mtip}, 32'h0);
@@ -317,15 +336,18 @@ module timer_tb;
     store(CMP1_LO, 32'h0000_0000, 4'b1111);
     store(CMP1_HI, 32'h0000_0000, 4'b1111);
     idle();
+    idle();
     check_hex("hart 1 armed posts hart 1's mtip alone", {30'b0, d_mtip}, 32'h2);
 
     store(MTIMECMP_LO, 32'h0000_0000, 4'b1111);
     store(MTIMECMP_HI, 32'h0000_0000, 4'b1111);
     idle();
+    idle();
     check_hex("...and arming hart 0 posts both", {30'b0, d_mtip}, 32'h3);
 
     store(CMP1_LO, 32'hffff_ffff, 4'b1111);
     store(CMP1_HI, 32'hffff_ffff, 4'b1111);
+    idle();
     idle();
     check_hex("...and disarming hart 1 lowers only its line",
               {30'b0, d_mtip}, 32'h1);

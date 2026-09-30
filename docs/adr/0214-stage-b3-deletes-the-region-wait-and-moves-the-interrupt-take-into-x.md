@@ -220,6 +220,41 @@ it — delete a deferred cycle with no regression on the two programs that alrea
 changing its timing — is met by F/G reproducing at 5/5 unchanged and by Dhrystone and
 CoreMark reading digit-for-digit identical to checkpoint 1's own freshly-remeasured figures.
 
+## Cross-core measurement (amendment)
+
+`soc/compare/` (ADR-0139, ADR-0146, ADR-0160) puts this tree against the pinned VexRiscv and
+Hazard3 builds, same part, memories, program, toolchain and seeds, at the pinned
+`riscv-none-elf-gcc` (ADR-0190) both benchmarks build at RV32IM. Cycles, this tree:
+
+| | Dhrystone cycles | vs littlecpu | CoreMark cycles | vs littlecpu |
+|---|---|---|---|---|
+| littlecpu | 278,823 / 279,224 | — | 413,877 / 414,806 | — |
+| VexRiscv | 269,629 | 0.967× | 437,545 | 1.057× |
+| Hazard3 | 252,026 | 0.903× | 666,552 | 1.607× |
+
+littlecpu's own count differs by 401 cycles between the two pairings (278,823 against
+VexRiscv, 279,224 against Hazard3) and by 929 on CoreMark (413,877 / 414,806) — the harness
+runs each pairing as its own simulation and neither figure is cited as the tree's Dhrystone
+or CoreMark floor; `make dhrystone`/`make coremark`'s own 1,394,022-cycle,
+0.816-DMIPS/MHz figures (this ADR's own Measured section, `DHRY_RUNS`-scaled) are that. Both
+readings are still a clear win against `main`'s own pre-refactor pinned-compiler figures
+(ADR-0190's 313,627 Dhrystone / 446,995 CoreMark cycles): 11.1% fewer Dhrystone cycles and
+7.2–7.4% fewer CoreMark cycles than main, on the same one-C-binary-three-cores harness.
+
+Against the other two cores, littlecpu now trails on Dhrystone (0.967× VexRiscv, 0.903×
+Hazard3 — B2's forwarding narrowed but did not close this) and leads on CoreMark against
+Hazard3 (1.607×) while trailing VexRiscv there too (1.057×), the same ordering
+ADR-0160/ADR-0146's own up5k figures showed pre-refactor.
+
+**The programme's own kill criterion — Dhrystone cycles at or below 270,000 after Stage B, or
+re-plan — is missed, at both readings: 278,823 and 279,224 are 3.3% and 3.4% over the line.**
+Put to the owner with the area crisis this ADR already reports (`make fit`/`make soc-timing`
+still red, ADR-0207's expected-red list), the owner's own words: "continue for sure. we need
+to get this on an up5k." The kill criterion is not met on the cycle count it named, and the
+programme continues past it on that explicit direction rather than a re-plan — recorded here
+because a missed kill criterion that is not filed reads, later, like a criterion that was
+never missed.
+
 ## Decision
 
 **SHIPPED.** Both checkpoints are pure simplifications with no measured
@@ -227,3 +262,32 @@ cost: checkpoint 1 deletes a deferred answer nothing needed once it left the fet
 checkpoint 2 moves a decision to the stage that actually owns it, provable standalone where
 it used to depend on a cross-module argument. `make fit`/`make soc-timing` stay on the
 owner's own expected-red list (ADR-0207) until the restructure's area pass lands.
+
+## Amendment: the device side of the launch is registered
+
+B3 launches a store from X, so the forwarded operand, the address adder, the device decode and
+the device register write shared one cycle. On the real `make soc-timing` flow at 5,069 of
+5,280 LC, six of eight seeds read 11.78 to 12.28 MHz with most under 12.0, every worst path
+ending at `mtimer.mtimecmp[*]`, then (with the timer registered, 6fa9cbb, 5,105 LC, 11.64 to
+12.53 MHz, three seeds under 12.0) at `flash.selected`, `flash.shift_out[*]` and `spi_sck`.
+
+`rtl/timer.v`, `rtl/uart.v` and `rtl/spiflash.v` now latch the request (decoded strobe, word
+and data) and apply it one cycle later. Reads stay exact: the timer bypasses a pending store
+into `mem_rdata`, and the UART and SPI controller report `busy` from `busy || start_pending`,
+which also refuses a second store in the latch cycle. `mtip`, the tx frame and the chip select
+only get later. `test/timer_tb.v` gained one settle cycle after each store group and follows
+`writing_q`; `test/uart_tb.v` expects the frame one cycle longer. The SPRAM data RAM is not on
+these paths and was not touched.
+
+Twelve-MHz requirement, real flow, 5,084 LC, eight seeds one at a time: 12.87, 13.07, 13.16,
+12.57, 12.91, 13.22, 12.64, 13.24 MHz (seeds 195147338, 218749127, 20740127, 125781539,
+14871351, 156842832, 233595587, 20382078), worst 12.57. Every worst path now ends at
+`imem.even_data` or `imem.odd_data`, the fetch loop, started at `accessor_out[32]`,
+`regfile.held_rs1` or the power-on reset flop.
+
+## Amendment 2026-09-30 — figures superseded by the shipped tree
+
+The 5/5 depth, the Dhrystone and CoreMark cycles and the "red on fit and soc-timing" status above
+describe B3 alone. On the tree that ships (ADR-0207, amended; ADR-0220) F and G are 5 and 4,
+Dhrystone is 1,206,025 cycles at 2,000 runs (0.943 DMIPS/MHz), CoreMark reads 2.776 per MHz, and
+`make soc-timing` places at 5,084 of 5,280 cells and clears 12 MHz at all eight seeds.

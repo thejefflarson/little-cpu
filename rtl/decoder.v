@@ -1,9 +1,9 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 `include "structs.v"
-// D decodes the buffered word and presents the register file its own pair (never a guess),
-// so X reads the right answer next cycle. Fetch-address ownership lives in rtl/littlecpu.v.
-module decoder (
+module decoder #(
+  parameter integer LS_TEXT_WORDS = 2048
+) (
   input  logic clk,
   input  logic reset,
   input  fetcher_output in,
@@ -16,12 +16,14 @@ module decoder (
   input  logic imem_fault,
   input  logic accessor_out_valid,
   output logic issuing,
-  // The sequential guess `+2`/`+4`, never F's word-granular ROM address.
+  // The guessed target when taken, else `+2`/`+4`.
   output logic [31:0] predicted_pc,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
-  // `in` was fetched down the wrong path: discard it unconditionally, no counter or list.
-  input  logic x_redirect,
+  // X's redirect a register later (rtl/littlecpu.v): `in` was fetched down the wrong path, so
+  // discard it unconditionally, no counter or list. The word issued alongside the redirect
+  // itself is X's to drop.
+  input  logic x_redirect_delayed,
   output dx_output out
 );
   logic [31:0] instr;
@@ -300,7 +302,6 @@ module decoder (
   assign ex_match_rs1 = executor_out.valid && executor_out.rd == rs1;
   assign ex_match_rs2 = executor_out.valid && executor_out.rd == rs2;
 
-  // Mirrors executor.v's `in_has_result`.
   logic out_has_result;
   assign out_has_result = out.is_add || out.is_sub || out.is_xor || out.is_or || out.is_and ||
     out.is_sll || out.is_slt || out.is_sltu || out.is_srl || out.is_sra ||
@@ -352,14 +353,28 @@ module decoder (
   assign read_rs2 = x_busy ? out.rs2 : rs2;
 
   assign issuing = !reset && !stall;
-  assign predicted_pc = fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
+
+  // A BTFN/jal-taken guess off the class flags and `immediate` decode already computes,
+  // its own low bits sized to this window and zero-extended into dx_output's wider field.
+  logic predict_taken;
+  assign predict_taken = instr_jal || ((instr_beq || instr_bne || instr_blt || instr_bge ||
+    instr_bltu || instr_bgeu) && immediate[31]);
+
+  localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
+  localparam int PREDICT_LOW_BITS  = LS_TEXT_ADDR_BITS + 2;
+  logic [PREDICT_LOW_BITS-1:0] predict_target_low;
+  assign predict_target_low = fetcher_pc[PREDICT_LOW_BITS-1:0] + immediate[PREDICT_LOW_BITS-1:0];
+
+  assign predicted_pc = predict_taken
+    ? {fetcher_pc[31:PREDICT_LOW_BITS], predict_target_low}
+    : fetcher_pc + (uncompressed ? 32'd4 : 32'd2);
 
   always_ff @(posedge clk) begin
     if (reset) begin
       out <= '0;
     end else if (x_busy) begin
       out <= out;
-    end else if (x_redirect) begin
+    end else if (x_redirect_delayed) begin
       out <= '0;
     end else if (stall) begin
       out <= '0;
@@ -433,6 +448,8 @@ module decoder (
       out.is_math_imm <= instr_math_immediate;
       out.fwd_rs1 <= fwd_rs1;
       out.fwd_rs2 <= fwd_rs2;
+      out.predicted_taken <= predict_taken;
+      out.predicted_target_low <= predict_target_low;
     end
   end
 

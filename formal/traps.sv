@@ -20,15 +20,14 @@ module traps #(
     input logic imem_stall,  // the ROM's stolen-read flag, free; turned into fetch_stall
     input logic bus_wait,  // free; an ungranted hart issues nothing, so it commits no trap either
     input logic rom_fault,  // free, like everything else not instantiated here
-    input logic atomic_supported,  // the platform's answer about an atomic's address
     input logic accessor_out_valid,
     input logic irq_timer  // the platform's timer line, free every cycle
 );
   logic [31:0] fetch_pc, fetch_pc_next;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
   logic        fetch_wait, fetch_fault, decoder_issuing, x_redirect;
-  // The address X publishes for a platform to decode.
-  logic [31:0] atomic_addr;
+  logic        x_redirect_q;
+  logic [31:0] x_redirect_target_q;
   fetcher_output fetcher_out;
   dx_output dx_out;
   decoder_output decoder_out;
@@ -55,8 +54,6 @@ module traps #(
     .reset(reset),
     .pc(fetch_pc),
     .next_pc(fetch_pc_next),
-    .issuing(decoder_issuing),
-    .redirect(x_redirect),
     .imem_addr(imem_addr),
     .imem_data(imem_data),
     .imem_addr2(imem_addr2),
@@ -68,12 +65,16 @@ module traps #(
     .fault(fetch_fault),
     .out(fetcher_out)
   );
-  // fetch_pc ownership lives in the integrator, not in either stage: the guess is D's
-  // (`decoder_predicted_pc`) and the override is X's (`x_redirect`/`x_redirect_target`).
-  assign fetch_pc_next = x_redirect       ? x_redirect_target :
+  // fetch_pc ownership lives in the integrator: the guess is D's, the override X's,
+  // restated a register later so no branch-compare/jalr result drives it combinationally.
+  assign fetch_pc_next = x_redirect_q     ? x_redirect_target_q :
                          !decoder_issuing ? fetch_pc :
                                             decoder_predicted_pc;
   always_ff @(posedge clk) fetch_pc <= reset ? 32'b0 : fetch_pc_next;
+  always_ff @(posedge clk) begin
+    x_redirect_q        <= reset ? 1'b0 : x_redirect;
+    x_redirect_target_q <= x_redirect_target;
+  end
 
   decoder decoder (
     .clk(clk),
@@ -90,7 +91,7 @@ module traps #(
     .predicted_pc(decoder_predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
-    .x_redirect(x_redirect),
+    .x_redirect_delayed(x_redirect_q),
     .out(dx_out)
   );
 
@@ -108,9 +109,8 @@ module traps #(
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
+    .kill(x_redirect_q),
     .x_busy(x_busy),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
@@ -290,7 +290,10 @@ module traps #(
                                 instr[31:27] == 5'b11100);
   assign is_atomic = is_amo || is_lr || is_sc;
   assign atomic_word_aligned = reg_rs1[1:0] == 2'b00;
-  assign atomic_refused = !atomic_supported && atomic_word_aligned;
+  // The DUT no longer round-trips through the platform; its immediate is always zero, so reg_rs1 alone answers the same region test a load/store would.
+  logic atomic_ram_mapped;
+  assign atomic_ram_mapped = reg_rs1 >= LS_RAM_BASE && reg_rs1 < LS_RAM_TOP;
+  assign atomic_refused = !atomic_ram_mapped && atomic_word_aligned;
 
   logic reserved_opcode, zero_halfword, is_illegal;
   assign reserved_opcode = uncompressed && opcode == 5'b11111;
@@ -347,7 +350,7 @@ module traps #(
       (uncompressed && opcode == 5'b01100 && instr[31:25] == 7'b0 && funct3 == 3'b000) ||
       (is_load_op && funct3 == 3'b010 && load_addr[1:0] == 2'b00 && data_mapped) ||
       (is_store_op && funct3 == 3'b010 && store_addr[1:0] == 2'b00 && data_mapped) ||
-      (is_atomic && atomic_supported && atomic_word_aligned);
+      (is_atomic && atomic_ram_mapped && atomic_word_aligned);
 
   logic mstatus_addressed, mstatus_static;
   assign mstatus_addressed = csr_addr == MSTATUS;
@@ -371,9 +374,13 @@ module traps #(
   logic prev_mstatus_addressed, prev_mstatus_static;
   logic prev_interrupt_pending, prev_interrupt_entry, prev_fetch_fault;
   logic [31:0] prev2_rdata, past2_dx_pc, prev2_cause, prev2_tval;
+  logic [31:0] prev2_mtvec, prev2_mepc;
   logic prev2_reset, prev2_mstatus_addressed, prev2_mstatus_static;
   logic prev2_trap_entry, prev2_interrupt_pending, prev2_fetch_fault, prev2_cause_modelled;
-  logic prev2_interrupt_entry;
+  logic prev2_interrupt_entry, prev2_mret_entry;
+  logic [31:0] past3_dx_pc, prev3_cause, prev3_tval;
+  logic prev3_reset, prev3_trap_entry, prev3_interrupt_pending, prev3_fetch_fault;
+  logic prev3_cause_modelled, prev3_interrupt_entry;
   always_ff @(posedge clk) begin
     past_fetch_pc          <= fetch_pc;
     past_dx_pc              <= dx_pc;
@@ -400,28 +407,43 @@ module traps #(
     prev2_reset             <= prev_reset;
     prev2_mstatus_addressed <= prev_mstatus_addressed;
     prev2_mstatus_static    <= prev_mstatus_static;
-    // A second tap: a CSR-read instruction reaches X a cycle behind trap_entry itself.
     past2_dx_pc              <= past_dx_pc;
     prev2_cause              <= prev_cause;
     prev2_tval                <= prev_tval;
     prev2_trap_entry        <= prev_trap_entry;
+    prev2_mret_entry         <= prev_mret_entry;
+    prev2_mtvec              <= prev_mtvec;
+    prev2_mepc                <= prev_mepc;
     prev2_interrupt_pending <= prev_interrupt_pending;
     prev2_fetch_fault        <= prev_fetch_fault;
     prev2_cause_modelled    <= prev_cause_modelled;
     prev2_interrupt_entry   <= prev_interrupt_entry;
+
+    // A CSR read of what a trap wrote trails entry by three: X drops the word issued beside
+    // the registered redirect, and D drops the one behind it.
+    prev3_reset             <= prev2_reset;
+    past3_dx_pc              <= past2_dx_pc;
+    prev3_cause              <= prev2_cause;
+    prev3_tval                <= prev2_tval;
+    prev3_trap_entry        <= prev2_trap_entry;
+    prev3_interrupt_pending <= prev2_interrupt_pending;
+    prev3_fetch_fault        <= prev2_fetch_fault;
+    prev3_cause_modelled    <= prev2_cause_modelled;
+    prev3_interrupt_entry   <= prev2_interrupt_entry;
   end
 
   logic addr_held;
   assign addr_held = csr_addr == prev_csr_addr;
 
-  logic settled, settled2;
+  logic settled, settled2, settled3;
   assign settled = clocked && !prev_reset;
   assign settled2 = settled && !prev2_reset;
+  assign settled3 = settled2 && !prev3_reset;
 
   // Below, X's trap_entry is checked against a model rebuilt fresh every cycle from `dx_out.instr`.
   logic        dx_valid, dx_is_interrupt, dx_imem_fault;
   logic [31:0] dx_instr;
-  assign dx_valid = dx_out.valid;
+  assign dx_valid = dx_out.valid && !x_redirect_q;
   // X's own decision, restated -- no longer a captured field on dx_out.
   assign dx_is_interrupt = dx_valid && !x_busy && interrupt_pending;
   assign dx_imem_fault = dx_out.imem_fault;
@@ -486,7 +508,9 @@ module traps #(
                      dx_instr[31:27] == 5'b11100);
   assign c_is_atomic = c_is_amo || c_is_lr || c_is_sc;
   assign c_atomic_word_aligned = c_fwd_rs1[1:0] == 2'b00;
-  assign c_atomic_refused = !atomic_supported && c_atomic_word_aligned;
+  logic c_atomic_ram_mapped;
+  assign c_atomic_ram_mapped = c_fwd_rs1 >= LS_RAM_BASE && c_fwd_rs1 < LS_RAM_TOP;
+  assign c_atomic_refused = !c_atomic_ram_mapped && c_atomic_word_aligned;
 
   logic c_reserved_opcode, c_zero_halfword, c_is_illegal;
   assign c_reserved_opcode = c_uncompressed && c_opcode == 5'b11111;
@@ -507,7 +531,7 @@ module traps #(
        c_funct3 == 3'b000) ||
       (c_is_load_op && c_funct3 == 3'b010 && c_load_addr[1:0] == 2'b00 && c_data_mapped) ||
       (c_is_store_op && c_funct3 == 3'b010 && c_store_addr[1:0] == 2'b00 && c_data_mapped) ||
-      (c_is_atomic && atomic_supported && c_atomic_word_aligned);
+      (c_is_atomic && c_atomic_ram_mapped && c_atomic_word_aligned);
 
   // Mirrors expected_cause/expected_tval's case statement against dx_instr, not `instr`.
   logic [31:0] c_expected_cause, c_expected_tval;
@@ -601,49 +625,49 @@ module traps #(
                   !prev_written_by_trap)
     assert(csr_rdata == prev_rdata);
 
-  always_comb if (settled && prev_trap_entry) assert(fetch_pc == prev_mtvec);
-  always_comb if (settled && prev_mret_entry) assert(fetch_pc == prev_mepc);
+  always_comb if (settled2 && prev2_trap_entry) assert(fetch_pc == prev2_mtvec);
+  always_comb if (settled2 && prev2_mret_entry) assert(fetch_pc == prev2_mepc);
 
   always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_dx_pc_hi, 1'b0});
  `endif
 
  `ifdef TRAPS_CHECK_CAUSE
-  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
-                  !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MCAUSE)
-    assert(csr_rdata == prev2_cause);
+  always_comb if (settled3 && prev3_trap_entry && !prev3_interrupt_pending &&
+                  !prev3_fetch_fault && prev3_cause_modelled && csr_addr == MCAUSE)
+    assert(csr_rdata == prev3_cause);
 
-  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
-                  prev2_fetch_fault && csr_addr == MCAUSE)
+  always_comb if (settled3 && prev3_trap_entry && !prev3_interrupt_pending &&
+                  prev3_fetch_fault && csr_addr == MCAUSE)
     assert(csr_rdata == 32'd1);
 
-  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
-                  !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MTVAL)
-    assert(csr_rdata == prev2_tval);
+  always_comb if (settled3 && prev3_trap_entry && !prev3_interrupt_pending &&
+                  !prev3_fetch_fault && prev3_cause_modelled && csr_addr == MTVAL)
+    assert(csr_rdata == prev3_tval);
 
-  // past2_dx_pc, not fetch_pc's own tap: fetch has moved past the word that faulted.
-  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
-                  prev2_fetch_fault && csr_addr == MTVAL)
-    assert(csr_rdata == past2_dx_pc);
+  // past3_dx_pc, not fetch_pc's own tap: fetch has moved past the word that faulted.
+  always_comb if (settled3 && prev3_trap_entry && !prev3_interrupt_pending &&
+                  prev3_fetch_fault && csr_addr == MTVAL)
+    assert(csr_rdata == past3_dx_pc);
 
-  always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MTVAL)
+  always_comb if (settled3 && prev3_interrupt_entry && csr_addr == MTVAL)
     assert(csr_rdata == 32'b0);
 
-  // Each guard below was unreachable under prev_; traps_cover.sby proves prev2_ isn't.
-  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
-                  !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MCAUSE)
+  // Each guard below was unreachable under prev_; traps_cover.sby proves prev3_ isn't.
+  always_comb if (settled3 && prev3_trap_entry && !prev3_interrupt_pending &&
+                  !prev3_fetch_fault && prev3_cause_modelled && csr_addr == MCAUSE)
     mcause_normal_reached: cover(1'b1);
-  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
-                  prev2_fetch_fault && csr_addr == MCAUSE)
+  always_comb if (settled3 && prev3_trap_entry && !prev3_interrupt_pending &&
+                  prev3_fetch_fault && csr_addr == MCAUSE)
     mcause_fetch_fault_reached: cover(1'b1);
-  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
-                  !prev2_fetch_fault && prev2_cause_modelled && csr_addr == MTVAL)
+  always_comb if (settled3 && prev3_trap_entry && !prev3_interrupt_pending &&
+                  !prev3_fetch_fault && prev3_cause_modelled && csr_addr == MTVAL)
     mtval_normal_reached: cover(1'b1);
-  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_pending &&
-                  prev2_fetch_fault && csr_addr == MTVAL)
+  always_comb if (settled3 && prev3_trap_entry && !prev3_interrupt_pending &&
+                  prev3_fetch_fault && csr_addr == MTVAL)
     mtval_fetch_fault_reached: cover(1'b1);
-  always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MTVAL)
+  always_comb if (settled3 && prev3_interrupt_entry && csr_addr == MTVAL)
     mtval_interrupt_reached: cover(1'b1);
-  always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MCAUSE)
+  always_comb if (settled3 && prev3_interrupt_entry && csr_addr == MCAUSE)
     mcause_interrupt_reached: cover(1'b1);
  `endif
 
@@ -715,7 +739,7 @@ module traps #(
  `endif
 
  `ifdef TRAPS_CHECK_CAUSE
-  always_comb if (settled2 && prev2_interrupt_entry && csr_addr == MCAUSE)
+  always_comb if (settled3 && prev3_interrupt_entry && csr_addr == MCAUSE)
     assert(csr_rdata == CAUSE_TIMER_IRQ);
  `endif
 

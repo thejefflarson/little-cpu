@@ -74,7 +74,10 @@ adds no ratchet.
   against the fetch behind it, deleted together. `test/asm/selfmod.S` is a
   live grader for the pair and for neither term alone, which is why this
   mutation is two deletions and the one above is one. `imem_tb` sees the port
-  half by itself.
+  half by itself. `spioverlay.S` joined as a `TIMEOUT`
+  (not a `FAIL n`) once a text store cycle stopped reading beside its write
+  (measured 2026-09-30): it patches text and runs it, and with the port half
+  gone it never reaches its verdict.
 - **`sc-reports-success`** — a store-conditional that reports SUCCESS
   whatever the reservation says. `rd` is the only thing an `sc.w` writes, so
   this is the whole instruction going wrong, and `lrsc.S`'s first case
@@ -90,12 +93,12 @@ adds no ratchet.
   `rtl/accessor.v` as the second half of one statement — a platform that
   tied the fault bit high would still not let an `sc.w` claim a write that
   went nowhere — and `accessor_tb` is what grades it.
-- **`atomic-region-ignored`** / **`loadstore-region-ignored`** — the
-  platform's answer about an atomic's address, ignored: every atomic
-  executes wherever it is pointed, which is the behaviour the two causes
-  replaced. `amoregion.S`'s first refused case is what sees the atomic
-  version, and `executor_tb` sees it where the region test now lives, in X.
-  `amo.S`,
+- **`atomic-region-ignored`** / **`loadstore-region-ignored`** — X's own
+  region test zeroed at the fault it feeds: every atomic, or every plain
+  load/store, executes wherever it is pointed, which is the behaviour the
+  two causes replaced. `amoregion.S`'s first refused case is what sees the
+  atomic version, and `executor_tb` sees it where the region test lives, in
+  X. `amo.S`,
   `amominmax.S`, `lrsc.S` and `lrsclock.S` do NOT, and that is right — every
   atomic in them is inside the data RAM, so a core that never refuses one
   finishes them all. `uart.S` is a detector by accident of what it was

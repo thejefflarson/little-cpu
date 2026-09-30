@@ -18,8 +18,7 @@ module executor_tb;
   logic [31:0] reg_rs1, reg_rs2;
   logic interrupt_pending;
   logic x_busy;
-  logic [31:0] atomic_addr;
-  logic atomic_supported;
+  logic kill = 1'b0;
   logic [11:0] csr_addr;
   logic csr_ren, csr_wen;
   logic [31:0] csr_wdata;
@@ -43,9 +42,8 @@ module executor_tb;
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
+    .kill(kill),
     .x_busy(x_busy),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
@@ -111,7 +109,6 @@ module executor_tb;
       reg_rs2 = 32'b0;
       csr_rdata = 32'b0;
       csr_implemented = 1'b1;
-      atomic_supported = 1'b1;
       interrupt_pending = 1'b0;
     end
   endtask
@@ -146,6 +143,34 @@ module executor_tb;
 
     clear_in();
     in.pc = 32'h0000_00a0;
+    in.is_jal = 1'b1;
+    in.immediate = 32'd8;
+    in.predicted_taken = 1'b1;
+    in.predicted_target_low = 14'h0a8;   // D's own guess, matching jal's real target
+    #1;
+    check_hex("a correctly guessed jal still resolves to its target",
+              redirect_target, 32'h0000_00a8);
+    check_bit("...but is not a redirect: D already fetched it", redirect, 1'b0);
+    in.predicted_target_low = 14'h0ac;   // a wrong guess -- jal's target is deterministic,
+                                          // but the redirect condition must still catch it
+    #1;
+    check_bit("a wrongly guessed jal target IS a redirect", redirect, 1'b1);
+
+    kill = 1'b1;   // the word behind a mispredicted branch: issued, never executed
+    #1;
+    check_bit("a killed word redirects nothing", redirect, 1'b0);
+    check_bit("...launches nothing", launch.valid, 1'b0);
+    check_bit("...and enters no trap", trap_entry, 1'b0);
+    in.is_jal = 1'b0;
+    in.is_ecall = 1'b1;
+    #1;
+    check_bit("a killed ecall does not trap either", trap_entry, 1'b0);
+    kill = 1'b0;
+    #1;
+    check_bit("...but the same ecall traps once the kill lifts", trap_entry, 1'b1);
+
+    clear_in();
+    in.pc = 32'h0000_00a0;
     in.is_jalr = 1'b1;
     in.immediate = 32'd5;       // odd, to prove the low bit is masked
     reg_rs1 = 32'h0000_1000;
@@ -174,6 +199,23 @@ module executor_tb;
     in.is_blt = 1'b0; in.is_bltu = 1'b1;
     #1;
     check_hex("bltu compares unsigned, so the same operands do not take it",
+              redirect_target, 32'h0000_00a4);
+
+    clear_in();
+    in.pc = 32'h0000_00a0;
+    in.is_blt = 1'b1;
+    in.immediate = -32'd4;              // backward: BTFN's own guess is taken
+    reg_rs1 = -32'd1; reg_rs2 = 32'd1;  // -1 < 1: actually taken, matching the guess
+    in.predicted_taken = 1'b1;
+    in.predicted_target_low = 14'h009c; // pc - 4
+    #1;
+    check_hex("a correctly guessed taken branch still resolves to its target",
+              redirect_target, 32'h0000_009c);
+    check_bit("...but is not a redirect: fetch already followed it", redirect, 1'b0);
+    reg_rs2 = -32'd1;                   // -1 < -1 is false: resolves not-taken instead
+    #1;
+    check_bit("a guessed-taken branch that resolves not-taken IS a redirect", redirect, 1'b1);
+    check_hex("...to the sequential pc, not the guessed target",
               redirect_target, 32'h0000_00a4);
 
     clear_in();
@@ -324,28 +366,36 @@ module executor_tb;
     in.is_amoadd = 1'b1;
     reg_rs1 = 32'h0001_0000;
     #1;
-    check_hex("an atomic's effective address is rs1 alone", atomic_addr, 32'h0001_0000);
-    check_hex("...matching what launch hands the accessor", launch.mem_addr, 32'h0001_0000);
+    check_hex("an atomic's effective address is rs1 alone", launch.mem_addr, 32'h0001_0000);
 
     clear_in();
-    atomic_supported = 1'b0;
     in.is_lr = 1'b1;
-    reg_rs1 = 32'h0004_0000;
+    reg_rs1 = 32'h0004_0000;   // outside the RAM window an atomic's own region test covers
     #1;
-    check_bit("an lr.w the platform does not answer traps", trap_entry, 1'b1);
+    check_bit("an lr.w outside RAM traps", trap_entry, 1'b1);
     check_hex("...as a LOAD access fault", trap_cause, 32'd5);
     clear_in();
-    atomic_supported = 1'b0;
     in.is_amoadd = 1'b1;
     reg_rs1 = 32'h0004_0000;
     #1;
     check_hex("an AMO there is a STORE/AMO access fault", trap_cause, 32'd7);
     clear_in();
-    atomic_supported = 1'b0;
     in.is_sc = 1'b1;
     reg_rs1 = 32'h0004_0000;
     #1;
     check_hex("...and so is sc.w", trap_cause, 32'd7);
+
+    clear_in();
+    in.is_lr = 1'b1;
+    reg_rs1 = 32'h0001_fffc;   // RAM's own last word, aligned -- no region or alignment trap
+    #1;
+    check_bit("an lr.w at RAM's own last word does not trap", trap_entry, 1'b0);
+    clear_in();
+    in.is_lr = 1'b1;
+    reg_rs1 = 32'h0002_0000;   // one word past RAM's top -- the timer's own base
+    #1;
+    check_bit("an lr.w one word past RAM's top traps on region", trap_entry, 1'b1);
+    check_hex("...as a LOAD access fault", trap_cause, 32'd5);
 
     clear_in();
     in.is_amoadd = 1'b1;
@@ -559,7 +609,7 @@ module executor_tb;
     in.fwd_rs1 = 1'b1;
     reg_rs1 = 32'hdead_dead;   // must not be read
     #1;
-    check_hex("...and so does an atomic's address", atomic_addr, 32'd100);
+    check_hex("...and so does an atomic's address", launch.mem_addr, 32'd100);
 
     clear_in();
     in.is_csrrw = 1'b1;

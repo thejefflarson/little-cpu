@@ -5204,7 +5204,7 @@ case $(basename "$PWD") in
     line=$(grep -n 'assert(trap_entry);' src/traps.sv | cut -d: -f1)
     status=${STUB_SBY_NOTRAP:-FAIL}; line=${STUB_SBY_NOTRAP_LINE:-$line} ;;
   wrong-cause)
-    line=$(grep -n 'assert(csr_rdata == prev2_cause);' src/traps.sv | cut -d: -f1)
+    line=$(grep -n 'assert(csr_rdata == prev3_cause);' src/traps.sv | cut -d: -f1)
     status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
 esac
 : > probe/logfile.txt
@@ -5258,9 +5258,9 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the no-trap core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  's/assert(csr_rdata == prev2_cause);/assert(csr_rdata == prev2_cause2);/'
+  's/assert(csr_rdata == prev3_cause);/assert(csr_rdata == prev3_cause2);/'
 probe "a respelled cause comparison stops rather than pinning nothing" 2 \
-  "prev2_cause);\` 0 times" "$(trs "$d")"
+  "prev3_cause);\` 0 times" "$(trs "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
   's/assert(trap_entry);/assert(trap_entry != 1'"'"'b0);/'
@@ -5484,7 +5484,7 @@ cat > "$tmp/sby-tval-stub" <<'STUB'
 # of the directory it runs in, and the assertion line is read out of the copy of
 # traps.sv it was handed, so PASS and FAIL land where the real solver puts them.
 mkdir -p probe
-line=$(grep -n 'assert(csr_rdata == prev2_tval);' src/traps.sv | cut -d: -f1)
+line=$(grep -n 'assert(csr_rdata == prev3_tval);' src/traps.sv | cut -d: -f1)
 case $(basename "$PWD") in
   control)    status=${STUB_TVAL_CONTROL:-PASS} ;;
   wrong-addr) status=${STUB_TVAL_ADDR:-FAIL}; line=${STUB_TVAL_ADDR_LINE:-$line} ;;
@@ -5536,7 +5536,7 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the control core is empty" "STUB_TVAL_EMPTY_STATUS=1 $(tts "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  's/assert(csr_rdata == prev2_tval);/assert(csr_rdata == prev2_tval2);/'
+  's/assert(csr_rdata == prev3_tval);/assert(csr_rdata == prev3_tval2);/'
 probe "a respelled mtval comparison stops rather than pinning nothing" 2 \
   "0 times" "$(tts "$d")"
 
@@ -6366,11 +6366,11 @@ mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
   fixture_anchor "$REPO/formal/checks.cfg" \
     '#derive F 5  worst-case first retire, swept out of `hang`'
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive G 5  worst-case gap between two retires, swept out of `liveness`'
+    '#derive G 4 worst-case gap between two retires, swept out of `liveness`'
   cat > "$d/checks.cfg" <<CFG
 [depth]
 #derive F 5  worst-case first retire, swept out of \`hang\`
-#derive G 5  worst-case gap between two retires, swept out of \`liveness\`
+#derive G 4 worst-case gap between two retires, swept out of \`liveness\`
 CFG
   printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
   printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
@@ -6379,15 +6379,15 @@ CFG
 
 d=$(mcd_fixture 12)
 probe "control: a depth exactly at the floor passes" 0 \
-  "depth 12 >= F+G+2 = 12 (F=5, G=5)" "$MCD $d dmemcheck.sby 2"
+  "depth 12 >= F+G+2 = 11 (F=5, G=4)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 11)
+d=$(mcd_fixture 10)
 probe "a depth one below the floor is red, naming F and G" 1 \
-  "depth 11 is below F+G+2 = 12 (F=5, G=5)" "$MCD $d dmemcheck.sby 2"
+  "depth 10 is below F+G+2 = 11 (F=5, G=4)" "$MCD $d dmemcheck.sby 2"
 
 d=$(mcd_fixture 7)
 probe "control: a one-retire floor is F+2, not F+G+2" 0 \
-  "depth 7 >= F+2 = 7 (F=5, G=5)" "$MCD $d dmemcheck.sby 1"
+  "depth 7 >= F+2 = 7 (F=5, G=4)" "$MCD $d dmemcheck.sby 1"
 
 d=$(new_case)
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \

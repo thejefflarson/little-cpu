@@ -54,11 +54,12 @@ module imemory #(
   assign data_odd   = data_word[0];
   assign text_range = ~|data_word[29:ROM_BITS];
 
-  // A store takes the port too: reading a word while it is being written is undefined.
-  logic text_access, text_write_even, text_write_odd;
+  // A store takes the port too and skips the read beside it: the stolen fetch is re-presented.
+  logic text_access, text_write, text_write_even, text_write_odd;
   assign text_access     = (mem_ren || |mem_wstrb) && text_range;
-  assign text_write_even = |mem_wstrb && text_range && !data_odd;
-  assign text_write_odd  = |mem_wstrb && text_range &&  data_odd;
+  assign text_write      = |mem_wstrb && text_range;
+  assign text_write_even = text_write && !data_odd;
+  assign text_write_odd  = text_write &&  data_odd;
 
   logic [BANK_BITS-1:0] even_raddr, odd_raddr;
   assign even_raddr = text_access ? data_index : even_index;
@@ -72,8 +73,10 @@ module imemory #(
   logic        odd_first, in_range, in_range2;
   logic        data_hit, data_hit_odd;
   always_ff @(posedge clk) begin
-    even_data <= rom_even[even_raddr];
-    odd_data  <= rom_odd[odd_raddr];
+    if (!text_write) begin
+      even_data <= rom_even[even_raddr];
+      odd_data  <= rom_odd[odd_raddr];
+    end
     odd_first <= word_index[0];
     in_range  <= next_in_rom;
     in_range2 <= next_in_rom && !next_is_last;

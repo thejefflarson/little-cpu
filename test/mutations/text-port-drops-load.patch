@@ -3,10 +3,10 @@ diff --git a/rtl/imemory.v b/rtl/imemory.v
 +++ b/rtl/imemory.v
 @@ -56,7 +56,7 @@
  
-   // A store takes the port too: reading a word while it is being written is undefined.
-   logic text_access, text_write_even, text_write_odd;
+   // A store takes the port too and skips the read beside it: the stolen fetch is re-presented.
+   logic text_access, text_write, text_write_even, text_write_odd;
 -  assign text_access     = (mem_ren || |mem_wstrb) && text_range;
 +  assign text_access     = |mem_wstrb && text_range;
-   assign text_write_even = |mem_wstrb && text_range && !data_odd;
-   assign text_write_odd  = |mem_wstrb && text_range &&  data_odd;
- 
+   assign text_write      = |mem_wstrb && text_range;
+   assign text_write_even = text_write && !data_odd;
+   assign text_write_odd  = text_write &&  data_odd;

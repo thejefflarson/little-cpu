@@ -16,8 +16,7 @@ module littlecpu #(
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
-  // The value `imem_addr` takes on the next edge, so a synchronous memory can latch it a
-  // cycle early.
+  // The value `imem_addr` takes next edge, so a synchronous memory can latch it a cycle early.
   output logic [31:0] imem_addr_next,
   // The data bus. A load or store to the text range takes the instruction memory's read
   // port for that cycle, and the fetch that lost it comes back as `fetch_stall`.
@@ -29,10 +28,6 @@ module littlecpu #(
   input  logic        fetch_stall,
   input  logic        imem_fault,
   input  logic        mem_reservable,
-  // The address an atomic in decode would use. The platform's answer arrives with it, so
-  // decode commits the fault in the cycle it reads the word.
-  output logic [31:0] atomic_addr,
-  input  logic        atomic_supported,
   // `bus_wait` says the bus is another initiator's this cycle, and `snoop_*` is that
   // initiator's write, which clears a reservation on its word.
   input  logic        bus_wait,
@@ -103,6 +98,10 @@ module littlecpu #(
   if (LS_RAM_WORDS != (1 << LS_RAM_ADDR_BITS)) begin : l_ls_ram_words_power_of_two
     $fatal(1, "littlecpu: LS_RAM_WORDS must be a power of two");
   end
+  // dx_output's predicted_target_low is 14 bits (rtl/structs.v); a wider window must widen it too.
+  if (LS_TEXT_ADDR_BITS + 2 > 14) begin : l_predicted_target_low_fits
+    $fatal(1, "littlecpu: LS_TEXT_WORDS needs more bits than predicted_target_low has");
+  end
   if (|LS_RAM_BASE[LS_RAM_ADDR_BITS+1:0]) begin : l_ls_ram_base_aligned
     $fatal(1, "littlecpu: LS_RAM_BASE must be aligned to LS_RAM_WORDS words");
   end
@@ -132,6 +131,14 @@ module littlecpu #(
   logic         x_redirect;
   logic  [31:0] x_redirect_target;
   logic  [31:0] decoder_predicted_pc;
+  // X's verdict, restated a register later so no branch-compare/jalr result drives
+  // `fetch_pc_next` combinationally; D's discard (below) fires off both copies.
+  logic         x_redirect_q;
+  logic  [31:0] x_redirect_target_q;
+  always_ff @(posedge clk) begin
+    x_redirect_q         <= reset ? 1'b0 : x_redirect;
+    x_redirect_target_q  <= x_redirect_target;
+  end
   fetcher_output fetcher_out;
   logic  [31:0] fetcher_imem_addr_next;
   fetcher fetcher(
@@ -139,8 +146,6 @@ module littlecpu #(
     .reset(reset),
     .pc(fetch_pc),
     .next_pc(fetch_pc_next),
-    .issuing(decoder_issuing),
-    .redirect(x_redirect),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .imem_stall(fetch_stall),
@@ -154,7 +159,7 @@ module littlecpu #(
   );
   assign imem_addr_next = fetcher_imem_addr_next;
   // Never F's word-granular `imem_addr_next`. The redirect always wins over D's stall.
-  assign fetch_pc_next = x_redirect        ? x_redirect_target :
+  assign fetch_pc_next = x_redirect_q      ? x_redirect_target_q :
                          !decoder_issuing  ? fetch_pc :
                                              decoder_predicted_pc;
   always_ff @(posedge clk) fetch_pc <= reset ? 32'b0 : fetch_pc_next;
@@ -191,7 +196,7 @@ module littlecpu #(
   `endif
  `endif
 
-  decoder decoder(
+  decoder #(.LS_TEXT_WORDS(LS_TEXT_WORDS)) decoder(
     .clk(clk),
     .reset(reset),
     .in(fetcher_out),
@@ -206,7 +211,7 @@ module littlecpu #(
     .predicted_pc(decoder_predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
-    .x_redirect(x_redirect),
+    .x_redirect_delayed(x_redirect_q),
     .out(dx_out)
   );
 
@@ -254,9 +259,8 @@ module littlecpu #(
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(csr_interrupt_pending),
+    .kill(x_redirect_q),
     .x_busy(x_busy),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .csr_addr(csr_addr),
     .csr_ren(csr_ren),
     .csr_wen(csr_wen),
@@ -425,6 +429,24 @@ module littlecpu #(
       probe_ls_issues <= probe_ls_issues + 32'd1;
       if (ls_at_edge)    probe_ls_edges    <= probe_ls_edges + 32'd1;
       if (ls_at_bypass)  probe_ls_bypasses <= probe_ls_bypasses + 32'd1;
+    end
+  end
+
+  // Fetch already followed the guess, so a correct one is the ABSENCE of a redirect.
+  logic probe_guess_active, probe_guess_correct;
+  assign probe_guess_active = dx_out.valid && !x_busy && dx_out.predicted_taken;
+  assign probe_guess_correct = probe_guess_active && !x_redirect;
+
+  logic [31:0] probe_guesses, probe_guess_hits, probe_guess_misses;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      probe_guesses     <= 32'd0;
+      probe_guess_hits   <= 32'd0;
+      probe_guess_misses <= 32'd0;
+    end else if (probe_guess_active) begin
+      probe_guesses <= probe_guesses + 32'd1;
+      if (probe_guess_correct) probe_guess_hits   <= probe_guess_hits + 32'd1;
+      else                     probe_guess_misses <= probe_guess_misses + 32'd1;
     end
   end
  `endif
