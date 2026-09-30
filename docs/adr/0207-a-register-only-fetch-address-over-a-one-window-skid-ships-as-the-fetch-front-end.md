@@ -531,3 +531,37 @@ k-induction, `traps_cover` and `pcloop_cover` both PASS). Net diff: 21 files, +4
 (11 lines net larger due to context; the deleted logic itself is 3 signals × roughly a dozen
 wiring sites). The 8-seed timing preview this section opened with is re-taken after this cleanup,
 below.
+
+## Amendment 2026-09-30 — the skid is retired, the guess is followed, and the redirect is registered
+
+The "one-window skid" in this ADR's title no longer exists. What ships is the register-only fetch
+address with nothing behind it, and the D-stage guess the earlier amendments argued for now steers
+fetch. The cell-trim pass this file said was owed has landed; the numbers are in ADR-0220.
+
+- **`rtl/fetcher.v` is stateless.** The ROM is addressed off `fetch_pc_next` a cycle ahead, so its
+  output register already holds the window `{w[p], w[p+1]}` at `fetch_pc`, and the only miss is a
+  fetch stolen by a text store. The skid, `skid_hi` and the `issuing`/`redirect` inputs that kept
+  it coherent are deleted; `imem_addr` is `fetch_pc` and `imem_addr_next` is `fetch_pc_next`,
+  word-aligned.
+- **Fetch follows the guess.** D's `predicted_pc` is a static BTFN/`jal` prediction: `jal` and a
+  backward conditional branch are guessed taken at `fetcher_pc + immediate`, computed at the ROM
+  window's width (`$clog2(LS_TEXT_WORDS)+2` bits, zero-extended into `dx_output.predicted_target_low`),
+  and every other word falls through by `+2`/`+4`. X no longer redirects a taken guess: a correct
+  guess is the absence of a redirect, and `probe_guess_correct` grades exactly that.
+- **The redirect is registered.** X's `redirect`/`redirect_target` reach `fetch_pc_next` through
+  `x_redirect_q`/`x_redirect_target_q`, so no branch-compare or `jalr` result drives the fetch address
+  combinationally. A miss therefore costs one more wrong-path word than a combinational redirect:
+  D drops the word it holds (`x_redirect_delayed`), X drops the word issued beside the redirect
+  (`kill`), and the second wrong-path word never issues. No counter or list is added, which is the
+  no-wrong-path-state rule spent on a two-word window instead of one.
+- **A trap or `mret` lands two cycles after entry**, behind the same redirect register, and a trap's
+  CSR read trails entry by three. `formal/pcloop.sv` and `formal/traps.sv` are re-timed to match, and
+  the memcheck-depth fixtures are re-anchored.
+- **F and G re-measured: F = 5, G = 4** (`make -C formal remeasure-fg`), down from 5/5 with the skid.
+  `formal/checks.cfg`'s `#derive` lines and every depth floor move with it.
+- **The `mtip` compare and the device stores are registered** (this ADR's timer item, and ADR-0214's
+  amendment): they only make `mtip` and the tx frame later, never earlier.
+
+The DECISION NEEDED above is closed: the area pass was funded, and it found its cells in the skid,
+the atomic round trip and a block-RAM read-first bypass rather than in bit-width edits (ADR-0220).
+The 8-seed timing preview the atomic amendment promised is taken there, on the shipped tree.

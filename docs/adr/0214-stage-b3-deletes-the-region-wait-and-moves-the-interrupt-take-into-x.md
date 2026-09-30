@@ -284,3 +284,10 @@ Twelve-MHz requirement, real flow, 5,084 LC, eight seeds one at a time: 12.87, 1
 14871351, 156842832, 233595587, 20382078), worst 12.57. Every worst path now ends at
 `imem.even_data` or `imem.odd_data`, the fetch loop, started at `accessor_out[32]`,
 `regfile.held_rs1` or the power-on reset flop.
+
+## Amendment 2026-09-30 — figures superseded by the shipped tree
+
+The 5/5 depth, the Dhrystone and CoreMark cycles and the "red on fit and soc-timing" status above
+describe B3 alone. On the tree that ships (ADR-0207, amended; ADR-0220) F and G are 5 and 4,
+Dhrystone is 1,206,025 cycles at 2,000 runs (0.943 DMIPS/MHz), CoreMark reads 2.776 per MHz, and
+`make soc-timing` places at 5,084 of 5,280 cells and clears 12 MHz at all eight seeds.

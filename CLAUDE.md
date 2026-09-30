@@ -51,21 +51,26 @@ design rots. Older ADRs cite these as `invariant N`; the numbers are kept in par
 references still resolve.
 
 - **No wrong-path state** (1). No state may exist that a later cycle must un-commit — no flush
-  logic, no kill signal. `rtl/littlecpu.v` owns `fetch_pc`, since it spans F and X: D's own guess
-  (`predicted_pc`, the buffered word's own `+2`/`+4`) publishes the default next fetch a cycle
-  early, and X's `redirect`/`redirect_target` overrides it on a taken branch, a trap or `mret`. A
-  guess going wrong still commits nothing: `x_redirect` is a top-priority bubble in D's own
-  `out <=`, discarding the wrong-path word D already holds unconditionally — no counter, no list,
-  the same rule wrong-path register writes already kept. This keeps the BMC depths small and
-  derivable, retire unfiltered, and `pcloop`'s induction free of speculative state (ADR-0207,
-  ADR-0208). B3 (ADR-0214) deleted the load/store region wait, one of `x_busy`'s two reasons to
-  hold X across multiple cycles — only the divider remains — which can only shrink F and G, never
-  grow them; `make -C formal remeasure-fg` measures the shrink, from 6/6 to 5/5, and
-  `formal/checks.cfg`'s `#derive` lines and every `[depth]` floor move with it (ADR-0214).
-  Enforced by `formal/pcloop.sv` (rebuilt on the fetcher/D/X/littlecpu topology) and
+  logic, no kill signal. `rtl/littlecpu.v` owns `fetch_pc`, since it spans F and X, and
+  `rtl/fetcher.v` is stateless: the ROM is addressed off `fetch_pc_next` a cycle ahead, so its
+  output register already holds the window at `fetch_pc` and there is no skid to keep coherent
+  (ADR-0207, amended). D publishes `predicted_pc`, a static BTFN/`jal` guess: a `jal` or a backward
+  conditional branch is guessed taken, at `fetcher_pc + immediate` sized to the ROM window, and
+  anything else falls through by `+2`/`+4`. **Fetch follows the guess**, so a correct guess is the
+  absence of a redirect. X redirects only on a miss, a trap or `mret`, and the redirect reaches
+  `fetch_pc_next` a register later (`x_redirect_q`) so no branch-compare or `jalr` result drives it
+  combinationally. A miss still commits nothing: D drops the wrong-path word it holds, X drops the
+  word issued beside the redirect (`kill`), and the second wrong-path word never issues — no
+  counter, no list, the same rule wrong-path register writes already kept. This keeps the BMC
+  depths small and derivable, retire unfiltered, and `pcloop`'s induction free of speculative state
+  (ADR-0207, ADR-0208). B3 (ADR-0214) deleted the load/store region wait, one of `x_busy`'s two
+  reasons to hold X across multiple cycles, and the skid's deletion shortened the redirect path
+  again; `make -C formal remeasure-fg` measures **F = 5 and G = 4**, and
+  `formal/checks.cfg`'s `#derive` lines and every `[depth]` floor move with it (ADR-0207,
+  ADR-0214). Enforced by `formal/pcloop.sv` (the fetcher/D/X/littlecpu topology) and
   `rtl/decoder.v`'s `FORMAL` block; `test/decoder_tb.v` checks D's own `predicted_pc` guess
-  directly, but `fetch_pc` itself now lives in `rtl/littlecpu.v`, which has no unit bench of its
-  own, so the closed `pcloop` proof is the only check of the whole address chain.
+  directly, but `fetch_pc` itself lives in `rtl/littlecpu.v`, which has no unit bench of its own,
+  so the closed `pcloop` proof is the only check of the whole address chain.
 - **All traps are detected by D and committed by X, one cycle later** (2). Nothing faults after X
   settles; a trap is a branch to `mtvec` on the same override the jumps use, which is what makes
   CSR commit precise with no reorder buffer. A refusal counts as committed only when it arrives
@@ -304,7 +309,13 @@ without moving `mtimecmp` is re-entered before the instruction at `mepc` runs; *
 update is the spec's three stores in the spec's order** — low all-ones, high, low — and
 `test/timer_tb.v` and `test/asm/mtimer.S` each fire the spurious interrupt the other order gives on
 purpose. A change in the comparison may reach `mtip` late and never early, and `test/timer_tb.v`
-is the only grader of that (ADR-0118).
+is the only grader of that (ADR-0118). **Device stores land one cycle late**: the timer, the UART
+and the SPI controller latch a store's strobe, word and data and apply it a cycle after X launches
+it, because the forwarded operand, the address adder, the device decode and the register write
+otherwise share one cycle. `mtip` compares the registered `mtime` and `mtimecmp`, so it can post
+one or two cycles later than the store that caused it; the timer bypasses a pending store into its
+read data, and the UART and SPI controller report `busy` from `busy || start_pending`, so a read
+is never stale (ADR-0207, ADR-0214).
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec mandates for
 RV32 M-mode is implemented, the 87 performance-monitor addresses included — most legally read
@@ -333,8 +344,8 @@ What a green result does and does not mean:
   `test/mutations/`, so `make mutation-check` does not re-run that table.
 - **Every generated riscv-formal check is `mode bmc`**: PASS means no counterexample within that
   depth, not that the property holds. Depths derive from F (worst-case first retire, from `hang`)
-  and G (worst-case retire gap, from `liveness`), both 5 (ADR-0214), declared in `formal/checks.cfg`'s
-  `#derive` lines. **Any change that adds a stall reason, lengthens a stage, or widens the
+  and G (worst-case retire gap, from `liveness`), 5 and 4 (ADR-0207, ADR-0214), declared in
+  `formal/checks.cfg`'s `#derive` lines. **Any change that adds a stall reason, lengthens a stage, or widens the
   scoreboard must re-measure F and G before it lands** (ADR-0046); `make -C formal remeasure-fg` is
   that sweep. `formal/genchecks-audit.py` grades every depth against its family's floor and a depth
   below it fails generation (ADR-0107), because a shallow depth does not go red — it goes green
@@ -521,11 +532,11 @@ top, ECP5 only.
   minute (ADR-0078).
 - **`make dhrystone` and `make coremark` are the figures comparable to another project's** —
   Dhrystone to VexRiscv, CoreMark to Hazard3 and most cores published since — and neither is a
-  gate. Dhrystone: **0.722 DMIPS/MHz, 8.66 DMIPS at 12 MHz** at `-O2` (ADR-0190), quoted with the
+  gate. Dhrystone: **0.943 DMIPS/MHz, 11.32 DMIPS at 12 MHz** at `-O2`, 1,206,025 cycles at 2,000 runs (ADR-0220; 0.722 on `main` before the fetch refactor, ADR-0190), quoted with the
   absolute figure because Fmax above the requirement is margin and not speed (ADR-0089), and with
   the flags, the compiler, the string library and **the linker script** — the program prints the
   first three and will not compile without them, and `test/bench/bench.lds` asserts the fourth at
-  link time. **It went 9.10 → 7.97 → 9.10 → 9.32 → 8.66, and the moves differ in kind**: the region
+  link time. **It went 9.10 → 7.97 → 9.10 → 9.32 → 8.66 → 11.32, and the moves differ in kind**: the region
   wait spends 13.79% of Dhrystone's cycles to make an out-of-region access fault (ADR-0129), insetting
   the layout gives those cycles back with no RTL change and the netlist digest unmoved (ADR-0158),
   executor-only forwarding buys the last step in the datapath (ADR-0154), and the last move is the
@@ -534,11 +545,11 @@ top, ECP5 only.
   changes what the same C compiles to, with no RTL and no linker script touched (ADR-0190). A CPI
   regression with no conformance behind it is still a regression, and a figure recovered by moving the
   software is the firmware ceasing to pay a cost, never the core getting faster; a figure that moves
-  with the compiler is neither, and is why the compiler is pinned now. **CoreMark is
+  with the compiler is neither, and is why the compiler is pinned now. The last step, 8.66 → 11.32, is the fetch refactor: D/X split, executor forwarding, the static predictor with fetch following the guess, and the deleted region wait (ADR-0208, ADR-0213, ADR-0214, ADR-0207 as amended; the cross-core re-take is ADR-0220). **CoreMark is
   SIMULATED AT 16 KB OF ROM**, double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and
   every printed figure says so; the five algorithm files are vendored unmodified and pinned by
-  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.155 CoreMark/MHz** under the pinned compiler
-  (ADR-0190; 2.203 under Homebrew's prior 16.2.0, ADR-0154), and it travels with the
+  `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.776 CoreMark/MHz** under the pinned compiler
+  (ADR-0220; 2.155 on `main` before the fetch refactor, ADR-0190; 2.203 under Homebrew's prior 16.2.0, ADR-0154), and it travels with the
   linker script the way the DMIPS figure does: the inset layout read 2.013 against 1.811 on the
   conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
   to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
@@ -683,14 +694,13 @@ VexRiscv on both.
   that ABC folds into the decode reading it, and a register there forbids the sharing), the two
   parts disagree in sign, and the best product of clock against cycles is +0.4%. Redirects are
   7.15% of the suite's issues and 16.92% of Dhrystone's, the opposite ordering from the RAW share,
-  so no depth argument stands on the suite alone. **A register-only fetch address over a
-  one-window skid is `rtl/fetcher.v`, proven in `pcloop` and `traps`** (ADR-0207): it is −1.65%
-  of Dhrystone's cycles and +365 to +418 placed cells against `main`, which the up5k does not
-  hold with the flash controller back, and it moves the ECP5 clock nowhere at one placement — the
-  tail leaves the loop and the head is still the block RAM's output. The clock Stage A saw
-  (ADR-0201) came from a registered head, which is a second window register and a two-cycle
-  redirect: the four-word queue's price by another name. The up5k overrun is owed to a cell-trim
-  pass once the rest of the fetch refactor lands, an owner decision recorded in ADR-0207.
+  so no depth argument stands on the suite alone. **A register-only fetch address is
+  `rtl/fetcher.v`, proven in `pcloop` and `traps`** (ADR-0207): the ROM is addressed off
+  `fetch_pc_next` and the fetcher holds no state, so the tail leaves the loop and the head is still
+  the block RAM's output. The one-window skid that shipped first cost placed cells the up5k did not
+  have, and was deleted in the cell-trim pass (ADR-0207, amended); the registered head Stage A saw
+  its clock from (ADR-0201) is a second window register and a two-cycle redirect, the four-word
+  queue's price by another name.
 - **yosys and ABC already do everything derivable from the expression** — dead bits, common
   subexpressions, duplicate adders — so an edit that restates the same arithmetic is a null
   (ADR-0088). **Redundant SOURCE TEXT is not redundant HARDWARE, and it predicts nothing about the
@@ -1065,6 +1075,11 @@ that it advances by exactly the non-trapping issues; `test/asm/minstret.S`, `tes
 `components_traps` carry that half (ADR-0027). **Do not read empty baselines or an all-green
 `make -C formal check` as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is necessary,
 not sufficient.
+
+On the fetch-refactor tree `make fit` reads 4,347 packed cells against `FIT_MAX_LC` 4,441 and `make
+soc-timing` places at 5,084 of 5,280 `ICESTORM_LC`, with eight seeds at 12.57–13.24 MHz and
+`soc/pin.json` holding seed 20382078 at 13.24 MHz (ADR-0220 derives the budget and records the
+sweep; the ECP5 and dual figures are not re-taken there).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
