@@ -1,4 +1,5 @@
 // A real enabled flop (dfrtp_1 behind mux2_1), clocked through buf_1 and buf_2 so two drive strengths share one base model as a routed netlist's do; the probe ties the enable low in a copy.
+`timescale 1ns / 1ps
 module nano_gl_gate_probe_fixture (
   input  wire clk,
   input  wire reset_n,

@@ -50,7 +50,7 @@ python3 "$REPO/nano/gl_census.py" "$NETLIST" --includes "$WORKDIR/cells.v"
 "$OBJCOPY" -O verilog --verilog-data-width=4 --remove-section=.text \
   --adjust-vma=-0x10000000 "$WORKDIR/tt_gpio_uart.elf" "$WORKDIR/tt_gpio_uart.ram.hex"
 
-iverilog -g2012 -D FUNCTIONAL -D UNIT_DELAY= -I "$CELL_DIR" -o "$WORKDIR/nano_gl.vvp" \
+iverilog -g2012 -D FUNCTIONAL '-DUNIT_DELAY=#1' -I "$CELL_DIR" -o "$WORKDIR/nano_gl.vvp" \
   "$WORKDIR/cells.v" "$NETLIST" \
   "$REPO/nano/tb/nano_qspi_flash_model.v" "$REPO/nano/tb/nano_qspi_psram_model.v" \
   "$REPO/nano/tb/nano_tt_tb.v"
