@@ -29,8 +29,7 @@ module timer #(
   logic [SEL_BITS-1:0] word;
   assign word = mem_addr[ADDR_LSB-1:2];
 
-  // A store is launched from the executor in the cycle its address is still being summed, so
-  // the device latches the request and applies it one cycle later. `mtip` only gets later.
+  // Stores are latched and land a cycle later; `mtip` only gets later, and a load reads them via `bypassed`.
   logic        writing_q;
   logic [SEL_BITS-1:0] word_q;
   logic [3:0]  wstrb_q;
@@ -120,8 +119,6 @@ module timer #(
     end
   end endgenerate
 
-  // A load the cycle after a store to the same word must read the stored bytes, which have not
-  // landed yet.
   logic [31:0] bypassed, wmask;
   assign wmask = {{8{wstrb_q[3]}}, {8{wstrb_q[2]}}, {8{wstrb_q[1]}}, {8{wstrb_q[0]}}};
   assign bypassed = (writing_q && word_q == word) ? ((wdata_q & wmask) | (read_word & ~wmask)) : read_word;

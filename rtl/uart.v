@@ -36,9 +36,6 @@ module uart #(
   assign busy = |bits_left;
   assign tx   = shift[0];
 
-  // The store is launched while its address is still being summed, so the frame starts one
-  // cycle after it is accepted; `busy_now` counts that cycle so a poll or a second byte in it
-  // still sees the transmitter occupied.
   logic in_range, is_status, accept, start_frame, busy_now;
   logic [7:0] data_q;
   assign in_range  = mem_addr[31:3] == BASE[31:3];

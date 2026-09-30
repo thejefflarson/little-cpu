@@ -29,9 +29,6 @@ module spiflash #(
   assign busy = |bits_left;
 
   logic [8:0] rd_word;
-  // A store is launched while its address is still being summed, so it is latched and applied
-  // one cycle later; `busy_now` counts that cycle so a poll or a second store in it still sees
-  // the controller occupied.
   logic in_range, is_control, busy_now, start_xfer, control_write;
   logic [7:0] data_q;
   assign in_range = mem_addr[31:3] == BASE[31:3];

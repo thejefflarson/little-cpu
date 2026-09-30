@@ -6366,11 +6366,11 @@ mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
   fixture_anchor "$REPO/formal/checks.cfg" \
     '#derive F 5  worst-case first retire, swept out of `hang`'
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive G 4  worst-case gap between two retires, swept out of `liveness`'
+    '#derive G 4 worst-case gap between two retires, swept out of `liveness`'
   cat > "$d/checks.cfg" <<CFG
 [depth]
 #derive F 5  worst-case first retire, swept out of \`hang\`
-#derive G 4  worst-case gap between two retires, swept out of \`liveness\`
+#derive G 4 worst-case gap between two retires, swept out of \`liveness\`
 CFG
   printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
   printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"

@@ -298,8 +298,6 @@ module uart_tb;
       load(UART_STATUS);
       busy_cycles++;
     end
-    // The store is latched for a cycle before the frame starts, so the frame ends one cycle
-    // later than the store; the status read still sees busy from the first cycle.
     check_int("a frame is ten bit times on the wire, one latch cycle after the store",
               busy_cycles, FRAME_BITS * DIVISOR + 1);
     check_bit("...and the line is back at its idle level", tx, 1'b1);
