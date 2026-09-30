@@ -29,14 +29,24 @@ module timer #(
   logic [SEL_BITS-1:0] word;
   assign word = mem_addr[ADDR_LSB-1:2];
 
-  logic writing;
-  assign writing = in_range && |mem_wstrb;
+  // A store is launched from the executor in the cycle its address is still being summed, so
+  // the device latches the request and applies it one cycle later. `mtip` only gets later.
+  logic        writing_q;
+  logic [SEL_BITS-1:0] word_q;
+  logic [3:0]  wstrb_q;
+  logic [31:0] wdata_q;
+  always_ff @(posedge clk) begin
+    writing_q <= !reset && in_range && |mem_wstrb;
+    word_q    <= word;
+    wstrb_q   <= mem_wstrb;
+    wdata_q   <= mem_wdata;
+  end
 
   logic wr_time_lo, wr_time_hi, wr_cmp_lo, wr_cmp_hi;
-  assign wr_time_lo = writing && word == 2'd0;
-  assign wr_time_hi = writing && word == 2'd1;
-  assign wr_cmp_lo  = writing && word == 2'd2;
-  assign wr_cmp_hi  = writing && word == 2'd3;
+  assign wr_time_lo = writing_q && word_q == 2'd0;
+  assign wr_time_hi = writing_q && word_q == 2'd1;
+  assign wr_cmp_lo  = writing_q && word_q == 2'd2;
+  assign wr_cmp_hi  = writing_q && word_q == 2'd3;
 
   logic [31:0] mtime_lo, mtime_hi, mtimecmp_lo, mtimecmp_hi;
   assign mtime_lo    = mtime[31:0];
@@ -68,29 +78,31 @@ module timer #(
 
     for (genvar h = 1; h < NHARTS; h++) begin : l_hart
       logic [63:0] cmp;
-      logic        sel_lo, sel_hi;
-      assign sel_lo = word == (2 + 2*h);
-      assign sel_hi = word == (3 + 2*h);
+      logic        sel_lo, sel_hi, rsel_lo, rsel_hi;
+      assign rsel_lo = word == (2 + 2*h);
+      assign rsel_hi = word == (3 + 2*h);
+      assign sel_lo = word_q == (2 + 2*h);
+      assign sel_hi = word_q == (3 + 2*h);
       assign read_hart[32*h +: 32] = read_hart[32*(h-1) +: 32]
-                                   | (sel_lo ? cmp[31:0]  : 32'b0)
-                                   | (sel_hi ? cmp[63:32] : 32'b0);
+                                   | (rsel_lo ? cmp[31:0]  : 32'b0)
+                                   | (rsel_hi ? cmp[63:32] : 32'b0);
 
       always_ff @(posedge clk) begin
         if (reset) begin
           cmp     <= 64'b0;
           mtip[h] <= 1'b0;
         end else begin
-          if (writing && sel_lo) begin
-            if (mem_wstrb[0]) cmp[7:0]   <= mem_wdata[7:0];
-            if (mem_wstrb[1]) cmp[15:8]  <= mem_wdata[15:8];
-            if (mem_wstrb[2]) cmp[23:16] <= mem_wdata[23:16];
-            if (mem_wstrb[3]) cmp[31:24] <= mem_wdata[31:24];
+          if (writing_q && sel_lo) begin
+            if (wstrb_q[0]) cmp[7:0]   <= wdata_q[7:0];
+            if (wstrb_q[1]) cmp[15:8]  <= wdata_q[15:8];
+            if (wstrb_q[2]) cmp[23:16] <= wdata_q[23:16];
+            if (wstrb_q[3]) cmp[31:24] <= wdata_q[31:24];
           end
-          if (writing && sel_hi) begin
-            if (mem_wstrb[0]) cmp[39:32] <= mem_wdata[7:0];
-            if (mem_wstrb[1]) cmp[47:40] <= mem_wdata[15:8];
-            if (mem_wstrb[2]) cmp[55:48] <= mem_wdata[23:16];
-            if (mem_wstrb[3]) cmp[63:56] <= mem_wdata[31:24];
+          if (writing_q && sel_hi) begin
+            if (wstrb_q[0]) cmp[39:32] <= wdata_q[7:0];
+            if (wstrb_q[1]) cmp[47:40] <= wdata_q[15:8];
+            if (wstrb_q[2]) cmp[55:48] <= wdata_q[23:16];
+            if (wstrb_q[3]) cmp[63:56] <= wdata_q[31:24];
           end
           mtip[h] <= mtime >= cmp;
         end
@@ -108,6 +120,12 @@ module timer #(
     end
   end endgenerate
 
+  // A load the cycle after a store to the same word must read the stored bytes, which have not
+  // landed yet.
+  logic [31:0] bypassed, wmask;
+  assign wmask = {{8{wstrb_q[3]}}, {8{wstrb_q[2]}}, {8{wstrb_q[1]}}, {8{wstrb_q[0]}}};
+  assign bypassed = (writing_q && word_q == word) ? ((wdata_q & wmask) | (read_word & ~wmask)) : read_word;
+
   always_ff @(posedge clk) begin
     if (reset) begin
       mtime    <= 64'b0;
@@ -118,32 +136,32 @@ module timer #(
     end else begin
       mtime <= mtime_next;
       if (wr_time_lo) begin
-        if (mem_wstrb[0]) mtime[7:0]    <= mem_wdata[7:0];
-        if (mem_wstrb[1]) mtime[15:8]   <= mem_wdata[15:8];
-        if (mem_wstrb[2]) mtime[23:16]  <= mem_wdata[23:16];
-        if (mem_wstrb[3]) mtime[31:24]  <= mem_wdata[31:24];
+        if (wstrb_q[0]) mtime[7:0]    <= wdata_q[7:0];
+        if (wstrb_q[1]) mtime[15:8]   <= wdata_q[15:8];
+        if (wstrb_q[2]) mtime[23:16]  <= wdata_q[23:16];
+        if (wstrb_q[3]) mtime[31:24]  <= wdata_q[31:24];
       end
       if (wr_time_hi) begin
-        if (mem_wstrb[0]) mtime[39:32]  <= mem_wdata[7:0];
-        if (mem_wstrb[1]) mtime[47:40]  <= mem_wdata[15:8];
-        if (mem_wstrb[2]) mtime[55:48]  <= mem_wdata[23:16];
-        if (mem_wstrb[3]) mtime[63:56]  <= mem_wdata[31:24];
+        if (wstrb_q[0]) mtime[39:32]  <= wdata_q[7:0];
+        if (wstrb_q[1]) mtime[47:40]  <= wdata_q[15:8];
+        if (wstrb_q[2]) mtime[55:48]  <= wdata_q[23:16];
+        if (wstrb_q[3]) mtime[63:56]  <= wdata_q[31:24];
       end
       if (wr_cmp_lo) begin
-        if (mem_wstrb[0]) mtimecmp[7:0]   <= mem_wdata[7:0];
-        if (mem_wstrb[1]) mtimecmp[15:8]  <= mem_wdata[15:8];
-        if (mem_wstrb[2]) mtimecmp[23:16] <= mem_wdata[23:16];
-        if (mem_wstrb[3]) mtimecmp[31:24] <= mem_wdata[31:24];
+        if (wstrb_q[0]) mtimecmp[7:0]   <= wdata_q[7:0];
+        if (wstrb_q[1]) mtimecmp[15:8]  <= wdata_q[15:8];
+        if (wstrb_q[2]) mtimecmp[23:16] <= wdata_q[23:16];
+        if (wstrb_q[3]) mtimecmp[31:24] <= wdata_q[31:24];
       end
       if (wr_cmp_hi) begin
-        if (mem_wstrb[0]) mtimecmp[39:32] <= mem_wdata[7:0];
-        if (mem_wstrb[1]) mtimecmp[47:40] <= mem_wdata[15:8];
-        if (mem_wstrb[2]) mtimecmp[55:48] <= mem_wdata[23:16];
-        if (mem_wstrb[3]) mtimecmp[63:56] <= mem_wdata[31:24];
+        if (wstrb_q[0]) mtimecmp[39:32] <= wdata_q[7:0];
+        if (wstrb_q[1]) mtimecmp[47:40] <= wdata_q[15:8];
+        if (wstrb_q[2]) mtimecmp[55:48] <= wdata_q[23:16];
+        if (wstrb_q[3]) mtimecmp[63:56] <= wdata_q[31:24];
       end
       // The plain register, not `mtime_next`: `mtip` is registered, so a cycle-stale compare is legal.
       mtip[0] <= mtime >= mtimecmp;
-      mem_rdata <= in_range ? read_word : 32'b0;
+      mem_rdata <= in_range ? bypassed : 32'b0;
     end
   end
 endmodule
