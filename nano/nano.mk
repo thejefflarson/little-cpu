@@ -68,8 +68,8 @@ nano-liberty-setup:
 	fi; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Re-derived when the instrument stopped running clockgate and started excluding the cells the flow excludes: 78,965.7 um2, a ranking between RTL versions and never a fit, which only a flow run with gate-level simulation says.
-override NANO_MAX_UM2 := 81000
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Re-derived when the instrument stopped running clockgate and started excluding the cells the flow excludes: 78,965.7 um2, a ranking between RTL versions and never a fit, which only a flow run with gate-level simulation says. Stepped down for Tier 3's four removed states and merged address registers: 73,137.6 um2 against the prior 78,965.7, both on this instrument, keeping the prior step's 2,034.3 um2 of headroom.
+override NANO_MAX_UM2 := 75200
 
 NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
              nano/tt/src/tt_um_thejefflarson_nanocpu.v

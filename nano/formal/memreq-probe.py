@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Forces nano/formal/memreq.sby to fail against a mutated nano.v that changes a
-store's address mid-request, and requires the shipping core to pass first.
+"""Forces nano/formal/memreq.sby to fail against two mutated nano.v: one changes a
+store's address mid-request, one lets a jalr target keep its bit 0 (which the FORMAL
+block's alignment assertions cover). The shipping core must pass first.
 
 Usage: memreq-probe.py [--repo DIR] [--workdir DIR] [--sby SBY]
 
@@ -11,6 +12,7 @@ shipping control plus the mutant). Prerequisite of `make -C nano/formal componen
 
 import argparse
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -19,7 +21,7 @@ OLD = """        finish_store: begin
           if (mem_ready) begin
             cpu_state <= fetch_instr;
             mem_valid <= 0;
-            next_pc <= pc + pc_inc;
+            mem_addr <= pc + pc_inc;
           end
         end
 """
@@ -27,12 +29,16 @@ NEW = """        finish_store: begin
           if (mem_ready) begin
             cpu_state <= fetch_instr;
             mem_valid <= 0;
-            next_pc <= pc + pc_inc;
+            mem_addr <= pc + pc_inc;
           end else begin
             mem_addr <= mem_addr + 32'd4;
           end
         end
 """
+
+
+JALR_OLD = "($signed(immediate) + $signed(`RF_RS1)) & 32'hfffffffe :"
+JALR_NEW = "($signed(immediate) + $signed(`RF_RS1)) :"
 
 
 def stop(message):
@@ -112,6 +118,34 @@ def main():
             "the 'addr-mid-request' mutant passes memreq.sby. A store that bumps "
             "mem_addr on every wait cycle instead of holding it must be caught."
         )
+
+    if JALR_OLD not in nano_v:
+        stop(
+            "nano/nano.v no longer spells jump_address's jalr mask the way this probe "
+            "mutates it. Re-anchor the mutation on the new spelling."
+        )
+    mutant_v = nano_v.replace(JALR_OLD, JALR_NEW, 1)
+    status = run_case(workdir, args.sby, "unmasked-jalr", mutant_v, sby_src)
+    print(f"unmasked-jalr: {status}")
+    if status != "FAIL":
+        red.append(
+            "the 'unmasked-jalr' mutant passes memreq.sby. A jalr target that keeps its "
+            "bit 0 reaches mem_addr and must be caught by the alignment assertions."
+        )
+    else:
+        log = (workdir / "unmasked-jalr" / "nano" / "formal" / "memreq" / "logfile.txt").read_text()
+        lines = mutant_v.splitlines()
+        aligned = {
+            i + 1 for i, line in enumerate(lines)
+            if line.strip() in ("assert(!pc[0]);", "assert(!mem_addr[0]);")
+        }
+        failed = {int(m) for m in re.findall(r"Assert failed in riscv: nano\.v:(\d+)", log)}
+        if not failed & aligned:
+            red.append(
+                "the 'unmasked-jalr' mutant fails memreq.sby, but not at an alignment "
+                f"assertion (failed at nano.v lines {sorted(failed)}, wanted one of "
+                f"{sorted(aligned)}), so the probe is red for the wrong reason."
+            )
 
     if red:
         print()
