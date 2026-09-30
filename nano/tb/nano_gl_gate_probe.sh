@@ -24,8 +24,8 @@ mutant="$WORKDIR/fixture.mutant.v"
 python3 - "$FIXTURE" "$mutant" <<'PYEOF'
 import sys
 src = open(sys.argv[1]).read()
-old = "sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(gclk), .GATE(gate), .CLK(clk));"
-new = "sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(gclk), .GATE(1'b0), .CLK(clk));"
+old = "sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(gclk), .GATE(gate), .CLK(clk_b2));"
+new = "sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(gclk), .GATE(1'b0), .CLK(clk_b2));"
 if old not in src:
     sys.exit("error: nano_gl_gate_probe_fixture.v no longer spells the gate "
               "connection this probe mutates -- re-anchor it.")
@@ -37,7 +37,8 @@ if cmp -s "$FIXTURE" "$mutant"; then
 fi
 
 run() {  # $1 = fixture path, $2 = output vvp path
-  iverilog -g2012 -D FUNCTIONAL -D UNIT_DELAY= -I "$CELL_DIR" -y "$CELL_DIR" -Y .v -o "$2" "$1"
+  python3 "$REPO/nano/gl_census.py" "$1" --includes "$2.cells.v" >/dev/null
+  iverilog -g2012 -D FUNCTIONAL -D UNIT_DELAY= -I "$CELL_DIR" -o "$2" "$2.cells.v" "$1"
   vvp "$2"
 }
 
