@@ -4,12 +4,12 @@ Status: Accepted · 2026-09-30
 
 ## Context
 
-ADR-0221 shipped the fetch refactor red on `make fit` and `make soc-timing` by the owner's own
+ADR-0207 shipped the fetch refactor red on `make fit` and `make soc-timing` by the owner's own
 decision, and named a cell-trim pass as owed. The trim landed on `thejefflarson/jef-1056-area-trim`.
 This ADR records what it changed that no other ADR holds (the block-RAM read skip), the measurements
 of the tree that results, the re-derived `FIT_MAX_LC`, and the cross-core re-take. The skid's
 deletion, the guess steering fetch, the registered redirect and the atomic region move are in
-ADR-0221's amendments; the registered device stores are in ADR-0214's.
+ADR-0207's amendments; the registered device stores are in ADR-0214's.
 
 ## The block-RAM read skip
 

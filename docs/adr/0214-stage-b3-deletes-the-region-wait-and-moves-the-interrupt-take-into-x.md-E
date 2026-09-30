@@ -1,8 +1,8 @@
 # 0214 — Stage B3 deletes the region wait and moves the interrupt take into X
 
 Status: Proposed. 2026-09-27. Ships as a PR against `thejefflarson/fetch-refactor`, the
-integration branch B1 (ADR-0208) and B2 (ADR-0222) already landed on. `make fit` and
-`make soc-timing` are red on this whole stack by the owner's own decision (ADR-0221): cells
+integration branch B1 (ADR-0208) and B2 (ADR-0213) already landed on. `make fit` and
+`make soc-timing` are red on this whole stack by the owner's own decision (ADR-0207): cells
 are trimmed after the restructure finishes. This ADR reports both anyway, against `main`'s
 and B2's own numbers, since the owner's area pass reads from these reports rather than from
 a green gate.
@@ -156,7 +156,7 @@ scripts and `test/probe_gates.sh`'s layout `ASSERT`s are left in place as harmle
 `components_executor` is gated on `executor-zkt-probe.py`, a forced-red control that
 diverts `MUL(0, nonzero)` into the divider's own arm and requires the mutated core's
 BASECASE leg to fail at exactly the MUL constant-latency assertion. The probe keyed its
-mutation on `reg_rs1`/`reg_rs2`, the register file's outputs. Since B2 (ADR-0222) the
+mutation on `reg_rs1`/`reg_rs2`, the register file's outputs. Since B2 (ADR-0213) the
 multiplier and the divider both read `fwd_rs1_val`/`fwd_rs2_val`, which differ from the
 register file's value whenever a forward is live. So the divert could fire on operands
 the divider did not use, producing a quotient that is not `mul_lo`, and the MUL-value
@@ -172,7 +172,7 @@ latency assertion's line and no other. No RTL changed.
 | | cycles | Dhrystone cycles | DMIPS/MHz | CoreMark cycles | CoreMark/MHz |
 |---|---|---|---|---|---|
 | main (pre-B1) | — | 1,613,644 | — | — | 2.155 |
-| B2 (ADR-0222) | 30,893 | 1,394,022 | 0.816 | 41,424,774 | 2.414 |
+| B2 (ADR-0213) | 30,893 | 1,394,022 | 0.816 | 41,424,774 | 2.414 |
 | B3 checkpoint 1 (region wait deleted) | 30,754 | 1,394,022 | 0.816 | 41,424,774 | 2.414 |
 | B3 checkpoint 2 (this PR, freshly measured) | **30,753** | **1,394,022** | **0.816** | **41,424,774** | **2.414** |
 
@@ -189,12 +189,12 @@ baselined floors (`mtimer.S` 1103, `mtimermask.S` 296, `lrsclock.S` 177) and the
 *when* a timing-sensitive program's own interrupt lands, not a retire-count regression.
 
 Area (reported, not gated — `make fit` and `make soc-timing` are expected red on this whole
-stack, ADR-0221):
+stack, ADR-0207):
 
 | | `make fit` (ICESTORM_LC) | SoC synthesized demand (ICESTORM_LC) |
 |---|---|---|
 | main | — | 4,920 / 5,280 |
-| B2 (ADR-0222) | 4,850 | 5,550 / 5,280 (105%) |
+| B2 (ADR-0213) | 4,850 | 5,550 / 5,280 (105%) |
 | B3 (this tree) | **4,733** | **5,483 / 5,280 (103%)** |
 
 Both area figures fall from B2's — checkpoint 1 deletes the region test's own deferred-answer
@@ -249,7 +249,7 @@ ADR-0160/ADR-0146's own up5k figures showed pre-refactor.
 **The programme's own kill criterion — Dhrystone cycles at or below 270,000 after Stage B, or
 re-plan — is missed, at both readings: 278,823 and 279,224 are 3.3% and 3.4% over the line.**
 Put to the owner with the area crisis this ADR already reports (`make fit`/`make soc-timing`
-still red, ADR-0221's expected-red list), the owner's own words: "continue for sure. we need
+still red, ADR-0207's expected-red list), the owner's own words: "continue for sure. we need
 to get this on an up5k." The kill criterion is not met on the cycle count it named, and the
 programme continues past it on that explicit direction rather than a re-plan — recorded here
 because a missed kill criterion that is not filed reads, later, like a criterion that was
@@ -261,7 +261,7 @@ never missed.
 cost: checkpoint 1 deletes a deferred answer nothing needed once it left the fetch loop, and
 checkpoint 2 moves a decision to the stage that actually owns it, provable standalone where
 it used to depend on a cross-module argument. `make fit`/`make soc-timing` stay on the
-owner's own expected-red list (ADR-0221) until the restructure's area pass lands.
+owner's own expected-red list (ADR-0207) until the restructure's area pass lands.
 
 ## Amendment: the device side of the launch is registered
 
@@ -288,6 +288,6 @@ Twelve-MHz requirement, real flow, 5,084 LC, eight seeds one at a time: 12.87, 1
 ## Amendment 2026-09-30 — figures superseded by the shipped tree
 
 The 5/5 depth, the Dhrystone and CoreMark cycles and the "red on fit and soc-timing" status above
-describe B3 alone. On the tree that ships (ADR-0221, amended; ADR-0220) F and G are 5 and 4,
+describe B3 alone. On the tree that ships (ADR-0207, amended; ADR-0220) F and G are 5 and 4,
 Dhrystone is 1,206,025 cycles at 2,000 runs (0.943 DMIPS/MHz), CoreMark reads 2.776 per MHz, and
 `make soc-timing` places at 5,084 of 5,280 cells and clears 12 MHz at all eight seeds.

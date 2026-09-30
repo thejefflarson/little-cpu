@@ -1,14 +1,14 @@
 # 0208 — Stage B1 splits decode into D and X, stall-only
 
 Status: Proposed. 2026-09-23. Ships as a PR against `thejefflarson/fetch-refactor`, the
-integration branch ADR-0221 landed on. `make fit` and `make soc-timing` are red on that
+integration branch ADR-0207 landed on. `make fit` and `make soc-timing` are red on that
 branch by the owner's own decision (the refactor finishes before cells are trimmed);
 every correctness gate this ADR reports on is graded against `main`'s bar, not that
 branch's expected-red state.
 
 ## What this is
 
-The fused decoder ADR-0221 shipped reads register VALUES in the same cycle it reads the
+The fused decoder ADR-0207 shipped reads register VALUES in the same cycle it reads the
 instruction word, using a guessed pair presented a cycle early (`rtl/regsel.v` on
 `in.next_instr`) and answered by the write-through-bypassed register file just in time.
 That fusion is what the fetch-refactor brief (`docs/ideas/the-fetch-address-reads-registers.md`)
@@ -61,11 +61,11 @@ forwarding path at all — a RAW hazard against anything still in flight simply 
   buffered word's own compression bit — **not** F's word-granular `imem_addr_next`, which
   only ever advances a whole 32-bit ROM word at a time; see "Two bugs"), and otherwise
   advances on that guess. `rtl/fetcher.v` is untouched: its own BTFN/`jal` guess
-  machinery (built for ADR-0221) is not wired into `fetch_pc` in this stage, so **every**
+  machinery (built for ADR-0207) is not wired into `fetch_pc` in this stage, so **every**
   taken branch or jump costs the same one-cycle redirect bubble a genuine miss would —
   B1 does not spend F's guess, on purpose, to keep this stage stall-only in truth as well
   as in name. `redirect` is exactly "the resolved target differs from what D guessed,
-  or a trap, or `mret`", never an instruction class, matching ADR-0221's own framing.
+  or a trap, or `mret`", never an instruction class, matching ADR-0207's own framing.
 - **CSR access, `csrs.v`'s ports, and the bus transaction's launch point all move to X**,
   forced by the split rather than chosen: `csr_arg` needs `reg_rs1` for the register-form
   encodings, the effective address needs it for the region test, and neither exists in D.
@@ -203,7 +203,7 @@ pipeline it was actually measuring. `prev2_trap_entry`, a second delay tap mirro
 `prev2_rdata`/`prev2_mstatus_*` chain the interrupt-independent checks already used, fixed
 the guard itself.
 
-Fixing the guard surfaced a second bug underneath it, of the class ADR-0221 and B1 both
+Fixing the guard surfaced a second bug underneath it, of the class ADR-0207 and B1 both
 already produced (a signal racing ahead of the state it should have waited for): the
 cause/tval VALUES the four regular-trap checks compared against (`expected_cause`/
 `expected_tval`) were built from `instr`, `formal/traps.sv`'s own read of `fetcher_out` —
@@ -449,7 +449,7 @@ ticket's kill criterion asked for, and it reads as the plan predicted, not as a 
 `make fit`: 4,658 `ICESTORM_LC` (after the `/simplify` pass below) against `main`'s pin of
 4,097 (+561) and the branch's own 4,219-cell budget (over by 439). Both `make fit` and
 `make soc-timing` are expected red on `thejefflarson/fetch-refactor` by the owner's
-standing decision (ADR-0221) to finish the refactor before trimming cells; this stage's
+standing decision (ADR-0207) to finish the refactor before trimming cells; this stage's
 own contribution to that overrun — the wider D/X register, X's absorbed branch/
 address/trap/CSR logic, the deleted second `regsel` instance and guessed-pair machinery —
 is not separated out here, since the trim pass reads the tree Stage B leaves, not one

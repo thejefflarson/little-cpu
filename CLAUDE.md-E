@@ -54,7 +54,7 @@ references still resolve.
   logic, no kill signal. `rtl/littlecpu.v` owns `fetch_pc`, since it spans F and X, and
   `rtl/fetcher.v` is stateless: the ROM is addressed off `fetch_pc_next` a cycle ahead, so its
   output register already holds the window at `fetch_pc` and there is no skid to keep coherent
-  (ADR-0221, amended). D publishes `predicted_pc`, a static BTFN/`jal` guess: a `jal` or a backward
+  (ADR-0207, amended). D publishes `predicted_pc`, a static BTFN/`jal` guess: a `jal` or a backward
   conditional branch is guessed taken, at `fetcher_pc + immediate` sized to the ROM window, and
   anything else falls through by `+2`/`+4`. **Fetch follows the guess**, so a correct guess is the
   absence of a redirect. X redirects only on a miss, a trap or `mret`, and the redirect reaches
@@ -63,10 +63,10 @@ references still resolve.
   word issued beside the redirect (`kill`), and the second wrong-path word never issues — no
   counter, no list, the same rule wrong-path register writes already kept. This keeps the BMC
   depths small and derivable, retire unfiltered, and `pcloop`'s induction free of speculative state
-  (ADR-0221, ADR-0208). B3 (ADR-0214) deleted the load/store region wait, one of `x_busy`'s two
+  (ADR-0207, ADR-0208). B3 (ADR-0214) deleted the load/store region wait, one of `x_busy`'s two
   reasons to hold X across multiple cycles, and the skid's deletion shortened the redirect path
   again; `make -C formal remeasure-fg` measures **F = 5 and G = 4**, and
-  `formal/checks.cfg`'s `#derive` lines and every `[depth]` floor move with it (ADR-0221,
+  `formal/checks.cfg`'s `#derive` lines and every `[depth]` floor move with it (ADR-0207,
   ADR-0214). Enforced by `formal/pcloop.sv` (the fetcher/D/X/littlecpu topology) and
   `rtl/decoder.v`'s `FORMAL` block; `test/decoder_tb.v` checks D's own `predicted_pc` guess
   directly, but `fetch_pc` itself lives in `rtl/littlecpu.v`, which has no unit bench of its own,
@@ -111,7 +111,7 @@ references still resolve.
   instruction's pair (never a guess, commitment 6) and a RAW hazard against anything still
   in flight — X's own `out` or its already-registered `executor_out` — simply stalled, with
   no exception (measured 44,620 suite cycles and 1,698,022 Dhrystone cycles, 0.670
-  DMIPS/MHz, ADR-0208). B2 (ADR-0222) gives X a forwarding mux: `fwd_rs1`/`fwd_rs2`, D's own
+  DMIPS/MHz, ADR-0208). B2 (ADR-0213) gives X a forwarding mux: `fwd_rs1`/`fwd_rs2`, D's own
   `dx_match_rs1`/`dx_match_rs2` against `out.rd` gated on a same-cycle-result class flag —
   register NUMBERS and class flags, never a VALUE — ride the D/X register into X and select
   `executor_out.rd_data` over `reg_rs1`/`reg_rs2`, excluding a CSR access's own rs1 (which
@@ -124,7 +124,7 @@ references still resolve.
   the suite by construction, since B2 gives that class no path because it needs none. RVFI's
   `rs1_rdata`/`rs2_rdata` report the forwarded value, not the regfile's own answer, so the
   monitor's `rd_wdata` check is self-consistent only against exactly those two fields.
-  Measured on B2's own tree (ADR-0222): against B1, the suite's cycles fall 44,620 → 30,893
+  Measured on B2's own tree (ADR-0213): against B1, the suite's cycles fall 44,620 → 30,893
   and Dhrystone 1,698,022 → 1,394,022 cycles (0.670 → 0.816 DMIPS/MHz); against main
   (pre-B1), Dhrystone 1,613,644 → 1,394,022 cycles and CoreMark 2.155 → 2.414 CoreMark/MHz.
   Every pre-B1 number and declined-candidate history this commitment used to carry
@@ -192,7 +192,7 @@ references still resolve.
 Retired numbers, never reused: 7 (the generated-but-tracked monitor) lives under Verification; 9 is
 folded into 6.
 
-**Stage B of the fetch refactor split decode into D and X** (ADR-0221, ADR-0208; commitments 1, 2,
+**Stage B of the fetch refactor split decode into D and X** (ADR-0207, ADR-0208; commitments 1, 2,
 4, 6 and 8 above are the rewritten prose, not a separate note). `formal/pcloop.sv` and
 `formal/traps.sv` are rebuilt on the real fetcher/D/X/csrs topology (no more hand-wiring the fused
 decoder), `rtl/executor.v` has its own `` `ifdef FORMAL `` block, and `components_pcloop`,
@@ -234,7 +234,7 @@ cause 1. B3 (ADR-0214) moved the twelve plain load and store encodings' region t
 `rtl/executor.v` itself, which carries its own copy of the map and answers the effective address's
 range combinationally, the same cycle, with no asymmetry between a wide window and a narrow one —
 the old fast-arm/deferred-arm split, and the layout preference it required, are both gone. The
-atomic region test followed the same move (ADR-0221 amendment, 2026-09-28): the eleven A
+atomic region test followed the same move (ADR-0207 amendment, 2026-09-28): the eleven A
 instructions' effective address is `rs1` verbatim, so `rtl/executor.v` runs the identical
 combinational test on it that a load or store already runs on `mem_addr_calc` — cause 5 for `lr.w`
 and 7 for the nine AMOs and `sc.w`, alignment outranking the region, which makes everything outside
@@ -315,7 +315,7 @@ it, because the forwarded operand, the address adder, the device decode and the 
 otherwise share one cycle. `mtip` compares the registered `mtime` and `mtimecmp`, so it can post
 one or two cycles later than the store that caused it; the timer bypasses a pending store into its
 read data, and the UART and SPI controller report `busy` from `busy || start_pending`, so a read
-is never stale (ADR-0221, ADR-0214).
+is never stale (ADR-0207, ADR-0214).
 
 **Conformance is not negotiable against minimality.** Every CSR the privileged spec mandates for
 RV32 M-mode is implemented, the 87 performance-monitor addresses included — most legally read
@@ -344,7 +344,7 @@ What a green result does and does not mean:
   `test/mutations/`, so `make mutation-check` does not re-run that table.
 - **Every generated riscv-formal check is `mode bmc`**: PASS means no counterexample within that
   depth, not that the property holds. Depths derive from F (worst-case first retire, from `hang`)
-  and G (worst-case retire gap, from `liveness`), 5 and 4 (ADR-0221, ADR-0214), declared in
+  and G (worst-case retire gap, from `liveness`), 5 and 4 (ADR-0207, ADR-0214), declared in
   `formal/checks.cfg`'s `#derive` lines. **Any change that adds a stall reason, lengthens a stage, or widens the
   scoreboard must re-measure F and G before it lands** (ADR-0046); `make -C formal remeasure-fg` is
   that sweep. `formal/genchecks-audit.py` grades every depth against its family's floor and a depth
@@ -545,7 +545,7 @@ top, ECP5 only.
   changes what the same C compiles to, with no RTL and no linker script touched (ADR-0190). A CPI
   regression with no conformance behind it is still a regression, and a figure recovered by moving the
   software is the firmware ceasing to pay a cost, never the core getting faster; a figure that moves
-  with the compiler is neither, and is why the compiler is pinned now. The last step, 8.66 → 11.32, is the fetch refactor: D/X split, executor forwarding, the static predictor with fetch following the guess, and the deleted region wait (ADR-0208, ADR-0222, ADR-0214, ADR-0221 as amended; the cross-core re-take is ADR-0220). **CoreMark is
+  with the compiler is neither, and is why the compiler is pinned now. The last step, 8.66 → 11.32, is the fetch refactor: D/X split, executor forwarding, the static predictor with fetch following the guess, and the deleted region wait (ADR-0208, ADR-0213, ADR-0214, ADR-0207 as amended; the cross-core re-take is ADR-0220). **CoreMark is
   SIMULATED AT 16 KB OF ROM**, double the part's 8, against `test/testbench.v`'s `ROM_WORDS`, and
   every printed figure says so; the five algorithm files are vendored unmodified and pinned by
   `test/bench/coremark/PINNED.sha256` (ADR-0136). **2.776 CoreMark/MHz** under the pinned compiler
@@ -695,10 +695,10 @@ VexRiscv on both.
   parts disagree in sign, and the best product of clock against cycles is +0.4%. Redirects are
   7.15% of the suite's issues and 16.92% of Dhrystone's, the opposite ordering from the RAW share,
   so no depth argument stands on the suite alone. **A register-only fetch address is
-  `rtl/fetcher.v`, proven in `pcloop` and `traps`** (ADR-0221): the ROM is addressed off
+  `rtl/fetcher.v`, proven in `pcloop` and `traps`** (ADR-0207): the ROM is addressed off
   `fetch_pc_next` and the fetcher holds no state, so the tail leaves the loop and the head is still
   the block RAM's output. The one-window skid that shipped first cost placed cells the up5k did not
-  have, and was deleted in the cell-trim pass (ADR-0221, amended); the registered head Stage A saw
+  have, and was deleted in the cell-trim pass (ADR-0207, amended); the registered head Stage A saw
   its clock from (ADR-0201) is a second window register and a two-cycle redirect, the four-word
   queue's price by another name.
 - **yosys and ABC already do everything derivable from the expression** — dead bits, common
