@@ -25,7 +25,7 @@ failed=0
 # Pinned as a literal, for the reason docs/manifests/probes-expected.md gives: a case deleted, or one
 # stopped being reached by an early return, would otherwise cut this file's coverage
 # while it went on printing a green summary.
-CASES_EXPECTED=9
+CASES_EXPECTED=12
 
 ok()   { cases=$((cases + 1)); printf 'ok   %s\n' "$1"; }
 bad()  { cases=$((cases + 1)); failed=$((failed + 1)); printf 'FAIL %s\n     -> %s\n' "$1" "$2" >&2; }
@@ -46,9 +46,8 @@ map() {
 }
 
 census() {
-  local out
-  if out=$(python3 "$REPO/soc/cell_census.py" "$tmp/$1.log" "$2" "$3" \
-             "rtl/imemory.v's banks have stopped mapping the way the dual-hart budget was built on" 2>&1); then
+  local out reason=${5:-"rtl/imemory.v's banks have stopped mapping the way the dual-hart budget was built on"}
+  if out=$(python3 "$REPO/soc/cell_census.py" "$tmp/$1.log" "$2" "$3" "$reason" 2>&1); then
     ok "$4: $out"
   else
     bad "$4" "$out"
@@ -88,6 +87,12 @@ census one_ice40 SB_RAM40_4K 16 "ice40, one window"
 census one_ecp5  DP16KD       4 "ECP5, one window"
 
 echo
+echo "== a store leaves the read port alone, so the mapper adds no write bypass"
+ff_reason="the ROM's read port reads on a write cycle again, and the mapper has bought a bypass for it"
+census one_ice40 SB_DFF     6 "ice40, one window, flip-flops" "$ff_reason"
+census one_ecp5  TRELLIS_FF 6 "ECP5, one window, flip-flops" "$ff_reason"
+
+echo
 echo "== two windows are two copies of one storage"
 map "$REPO/rtl/imemory.v" ice40 2 two_ice40
 map "$REPO/rtl/imemory.v" ecp5  2 two_ecp5
@@ -115,6 +120,25 @@ done
 map "$mutant" ice40 2 mutant_ice40
 refuses mutant_ice40 SB_RAM40_4K 2 16 "write of its own" \
   "ice40, the second window's private banks"
+
+echo
+echo "== a read on a write cycle is reported"
+mutant_rw=$tmp/imemory_read_on_write.v
+sed -e "s/if (!text_write) begin/if (1'b1) begin/" "$REPO/rtl/imemory.v" > "$mutant_rw"
+if ! grep -qF "if (1'b1) begin" "$mutant_rw"; then
+  echo "error: the read-on-write mutation did not apply -- no \`if (!text_write) begin\` in rtl/imemory.v." >&2
+  echo "rtl/imemory.v was respelled; teach this script the new spelling rather" >&2
+  echo "than letting the red direction synthesise the shipping design." >&2
+  exit 1
+fi
+map "$mutant_rw" ice40 1 mutant_rw_ice40
+if out=$(python3 "$REPO/soc/cell_census.py" "$tmp/mutant_rw_ice40.log" SB_DFF 6 "$ff_reason" 2>&1); then
+  bad "ice40, the read on a write cycle" "the census passed; the refusal never fired"
+elif ! grep -qF -- "expected 6" <<< "$out"; then
+  bad "ice40, the read on a write cycle" "it failed without naming the count: $out"
+else
+  ok "ice40, the read on a write cycle refused"
+fi
 
 echo
 echo "== the checker's other refusals"
