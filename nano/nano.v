@@ -62,6 +62,7 @@ module riscv #(
   logic is_e_illegal;
   logic is_valid;
   logic [31:0] regs[0:15];
+  logic [31:0] rf_one;
 
   localparam logic [31:0] MISA_VALUE = 32'h4000_0014; // RV32, E, C
   localparam logic [11:0] CSR_MSTATUS    = 12'h300;
@@ -471,7 +472,7 @@ module riscv #(
                instr[24:20];
 
   assign rf_raddr = cpu_state == fetch_rs1 ? rs1[3:0] : rs2[3:0];
-  assign rf_rdata = |rf_raddr ? regs[rf_raddr] : 32'b0;
+  assign rf_rdata = |rf_raddr ? rf_one : 32'b0;
 
   assign take_interrupt = interrupt_pending && cpu_state == fetch_instr;
 
@@ -665,7 +666,7 @@ module riscv #(
     (is_lui || is_auipc || is_jal || is_jalr || is_math || is_math_immediate || is_csr));
 
   always_ff @(posedge clk) begin
-    if (wb_en) regs[rd[3:0]] <= cpu_state == finish_load ? load_data : wb_data;
+    if (wb_en) rf_one <= cpu_state == finish_load ? load_data : wb_data;
   end
 
   // !take_trap excludes an E-illegal CSR instruction, which is_valid alone does not.
