@@ -6568,7 +6568,7 @@ cat > "$tmp/sby-mcp-stub" <<'STUB'
 # real sby does. The stalled-bus mutant is told apart by the sentinel it states.
 job=$(ls *_cover.sby | sed 's/\.sby$//')
 mkdir -p "$job"
-sv=$(ls *check.sv)
+sv=$(ls *check.sv ill_e.sv 2>/dev/null)
 log="$job/logfile.txt"
 : > "$log"
 say() { [ -n "${STUB_NO_LOG_LINES:-}" ] || echo "SBY [probe] engine_0: ##   0:00:00  $1" >> "$log"; }
@@ -6641,6 +6641,23 @@ probe "control: nano's dmemcheck reaches its goal and the stalled-bus mutant doe
 d=$(mcp_fixture nano/formal imemcheck)
 probe "control: nano's imemcheck reaches its goal and the stalled-bus mutant does not" 0 \
   "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal imemcheck)"
+
+d=$(mcp_fixture nano/formal ill_e)
+probe "control: nano's ill_e reaches its goal and the stalled-bus mutant does not" 0 \
+  "The stalled-bus mutant reaches its sentinel and not the cover goal" "$(mcps "$d" nano/formal ill_e)"
+
+d=$(mcp_fixture nano/formal ill_e)
+probe "an ill_e cover that cannot go red is not a control" 1 \
+  "cannot go red is not a control" "STUB_STALLED=PASS $(mcps "$d" nano/formal ill_e)"
+
+d=$(mcp_fixture nano/formal ill_e)
+probe "an ill_e shipping harness that cannot reach its own cover goal is red" 1 \
+  "the shipping harness does not reach its own cover goal" \
+  "STUB_SHIP=FAIL $(mcps "$d" nano/formal ill_e)"
+
+d=$(mcp_fixture formal dmemcheck)
+probe "ill_e asked of littlecpu's harness is refused, not run" 2 \
+  "ill_e is nano's harness" "$(mcps "$d" formal ill_e)"
 
 d=$(mcp_fixture formal dmemcheck)
 probe "a shipping harness that cannot reach its own cover goal is red" 1 \
