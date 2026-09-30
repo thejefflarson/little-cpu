@@ -6931,7 +6931,7 @@ d=$(fc_fixture); mutate "$d/formal/Makefile" 's/^all: complete /all: complete li
 probe "a target added to littlecpu's all with no CI step is red" 1 \
   "formal/Makefile's \`all\` names littlecpu_new_proof" "$FC $d"
 
-d=$(fc_fixture); mutate "$d/.github/workflows/ci.yml" 's/proof: \[executor, decoder, accessor, pcloop, traps, busarbiter\]/proof: [executor, decoder, accessor, pcloop, busarbiter]/'
+d=$(fc_fixture); mutate "$d/.github/workflows/ci.yml" 's/proof: \[executor, decoder, accessor, pcloop, traps, busarbiter\]/proof: [executor, decoder, accessor, pcloop, busarbiter]/' '/^ *- proof: traps$/d'
 probe "a matrix proof dropped from the workflow is red" 1 \
   "names components_traps" "$FC $d"
 
