@@ -90,7 +90,7 @@ module nano_tt_tb;
   initial begin
     cycles = 0;
     repeat (4) @(posedge clk);
-    rst_n = 1;
+    @(negedge clk) rst_n = 1;
     forever begin
       @(posedge clk);
       cycles = cycles + 1;
