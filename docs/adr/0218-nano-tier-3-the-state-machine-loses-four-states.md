@@ -45,29 +45,31 @@ makes it safe.
 
 ## Measurements
 
-All local instruments. Area is `make nano-area` (clock-gated local synthesis) and **is local, not the
-flow's**: Tier 1 measured -10k locally and about -2.5k in the flow, so treat these as an upper bound.
-Every row was measured on its own commit in its own tree. Zero-wait is `make nano-dhrystone` (200 runs,
-105,987 retires) and `make nano-coremark` (5 iterations, 3,810,704 retires); QSPI is the pin-level
-harness, `NANO_DHRY_RUNS=5 NANO_DHRY_CYCLES=100000000 make nano-qspi-pins-dhrystone` (13,944 retires)
-and `NANO_COREMARK_ITERATIONS=1 NANO_COREMARK_CYCLES=40000000 make nano-qspi-pins-coremark` (777,270
+Area is `make nano-area` on the instrument ADR-0219 left: no clock gating, and the cells the flow
+excludes excluded. **It ranks RTL versions and is not a placement, routing or timing result.** Every row
+was measured on its own commit in its own tree, rebased onto main at 9f50778. Cycles do not depend on
+the flow, and the rebase touched no RTL, so the cycle columns were re-taken at main and at the last row
+and match the per-commit figures exactly. Zero-wait is `make nano-dhrystone` (200 runs, 105,987 retires)
+and `make nano-coremark` (5 iterations, 3,810,704 retires); QSPI is the pin-level harness,
+`NANO_DHRY_RUNS=5 NANO_DHRY_CYCLES=100000000 make nano-qspi-pins-dhrystone` (13,944 retires) and
+`NANO_COREMARK_ITERATIONS=1 NANO_COREMARK_CYCLES=40000000 make nano-qspi-pins-coremark` (777,270
 retires). Retire counts are identical in every row.
 
-| after | local area um2 | zero-wait Dhrystone | zero-wait CoreMark | QSPI Dhrystone | QSPI CoreMark |
+| after | local area um2 (ADR-0219 instrument) | zero-wait Dhrystone | zero-wait CoreMark | QSPI Dhrystone | QSPI CoreMark |
 | --- | --- | --- | --- | --- | --- |
-| main (7b111c6) | 58,790.1 | 629,527 | 24,943,488 | 124,672 | 24,518,338 |
-| `decode_instr` | 58,776.4 | 535,108 | 21,151,667 | 122,309 | 23,759,951 |
-| `fetch_rs2` | 57,559.0 | 499,700 | 19,496,420 | 121,422 | 23,428,892 |
-| `check_pc` | 56,829.5 | 478,298 | 18,373,156 | 120,885 | 23,204,241 |
-| `reg_write` | 55,869.8 | 415,887 | 15,696,013 | 119,329 | 22,668,799 |
-| `mem_addr` merge | 54,536.1 | 415,887 | 15,696,013 | 119,329 | 22,668,799 |
-| total | -4,254.0 (-7.2%) | -33.9% | -37.1% | -4.3% | -7.5% |
+| main (9f50778) | 78,965.7 | 629,527 | 24,943,488 | 124,672 | 24,518,338 |
+| `decode_instr` | 78,505.3 | 535,108 | 21,151,667 | 122,309 | 23,759,951 |
+| `fetch_rs2` | 76,966.3 | 499,700 | 19,496,420 | 121,422 | 23,428,892 |
+| `check_pc` | 75,491.2 | 478,298 | 18,373,156 | 120,885 | 23,204,241 |
+| `reg_write` | 74,448.9 | 415,887 | 15,696,013 | 119,329 | 22,668,799 |
+| `mem_addr` merge | 73,137.6 | 415,887 | 15,696,013 | 119,329 | 22,668,799 |
+| total | -5,828.1 (-7.4%) | -33.9% | -37.1% | -4.3% | -7.5% |
 
 Zero-wait CPI on Dhrystone goes from 5.94 to 3.92 cycles per instruction: two cycles, not the ticket's
 three, because the target path `fetch_instr → ready_instr → fetch_rs1 → execute_instr` is four states
 and the average includes loads, stores and the fetch cost. The QSPI harness gains much less because most
 core cycles already hid under the flash fetch, as the ticket said. The merge saves area and no cycles.
-`NANO_MAX_UM2` steps 60,300 → 56,050, keeping the prior 1,509.9 um2 of headroom over the new local
+`NANO_MAX_UM2` steps 81,000 → 75,200, keeping the prior 2,034.3 um2 of headroom over the new
 measurement.
 
 ## F, G and every depth
@@ -100,3 +102,14 @@ introduced here, and is left for its own ticket.
 The 4x2 flow run, including per-corner setup, is not part of this ADR: it runs on the branch after merge
 review, and the longer `execute_instr` path (rs2 read, ALU and register write in one cycle) is what it
 will grade.
+
+## Registers with no reset after this change
+
+For the gate-level-clean ticket that follows. In `nano/nano.v`'s synthesized design, three things have no
+reset: `op_rs1` (loaded in `fetch_rs1`), `mem_instr` (an output, first written by the first fetch, so
+it is unknown through reset and the first cycle after), and the register file `regs[1:15]` (`regs[0]` is
+never stored). `op_rs2` no longer exists, so its unknown cannot reach a result, but rs2 is now read
+live from `regs[]`: a program that reads a register before writing it still gets an unknown, exactly as
+it did through `op_rs2`. Everything else in the module resets: `pc`, `instr`, `mem_addr`, `mem_valid`,
+`trap`, `cpu_state`, the CSR block and the two interrupt synchronizers. The `RISCV_FORMAL` and `FORMAL`
+blocks' own registers are outside the synthesized design.
