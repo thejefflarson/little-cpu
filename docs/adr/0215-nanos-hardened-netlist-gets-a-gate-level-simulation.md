@@ -84,8 +84,9 @@ one per cell instance. The run passed `-I` alone, which only resolves `` `includ
 the probe's fixture `` `include ``d its one cell, so the probe elaborated and the netlist,
 which includes nothing, could not. Both now pass `-y "$CELL_DIR" -Y .v`, which resolves
 each cell as a library module, and the fixture no longer includes its cell, so the probe
-exercises the path a netlist uses. Both also pass `-D UNIT_DELAY=`, which the models'
-flip-flops read and iverilog warned about when left undefined.
+exercises the path a netlist uses. Both pass `-DUNIT_DELAY=#1`, the value Tiny Tapeout's own gate-level test template sets: the
+models put it on each flop's output so a zero-delay clock tree cannot race a flop's new value
+into the next flop on the same edge. It was first defined empty here, to quiet a warning.
 
 Against a local clock-gated netlist (yosys `synth`, then the flow's `clockgate` pass, with
 `dfflibmap` and `abc` told not to use `edfx*` the way LibreLane's cell exclusions do, 27

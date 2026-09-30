@@ -38,7 +38,7 @@ fi
 
 run() {  # $1 = fixture path, $2 = output vvp path
   python3 "$REPO/nano/gl_census.py" "$1" --includes "$2.cells.v" >/dev/null
-  iverilog -g2012 -D FUNCTIONAL -D UNIT_DELAY= -I "$CELL_DIR" -o "$2" "$2.cells.v" "$1"
+  iverilog -g2012 -D FUNCTIONAL '-DUNIT_DELAY=#1' -I "$CELL_DIR" -o "$2" "$2.cells.v" "$1"
   vvp "$2"
 }
 
