@@ -1,0 +1,5 @@
+# The number of assert() statements rtl/executor.v guards behind `ifndef
+# TRAPS_SKIP_EXEC_ARITH: the multiplier's and divider's own result checks, proven by
+# components_executor and excluded from formal/traps.sv's composition, which defines
+# the macro. Checked both ways by formal/traps-arith-excluded-test.py.
+13

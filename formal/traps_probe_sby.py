@@ -29,13 +29,16 @@ LABEL = re.compile(r"^([A-Za-z_][A-Za-z0-9_ ]*):\s*$")
 SECTION = re.compile(r"^\[(\w+)\]\s*$")
 
 # The sources traps.sv's own sby script names, in the order it names them.
-SOURCES = ("structs.v", "fetcher.v", "decoder.v", "regsel.v", "csrs.v")
+SOURCES = ("structs.v", "fetcher.v", "decoder.v", "executor.v", "regsel.v", "csrs.v")
 
 TEMPLATE = """[options]
 mode prove
 
 [engines]
-smtbmc
+# Hardcoded here, not read from components.sby: an independent match to the
+# traps task's own choice, not an inherited one -- the drift this file's own
+# docstring warns against is in parsing [engines], never in stating a fact twice.
+smtbmc bitwuzla
 
 [script]
 {script}
@@ -66,8 +69,13 @@ def script_block(components_sby, task="traps"):
             out.append(line)
     return out
 
+# The read this probe's own copy arms with `-D PROBE_ENV_HINT`; components.sby's shipping script never defines that macro.
+TRAPS_READ = "read -sv -formal structs.v traps.sv"
+TRAPS_READ_HINTED = "read -sv -D PROBE_ENV_HINT -formal structs.v traps.sv"
+
 def probe_sby(repo, stop, task="traps"):
-    """The probe's sby text: components.sby's script over the probe's own tree."""
+    """The probe's sby text: components.sby's script over the probe's own tree,
+    with its own environment hint armed for traps.sv alone."""
     path = repo / "formal" / "components.sby"
     if not path.is_file():
         stop(
@@ -83,7 +91,16 @@ def probe_sby(repo, stop, task="traps"):
             "probe cannot read the script it is meant to build against. Teach it the\n"
             "new task name rather than restoring a copy here."
         )
+    script = "\n".join(block).strip("\n")
+    if TRAPS_READ not in script:
+        stop(
+            f"formal/components.sby's `{task}:` script no longer spells "
+            f"`{TRAPS_READ}`, and this probe arms its own environment hint by\n"
+            "replacing that exact line. Re-anchor it on the new spelling rather than\n"
+            "silently building the shipping environment instead."
+        )
+    script = script.replace(TRAPS_READ, TRAPS_READ_HINTED, 1)
     return TEMPLATE.format(
-        script="\n".join(block).strip("\n"),
+        script=script,
         files="\n".join(f"src/{name}" for name in SOURCES + ("traps.sv",)),
     )

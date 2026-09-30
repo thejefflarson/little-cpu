@@ -23,8 +23,6 @@ module testbench (
   logic [31:0] uut_imem_data2;
   // The fetch address one cycle early.
   logic [31:0] uut_imem_addr_next;
-  // The address the core publishes for the platform to decode.
-  logic [31:0] atomic_addr;
   // The lock an arbiter would read.
   logic mem_lock;
   logic bus_request;
@@ -103,8 +101,6 @@ module testbench (
     .fetch_stall(fetch_stall),
     .imem_fault(1'b0),
     .mem_reservable(1'b1),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(1'b1),
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),

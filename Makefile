@@ -450,10 +450,12 @@ lint-setup:
 	mv $$tmp '$(SVLINT_DIR)'
 	@'$(SVLINT_DIR)'/bin/svlint --version
 
-UNIT_BENCHES := exec_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb monitor_tb \
-                timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb fetchqueue_tb
+UNIT_BENCHES := exec_tb executor_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb \
+                monitor_tb timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb \
+                fetchqueue_tb fetcher_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
+UNIT_BENCH_SRC_executor_tb := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
 UNIT_BENCH_SRC_imem_tb     := rtl/imemory.v
 UNIT_BENCH_SRC_decoder_tb  := rtl/structs.v rtl/decoder.v rtl/regsel.v
@@ -467,6 +469,7 @@ UNIT_BENCH_SRC_spiflash_tb := rtl/spiflash.v test/spiflash_model.v
 UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
 UNIT_BENCH_SRC_miso_share_enable_tb := soc/miso_share_enable.v
 UNIT_BENCH_SRC_fetchqueue_tb := rtl/fetchqueue.v
+UNIT_BENCH_SRC_fetcher_tb := rtl/structs.v rtl/fetcher.v
 
 # `present` reads the directory in the recipe, not via $(wildcard) -- make caches that
 # and a stale listing could miss a bench that is really there.
@@ -837,11 +840,11 @@ fit.json: $(FIT_SRCS)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
 
-# 4219 = 4097 + 68 + 54: the fit job's measured count, the measured churn band, and the
-# widest toolchain gap measured on one tree.
-FIT_MAX_LC := 4219
+# 4441 = 4347 + 40 + 54: the higher of this tree's local and job counts, the churn band measured
+# on this tree, and the widest toolchain gap measured on one tree (derivation: ADR-0220).
+FIT_MAX_LC := 4441
 
-FIT_LAST_LC := 4097
+FIT_LAST_LC := 4332
 
 FIT_TOOLS := yosys nextpnr-ice40
 

@@ -1,12 +1,11 @@
-diff --git a/rtl/decoder.v b/rtl/decoder.v
 --- a/rtl/decoder.v
 +++ b/rtl/decoder.v
-@@ -555,7 +555,7 @@
-   // because text is writable and the fetch address goes out a cycle early.
+@@ -310,7 +310,7 @@
+   // A CSR access/`mret`/`fence.i` must not interleave with older instructions.
    logic pipe_drained, serialize;
    assign pipe_drained = !out.valid && !executor_out.valid && !accessor_out_valid;
 -  assign serialize = (instr_csr_access || instr_mret || instr_fencei) && !pipe_drained;
 +  assign serialize = (instr_csr_access || instr_mret) && !pipe_drained;
  
-   logic hazard_rs1, hazard_rs2, hazard, stall;
-   assign hazard_rs1 = uses_rs1 && rs1 != 0 && live_rs1 && !ex_fwd_rs1;
+   // X already consumed the AMO in `out`; re-presenting it would retire it twice.
+   logic out_is_amo, atomic_stall;

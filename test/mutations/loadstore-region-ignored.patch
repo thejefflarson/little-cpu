@@ -1,13 +1,11 @@
-diff --git a/rtl/decoder.v b/rtl/decoder.v
---- a/rtl/decoder.v
-+++ b/rtl/decoder.v
-@@ -411,8 +411,7 @@
+--- a/rtl/executor.v
++++ b/rtl/executor.v
+@@ -155,7 +155,7 @@
  
    logic atomic_fault;
-   assign atomic_fault = instr_atomic && !atomic_supported && !word_misaligned;
--  assign ls_fault = ls_access && ls_answer_valid && !ls_answer &&
--                    !load_misaligned && !store_misaligned;
+   assign atomic_fault = instr_atomic && !ram_mapped && !word_misaligned;
+-  assign ls_fault = ls_access && !ls_supported && !load_misaligned && !store_misaligned;
 +  assign ls_fault = 1'b0;
  
    logic load_access_fault, store_access_fault;
-   assign load_access_fault  = (atomic_fault && instr_lr) || (ls_fault && instr_ls_load);
+   assign load_access_fault  = (atomic_fault && in_is_lr) || (ls_fault && instr_ls_load);

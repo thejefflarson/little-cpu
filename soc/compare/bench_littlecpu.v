@@ -30,8 +30,7 @@ module bench_littlecpu #(
   logic [31:0] imem_mem_rdata, dmem_mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, fetch_stall, irq_timer, imem_fault, mem_reservable;
-  logic        atomic_supported, mem_lock, bus_request;
-  logic [31:0] atomic_addr;
+  logic        mem_lock, bus_request;
 
   // Stands in for rtl/timer.v's `mtip` line, which there is no room on the part for.
   logic [15:0] irq_count = 16'b0;
@@ -55,8 +54,6 @@ module bench_littlecpu #(
     .mem_rdata(mem_rdata),
     .fetch_stall(fetch_stall),
     .mem_reservable(mem_reservable),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
     .bus_wait(1'b0),
     .snoop_write(1'b0),
     .snoop_addr(32'b0),
@@ -91,9 +88,7 @@ module bench_littlecpu #(
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(dmem_mem_rdata),
-    .reservable(mem_reservable),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported)
+    .reservable(mem_reservable)
   );
 
   assign mem_rdata = imem_mem_rdata | dmem_mem_rdata;

@@ -1964,7 +1964,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway" 1 \
-  "not the 3 this row swept" \
+  "not the 2 this row swept" \
   "$RFG_MAIN && python3 remeasure-fg.py --genchecks '$tmp/fake-genchecks-main.py'; rc=\$?; rm -rf '$REPO/formal/fg-probe' '$REPO/formal/fg-probe.cfg'; exit \$rc"
 
 cat > "$tmp/fake-genchecks-main-reset.py" <<'PY'
@@ -2559,162 +2559,147 @@ probe "a tree with no source file at all is red rather than vacuously green" 1 \
 
 begin_group "test/zkt_isolation_test.py"
 
-# The script takes a path argument directly, so a fixture is just a mutated COPY of the
-# shipping rtl/decoder.v plus its two dependencies -- no git init needed, unlike the
-# checks above that enumerate tracked files.
+# The D/X split (ADR-0208) moved every signal this script grades off rtl/decoder.v --
+# whose own stall reasons no longer read a bit of register-file DATA at all -- onto
+# rtl/executor.v, whose one TIMING output is x_busy, gated by `state` (DIV/REM's own
+# operand-magnitude-dependent length; B3/ADR-0214 deleted the load/store region wait's
+# own gate outright). The script takes a path argument directly, so a fixture is just a
+# mutated COPY of the shipping rtl/executor.v plus its one dependency -- no git init
+# needed, unlike the checks above that enumerate tracked files.
 ZKT="python3 $HERE/zkt_isolation_test.py"
 
 zkt_fixture() {
   local d; d=$(new_case)
-  cp "$REPO/rtl/decoder.v" "$d/decoder.v"
+  cp "$REPO/rtl/executor.v" "$d/executor.v"
   cp "$REPO/rtl/structs.v" "$d/structs.v"
-  cp "$REPO/rtl/regsel.v" "$d/regsel.v"
   printf '%s' "$d"
 }
 
-# This control is also the only thing that exercises CONTROL_FIELDS: emptying that table
-# makes live_rs1/live_rs2's real reads of out.rd/out.valid and executor_out.rd/valid show
-# up as reachable on the SHIPPING RTL, no mutation needed, because out.valid's own bubble
-# condition genuinely depends on region_stall and trap_pending genuinely depends on
-# reg_rs1 (misalignment).
 d=$(zkt_fixture)
-probe "control: the shipping decoder reaches region_stall only, gated" 0 \
-  "reach only region_stall" "$ZKT $d/decoder.v"
+probe "control: the shipping executor reaches x_busy only through its one gate" 0 \
+  "reach x_busy only" "$ZKT $d/executor.v"
 
 # FORWARD REACHABILITY, the plain case: a register-file DATA bit routed straight into
-# hazard, the way a forwarding path or a data-dependent early-out might be added by
+# x_busy, the way a forwarding path or a data-dependent early-out might be added by
 # someone who never meant to touch Zkt's claim.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || reg_rs1[0];/'
-probe "a reg_rs1 bit routed into hazard is red, at hazard's own site" 1 \
-  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+mutate "$d/executor.v" \
+  's/assign x_busy = state != init;/assign x_busy = (state != init) || reg_rs1[0];/'
+probe "a reg_rs1 bit routed into x_busy is red, at x_busy's own site" 1 \
+  "\`x_busy\` is reachable" "$ZKT $d/executor.v"
 
 # FORWARD REACHABILITY THROUGH A REGISTER: reg_rs1 laundered through the publish block's
-# own `out.rs1 <= reg_rs1` before reaching hazard.
+# own `out.rd_data <= ...` before reaching x_busy.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || out.rs1[0];/'
-probe "reg_rs1 laundered through out.rs1's own register is still red" 1 \
-  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+mutate "$d/executor.v" \
+  's/assign x_busy = state != init;/assign x_busy = (state != init) || out.rd_data[0];/'
+probe "reg_rs1 laundered through out.rd_data's own register is still red" 1 \
+  "\`x_busy\` is reachable" "$ZKT $d/executor.v"
 
-# FORWARD REACHABILITY THROUGH A COMPARATOR: branch_taken depends on
-# cmp_eq/cmp_lt/cmp_ltu, which are reg_rs1/reg_rs2 through a subtraction --every bit of
-# it real dataflow, computed in an always_comb block.
+# FORWARD REACHABILITY THROUGH A COMPARATOR: cmp_eq is reg_rs1/reg_rs2 through a
+# subtraction -- every bit of it real dataflow, computed in an always_comb block.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || branch_taken;/'
-probe "branch_taken carrying reg_rs1/reg_rs2 into hazard is red" 1 \
-  "\`hazard\` is reachable" "$ZKT $d/decoder.v"
+mutate "$d/executor.v" \
+  's/assign x_busy = state != init;/assign x_busy = (state != init) || cmp_eq;/'
+probe "cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red" 1 \
+  "\`x_busy\` is reachable" "$ZKT $d/executor.v"
 
-# FORWARD REACHABILITY, the other seed: a register-file DATA output STRUCT_FIELD_SEEDS
-# never named.
+# FINDING 1: x_busy reading the divider's own in-progress state directly, bypassing the
+# name and reading mul_div_counter instead -- the counter's own starting value is
+# data-dependent (div_skip picks 16 or 32), so a bit of it is exactly the kind of leak
+# blocking `state` as one hop is meant to catch.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign atomic_stall = out.valid && out.is_amo && !divider_stall;/assign atomic_stall = out.valid \&\& out.is_amo \&\& !divider_stall || executor_out.rd_data[0];/'
-probe "an executor_out.rd_data bit routed into a stall reason is red" 1 \
-  "\`atomic_stall\` is reachable" "$ZKT $d/decoder.v"
+mutate "$d/executor.v" \
+  's/assign x_busy = state != init;/assign x_busy = (state != init) || mul_div_counter[0];/'
+probe "x_busy reading mul_div_counter directly is red (finding 1)" 1 \
+  "\`x_busy\` is reachable" "$ZKT $d/executor.v"
 
-# FINDING 1: a stall reason reading region_stall's own captured state directly, bypassing
-# the ls_access gate rather than going through it.
+# FINDING 2: the same leak, behind a decoy -- a dead generate arm mentioning the same
+# signal must not make a naive checker think the leak is unreachable dead code too.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;/'
-probe "hazard reading ls_answer_valid directly is red (finding 1)" 1 \
-  "region_stall's own captured answer" "$ZKT $d/decoder.v"
-
-# FINDING 2: the same leak, behind a decoy.
-d=$(zkt_fixture)
-python3 - "$d/decoder.v" <<'PYEOF'
+python3 - "$d/executor.v" <<'PYEOF'
 import sys
 p = sys.argv[1]
 s = open(p).read()
 s = s.replace(
-    'assign hazard = hazard_rs1 || hazard_rs2 || serialize;',
-    'assign hazard = hazard_rs1 || hazard_rs2 || serialize || ls_answer_valid;\n'
+    'assign x_busy = state != init;',
+    'assign x_busy = (state != init) || mul_div_counter[0];\n'
     '  generate\n'
     '    if (0) begin : dead_gen\n'
-    "      assign ls_answer_valid = 1'b0;\n"
+    "      logic decoy;\n"
+    '      assign decoy = mul_div_counter[0];\n'
     '    end\n'
     '  endgenerate',
     1)
 open(p, 'w').write(s)
 PYEOF
 probe "a dead generate-if(0) decoy does not hide the same leak (finding 2)" 1 \
-  "region_stall's own captured answer" "$ZKT $d/decoder.v"
+  "\`x_busy\` is reachable" "$ZKT $d/executor.v"
 
-# FINDING 3: a new decoder input wider than a register NUMBER, added with no Zkt
+# FINDING 3: a new executor input wider than a register NUMBER, added with no Zkt
 # classification at all.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
+mutate "$d/executor.v" \
   's/  input  logic \[31:0\] reg_rs1,/  input  logic [31:0] reg_rs1,\n  input  logic [9:0] probe_wide_input,/'
 probe "a new wide input port with no classification is red (finding 3)" 2 \
-  "no Zkt classification" "$ZKT $d/decoder.v"
+  "no Zkt classification" "$ZKT $d/executor.v"
 
-# FINDING 5: CONTROL_FIELDS' own written justification is entirely a width argument, and
-# nothing checked it.
+# CONTROL_FIELDS is empty for X on purpose -- no wide struct field is read back into its
+# own timing computation the way D's out/executor_out used to be -- but the mechanism
+# behind it must still catch a future entry that is too wide, the same bound
+# classify_inputs already enforces for a plain input port.
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
-python3 - "$d/zkt_isolation_test.py" <<'PYEOF'
-import sys
-p = sys.argv[1]
-s = open(p).read()
-old = ("CONTROL_FIELDS = {\n"
-       "    'out': ('decoder_output', ['valid', 'rd', 'is_amo']),\n"
-       "    'executor_out': ('executor_output', ['valid', 'rd', 'rd_ready']),\n"
-       "}")
-assert s.count(old) == 1
-open(p, 'w').write(s.replace(old, 'CONTROL_FIELDS = {}'))
-PYEOF
-probe "CONTROL_FIELDS emptied is red against the shipping decoder (finding 5)" 1 \
-  "is reachable" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
+mutate "$d/zkt_isolation_test.py" \
+  "s/CONTROL_FIELDS = {}/CONTROL_FIELDS = {'in': ('dx_output', ['instr'])}/"
+probe "a CONTROL_FIELDS entry wider than a register NUMBER is red" 2 \
+  "wider than a register NUMBER" "python3 $d/zkt_isolation_test.py $REPO/rtl/executor.v"
 
-# FINDING 5, the width bound: control_field_bits asserted no width, even though the
-# written justification for the whole table is entirely one -- "rd is [4:0], the same
-# width SEED_PORTS/NON_VALUE_PORTS draw the line at." Widening decoder_output's own `rd`
-# field past 5 bits must be caught here, the same bound classify_inputs already enforces
-# for input ports.
+# dx_output.rs1, currently a register NUMBER at [4:0] and so exempt from classification
+# on width alone, widened past the point where that exemption holds -- caught the same
+# way a brand new wide field would be, not silently still skipped.
 d=$(zkt_fixture)
 python3 - "$d/structs.v" <<'PYEOF'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-marker = '} decoder_output;'
+marker = '} dx_output;'
 idx = s.index(marker)
 head, tail = s[:idx], s[idx:]
-old = '  logic [4:0]  rd;'
+old = '  logic [4:0]  rs1;'
 assert head.count(old) == 1
-open(p, 'w').write(head.replace(old, '  logic [31:0]  rd;', 1) + tail)
+open(p, 'w').write(head.replace(old, '  logic [31:0]  rs1;', 1) + tail)
 PYEOF
-probe "decoder_output.rd widened past 5 bits is red (finding 5)" 2 \
-  "wider than a register NUMBER" "$ZKT $d/decoder.v"
+probe "dx_output.rs1 widened past 5 bits is red, unclassified" 2 \
+  "no Zkt classification" "$ZKT $d/executor.v"
 
 d=$(new_case)
 cp "$HERE/zkt_isolation_test.py" "$d/zkt_isolation_test.py"
 mutate "$d/zkt_isolation_test.py" \
   "s/NON_VALUE_PORTS = {/NON_VALUE_PORTS = {\n    'totally_fake_port',/"
 probe "a classification naming a port the netlist has never seen is red" 2 \
-  "Remove the stale entry" "python3 $d/zkt_isolation_test.py $REPO/rtl/decoder.v"
+  "Remove the stale entry" "python3 $d/zkt_isolation_test.py $REPO/rtl/executor.v"
 
-# A stall-reason name with no driving cell at all -- a deleted \`assign hazard = ...;\`
-# with the declaration left behind -- would make reachability through it vacuously true
-# (nothing flows out of a wire nothing drives) rather than the missing stall reason it
-# is.
+# A signal with no driving cell at all -- a deleted \`assign x_busy = ...;\` with the
+# declaration left behind -- would make reachability through it vacuously true (nothing
+# flows out of a wire nothing drives) rather than the missing signal it is.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" '/assign hazard = hazard_rs1 || hazard_rs2 || serialize;/d'
+mutate "$d/executor.v" '/assign x_busy = state != init;/d'
 probe "a stall reason with no driving cell stops the run" 2 \
-  "hazard has no driving cell" "$ZKT $d/decoder.v"
+  "x_busy has no driving cell" "$ZKT $d/executor.v"
 
-# The anti-vacuity control: if the RTL stopped carrying reg_rs1 into region_stall at all,
-# every PASS above would be a check of nothing, and this is what says so instead of
-# staying green.
+# The anti-vacuity control: if the RTL stopped carrying reg_rs1/reg_rs2 into the graph at
+# all, every PASS above would be a check of nothing, and this is what says so instead of
+# staying green. fwd_rs1_val/fwd_rs2_val are the only two wires that read reg_rs1/reg_rs2
+# directly, so cutting both there cuts every path out of the seeds at once.
 d=$(zkt_fixture)
-mutate "$d/decoder.v" \
-  's/assign ls_block = reg_rs1\[31:LS_BLOCK_BITS\];/assign ls_block = csr_rdata[31:LS_BLOCK_BITS];/'
+mutate "$d/executor.v" \
+  's/assign fwd_rs1_val = in_fwd_rs1 ? out.rd_data : reg_rs1;/assign fwd_rs1_val = in_fwd_rs1 ? out.rd_data : csr_rdata;/' \
+  's/assign fwd_rs2_val = in_fwd_rs2 ? out.rd_data : reg_rs2;/assign fwd_rs2_val = in_fwd_rs2 ? out.rd_data : csr_rdata;/'
 probe "a graph with no edges out of reg_rs1 is red, not a vacuous pass" 1 \
-  "found no edges at all" "$ZKT $d/decoder.v"
+  "found no edges at all" "$ZKT $d/executor.v"
 
-probe "wrong argument count is exit 2" 2 "Usage:" "$ZKT $d/decoder.v extra"
+probe "wrong argument count is exit 2" 2 "Usage:" "$ZKT $d/executor.v extra"
 
 probe "a decoder.v that does not exist is exit 2, not a vacuous pass" 2 \
   "cannot read" "$ZKT $d/nonexistent.v"
@@ -3309,14 +3294,13 @@ begin_group "test/stall_report.py"
 
 SR="python3 $REPO/test/stall_report.py"
 
-# add.S issues 10 of its 40 cycles and spends 20 waiting on the scoreboard and 10
-# fetching operands; lw.S is the other way round, so the two programs disagree about
-# which reason dominates and the total has to decide.
+# add.S issues 10 of its 40 cycles and spends 20 on the hazard scoreboard and 10 on
+# fetch; lw.S is the other way round (5 hazard, 25 fetch), so the two programs disagree
+# about which reason dominates and the total has to decide.
 sr_fixture() {
   local d; d=$(new_case)
   fixture_anchor "$REPO/test/stall_report.py" \
-    'REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",'
-  fixture_anchor "$REPO/test/stall_report.py" '"region"]'
+    'REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus"]'
   fixture_anchor "$REPO/test/stall_report.py" \
     'REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +'
   fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_SPLIT = ["hzA", "hzB", "hzC"]'
@@ -3327,8 +3311,8 @@ sr_fixture() {
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 operand=10 fetch=0 bus=0 region=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 operand=25 fetch=0 bus=0 region=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -3338,7 +3322,7 @@ probe "control: an accounting that adds up prints the table" 0 \
   "cycle accounting" "$SR $d/counts"
 
 probe "the dominant reason is the suite's, not the first program's" 0 \
-  "The largest single reason is operand" "$SR $d/counts"
+  "The largest single reason is fetch" "$SR $d/counts"
 
 d=$(sr_fixture); mutate "$d/counts" 's/^add.S cycles=40/add.S cycles=41/'
 probe "columns that do not add up blame the report, not the core" 1 \
@@ -3349,9 +3333,9 @@ mutate "$d/counts" 's/^add.S cycles=40/add.S cycles=42/'
 probe "a stall nothing in the list explains is a reason nobody wrote down" 1 \
   "2 cycles stalled for a reason this report does not name" "$SR $d/counts"
 
-d=$(sr_fixture); mutate "$d/counts" 's/ operand=10//'
+d=$(sr_fixture); mutate "$d/counts" 's/ fetch=10//'
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
-  "is missing operand" "$SR $d/counts"
+  "is missing fetch" "$SR $d/counts"
 
 # A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its `else if (eligible)` arm
 # and leaving the cycle uncounted is enough -- moves a cycle out of hzB without moving it
@@ -3400,44 +3384,56 @@ SS="python3 $REPO/test/stall_sites_test.py"
 
 ss_fixture() {
   local d; d=$(new_case)
-  mkdir -p "$d/rtl" "$d/test" "$d/formal"
-  cp "$REPO/rtl/decoder.v" "$d/rtl/"
-  cp "$REPO/test/decoder_tb.v" "$REPO/test/cxxrtl.cc" "$REPO/test/stall_report.py" "$d/test/"
-  cp "$REPO/formal/pcloop.sv" "$d/formal/"
+  mkdir -p "$d/rtl" "$d/test"
+  cp "$REPO/rtl/decoder.v" "$REPO/rtl/executor.v" "$d/rtl/"
+  cp "$REPO/test/decoder_tb.v" "$REPO/test/executor_tb.v" "$REPO/test/cxxrtl.cc" \
+     "$REPO/test/stall_report.py" "$d/test/"
   cp "$REPO/CLAUDE.md" "$d/"
   printf '%s' "$d"
 }
 
 d=$(ss_fixture)
-probe "control: the shipping tree names the eight stall reasons consistently" 0 \
-  "agree across all six declared sites" "$SS $d"
+probe "control: the shipping tree names the seven stall signals and the six CPI reasons consistently" 0 \
+  "each agree across their declared sites" "$SS $d"
 
 probe "a stall-sites repo root that does not exist is red before anything is scanned" 1 \
   "is not a directory" "$SS $d/nowhere"
 
 d=$(ss_fixture)
 mutate "$d/test/stall_report.py" \
-  's/REASONS = \["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",/REASONS = ["divider", "atomic", "hazard", "operand", "fetch", "bus",/'
+  's/REASONS = \["divider", "atomic", "hazard", "serialize", "fetch", "bus"\]/REASONS = ["divider", "atomic", "hazard", "fetch", "bus"]/'
 probe "a reason dropped from one downstream site is red, and named" 1 \
-  "test/stall_report.py's REASONS is ['divider', 'atomic', 'hazard', 'operand', 'fetch', 'bus', 'region'], not ['divider', 'atomic', 'hazard', 'serialize', 'operand', 'fetch', 'bus', 'region']" \
+  "test/stall_report.py's REASONS is ['divider', 'atomic', 'hazard', 'fetch', 'bus'], not ['divider', 'atomic', 'hazard', 'serialize', 'fetch', 'bus']" \
   "$SS $d"
 
 d=$(ss_fixture)
 mutate "$d/rtl/decoder.v" \
-  's/assign stall_own = hazard || operand_stall || divider_stall || fetch_stall ||/assign stall_own = hazard || operand_stall || divider_stall ||/'
+  's/assign stall_own = hazard || serialize || fetch_stall || atomic_stall || x_busy;/assign stall_own = hazard || serialize || atomic_stall || x_busy;/'
 probe "a reason dropped from the decoder's own composition is red, and named" 1 \
-  "rtl/decoder.v's stall composition (stall_own/stall_other/stall) is missing reason 'fetch'" \
+  "rtl/decoder.v's stall composition (stall_own/stall) is missing reason 'fetch'" \
   "$SS $d"
 
 d=$(ss_fixture)
 mutate "$d/test/decoder_tb.v" \
-  's/dut.fetch_stall || dut.bus_wait || dut.region_stall)) begin/dut.fetch_stall || dut.bus_wait || dut.region_stall || dut.kill)) begin/'
+  's/dut.atomic_stall \|\| dut.x_busy \|\| dut.bus_wait)) begin/dut.atomic_stall || dut.x_busy || dut.bus_wait || dut.kill)) begin/'
 probe "a future kill wrongly ORed into the OR-identity is red, and named" 1 \
   "test/decoder_tb.v's OR-identity check names 'kill'" "$SS $d"
 
 probe "...and the message routes kill to the cycle-accounting identity instead" 1 \
   "kill belongs in the cycle-accounting identity test/stall_report.py already keeps" \
   "$SS $d"
+
+d=$(ss_fixture)
+mutate "$d/rtl/decoder.v" \
+  "s/end else if (x_busy) begin/end else if (fetch_stall) begin/"
+probe "the hold branch holding on something other than x_busy is red, and named" 1 \
+  "holds on 'fetch_stall', not exactly 'x_busy'" "$SS $d"
+
+d=$(ss_fixture)
+mutate "$d/rtl/decoder.v" \
+  's/\$past(x_busy)) assert(out == \$past(out));/\$past(fetch_stall)) assert(out == \$past(out));/'
+probe "the FORMAL hold-assert naming something other than x_busy is red" 1 \
+  "FORMAL hold-assert could not be found" "$SS $d"
 
 begin_group "test/tool_cache_test.sh"
 
@@ -5208,7 +5204,7 @@ case $(basename "$PWD") in
     line=$(grep -n 'assert(trap_entry);' src/traps.sv | cut -d: -f1)
     status=${STUB_SBY_NOTRAP:-FAIL}; line=${STUB_SBY_NOTRAP_LINE:-$line} ;;
   wrong-cause)
-    line=$(grep -n 'assert(csr_rdata == prev_cause);' src/traps.sv | cut -d: -f1)
+    line=$(grep -n 'assert(csr_rdata == prev3_cause);' src/traps.sv | cut -d: -f1)
     status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
 esac
 : > probe/logfile.txt
@@ -5226,7 +5222,7 @@ tr_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/formal"
   cp "$REPO"/rtl/structs.v "$REPO"/rtl/fetcher.v "$REPO"/rtl/decoder.v \
-     "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$d/rtl/"
+     "$REPO"/rtl/executor.v "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$d/rtl/"
   cp "$REPO"/formal/traps.sv "$REPO"/formal/components.sby "$d/formal/"
   printf '%s' "$d"
 }
@@ -5262,22 +5258,22 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the no-trap core is empty" "STUB_SBY_EMPTY_STATUS=1 $(trs "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  's/assert(csr_rdata == prev_cause);/assert(csr_rdata == prev_cause2);/'
+  's/assert(csr_rdata == prev3_cause);/assert(csr_rdata == prev3_cause2);/'
 probe "a respelled cause comparison stops rather than pinning nothing" 2 \
-  "prev_cause);\` 0 times" "$(trs "$d")"
+  "prev3_cause);\` 0 times" "$(trs "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
   's/assert(trap_entry);/assert(trap_entry != 1'"'"'b0);/'
 probe "a respelled must-trap assertion stops rather than pinning nothing" 2 \
   "assert(trap_entry);\` 0 times" "$(trs "$d")"
 
-d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
   's/assign load_access_fault  = (atomic_fault/assign load_access_fault = (atomic_fault/'
 probe "a respelled fault site stops rather than building the shipping core twice" 2 \
   "no longer spells what the wrong-cause mutation replaces" "$(trs "$d")"
 
-d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
-  's/assign ls_fault = ls_access \&\& ls_answer_valid/assign ls_fault = ls_access\&\& ls_answer_valid/'
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
+  's/assign ls_fault = ls_access \&\& !ls_supported/assign ls_fault = ls_access\&\& !ls_supported/'
 probe "a respelled ls_fault stops: a core that still faults proves nothing" 2 \
   "no longer spells what the no-trap mutation replaces" "$(trs "$d")"
 
@@ -5300,20 +5296,16 @@ DZ="python3 $REPO/formal/decoder-zkt-probe.py"
 cat > "$tmp/sby-dz-stub" <<'STUB'
 #!/bin/sh
 # Stands in for sby. The case being run is the name of the directory it is run
-# in, and the assertion line is read out of the copy of decoder.v it was
+# in, and the assertion line is read out of the copy of executor.v it was
 # handed, so PASS and FAIL land where the real solver puts them.
-# STUB_SBY_REGION_LEG/STUB_SBY_ENCODING_LEG pick which engine leg the log
-# attributes the failure to -- basecase by default, the one over a
-# reachable-from-reset trace, so a probe reading the induction leg's own
-# arbitrary-starting-state report is a real case rather than an invented one.
+# STUB_SBY_ENCODING_LEG picks which engine leg the log attributes the
+# failure to -- basecase by default, the one over a reachable-from-reset
+# trace, so a probe reading the induction leg's own arbitrary-starting-state
+# report is a real case rather than an invented one.
 mkdir -p probe
 case $(basename "$PWD") in
-  region-stall-ungated)
-    line=$(grep -n 'assert(!region_stall || ls_access);' src/decoder.v | cut -d: -f1)
-    status=${STUB_SBY_REGION:-FAIL}; line=${STUB_SBY_REGION_LINE:-$line}
-    leg=${STUB_SBY_REGION_LEG:-engine_0.basecase} ;;
   ls-access-extra)
-    line=$(grep -n 'assert(ls_access == (instr_lb ||' src/decoder.v | cut -d: -f1)
+    line=$(grep -n 'assert(ls_access == (in_is_lb ||' src/executor.v | cut -d: -f1)
     status=${STUB_SBY_ENCODING:-FAIL}; line=${STUB_SBY_ENCODING_LINE:-$line}
     leg=${STUB_SBY_ENCODING_LEG:-engine_0.basecase} ;;
 esac
@@ -5322,7 +5314,7 @@ if [ "$status" = FAIL ]; then
   # `##   0:00:00  ` is what real sby interposes between the engine leg and the
   # engine's own output. Reproduced so the probes' `engine_N.basecase:.*Assert`
   # regexes are exercised across the same gap they must span in a real log.
-  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in decoder: decoder.v:$line.5-$line.36" \
+  echo "SBY [probe] $leg: ##   0:00:00  Assert failed in executor: executor.v:$line.5-$line.36" \
     > probe/logfile.txt
 fi
 [ -n "${STUB_SBY_NO_STATUS:-}" ] && exit 1
@@ -5334,7 +5326,7 @@ chmod +x "$tmp/sby-dz-stub"
 dz_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/formal"
-  cp "$REPO"/rtl/structs.v "$REPO"/rtl/decoder.v "$REPO"/rtl/regsel.v "$d/rtl/"
+  cp "$REPO"/rtl/structs.v "$REPO"/rtl/executor.v "$d/rtl/"
   cp "$REPO"/formal/components.sby "$d/formal/"
   printf '%s' "$d"
 }
@@ -5342,28 +5334,16 @@ dz_fixture() {
 dzs() { printf "%s --repo %s --workdir %s/work --sby %s" "$DZ" "$1" "$1" "$tmp/sby-dz-stub"; }
 
 d=$(dz_fixture)
-probe "control: both Zkt-isolation assertions fail, each at its own line" 0 \
-  "Both Zkt-isolation assertions fail for their own reason" "$(dzs "$d")"
-
-d=$(dz_fixture)
-probe "an ungated region_stall proving is red" 1 \
-  "the region-stall-ungated core proves" "STUB_SBY_REGION=PASS $(dzs "$d")"
+probe "control: the Zkt-isolation assertion fails at its own line" 0 \
+  "The Zkt-isolation assertion fails for its own reason" "$(dzs "$d")"
 
 d=$(dz_fixture)
 probe "an ls_access with an extra encoding proving is red" 1 \
   "the ls-access-extra core proves" "STUB_SBY_ENCODING=PASS $(dzs "$d")"
 
 d=$(dz_fixture)
-probe "the gate proof going red somewhere else is not evidence" 1 \
-  "which does not include line" "STUB_SBY_REGION_LINE=9 $(dzs "$d")"
-
-d=$(dz_fixture)
-probe "the encoding proof going red somewhere else is not evidence either" 1 \
+probe "the encoding proof going red somewhere else is not evidence" 1 \
   "which does not include line" "STUB_SBY_ENCODING_LINE=9 $(dzs "$d")"
-
-d=$(dz_fixture)
-probe "a gate failure reported only by the induction leg is not evidence" 1 \
-  "which does not include line" "STUB_SBY_REGION_LEG=engine_0.induction $(dzs "$d")"
 
 d=$(dz_fixture)
 probe "an encoding failure reported only by the induction leg is not evidence" 1 \
@@ -5375,36 +5355,24 @@ probe "a solver that wrote no verdict is exit 2, not a red arm" 2 \
 
 d=$(dz_fixture)
 probe "an empty status file is refused rather than read as a verdict" 2 \
-  "status file for the region-stall-ungated core is empty" \
+  "status file for the ls-access-extra core is empty" \
   "STUB_SBY_EMPTY_STATUS=1 $(dzs "$d")"
 
 d=$(dz_fixture)
-mutate "$d/rtl/decoder.v" \
-  's/assert(!region_stall || ls_access);/assert(!region_stall || ls_access == 1);/'
-probe "a respelled gate assertion stops rather than pinning nothing" 2 \
-  "states \`assert(!region_stall || ls_access);\` 0 times" "$(dzs "$d")"
-
-d=$(dz_fixture)
-mutate "$d/rtl/decoder.v" \
-  "s/assign region_stall = ls_access && !ls_settled && !ls_answer_valid;/assign region_stall = ls_access \&\& !ls_settled\&\& !ls_answer_valid;/"
-probe "a respelled region_stall site stops rather than building the shipping core twice" 2 \
-  "no longer spells what the region-stall-ungated mutation replaces" "$(dzs "$d")"
-
-d=$(dz_fixture)
-mutate "$d/rtl/decoder.v" \
+mutate "$d/rtl/executor.v" \
   "s/assign ls_access = instr_ls_load || instr_ls_store;/assign ls_access = instr_ls_load||instr_ls_store;/"
 probe "a respelled ls_access site stops rather than building the shipping core twice" 2 \
   "no longer spells what the ls-access-extra mutation replaces" "$(dzs "$d")"
 
-d=$(dz_fixture); rm "$d/rtl/decoder.v"
+d=$(dz_fixture); rm "$d/rtl/executor.v"
 probe "the RTL moving away takes the probe with it, loudly" 2 \
-  "rtl/decoder.v is missing from" "$(dzs "$d")"
+  "rtl/executor.v is missing from" "$(dzs "$d")"
 
 d=$(dz_fixture); rm "$d/formal/components.sby"
 probe "no components.sby is exit 2, not a probe against an invented script" 2 \
   "formal/components.sby is missing" "$(dzs "$d")"
 
-d=$(dz_fixture); mutate "$d/formal/components.sby" 's/^decoder:$/decoderx:/'
+d=$(dz_fixture); mutate "$d/formal/components.sby" 's/^executor:$/executorx:/'
 probe "a renamed task stops rather than probing some other design" 2 \
   "block under [script]" "$(dzs "$d")"
 
@@ -5479,18 +5447,18 @@ probe "a respelled constant-latency assertion stops rather than pinning nothing"
 
 d=$(ez_fixture)
 mutate "$d/rtl/executor.v" \
-  's/in.is_mul || in.is_mulh || in.is_mulhu || in.is_mulhsu: begin/in.is_mul || in.is_mulh || in.is_mulhu ||in.is_mulhsu: begin/'
+  's/launch.is_mul || launch.is_mulh || launch.is_mulhu || launch.is_mulhsu: begin/launch.is_mul || launch.is_mulh || launch.is_mulhu ||launch.is_mulhsu: begin/'
 probe "a respelled mul case item stops rather than building the shipping core" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
 d=$(ez_fixture)
 mutate "$d/rtl/executor.v" \
-  's/in.is_div || in.is_divu || in.is_rem || in.is_remu: begin/in.is_div || in.is_divu || in.is_rem ||in.is_remu: begin/'
+  's/launch.is_div || launch.is_divu || launch.is_rem || launch.is_remu: begin/launch.is_div || launch.is_divu || launch.is_rem ||launch.is_remu: begin/'
 probe "a respelled divide case item stops the same way" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
 d=$(ez_fixture)
-mutate "$d/rtl/executor.v" 's/op_is_divu <= in.is_divu;/op_is_divu <= in.is_divu ;/'
+mutate "$d/rtl/executor.v" 's/op_is_divu <= launch.is_divu;/op_is_divu <= launch.is_divu ;/'
 probe "a respelled op_is_divu latch stops the same way too" 2 \
   "no longer spells one of the lines this probe patches" "$(ezs "$d")"
 
@@ -5516,7 +5484,7 @@ cat > "$tmp/sby-tval-stub" <<'STUB'
 # of the directory it runs in, and the assertion line is read out of the copy of
 # traps.sv it was handed, so PASS and FAIL land where the real solver puts them.
 mkdir -p probe
-line=$(grep -n 'assert(csr_rdata == prev_tval);' src/traps.sv | cut -d: -f1)
+line=$(grep -n 'assert(csr_rdata == prev3_tval);' src/traps.sv | cut -d: -f1)
 case $(basename "$PWD") in
   control)    status=${STUB_TVAL_CONTROL:-PASS} ;;
   wrong-addr) status=${STUB_TVAL_ADDR:-FAIL}; line=${STUB_TVAL_ADDR_LINE:-$line} ;;
@@ -5568,17 +5536,17 @@ probe "an empty status file is refused rather than read as a verdict" 2 \
   "status file for the control core is empty" "STUB_TVAL_EMPTY_STATUS=1 $(tts "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  's/assert(csr_rdata == prev_tval);/assert(csr_rdata == prev_tval2);/'
+  's/assert(csr_rdata == prev3_tval);/assert(csr_rdata == prev3_tval2);/'
 probe "a respelled mtval comparison stops rather than pinning nothing" 2 \
   "0 times" "$(tts "$d")"
 
-d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
-  "s/      data_fault:        trap_tval = mem_addr_calc;/      data_fault: trap_tval = mem_addr_calc;/"
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
+  "s/      data_fault:      trap_tval = mem_addr_calc;/      data_fault: trap_tval = mem_addr_calc;/"
 probe "a respelled address arm stops rather than proving the shipping core" 2 \
   "no longer spells its mtval mux" "$(tts "$d")"
 
-d=$(tr_fixture); mutate "$d/rtl/decoder.v" \
-  "s/      instr_illegal:     trap_tval = instr;/      instr_illegal: trap_tval = instr;/"
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
+  "s/      instr_illegal:   trap_tval = in_instr;/      instr_illegal: trap_tval = in_instr;/"
 probe "a respelled word arm stops the same way" 2 \
   "no longer spells its mtval mux" "$(tts "$d")"
 
@@ -6396,44 +6364,44 @@ MCD="python3 $REPO/formal/check-memcheck-depth.py"
 mcd_fixture() {  # $1 = depth  $2 = cover depth, defaults to $1
   local d; d=$(new_case)
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive F 6  worst-case first retire, swept out of `hang`'
+    '#derive F 5  worst-case first retire, swept out of `hang`'
   fixture_anchor "$REPO/formal/checks.cfg" \
-    '#derive G 6  worst-case gap between two retires, swept out of `liveness`'
+    '#derive G 4 worst-case gap between two retires, swept out of `liveness`'
   cat > "$d/checks.cfg" <<CFG
 [depth]
-#derive F 6  worst-case first retire, swept out of \`hang\`
-#derive G 6  worst-case gap between two retires, swept out of \`liveness\`
+#derive F 5  worst-case first retire, swept out of \`hang\`
+#derive G 4 worst-case gap between two retires, swept out of \`liveness\`
 CFG
   printf '[options]\ndepth %s\n' "$1" > "$d/dmemcheck.sby"
   printf '[options]\ndepth %s\n' "${2:-$1}" > "$d/dmemcheck_cover.sby"
   printf '%s' "$d"
 }
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 12)
 probe "control: a depth exactly at the floor passes" 0 \
-  "depth 14 >= F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 12 >= F+G+2 = 11 (F=5, G=4)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 13)
+d=$(mcd_fixture 10)
 probe "a depth one below the floor is red, naming F and G" 1 \
-  "depth 13 is below F+G+2 = 14 (F=6, G=6)" "$MCD $d dmemcheck.sby 2"
+  "depth 10 is below F+G+2 = 11 (F=5, G=4)" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 8)
+d=$(mcd_fixture 7)
 probe "control: a one-retire floor is F+2, not F+G+2" 0 \
-  "depth 8 >= F+2 = 8 (F=6, G=6)" "$MCD $d dmemcheck.sby 1"
+  "depth 7 >= F+2 = 7 (F=5, G=4)" "$MCD $d dmemcheck.sby 1"
 
 d=$(new_case)
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
   "does not exist" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 12)
 probe "a named .sby that does not exist is refused" 1 \
   "does not exist" "$MCD $d missing.sby 2"
 
-d=$(mcd_fixture 14); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
+d=$(mcd_fixture 12); printf '[options]\nmode bmc\n' > "$d/dmemcheck.sby"
 probe "a missing depth line in the .sby stops rather than comparing nothing" 1 \
   "declares no \`depth NNN\` line" "$MCD $d dmemcheck.sby 2"
 
-d=$(mcd_fixture 14)
+d=$(mcd_fixture 12)
 probe "a <retires> argument that is not 1 or 2 is refused" 2 \
   "<retires> must be 1 or 2" "$MCD $d dmemcheck.sby 3"
 

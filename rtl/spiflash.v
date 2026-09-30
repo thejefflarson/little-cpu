@@ -29,16 +29,18 @@ module spiflash #(
   assign busy = |bits_left;
 
   logic [8:0] rd_word;
-  logic in_range, is_control, start_xfer, control_write;
-  assign in_range      = mem_addr[31:3] == BASE[31:3];
-  assign is_control    = mem_addr[2];
-  assign start_xfer    = in_range && !is_control && mem_wstrb[0] && !busy;
-  assign control_write = in_range &&  is_control && mem_wstrb[0] && !busy;
+  logic in_range, is_control, busy_now, start_xfer, control_write;
+  logic [7:0] data_q;
+  assign in_range = mem_addr[31:3] == BASE[31:3];
+  assign is_control = mem_addr[2];
+  assign busy_now = busy || start_xfer;
 
   assign mem_rdata = {23'b0, rd_word};
 
   assign mosi = shift_out[7];
   assign cs_n = !selected;
+
+  always_ff @(posedge clk) data_q <= mem_wdata[7:0];
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -48,11 +50,15 @@ module spiflash #(
       shift_in  <= 8'b0;
       bits_left <= 4'b0;
       rd_word   <= 9'b0;
+      start_xfer    <= 1'b0;
+      control_write <= 1'b0;
     end else begin
-      if (control_write) selected <= mem_wdata[0];
+      start_xfer    <= in_range && !is_control && mem_wstrb[0] && !busy_now;
+      control_write <= in_range &&  is_control && mem_wstrb[0] && !busy_now;
+      if (control_write) selected <= data_q[0];
 
       if (start_xfer) begin
-        shift_out <= mem_wdata[7:0];
+        shift_out <= data_q;
         bits_left <= 4'd8;
         sck       <= 1'b0;
       end else if (busy) begin
@@ -66,7 +72,7 @@ module spiflash #(
         end
       end
 
-      rd_word <= (in_range && !is_control) ? {busy, shift_in} : 9'b0;
+      rd_word <= (in_range && !is_control) ? {busy_now, shift_in} : 9'b0;
     end
   end
 endmodule

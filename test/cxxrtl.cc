@@ -19,13 +19,11 @@
 
 namespace {
 
-// test/asm/sections.lds' `ram` region starts here; the cxxrtl runner subtracts it back
-// out of the `--ram` image's word addresses so they land at the right index in
-// test/testbench.v's `memory` array.
+// test/asm/sections.lds' `ram` region starts here; the runner subtracts it back out of
+// the `--ram` image's word addresses so they land at the right index in `memory`.
 constexpr uint32_t kRamBase = 0x00010000;
 
-// A parsed `objcopy -O verilog --verilog-data-width=4` image: word address (byte address
-// / 4, per that format) -> 32-bit word.
+// A parsed `objcopy -O verilog --verilog-data-width=4` image: word address -> 32-bit word.
 using HexImage = std::map<uint32_t, uint32_t>;
 
 bool parse_verilog_hex(const std::string &path, HexImage &image) {
@@ -74,8 +72,7 @@ bool load_image(cxxrtl::debug_items &items, const std::string &name,
   return true;
 }
 
-// The instruction ROM is two INTERLEAVED BANKS: word W lives in `imem rom_even` at index
-// W/2 when W is even, and in `imem rom_odd` at the same index when it is odd.
+// The ROM is two INTERLEAVED BANKS: word W lives in `rom_even` at W/2 if even, else `rom_odd`.
 bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
   static const char *kBankName[2] = {"imem rom_even", "imem rom_odd"};
   const cxxrtl::debug_item *bank[2];
@@ -101,30 +98,28 @@ bool load_rom_banks(cxxrtl::debug_items &items, const HexImage &image) {
   return true;
 }
 
-// The decoder's stall reasons, each read as the named signal rtl/decoder.v drives rather
-// than rebuilt here.
+// The stall reasons, each read as the named signal the RTL drives rather than rebuilt here.
 struct StallReason {
   const char *item;
   int bucket;
 };
 
+// The D/X split deletes "operand" outright and moves the divider reason to
+// rtl/executor.v's `divider_busy`, folded into `x_busy` for D. B3 deletes the region
+// wait outright rather than folding it: `x_busy` is now exactly `divider_busy`.
 constexpr const char *kStallLabels[] = {"divider", "atomic",  "hazard",
-                                        "serialize", "operand", "fetch", "bus",
-                                        "region"};
+                                        "serialize", "fetch", "bus"};
 constexpr int kStallBuckets = sizeof(kStallLabels) / sizeof(kStallLabels[0]);
 
 constexpr StallReason kStallReasons[] = {
-    {"uut decoder divider_stall", 0},
+    {"uut executor divider_busy", 0},
     {"uut decoder atomic_stall", 1},
     {"uut decoder hazard_rs1", 2},
     {"uut decoder hazard_rs2", 2},
     {"uut decoder serialize", 3},
-    {"uut decoder operand_stall", 4},
-    {"uut decoder fetch_stall", 5},
+    {"uut decoder fetch_stall", 4},
     // The shared bus given to another initiator.
-    {"uut decoder bus_wait", 6},
-    // The load/store region wait.
-    {"uut decoder region_stall", 7},
+    {"uut decoder bus_wait", 5},
 };
 
 struct Args {
@@ -137,9 +132,8 @@ struct Args {
   uint32_t console_addr = 0;
 };
 
-// Walks `ram_data` from `addr` and writes what it finds to stdout, stopping at the first
-// NUL or at the end of the simulated RAM. Bytes are taken out of the little-endian words
-// the array holds, which is the same order the core's `sb` writes them in.
+// Walks `ram_data` from `addr` to stdout, stopping at the first NUL or RAM's end, reading
+// bytes out of the little-endian words the array holds -- the order the core's `sb` writes.
 void print_console(const uint32_t *ram_data, size_t ram_words, uint32_t addr) {
   if (addr < kRamBase) {
     std::fprintf(stderr, "error: --console address 0x%08x is below RAM base 0x%08x\n",
@@ -249,8 +243,7 @@ int main(int argc, char **argv) {
     return 3;
   }
 
-  // The observation counters (test/testbench.v).
-  const cxxrtl::debug_item *retires = nullptr;
+  const cxxrtl::debug_item *retires = nullptr;  // observation counters, test/testbench.v
   const cxxrtl::debug_item *spec_retires = nullptr;
   try {
     retires = &all_debug_items.at("rvfi_retires").at(0);
@@ -265,30 +258,28 @@ int main(int argc, char **argv) {
 
   std::vector<std::pair<const cxxrtl::debug_item *, int>> stall_probes;
   const cxxrtl::debug_item *stall_any = nullptr;
-  const cxxrtl::debug_item *hazard_rs1_item = nullptr;
-  const cxxrtl::debug_item *hazard_rs2_item = nullptr;
-  const cxxrtl::debug_item *out_match_rs1 = nullptr;
-  const cxxrtl::debug_item *out_match_rs2 = nullptr;
-  const cxxrtl::debug_item *rs1_fwd_eligible = nullptr;
-  const cxxrtl::debug_item *rs2_fwd_eligible = nullptr;
-  const cxxrtl::debug_item *instr_csr_access = nullptr;
+  const cxxrtl::debug_item *hazard_rs1_dx_item = nullptr;
+  const cxxrtl::debug_item *hazard_rs1_ex_item = nullptr;
+  const cxxrtl::debug_item *hazard_rs2_dx_item = nullptr;
+  const cxxrtl::debug_item *hazard_rs2_ex_item = nullptr;
   // The load/store locality counters (rtl/littlecpu.v).
   const cxxrtl::debug_item *ls_issues = nullptr;
   const cxxrtl::debug_item *ls_edges = nullptr;
   const cxxrtl::debug_item *ls_bypasses = nullptr;
+  // D's own branch/jal predictor counters (rtl/littlecpu.v).
+  const cxxrtl::debug_item *guesses = nullptr;
+  const cxxrtl::debug_item *guess_hits = nullptr;
+  const cxxrtl::debug_item *guess_misses = nullptr;
   if (args.stalls) {
     try {
       stall_any = &all_debug_items.at("uut decoder stall").at(0);
       for (const StallReason &reason : kStallReasons)
         stall_probes.emplace_back(&all_debug_items.at(reason.item).at(0),
                                   reason.bucket);
-      hazard_rs1_item = &all_debug_items.at("uut decoder hazard_rs1").at(0);
-      hazard_rs2_item = &all_debug_items.at("uut decoder hazard_rs2").at(0);
-      out_match_rs1 = &all_debug_items.at("uut decoder out_match_rs1").at(0);
-      out_match_rs2 = &all_debug_items.at("uut decoder out_match_rs2").at(0);
-      rs1_fwd_eligible = &all_debug_items.at("uut decoder rs1_fwd_eligible").at(0);
-      rs2_fwd_eligible = &all_debug_items.at("uut decoder rs2_fwd_eligible").at(0);
-      instr_csr_access = &all_debug_items.at("uut decoder instr_csr_access").at(0);
+      hazard_rs1_dx_item = &all_debug_items.at("uut decoder hazard_rs1_dx").at(0);
+      hazard_rs1_ex_item = &all_debug_items.at("uut decoder hazard_rs1_ex").at(0);
+      hazard_rs2_dx_item = &all_debug_items.at("uut decoder hazard_rs2_dx").at(0);
+      hazard_rs2_ex_item = &all_debug_items.at("uut decoder hazard_rs2_ex").at(0);
     } catch (const std::out_of_range &) {
       std::fprintf(stderr,
                     "error: --stalls needs the decoder's stall signals as debug "
@@ -309,6 +300,18 @@ int main(int argc, char **argv) {
                     "rtl/littlecpu.v's RISCV_FORMAL block; printing zeros for a "
                     "counter that is not there would read as a workload with no "
                     "loads in it.\n");
+      return 3;
+    }
+    try {
+      guesses = &all_debug_items.at("uut probe_guesses").at(0);
+      guess_hits = &all_debug_items.at("uut probe_guess_hits").at(0);
+      guess_misses = &all_debug_items.at("uut probe_guess_misses").at(0);
+    } catch (const std::out_of_range &) {
+      std::fprintf(stderr,
+                    "error: --stalls needs the branch/jal predictor counters as "
+                    "debug items, and at least one of them is not in the "
+                    "simulated design. They are the `probe_guess_*` registers in "
+                    "rtl/littlecpu.v's RISCV_FORMAL block.\n");
       return 3;
     }
   }
@@ -335,9 +338,11 @@ int main(int argc, char **argv) {
     std::printf(" hzA=%llu hzB=%llu hzC=%llu hzCcsr=%llu",
                  (unsigned long long)hazard_a, (unsigned long long)hazard_b,
                  (unsigned long long)hazard_c, (unsigned long long)hazard_c_csr);
-    std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u\n",
+    std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u"
+                 " guesses=%u guesshits=%u guessmisses=%u\n",
                  (unsigned long long)unattributed_cycles, ls_issues->curr[0],
-                 ls_edges->curr[0], ls_bypasses->curr[0]);
+                 ls_edges->curr[0], ls_bypasses->curr[0], guesses->curr[0],
+                 guess_hits->curr[0], guess_misses->curr[0]);
   };
 
   auto finish = [&](int code) {
@@ -386,36 +391,31 @@ int main(int argc, char **argv) {
       } else {
         bool charged = false;
         const cxxrtl::debug_item *charged_item = nullptr;
+        int charged_bucket = -1;
         for (const auto &[item, bucket] : stall_probes) {
           if ((item->curr[0] & 1) != 0) {
             stall_cycles[bucket]++;
             charged = true;
             charged_item = item;
+            charged_bucket = bucket;
             break;
           }
         }
         if (!charged)
           unattributed_cycles++;
+        (void)charged_item;
 
-        const cxxrtl::debug_item *out_match = nullptr;
-        const cxxrtl::debug_item *eligible = nullptr;
-        if (charged_item == hazard_rs1_item) {
-          out_match = out_match_rs1;
-          eligible = rs1_fwd_eligible;
-        } else if (charged_item == hazard_rs2_item) {
-          out_match = out_match_rs2;
-          eligible = rs2_fwd_eligible;
-        }
-        if (out_match != nullptr) {
-          if ((out_match->curr[0] & 1) != 0) {
+        // hzA: dx_match with no forward select yet. hzB: ex_match not yet unpacked. A
+        // ready ex_match no longer stalls (the write-through bypass reaches it).
+        if (charged_bucket == 2) {
+          bool dx = (hazard_rs1_dx_item->curr[0] & 1) != 0 ||
+                    (hazard_rs2_dx_item->curr[0] & 1) != 0;
+          bool ex = (hazard_rs1_ex_item->curr[0] & 1) != 0 ||
+                    (hazard_rs2_ex_item->curr[0] & 1) != 0;
+          if (dx)
             hazard_a++;
-          } else if ((eligible->curr[0] & 1) != 0) {
+          else if (ex)
             hazard_b++;
-          } else {
-            hazard_c++;
-            if ((instr_csr_access->curr[0] & 1) != 0)
-              hazard_c_csr++;
-          }
         }
       }
     }

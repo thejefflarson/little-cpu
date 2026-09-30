@@ -1,0 +1,8 @@
+# formal/traps-groups-test.py's manifest: the number of assert()/cover() statements
+# under each TRAPS_CHECK_* group in formal/traps.sv, checked both ways so a group
+# that silently lost or gained a statement is caught rather than a smaller split
+# still "passing". Update the count with the change that moved it, not alone.
+PC 12
+CAUSE 12
+STATUS 9
+QUIESCENCE 11

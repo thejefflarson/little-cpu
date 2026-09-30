@@ -3,17 +3,20 @@
 serialize-drops-fencei      bench decoder_tb
 
 serialize-drops-csr-mret    bench decoder_tb
+serialize-drops-csr-mret    asm   mtimermask.S FAIL 17
 
 fencei-wait-and-store-port  bench decoder_tb
 fencei-wait-and-store-port  bench imem_tb
 fencei-wait-and-store-port  asm   selfmod.S FAIL 2
+fencei-wait-and-store-port  asm   spioverlay.S TIMEOUT
 
 sc-reports-success          bench accessor_tb
 sc-reports-success          asm   lrsc.S FAIL 2
 
-atomic-region-ignored       bench decoder_tb
+atomic-region-ignored       bench executor_tb
 atomic-region-ignored       asm   amoregion.S FAIL 4
-loadstore-region-ignored    bench decoder_tb
+loadstore-region-ignored    bench executor_tb
+loadstore-region-ignored    asm   divfault.S FAIL 2
 loadstore-region-ignored    asm   loadfault.S FAIL 3
 loadstore-region-ignored    asm   storefault.S FAIL 3
 loadstore-region-ignored    asm   uart.S FAIL 9

@@ -3,17 +3,14 @@
 // The data RAM: single-port SPRAM, byte-strobed, synchronous read.
 module memory #(
   parameter logic [31:0] BASE = 32'h0001_0000,
-  parameter integer RAM_WORDS = 16384,
-  parameter integer NHARTS = 1
+  parameter integer RAM_WORDS = 16384
 ) (
   input  logic        clk,
   input  logic [31:0] mem_addr,
   input  logic [31:0] mem_wdata,
   input  logic [3:0]  mem_wstrb,
   output logic [31:0] mem_rdata,
-  output logic        reservable,
-  input  logic [32*NHARTS-1:0] atomic_addr,
-  output logic [NHARTS-1:0]    atomic_supported
+  output logic        reservable
 );
   localparam int ADDR_BITS = $clog2(RAM_WORDS);
 
@@ -31,12 +28,6 @@ module memory #(
   logic [ADDR_BITS-1:0] index;
   assign index = mem_addr[ADDR_BITS+1:2];
   assign reservable = in_range;
-  assign atomic_supported[0] = atomic_addr[31:ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
-
-  for (genvar h = 1; h < NHARTS; h++) begin : l_atomic
-    assign atomic_supported[h] =
-      atomic_addr[32*h+31:32*h+ADDR_BITS+2] == BASE[31:ADDR_BITS+2];
-  end
 
   logic [31:0] ram_q;
   logic        in_range_q;

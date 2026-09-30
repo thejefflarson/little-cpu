@@ -16,8 +16,7 @@ module littlecpu #(
   input  logic [31:0] imem_data,
   output logic [31:0] imem_addr2,
   input  logic [31:0] imem_data2,
-  // The value `imem_addr` takes on the next edge, so a synchronous memory can latch it a
-  // cycle early.
+  // The value `imem_addr` takes next edge, so a synchronous memory can latch it a cycle early.
   output logic [31:0] imem_addr_next,
   // The data bus. A load or store to the text range takes the instruction memory's read
   // port for that cycle, and the fetch that lost it comes back as `fetch_stall`.
@@ -29,10 +28,6 @@ module littlecpu #(
   input  logic        fetch_stall,
   input  logic        imem_fault,
   input  logic        mem_reservable,
-  // The address an atomic in decode would use. The platform's answer arrives with it, so
-  // decode commits the fault in the cycle it reads the word.
-  output logic [31:0] atomic_addr,
-  input  logic        atomic_supported,
   // `bus_wait` says the bus is another initiator's this cycle, and `snoop_*` is that
   // initiator's write, which clears a reservation on its word.
   input  logic        bus_wait,
@@ -103,6 +98,10 @@ module littlecpu #(
   if (LS_RAM_WORDS != (1 << LS_RAM_ADDR_BITS)) begin : l_ls_ram_words_power_of_two
     $fatal(1, "littlecpu: LS_RAM_WORDS must be a power of two");
   end
+  // dx_output's predicted_target_low is 14 bits (rtl/structs.v); a wider window must widen it too.
+  if (LS_TEXT_ADDR_BITS + 2 > 14) begin : l_predicted_target_low_fits
+    $fatal(1, "littlecpu: LS_TEXT_WORDS needs more bits than predicted_target_low has");
+  end
   if (|LS_RAM_BASE[LS_RAM_ADDR_BITS+1:0]) begin : l_ls_ram_base_aligned
     $fatal(1, "littlecpu: LS_RAM_BASE must be aligned to LS_RAM_WORDS words");
   end
@@ -116,29 +115,54 @@ module littlecpu #(
     $fatal(1, "littlecpu: LS_FLASH_BASE must be 8-byte aligned");
   end
 
+  dx_output dx_out;
   decoder_output decoder_out;
   executor_output executor_out;
-  logic divider_stalled;
+  logic x_busy;
   // A store writes no register, so the scoreboard cannot see one still in the accessor;
   // the serializing wait reads this instead.
   logic accessor_out_valid;
   logic decoder_trap_entry;
   assign trap = decoder_trap_entry;
-  logic  [31:0] pc;
-  logic  [31:0] next_pc;
+  // `fetch_pc` advances on D's own guess while issuing; a stalled D holds it instead.
+  logic  [31:0] fetch_pc;
+  logic  [31:0] fetch_pc_next;
+  logic         decoder_issuing, fetch_wait, fetch_fault;
+  logic         x_redirect;
+  logic  [31:0] x_redirect_target;
+  logic  [31:0] decoder_predicted_pc;
+  // X's verdict, restated a register later so no branch-compare/jalr result drives
+  // `fetch_pc_next` combinationally; D's discard (below) fires off both copies.
+  logic         x_redirect_q;
+  logic  [31:0] x_redirect_target_q;
+  always_ff @(posedge clk) begin
+    x_redirect_q         <= reset ? 1'b0 : x_redirect;
+    x_redirect_target_q  <= x_redirect_target;
+  end
   fetcher_output fetcher_out;
+  logic  [31:0] fetcher_imem_addr_next;
   fetcher fetcher(
     .clk(clk),
     .reset(reset),
-    .pc(pc),
-    .next_pc(next_pc),
+    .pc(fetch_pc),
+    .next_pc(fetch_pc_next),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
+    .imem_stall(fetch_stall),
+    .imem_fault(imem_fault),
+    .fetch_stall(fetch_wait),
+    .fault(fetch_fault),
     .out(fetcher_out),
     .imem_addr(imem_addr),
     .imem_addr2(imem_addr2),
-    .imem_addr_next(imem_addr_next)
+    .imem_addr_next(fetcher_imem_addr_next)
   );
+  assign imem_addr_next = fetcher_imem_addr_next;
+  // Never F's word-granular `imem_addr_next`. The redirect always wins over D's stall.
+  assign fetch_pc_next = x_redirect_q      ? x_redirect_target_q :
+                         !decoder_issuing  ? fetch_pc :
+                                             decoder_predicted_pc;
+  always_ff @(posedge clk) fetch_pc <= reset ? 32'b0 : fetch_pc_next;
 
   logic [31:0] reg_rs1, reg_rs2, wdata;
   logic [4:0]  read_rs1, read_rs2;
@@ -170,62 +194,25 @@ module littlecpu #(
   `ifdef RISCV_FORMAL_CSR_MCAUSE
   rvfi_csr32 csr_rvfi_mcause;
   `endif
-  logic [4:0] probe_rs1;
-  logic       probe_ls_issuing;
  `endif
 
-  decoder #(
-    .LS_TEXT_WORDS(LS_TEXT_WORDS),
-    .LS_RAM_BASE(LS_RAM_BASE),
-    .LS_RAM_WORDS(LS_RAM_WORDS),
-    .LS_TIMER_BASE(LS_TIMER_BASE),
-    .LS_UART_BASE(LS_UART_BASE),
-    .LS_FLASH_BASE(LS_FLASH_BASE)
-  ) decoder(
+  decoder #(.LS_TEXT_WORDS(LS_TEXT_WORDS)) decoder(
     .clk(clk),
     .reset(reset),
     .in(fetcher_out),
-    .reg_rs1(reg_rs1),
-    .reg_rs2(reg_rs2),
+    .x_busy(x_busy),
     .executor_out(executor_out),
-    .divider_stall(divider_stalled),
-    .fetch_stall(fetch_stall),
+    .fetch_stall(fetch_wait),
     .bus_wait(bus_wait),
     .bus_request(bus_request),
-    .imem_fault(imem_fault),
-    .atomic_addr(atomic_addr),
-    .atomic_supported(atomic_supported),
+    .imem_fault(fetch_fault),
     .accessor_out_valid(accessor_out_valid),
-    .csr_rdata(csr_rdata),
-    .csr_implemented(csr_implemented),
-    .mtvec(csr_mtvec),
-    .mepc(csr_mepc),
-    .interrupt_pending(csr_interrupt_pending),
-   `ifdef RISCV_FORMAL
-    .csr_rvfi_mcycle(csr_rvfi_mcycle),
-    .csr_rvfi_minstret(csr_rvfi_minstret),
-    .csr_rvfi_mscratch(csr_rvfi_mscratch),
-    `ifdef RISCV_FORMAL_CSR_MCAUSE
-    .csr_rvfi_mcause(csr_rvfi_mcause),
-    `endif
-    .rs1(probe_rs1),
-    .probe_ls_issuing(probe_ls_issuing),
-   `endif
-    .pc(pc),
-    .next_pc(next_pc),
+    .issuing(decoder_issuing),
+    .predicted_pc(decoder_predicted_pc),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
-    .csr_addr(csr_addr),
-    .csr_ren(csr_ren),
-    .csr_wen(csr_wen),
-    .csr_wdata(csr_wdata),
-    .instret(csr_instret),
-    .trap_entry(decoder_trap_entry),
-    .trap_cause(csr_trap_cause),
-    .trap_epc(csr_trap_epc),
-    .trap_tval(csr_trap_tval),
-    .mret_entry(csr_mret_entry),
-    .out(decoder_out)
+    .x_redirect_delayed(x_redirect_q),
+    .out(dx_out)
   );
 
   csrs #(.HART_ID(HART_ID)) csrs(
@@ -258,23 +245,59 @@ module littlecpu #(
    `endif
   );
 
-  executor executor(
+  executor #(
+    .LS_TEXT_WORDS(LS_TEXT_WORDS),
+    .LS_RAM_BASE(LS_RAM_BASE),
+    .LS_RAM_WORDS(LS_RAM_WORDS),
+    .LS_TIMER_BASE(LS_TIMER_BASE),
+    .LS_UART_BASE(LS_UART_BASE),
+    .LS_FLASH_BASE(LS_FLASH_BASE)
+  ) executor(
     .clk(clk),
     .reset(reset),
-    .in(decoder_out),
-    .out(executor_out),
-    .stalled(divider_stalled)
+    .in(dx_out),
+    .reg_rs1(reg_rs1),
+    .reg_rs2(reg_rs2),
+    .interrupt_pending(csr_interrupt_pending),
+    .kill(x_redirect_q),
+    .x_busy(x_busy),
+    .csr_addr(csr_addr),
+    .csr_ren(csr_ren),
+    .csr_wen(csr_wen),
+    .csr_wdata(csr_wdata),
+    .csr_rdata(csr_rdata),
+    .csr_implemented(csr_implemented),
+    .instret(csr_instret),
+    .trap_entry(decoder_trap_entry),
+    .trap_cause(csr_trap_cause),
+    .trap_epc(csr_trap_epc),
+    .trap_tval(csr_trap_tval),
+    .mret_entry(csr_mret_entry),
+    .mtvec(csr_mtvec),
+    .mepc(csr_mepc),
+    .redirect(x_redirect),
+    .redirect_target(x_redirect_target),
+    .launch(decoder_out),
+    .out(executor_out)
+   `ifdef RISCV_FORMAL
+    ,
+    .csr_rvfi_mcycle(csr_rvfi_mcycle),
+    .csr_rvfi_minstret(csr_rvfi_minstret),
+    .csr_rvfi_mscratch(csr_rvfi_mscratch)
+    `ifdef RISCV_FORMAL_CSR_MCAUSE
+    , .csr_rvfi_mcause(csr_rvfi_mcause)
+    `endif
+   `endif
   );
 
   accessor_output accessor_out;
   assign accessor_out_valid = accessor_out.valid;
-  // The bus transaction launches from `decoder_out`, a stage early, on the one cycle the
-  // executor takes it. Any other cycle would present a store twice.
+  // The transaction launches from X's own view, the cycle it registers `executor_out`.
   accessor accessor(
     .clk(clk),
     .reset(reset),
     .launch(decoder_out),
-    .launch_taken(!divider_stalled),
+    .launch_taken(1'b1),  // launch.valid already excludes a held (x_busy) cycle
     .in(executor_out),
     .mem_addr(mem_addr),
     .mem_wstrb(mem_wstrb),
@@ -389,7 +412,12 @@ module littlecpu #(
     ls_block == LS_FLASH_HI        || ls_block == LS_FLASH_HI + 1'b1;
 
   logic ls_at_bypass;
-  assign ls_at_bypass = wen && waddr == probe_rs1;
+  assign ls_at_bypass = wen && waddr == dx_out.rs1;
+
+  logic probe_ls_issuing;
+  assign probe_ls_issuing = decoder_out.valid && (decoder_out.is_lb || decoder_out.is_lbu ||
+    decoder_out.is_lhu || decoder_out.is_lh || decoder_out.is_lw ||
+    decoder_out.is_sb || decoder_out.is_sh || decoder_out.is_sw);
 
   logic [31:0] probe_ls_issues, probe_ls_edges, probe_ls_bypasses;
   always_ff @(posedge clk) begin
@@ -401,6 +429,24 @@ module littlecpu #(
       probe_ls_issues <= probe_ls_issues + 32'd1;
       if (ls_at_edge)    probe_ls_edges    <= probe_ls_edges + 32'd1;
       if (ls_at_bypass)  probe_ls_bypasses <= probe_ls_bypasses + 32'd1;
+    end
+  end
+
+  // Fetch already followed the guess, so a correct one is the ABSENCE of a redirect.
+  logic probe_guess_active, probe_guess_correct;
+  assign probe_guess_active = dx_out.valid && !x_busy && dx_out.predicted_taken;
+  assign probe_guess_correct = probe_guess_active && !x_redirect;
+
+  logic [31:0] probe_guesses, probe_guess_hits, probe_guess_misses;
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      probe_guesses     <= 32'd0;
+      probe_guess_hits   <= 32'd0;
+      probe_guess_misses <= 32'd0;
+    end else if (probe_guess_active) begin
+      probe_guesses <= probe_guesses + 32'd1;
+      if (probe_guess_correct) probe_guess_hits   <= probe_guess_hits + 32'd1;
+      else                     probe_guess_misses <= probe_guess_misses + 32'd1;
     end
   end
  `endif

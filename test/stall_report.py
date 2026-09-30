@@ -36,27 +36,33 @@ subset of, which is the one way a runner and this script can disagree about
 which cycles were counted and still print a plausible rate.
 
 HAZARD ITSELF HAS THREE CAUSES, checked against the same kind of identity as
-the columns above: hzA (the producer is still in `out`, no result exists
-anywhere), hzB (the producer is in the executor but its result is not unpacked
-yet -- a load, an AMO, `lr.w`, `sc.w`) and hzC (a ready result decode has no
-forwarding path to). Only hzC is a candidate for anything; hzA and hzB name
-cycles nothing could have handed over sooner.
-
-hzCcsr IS HZC'S SLICE BEHIND A CSR REGISTER-FORM READ, reported rather than
-assumed zero: `rs1_fwd_eligible` never covers a CSR operand, so any CSR whose
-rs1 is a producer still in the executor lands in hzC by construction, and
-`test/asm/csr.S`'s own vectors do exactly that (`csrrw a1, mscratch, a0` right
-after `a0` is computed). `serialize` narrows the window this can happen in but
-does not close it, so this is measured, not proved.
+the columns above -- but B2 gave forwarding to the two that could take it, so
+only one of the three still stalls a real program. hzA is a `dx_match` (the
+producer is still in `out`, about to be read by X this very cycle) whose
+producer will NOT publish a ready result in `executor_out` next cycle: a
+load, an AMO, `lr.w`, `sc.w`, a div/rem just starting, or a CSR access's own
+excluded rs1, which never reads the forwarded value even when `out` would
+otherwise qualify. hzB is an `ex_match` (the producer is two instructions
+back, already in `executor_out`) whose own result is not yet unpacked --
+again a load, an AMO, `lr.w` or `sc.w`. hzC is what B1 called a ready
+`ex_match` decode had no path to: B2 gives it none, because it needs none --
+the regfile's own write-through bypass (commitment 6) reaches that producer
+exactly when the later instruction's own X cycle needs it, so this class
+never asserts `hazard` at all and reads zero. `rs1_fwd_eligible` (D's
+`fwd_rs1`/`fwd_rs2`) never covers a CSR access's own rs1, so the one case
+`test/asm/csr.S` exercises (`csrrw a1, mscratch, a0` right after `a0` is
+computed, a `dx_match`) now lands in hzA rather than hzC; hzCcsr accordingly
+reads zero too, kept in the format rather than deleted so a regression that
+reopens this path shows up as a nonzero the identity below did not expect.
 """
 
 import argparse
 import sys
 
-# The eight the decoder has, in the order it tries them: it holds `decoder_out` for the
-# divider and bubbles for the other seven.
-REASONS = ["divider", "atomic", "hazard", "serialize", "operand", "fetch", "bus",
-           "region"]
+# The six the D/X split has, in the order test/cxxrtl.cc tries them. No guess exists
+# to miss ("operand" is gone); the divider reports through X's own signal. B3 deleted
+# the region wait outright rather than reporting it here.
+REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus"]
 
 # What the CPI above it describes.
 SUITE_WORKLOAD = (
@@ -72,10 +78,8 @@ HEADINGS = {
     "atomic": "ATOMIC",
     "hazard": "HAZARD",
     "serialize": "SERIAL",
-    "operand": "OPERAND",
     "fetch": "FETCH",
     "bus": "BUS",
-    "region": "REGION",
 }
 # The load/store locality counters, in the order the line below prints them: every
 # issuing load and store, then the two subsets.
@@ -153,8 +157,7 @@ def main():
         if parts != counts["cycles"]:
             broken.append(f"  {name}: columns sum to {parts}, cycles is {counts['cycles']}")
 
-    # The same identity, one level down: hazard's three causes have to sum to exactly the
-    # hazard column they split, per program and not just in total.
+    # The same identity one level down: hazard's three causes must sum to hazard, per program.
     hazard_broken = [
         f"  {name}: hzA+hzB+hzC is {counts['hzA'] + counts['hzB'] + counts['hzC']}"
         f", hazard is {counts['hazard']}"
@@ -223,13 +226,14 @@ def main():
     print()
     print(
         f"HAZARD ({total['hazard']} cycles) breaks down into hzA={total['hzA']} "
-        f"(no result exists), hzB={total['hzB']} (result not unpacked yet) and "
-        f"hzC={total['hzC']} (a ready result forwarding does not reach). Only "
-        f"hzC is a candidate for anything."
+        f"(a dx_match producer that will not be ready next cycle), "
+        f"hzB={total['hzB']} (an ex_match producer not yet unpacked) and "
+        f"hzC={total['hzC']} (a ready ex_match forwarding has no path to -- B2's "
+        f"forwarding needs none there, so this reads zero)."
     )
     print(
         f"  {total[HAZARD_CSR]} of hzC belongs to a CSR register-form read, "
-        f"where forwarding is never eligible."
+        f"where forwarding is never eligible (now counted in hzA instead)."
     )
     issues = total[LS_ISSUES]
     print()
@@ -239,9 +243,9 @@ def main():
         print(f"  {total[key]} ({of_issues}) {what}.")
     print(
         "Both are properties of where this workload keeps its data, not of the\n"
-        "core: the first is what a load/store region test answered from rs1\n"
-        "alone would stall on, and the second what a precomputed answer would\n"
-        "have to be recomputed for."
+        "core: the region test resolves every access in one cycle regardless, so\n"
+        "neither costs a cycle any more -- they are reported as workload locality\n"
+        "measurements, not as stall causes."
     )
     print()
     print(args.workload)
