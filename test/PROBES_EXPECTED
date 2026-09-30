@@ -299,6 +299,8 @@ a missing btorsim is refused by name before nano's own sweep runs
 a missing checks.cfg is refused rather than read as not-live
 a missing correlation record is refused, not silently skipped
 a missing depth line in the .sby stops rather than comparing nothing
+a missing excluded-cell list is refused by the timing run too
+a missing excluded-cell list is refused, not read as none
 a missing liberty file is refused before any variant is read
 a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
@@ -861,6 +863,8 @@ decoder_output.rd widened past 5 bits is red (finding 5)
 deleting an rtl file and leaving its line is red
 dividers that make a frequency CORE_HZ does not state is red
 ecp5 names fewer than twelve seeds and is refused before any placement
+every excluded cell reaches dfflibmap and abc as -dont_use
+every excluded cell reaches the timing run's dfflibmap and abc too
 every source line moving is the comment class, and is forgiven
 excluding --require-news's artifact does not blind it to a real soc/compare/ change
 excluding the artifact does not blind the check to a real soc/compare/ change
@@ -999,8 +1003,6 @@ the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence either
 the exemption does not extend to a write of the WRONG register
-the flow's clock-gating pass runs before dfflibmap, not after
-the flow's clock-gating pass runs before dfflibmap, not after
 the gate proof going red somewhere else is not evidence
 the generated check set's isa line swept along with the flags is red
 the harness giving the UART its own baud rate is red

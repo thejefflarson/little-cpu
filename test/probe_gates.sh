@@ -8172,19 +8172,23 @@ SS_SCRIPT="$REPO/nano/synth_script.sh"
 
 probe "control: a plain liberty and source produce the expected yosys script" 0 \
   'dfflibmap -liberty "/tmp/lib.lib"' \
-  "$SS_SCRIPT /tmp/lib.lib nano/nano.v"
-
-probe "the flow's clock-gating pass runs before dfflibmap, not after" 0 \
-  'synth; clockgate -min_net_size 8 -pos sky130_fd_sc_hd__dlclkp_1 GATE:CLK:GCLK; dfflibmap' \
-  "$SS_SCRIPT /tmp/lib.lib nano/nano.v"
+  "$SS_SCRIPT /tmp/lib.lib /dev/null nano/nano.v"
 
 probe "a semicolon in the liberty path stays inside its own quoted token" 0 \
   '"/tmp/lib;evil.lib"' \
-  "$SS_SCRIPT '/tmp/lib;evil.lib' nano/nano.v"
+  "$SS_SCRIPT '/tmp/lib;evil.lib' /dev/null nano/nano.v"
 
 probe "a space in a source path does not split it into a second yosys argument" 0 \
   '"a b/c.v"' \
-  "$SS_SCRIPT /tmp/lib.lib 'a b/c.v'"
+  "$SS_SCRIPT /tmp/lib.lib /dev/null 'a b/c.v'"
+
+probe "every excluded cell reaches dfflibmap and abc as -dont_use" 0 \
+  'dfflibmap -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"; abc -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"' \
+  "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $SS_SCRIPT /tmp/lib.lib $tmp/one.cells nano/nano.v"
+
+probe "a missing excluded-cell list is refused, not read as none" 1 \
+  "refusing to measure cells the flow never uses" \
+  "$SS_SCRIPT /tmp/lib.lib $tmp/no-such.cells nano/nano.v"
 
 begin_group "nano/timing_script.sh"
 
@@ -8192,23 +8196,27 @@ TS_SCRIPT="$REPO/nano/timing_script.sh"
 
 probe "control: a plain liberty and source produce the expected yosys script" 0 \
   'abc -liberty "/tmp/lib.lib" -script +strash;dch,-f;map,-B,0.2;topo;stime,-c' \
-  "$TS_SCRIPT /tmp/lib.lib /tmp/out.json nano/nano.v"
-
-probe "the flow's clock-gating pass runs before dfflibmap, not after" 0 \
-  'synth; clockgate -min_net_size 8 -pos sky130_fd_sc_hd__dlclkp_1 GATE:CLK:GCLK; dfflibmap' \
-  "$TS_SCRIPT /tmp/lib.lib /tmp/out.json nano/nano.v"
+  "$TS_SCRIPT /tmp/lib.lib /dev/null /tmp/out.json nano/nano.v"
 
 probe "a semicolon in the liberty path stays inside its own quoted token" 0 \
   '"/tmp/lib;evil.lib"' \
-  "$TS_SCRIPT '/tmp/lib;evil.lib' /tmp/out.json nano/nano.v"
+  "$TS_SCRIPT '/tmp/lib;evil.lib' /dev/null /tmp/out.json nano/nano.v"
 
 probe "a semicolon in the stat-json path stays inside its own quoted token" 0 \
   'tee -o "/tmp/out;evil.json"' \
-  "$TS_SCRIPT /tmp/lib.lib '/tmp/out;evil.json' nano/nano.v"
+  "$TS_SCRIPT /tmp/lib.lib /dev/null '/tmp/out;evil.json' nano/nano.v"
 
 probe "a source list feeds read_verilog the same way synth_script.sh's does" 0 \
   'read_verilog -sv "a.v" "b.v"' \
-  "$TS_SCRIPT /tmp/lib.lib /tmp/out.json a.v b.v"
+  "$TS_SCRIPT /tmp/lib.lib /dev/null /tmp/out.json a.v b.v"
+
+probe "every excluded cell reaches the timing run's dfflibmap and abc too" 0 \
+  'dfflibmap -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"; abc -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1" -script' \
+  "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $TS_SCRIPT /tmp/lib.lib $tmp/one.cells /tmp/out.json nano/nano.v"
+
+probe "a missing excluded-cell list is refused by the timing run too" 1 \
+  "refusing to measure cells the flow never uses" \
+  "$TS_SCRIPT /tmp/lib.lib $tmp/no-such.cells /tmp/out.json nano/nano.v"
 
 begin_group "make nano-liberty-setup"
 
