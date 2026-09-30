@@ -29,17 +29,32 @@ Four things are decided here:
      carry assertions: checks/rvfi_macros.vh declares a port for every CSR in
      riscv-formal's table, which is plumbing and says nothing about behaviour.
 
-Usage: check-interrupt-tie-off.py <formal dir> <INTERRUPT_TIE_OFF> <riscv-formal dir>
+nano runs the same check over its own harnesses: `--core nano` swaps the module name and
+the tied port (`riscv`, `.irq_meip(1'b0)`) and adds two things nano needs. A harness that
+instantiates the core and leaves the input free on purpose, nano/formal/traps.sv, is a
+`FREE` record: it must instantiate the core and must NOT tie the input off, so the one file
+that is meant to see an interrupt is graded as well as the ones that are meant not to. And
+every input a harness connects to a constant must be one the baseline declares: an input
+that all the `HARNESS` files hold constant, other than the interrupt, is a restriction
+nothing recorded (the sweep formal/check-multihart-tie-off.py makes for littlecpu's
+multi-hart surface).
+
+Usage: check-interrupt-tie-off.py [--core littlecpu|nano] <formal dir> <INTERRUPT_TIE_OFF>
+                                  <riscv-formal dir>
 """
 
 import os
 import re
 import sys
 
-INSTANTIATES = re.compile(r'^\s*littlecpu\s+\w+\s*\(\s*$', re.M)
+# Per core: the module a harness instantiates and the one input it ties low.
+CORES = {
+    'littlecpu': ('littlecpu', 'irq_timer'),
+    'nano': ('riscv', 'irq_meip'),
+}
 
-# The one spelling a tie-off is allowed to have.
-TIE_OFF = re.compile(r"^\s*\.irq_timer\(1'b0\)\s*,?\s*$", re.M)
+# A port connected to a constant, whatever the port.
+CONST_PORT = re.compile(r"^\s*\.(\w+)\(\s*\d*'[bBhHdD][01xXzZ]+\s*\)\s*,?\s*$", re.M)
 
 INTR_SIGNAL = 'rvfi_intr'
 
@@ -55,9 +70,13 @@ SEARCHED_SUFFIXES = ('.v', '.sv', '.vh')
 # The files upstream that carry assertions, as opposed to port declarations.
 CHECK_FILE = re.compile(r'^rvfi_\w+_check\.sv$')
 
-def scan_harnesses(formal_dir):
-    """Files in formal/ that instantiate littlecpu, and whether each ties off."""
+def scan_harnesses(formal_dir, module, port):
+    """Files in the harness directory that instantiate the core: whether each ties the
+    input off, and which ports each connects to a constant."""
+    instantiates = re.compile(rf'^\s*{module}\s+\w+\s*\(\s*$', re.M)
+    tie_off = re.compile(rf"^\s*\.{port}\(1'b0\)\s*,?\s*$", re.M)
     found = {}
+    constants = {}
     errors = []
     for name in sorted(os.listdir(formal_dir)):
         if not name.endswith(SEARCHED_SUFFIXES):
@@ -70,9 +89,11 @@ def scan_harnesses(formal_dir):
         except OSError as e:
             errors.append(f'cannot read {path}: {e}')
             continue
-        if INSTANTIATES.search(text):
-            found[name] = bool(TIE_OFF.search(text))
-    return found, errors
+        match = instantiates.search(text)
+        if match:
+            found[name] = bool(tie_off.search(text))
+            constants[name] = set(CONST_PORT.findall(text[match.end():text.find(');', match.end())]))
+    return found, constants, errors
 
 def scan_upstream(rf_dir):
     """checks/ files at the pin that mention rvfi_intr, and any CSR modelling."""
@@ -105,40 +126,47 @@ def scan_upstream(rf_dir):
     return mentions, csr_hits, errors
 
 def parse_baseline(path):
-    harnesses, upstream, errors = set(), set(), []
+    harnesses, upstream, free, errors = set(), set(), set(), []
     try:
         lines = open(path).read().splitlines()
     except OSError as e:
-        return harnesses, upstream, [f'cannot read {path}: {e}']
+        return harnesses, upstream, free, [f'cannot read {path}: {e}']
     for i, raw in enumerate(lines, 1):
         line = raw.split('#', 1)[0].strip()
         if not line:
             continue
         fields = line.split()
-        if len(fields) != 2 or fields[0] not in ('HARNESS', 'UPSTREAM'):
+        if len(fields) != 2 or fields[0] not in ('HARNESS', 'UPSTREAM', 'FREE'):
             errors.append(
-                f'{path}:{i}: expected `HARNESS <path>` or `UPSTREAM <path>`, '
-                f'got {line!r}')
+                f'{path}:{i}: expected `HARNESS <path>`, `UPSTREAM <path>` or '
+                f'`FREE <path>`, got {line!r}')
             continue
-        target = harnesses if fields[0] == 'HARNESS' else upstream
+        target = {'HARNESS': harnesses, 'UPSTREAM': upstream, 'FREE': free}[fields[0]]
         if fields[1] in target:
             errors.append(f'{path}:{i}: duplicate entry {fields[1]}')
         target.add(fields[1])
-    return harnesses, upstream, errors
+    return harnesses, upstream, free, errors
 
 def main():
-    if len(sys.argv) != 4:
-        print(__doc__.strip().splitlines()[-1], file=sys.stderr)
+    args = sys.argv[1:]
+    core = 'littlecpu'
+    if args[:1] == ['--core'] and len(args) > 1:
+        core, args = args[1], args[2:]
+    if len(args) != 3 or core not in CORES:
+        print('usage: check-interrupt-tie-off.py [--core {}] <formal dir> '
+              '<INTERRUPT_TIE_OFF> <riscv-formal dir>'.format('|'.join(CORES)),
+              file=sys.stderr)
         return 2
-    formal_dir, baseline_path, rf_dir = sys.argv[1:4]
+    formal_dir, baseline_path, rf_dir = args
+    module, port = CORES[core]
 
-    declared_harnesses, declared_upstream, errors = parse_baseline(baseline_path)
-    found, harness_errors = scan_harnesses(formal_dir)
+    declared_harnesses, declared_upstream, declared_free, errors = parse_baseline(baseline_path)
+    found, constants, harness_errors = scan_harnesses(formal_dir, module, port)
     errors += harness_errors
 
-    for name in sorted(set(found) - declared_harnesses):
+    for name in sorted(set(found) - declared_harnesses - declared_free):
         errors.append(
-            f'{formal_dir}/{name} instantiates littlecpu and {baseline_path} '
+            f'{formal_dir}/{name} instantiates {module} and {baseline_path} '
             f'does not name it.\n'
             f'  Every riscv-formal harness runs with the interrupt tied off. Add\n'
             f'  a HARNESS line for it, or say in the pull request why this one is\n'
@@ -146,17 +174,39 @@ def main():
     for name in sorted(declared_harnesses - set(found)):
         errors.append(
             f'{baseline_path} names HARNESS {name}, which does not instantiate '
-            f'littlecpu (or does not exist).\n'
+            f'{module} (or does not exist).\n'
             f'  Either the harness was removed and the line was not, or the\n'
             f'  instantiation was reshaped and this script can no longer see it.')
     for name in sorted(declared_harnesses & set(found)):
         if not found[name]:
             errors.append(
-                f"{formal_dir}/{name} does not connect .irq_timer(1'b0).\n"
+                f"{formal_dir}/{name} does not connect .{port}(1'b0).\n"
                 f'  The baseline says the generated checks run with no interrupt\n'
                 f'  in the trace, and the depths in formal/checks.cfg are derived\n'
                 f'  under that. A free input there is a different machine, checked\n'
                 f'  against a spec that does not describe it.')
+
+    for name in sorted(declared_free - set(found)):
+        errors.append(
+            f'{baseline_path} names FREE {name}, which does not instantiate {module} '
+            f'(or does not exist).')
+    for name in sorted(declared_free & set(found)):
+        if found[name]:
+            errors.append(
+                f"{formal_dir}/{name} ties .{port}(1'b0) and {baseline_path} names it "
+                f'FREE.\n'
+                f'  The one harness that leaves the input free is the only oracle for\n'
+                f'  an interrupt; tied low, nothing grades interrupt entry.')
+    for name in sorted(declared_harnesses & declared_free):
+        errors.append(f'{name} is named both HARNESS and FREE in {baseline_path}.')
+    if core == 'nano':
+        # Every constant a HARNESS file connects, other than the interrupt, is a
+        # restriction on the checks that nothing has recorded.
+        for name in sorted(declared_harnesses & set(found)):
+            for other in sorted(constants[name] - {port}):
+                errors.append(
+                    f'{formal_dir}/{name} ties .{other} to a constant, and nothing in '
+                    f'{baseline_path} records that restriction.')
 
     upstream, csr_hits, upstream_errors = scan_upstream(rf_dir)
     errors += upstream_errors
@@ -189,7 +239,9 @@ def main():
 
     print(f'interrupt tie-off matches {baseline_path} (both directions):')
     for name in sorted(declared_harnesses):
-        print(f"  {name:<16} instantiates littlecpu with .irq_timer(1'b0)")
+        print(f"  {name:<16} instantiates {module} with .{port}(1'b0)")
+    for name in sorted(declared_free):
+        print(f"  {name:<16} instantiates {module} with .{port} left free")
     print(f'  {len(declared_upstream)} files at the pin mention {INTR_SIGNAL}, '
           f'and no rvfi_*_check.sv names mie, mip or mstatus')
     print('INTERRUPT TIE-OFF: PASS')

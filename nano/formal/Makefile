@@ -18,13 +18,13 @@ checks: ../../formal/genchecks-audit.py ../../formal/genchecks-local.py checks.c
 	python3 $< .
 
 .PHONY: check
-check: checks $(RISCV_FORMAL_DIR)
+check: checks interrupt-tie-off $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C checks -j$(JOBS) -k
 	$(MAKE) check-baseline
 
 # The same slice-and-stop as formal/'s, and the same script: two sets, one layout.
 .PHONY: check-shard
-check-shard: checks $(RISCV_FORMAL_DIR)
+check-shard: checks interrupt-tie-off $(RISCV_FORMAL_DIR)
 	../../formal/check-shard.sh checks '$(CHECK_SHARD)' $(JOBS)
 
 .PHONY: check-baseline
@@ -119,6 +119,18 @@ components_memreq: memreq.sby ../nano.v memreq-probe
 	rm -rf memreq
 	sby -f memreq.sby
 
+.PHONY: interrupt-tie-off
+interrupt-tie-off: ../../formal/check-interrupt-tie-off.py INTERRUPT_TIE_OFF | $(RISCV_FORMAL_DIR)
+	python3 $< --core nano . INTERRUPT_TIE_OFF $(RISCV_FORMAL_DIR)
+
+.PHONY: nonperturbation nonperturbation-probe
+nonperturbation: ../../formal/check-nonperturbation.py nonperturbation-probe ../nano.v \
+                 | $(RISCV_FORMAL_DIR)
+	python3 $< nano
+nonperturbation-probe: ../../formal/nonperturbation-probe.py ../../formal/check-nonperturbation.py \
+                       ../nano.v | $(RISCV_FORMAL_DIR)
+	python3 $< nano --workdir nonperturbation-probe
+
 .PHONY: check-rvfi-insn-check
 check-rvfi-insn-check: $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_check.sv \
                        check-rvfi-insn-check.py | $(RISCV_FORMAL_DIR)
@@ -134,9 +146,9 @@ clean:
 	rm -rf complete-cover-probe ill_e ill_e_cover ill-e-probe
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
 	rm -rf qspi qspi-probe traps region-probe tval-probe
-	rm -rf memreq memreq-probe
+	rm -rf memreq memreq-probe nonperturbation-probe
 
 .PHONY: all clean
 all: check dmemcheck imemcheck dmemcheck_cover imemcheck_cover complete complete_cover \
      ill_e ill_e_cover check-rvfi-insn-check components_qspi components_traps \
-     components_memreq
+     components_memreq interrupt-tie-off nonperturbation

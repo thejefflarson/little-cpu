@@ -4407,6 +4407,58 @@ d=$(it_fixture); rm -rf "$d/rf/checks"
 probe "an unreadable clone makes the re-derivation impossible, and fatal" 1 \
   "is not a directory" "$(its "$d")"
 
+begin_group "formal/check-interrupt-tie-off.py --core nano"
+
+itn_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/formal" "$d/rf/checks"
+  for f in wrapper.v complete.sv dmemcheck.sv imemcheck.sv ill_e.sv traps.sv; do
+    cp "$REPO/nano/formal/$f" "$d/formal/$f"
+  done
+  printf 'wire intr = rvfi_intr[0];\n' > "$d/rf/checks/rvfi_pc_fwd_check.sv"
+  printf 'assert (rvfi_valid);\n'      > "$d/rf/checks/rvfi_reg_check.sv"
+  {
+    printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS dmemcheck.sv\n'
+    printf 'HARNESS imemcheck.sv\nHARNESS ill_e.sv\nFREE traps.sv\n'
+    printf 'UPSTREAM checks/rvfi_pc_fwd_check.sv\n'
+  } > "$d/BASELINE"
+  printf '%s' "$d"
+}
+
+itns() { printf "%s --core nano %s/formal %s/BASELINE %s/rf" "$IT" "$1" "$1" "$1"; }
+
+d=$(itn_fixture)
+probe "control: nano's harnesses tie off and its trap harness stays free, both directions" 0 \
+  "INTERRUPT TIE-OFF: PASS" "$(itns "$d")"
+
+d=$(itn_fixture)
+probe "an unknown --core is exit 2" 2 "usage: check-interrupt-tie-off.py" \
+  "$IT --core nowhere $d/formal $d/BASELINE $d/rf"
+
+d=$(itn_fixture); mutate "$d/formal/ill_e.sv" "s/\.irq_meip(1'b0),/.irq_meip(irq_free),/"
+probe "a nano harness that stopped tying the input off is red" 1 \
+  "does not connect .irq_meip" "$(itns "$d")"
+
+d=$(itn_fixture); mutate "$d/formal/traps.sv" "s/\.irq_meip(irq_meip),/.irq_meip(1'b0),/"
+probe "the free trap harness tied low would grade no interrupt entry, and is red" 1 \
+  "names it FREE" "$(itns "$d")"
+
+d=$(itn_fixture); mutate "$d/BASELINE" '/^FREE traps.sv$/d'
+probe "the free harness with no line in the baseline is red" 1 \
+  "does not name it" "$(itns "$d")"
+
+d=$(itn_fixture); rm "$d/formal/traps.sv"
+probe "a FREE line with no harness behind it is red" 1 \
+  "names FREE traps.sv" "$(itns "$d")"
+
+d=$(itn_fixture); mutate "$d/formal/wrapper.v" "s/\.mem_ready(mem_ready),/.mem_ready(1'b1),/"
+probe "an input held constant that no baseline declares is red" 1 \
+  "ties .mem_ready to a constant" "$(itns "$d")"
+
+d=$(itn_fixture); printf 'HARNESS traps.sv\n' >> "$d/BASELINE"
+probe "a harness named both HARNESS and FREE is red" 1 \
+  "both HARNESS and FREE" "$(itns "$d")"
+
 begin_group "formal/check-multihart-tie-off.py"
 
 MT="python3 $REPO/formal/check-multihart-tie-off.py"
@@ -6763,6 +6815,137 @@ d=$(pc_fixture)
 probe "a missing traps.sby is caught before any solver runs" 2 \
   "nano/formal/traps.sby is missing from" \
   "$PC --repo $d --workdir $d/work --sby /nonexistent"
+
+begin_group "formal/nonperturbation-probe.py"
+
+NP="python3 $REPO/formal/nonperturbation-probe.py"
+
+cat > "$tmp/np-checker-stub" <<'STUB'
+import os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+which = sys.argv[1]
+src = os.path.join(here, os.pardir, "nano/nano.v" if which == "nano" else "rtl/littlecpu.v")
+leaks = "rvfi_mem_wdata[0]" in open(src).read() or "rvfi_csr_mscratch_wdata[0]" in open(src).read()
+if os.environ.get("STUB_BROKEN_ON_LEAK") and leaks:
+    print("yosys failed"); sys.exit(2)
+red = leaks and not os.environ.get("STUB_LEAK_PASSES")
+red = red or os.environ.get("STUB_SHIP_RED")
+if red:
+    if not os.environ.get("STUB_NO_DIFF"):
+        print("  cell histogram:                    DIFFERS")
+    print("RVFI NON-PERTURBATION: FAIL")
+    sys.exit(1)
+print("RVFI NON-PERTURBATION: PASS")
+STUB
+
+np_fixture() {  # $1 = littlecpu|nano
+  local d; d=$(new_case)
+  mkdir -p "$d/formal/riscv-formal"
+  if [ "$1" = nano ]; then
+    mkdir -p "$d/nano"
+    cp "$REPO/nano/nano.v" "$d/nano/"
+  else
+    mkdir -p "$d/rtl"
+    for f in structs.v fetcher.v regfile.v csrs.v decoder.v regsel.v executor.v \
+             accessor.v writeback.v littlecpu.v; do
+      cp "$REPO/rtl/$f" "$d/rtl/"
+    done
+  fi
+  printf '%s' "$d"
+}
+
+nps() {  # $1 = fixture dir  $2 = design
+  printf "%s %s --repo %s --workdir %s/work --checker %s/np-checker-stub" \
+    "$NP" "$2" "$1" "$1" "$tmp"
+}
+
+d=$(np_fixture nano)
+probe "control: nano's shipping core passes the gate and the leak fails it" 0 \
+  "The leaking mutant fails the gate, and the shipping core passes it" "$(nps "$d" nano)"
+
+d=$(np_fixture littlecpu)
+probe "control: littlecpu's shipping core passes the gate and the leak fails it" 0 \
+  "The leaking mutant fails the gate, and the shipping core passes it" "$(nps "$d" littlecpu)"
+
+d=$(np_fixture nano)
+probe "a shipping core that already fails the gate proves nothing about a leak" 1 \
+  "the shipping core does not pass the non-perturbation gate" "STUB_SHIP_RED=1 $(nps "$d" nano)"
+
+d=$(np_fixture nano)
+probe "a gate that passes a leaking core is not standing in front of anything" 1 \
+  "the leaking mutant passes" "STUB_LEAK_PASSES=1 $(nps "$d" nano)"
+
+d=$(np_fixture nano)
+probe "a red that is not a structural difference is not the red this probe wants" 1 \
+  "the leaking mutant passes" "STUB_NO_DIFF=1 $(nps "$d" nano)"
+
+d=$(np_fixture nano)
+probe "a checker that cannot run on the leaking mutant is exit 2, not a red proof" 2 \
+  "could not run on the leaking mutant" "STUB_BROKEN_ON_LEAK=1 $(nps "$d" nano)"
+
+d=$(np_fixture nano); mutate "$d/nano/nano.v" "s/assign mem_wstrb = /assign mem_wstrb  = /"
+probe "a respelled anchor stops rather than probing the shipping core twice" 2 \
+  "no longer spells the line this probe mutates" "$(nps "$d" nano)"
+
+d=$(np_fixture littlecpu); rmdir "$d/formal/riscv-formal"
+probe "no riscv-formal checkout is exit 2, not a probe against nothing" 2 \
+  "is missing" "$(nps "$d" littlecpu)"
+
+d=$(np_fixture nano); rm "$d/nano/nano.v"
+probe "a missing source is exit 2 before anything runs" 2 \
+  "nano.v is missing" "$(nps "$d" nano)"
+
+begin_group "test/formal_ci_coverage_test.py"
+
+FC="python3 $REPO/test/formal_ci_coverage_test.py"
+
+fc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/formal" "$d/nano/formal" "$d/.github/workflows"
+  cp "$REPO/formal/Makefile" "$d/formal/"
+  cp "$REPO/nano/formal/Makefile" "$d/nano/formal/"
+  cp "$REPO/.github/workflows/ci.yml" "$d/.github/workflows/"
+  printf '%s' "$d"
+}
+
+d=$(fc_fixture)
+probe "control: every target in both designs' all lists is run by ci.yml" 0 \
+  "FORMAL CI COVERAGE: PASS" "$FC $d"
+
+probe "a repo root that does not exist is red before anything is read" 1 \
+  "is not a directory" "$FC $d/nowhere"
+
+d=$(fc_fixture); mutate "$d/.github/workflows/ci.yml" '/run: make -C nano\/formal components_memreq/d'
+probe "a nano target CI stopped running is red, and named" 1 \
+  "nano/formal/Makefile's \`all\` names components_memreq" "$FC $d"
+
+d=$(fc_fixture); mutate "$d/.github/workflows/ci.yml" '/run: make -C nano\/formal components_traps/d'
+probe "nano's trap proof with no CI step is red" 1 \
+  "names components_traps" "$FC $d"
+
+d=$(fc_fixture); mutate "$d/nano/formal/Makefile" 's/^all: check /all: check nano_new_proof /'
+probe "a target added to nano's all with no CI step is red" 1 \
+  "names nano_new_proof" "$FC $d"
+
+d=$(fc_fixture); mutate "$d/formal/Makefile" 's/^all: complete /all: complete littlecpu_new_proof /'
+probe "a target added to littlecpu's all with no CI step is red" 1 \
+  "formal/Makefile's \`all\` names littlecpu_new_proof" "$FC $d"
+
+d=$(fc_fixture); mutate "$d/.github/workflows/ci.yml" 's/proof: \[executor, decoder, accessor, pcloop, traps, busarbiter\]/proof: [executor, decoder, accessor, pcloop, busarbiter]/'
+probe "a matrix proof dropped from the workflow is red" 1 \
+  "names components_traps" "$FC $d"
+
+d=$(fc_fixture); mutate "$d/.github/workflows/ci.yml" 's/^\(.*\)make -C nano\/formal check-shard/\1make -C nano\/formal check-shard-renamed/'
+probe "check is run only when the shards and the baseline collector are both there" 1 \
+  "nano/formal/Makefile's \`all\` names check" "$FC $d"
+
+d=$(fc_fixture); mutate "$d/.github/workflows/ci.yml" 's/^\(.*\)make -C nano\/formal check-shard/\1# make -C nano\/formal check-shard/'
+probe "a commented-out CI step does not count as run" 1 \
+  "nano/formal/Makefile's \`all\` names check" "$FC $d"
+
+d=$(fc_fixture); rm "$d/nano/formal/Makefile"
+probe "a design whose Makefile is gone is exit-nonzero, not skipped" 1 \
+  "cannot read" "$FC $d"
 
 begin_group "nano/formal/ill-e-probe.py"
 

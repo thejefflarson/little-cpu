@@ -9,6 +9,7 @@ csrc_upcnt_minstret_ch0
 csrw_mcycle_ch0
 csrw_minstret_ch0
 csrw_mscratch_ch0
+fault_ch0
 hang
 ill_ch0
 insn_add_ch0
