@@ -1,5 +1,5 @@
 #!/bin/bash
-# Requires gl_census.py to refuse a netlist with zero dlclkp cells and accept one with.
+# Requires gl_census.py to accept a netlist of sky130 cells and refuse the RTL it came from.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -8,40 +8,43 @@ WORKDIR="$HERE/gl-census-probe"
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
 
-cat > "$WORKDIR/gated.v" <<'EOF'
-module m;
-  sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(g), .GATE(e), .CLK(c));
-  sky130_fd_sc_hd__dfxtp_1 ff (.D(d), .Q(q), .CLK(g));
-endmodule
-EOF
-
-cat > "$WORKDIR/ungated.v" <<'EOF'
+cat > "$WORKDIR/netlist.v" <<'VEOF'
 module m;
   sky130_fd_sc_hd__mux2_1 mx (.A0(a), .A1(b), .S(e), .X(x));
   sky130_fd_sc_hd__dfxtp_1 ff (.D(x), .Q(q), .CLK(c));
 endmodule
-EOF
+VEOF
 
-echo "control: a netlist with a dlclkp cell"
-if ! out=$(python3 "$HERE/gl_census.py" "$WORKDIR/gated.v" --require dlclkp 2>&1); then
+cat > "$WORKDIR/rtl.v" <<'VEOF'
+module m(input c, e, a, b, output reg q);
+  always @(posedge c) q <= e ? b : a;
+endmodule
+VEOF
+
+echo "control: a netlist of sky130 cells"
+if ! out=$(python3 "$HERE/gl_census.py" "$WORKDIR/netlist.v" --includes "$WORKDIR/cells.v" 2>&1); then
   echo "$out"
-  echo "*** a netlist that does contain dlclkp was refused; the control itself is broken." >&2
+  echo "*** a netlist of sky130 cells was refused; the control itself is broken." >&2
   exit 1
 fi
 echo "$out"
+if [ "$(wc -l < "$WORKDIR/cells.v")" -ne 2 ]; then
+  echo "*** the control wrote $(wc -l < "$WORKDIR/cells.v") includes for its two cell types." >&2
+  exit 1
+fi
 
 echo
-echo "mutant: the same enabled register, mapped without the clockgate pass"
-if out=$(python3 "$HERE/gl_census.py" "$WORKDIR/ungated.v" --require dlclkp 2>&1); then
+echo "mutant: the RTL that netlist came from"
+if out=$(python3 "$HERE/gl_census.py" "$WORKDIR/rtl.v" 2>&1); then
   echo "$out"
-  echo "*** a netlist with zero dlclkp cells was accepted." >&2
+  echo "*** RTL with no sky130 cells was accepted as a netlist." >&2
   exit 1
 fi
 echo "$out"
-if ! printf '%s\n' "$out" | grep -q "found zero of: \['dlclkp'\]"; then
+if ! printf '%s\n' "$out" | grep -q "no sky130_fd_sc_hd cell instantiations"; then
   echo "*** the mutant was refused, but not for the reason this probe expects." >&2
   exit 1
 fi
 
 echo
-echo "gl_census.py accepts a gated netlist and refuses one with zero dlclkp cells."
+echo "gl_census.py accepts a netlist of sky130 cells and refuses RTL."

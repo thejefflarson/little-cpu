@@ -1,6 +1,8 @@
 # ADR-0213: nano clock-gates its enabled registers in the flow
 
-**Status:** Accepted · 2026-09-27
+**Status:** Superseded by ADR-0219 · 2026-09-27
+
+**yosys 0.62, which the Tiny Tapeout flow bundles, gates a sync-reset flop on its enable alone, so the gated netlist never reset `next_pc`. ADR-0219 turns clock gating off.**
 
 ## Context
 
