@@ -262,3 +262,25 @@ cost: checkpoint 1 deletes a deferred answer nothing needed once it left the fet
 checkpoint 2 moves a decision to the stage that actually owns it, provable standalone where
 it used to depend on a cross-module argument. `make fit`/`make soc-timing` stay on the
 owner's own expected-red list (ADR-0207) until the restructure's area pass lands.
+
+## Amendment: the device side of the launch is registered
+
+B3 launches a store from X, so the forwarded operand, the address adder, the device decode and
+the device register write shared one cycle. On the real `make soc-timing` flow at 5,069 of
+5,280 LC, six of eight seeds read 11.78 to 12.28 MHz with most under 12.0, every worst path
+ending at `mtimer.mtimecmp[*]`, then (with the timer registered, 6fa9cbb, 5,105 LC, 11.64 to
+12.53 MHz, three seeds under 12.0) at `flash.selected`, `flash.shift_out[*]` and `spi_sck`.
+
+`rtl/timer.v`, `rtl/uart.v` and `rtl/spiflash.v` now latch the request (decoded strobe, word
+and data) and apply it one cycle later. Reads stay exact: the timer bypasses a pending store
+into `mem_rdata`, and the UART and SPI controller report `busy` from `busy || start_pending`,
+which also refuses a second store in the latch cycle. `mtip`, the tx frame and the chip select
+only get later. `test/timer_tb.v` gained one settle cycle after each store group and follows
+`writing_q`; `test/uart_tb.v` expects the frame one cycle longer. The SPRAM data RAM is not on
+these paths and was not touched.
+
+Twelve-MHz requirement, real flow, 5,084 LC, eight seeds one at a time: 12.87, 13.07, 13.16,
+12.57, 12.91, 13.22, 12.64, 13.24 MHz (seeds 195147338, 218749127, 20740127, 125781539,
+14871351, 156842832, 233595587, 20382078), worst 12.57. Every worst path now ends at
+`imem.even_data` or `imem.odd_data`, the fetch loop, started at `accessor_out[32]`,
+`regfile.held_rs1` or the power-on reset flop.
