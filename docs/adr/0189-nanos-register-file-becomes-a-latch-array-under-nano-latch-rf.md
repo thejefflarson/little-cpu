@@ -1,6 +1,10 @@
 # ADR-0189: nano's register file becomes a latch array under `NANO_LATCH_RF`
 
-**Status:** Accepted · 2026-09-15
+**Status:** Superseded by [ADR-0209](0209-the-latch-register-file-is-removed-flip-flops-only.md) · 2026-09-15
+
+> **Superseded 2026-09-25.** The owner decided to remove `NANO_LATCH_RF` and keep the
+> flip-flop register file — see ADR-0209. The analysis and measurements here remain the
+> record of what the latch build bought and why it never became the default.
 
 ## Context
 

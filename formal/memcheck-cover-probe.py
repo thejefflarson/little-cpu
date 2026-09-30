@@ -4,7 +4,8 @@ the matching *_cover.sby to fail because of it rather than pass regardless of th
 environment -- complete-cover-probe.py's shape, generalised over both memchecks and
 both cores.
 
-Usage: memcheck-cover-probe.py --harness {formal,nano/formal} --check {imemcheck,dmemcheck}
+Usage: memcheck-cover-probe.py --harness {formal,nano/formal}
+                                --check {imemcheck,dmemcheck}
                                 [--repo DIR] [--workdir DIR] [--sby SBY]
 
 WHY THIS EXISTS. Neither memcheck states a cover goal proving it ever reaches the
@@ -78,7 +79,7 @@ def mutate(sv_text, is_nano):
 
 def build_case(repo, root, harness, check, sv_text):
     """A copy of `harness`, deep enough that {check}_cover.sby's own relative paths
-    resolve, with {check}.sv replaced. Returns the directory sby must be run from."""
+    resolve, with {check}.sv replaced."""
     is_nano = harness == "nano/formal"
     shutil.rmtree(root, ignore_errors=True)
     harness_dir = root / harness
@@ -130,7 +131,11 @@ def run_case(repo, workdir, sby, harness, check, case, sv_text):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--harness", required=True, choices=("formal", "nano/formal"))
-    parser.add_argument("--check", required=True, choices=("imemcheck", "dmemcheck"))
+    parser.add_argument(
+        "--check",
+        required=True,
+        choices=("imemcheck", "dmemcheck"),
+    )
     here = pathlib.Path(__file__).resolve().parent
     parser.add_argument("--repo", default=str(here.parent), help="tree to read formal/ and nano/ from")
     parser.add_argument("--workdir", default=str(here / "memcheck-cover-probe"))

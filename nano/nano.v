@@ -94,7 +94,12 @@ module riscv #(
   localparam logic [31:0] CAUSE_MACHINE_EXTERNAL    = 32'h8000_000B;
 
   logic [63:0] mcycle, minstret;
-  logic [31:0] mscratch, mtvec, mepc, mcause, mtval;
+  // WARL: mtvec.MODE, mepc[0], mcause's unimplemented codes and mtval are hardwired zero.
+  logic [31:0] mscratch;
+  logic [29:0] mtvec_base;
+  logic [30:0] mepc_msbs;
+  logic [3:0]  mcause_code;
+  logic        mcause_interrupt;
   logic        mstatus_mie, mstatus_mpie, mie_meie;
   logic        irq_meip_sync1, irq_meip_sync2;
 
@@ -110,7 +115,8 @@ module riscv #(
   logic        load_misaligned, store_misaligned, ls_in_range, load_region_fault,
                store_region_fault;
   logic        take_trap;
-  logic [31:0] trap_cause_value, trap_tval_value;
+  logic [31:0] trap_cause_value;
+  // mem_addr doubles as the next pc: an instruction ends with its successor's address in it.
   logic [31:0] pc;
   logic [4:0] rd, rs1, rs2;
   logic [31:0] load_store_address;
@@ -118,23 +124,14 @@ module riscv #(
   logic addr16;
   logic addr8;
   logic [3:0] store_wstrb;
-  logic [31:0] next_pc;
   logic [31:0] pc_inc;
-  logic [31:0] reg_wdata;
-  logic [31:0] pc_wdata;
   logic [3:0] cpu_state;
-  logic skip_reg_write;
 
-`ifdef NANO_ONE_PORT_RF
-  // One held register per operand; `rf_raddr` is the one address that reads `regs[]`.
-  logic [31:0] op_rs1, op_rs2;
+  // `rf_raddr` reads `regs[]`: rs1 once into `op_rs1`, then rs2 live while the instruction is held.
+  logic [31:0] op_rs1, rf_rdata;
   logic [3:0] rf_raddr;
 `define RF_RS1 op_rs1
-`define RF_RS2 op_rs2
-`else
-`define RF_RS1 regs[rs1[3:0]]
-`define RF_RS2 regs[rs2[3:0]]
-`endif
+`define RF_RS2 rf_rdata
 
   assign opcode = instr[6:2];
   assign quadrant = instr[1:0];
@@ -147,7 +144,6 @@ module riscv #(
   assign cfunct6 = instr[15:10];
   assign funct7 = instr[31:25];
 
-  // immediate decoder (figure 2.4 & table 16.1)
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
   assign s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
   assign b_immediate = {{20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0};
@@ -191,7 +187,6 @@ module riscv #(
     endcase
   end
 
-  // Table 24.2 RV32I and Table 16.5-7
   assign is_lui_op = opcode == 5'b01101 && uncompressed;
   assign is_lui = is_lui_op || is_clui;
   assign is_clui = quadrant == 2'b01 && cfunct3 == 3'b011 && clui_immediate != 0 &&
@@ -249,7 +244,6 @@ module riscv #(
   assign is_caddi16sp = quadrant == 2'b01 && cfunct3 == 3'b011 && instr[11:7] == 2 &&
     caddi16sp_immediate != 0;
   assign is_caddi4spn = quadrant == 2'b00 && cfunct3 == 3'b000 && caddi4spn_immediate != 0;
-  // c.li is addi in disguise
   assign is_cli = quadrant == 2'b01 && cfunct3 == 3'b010;
   assign is_slti = is_math_immediate_op && funct3 == 3'b010;
   assign is_sltiu = is_math_immediate_op && funct3 == 3'b011;
@@ -372,28 +366,20 @@ module riscv #(
   always_comb begin
     if (!is_valid) begin
       trap_cause_value = CAUSE_ILLEGAL_INSTRUCTION;
-      trap_tval_value  = instr;
     end else if (is_ebreak) begin
       trap_cause_value = CAUSE_BREAKPOINT;
-      trap_tval_value  = 32'b0;
     end else if (is_ecall) begin
       trap_cause_value = CAUSE_ECALL_M;
-      trap_tval_value  = 32'b0;
     end else if (load_misaligned) begin
       trap_cause_value = CAUSE_LOAD_MISALIGNED;
-      trap_tval_value  = load_store_address;
     end else if (store_misaligned) begin
       trap_cause_value = CAUSE_STORE_MISALIGNED;
-      trap_tval_value  = load_store_address;
     end else if (load_region_fault) begin
       trap_cause_value = CAUSE_LOAD_ACCESS_FAULT;
-      trap_tval_value  = load_store_address;
     end else if (store_region_fault) begin
       trap_cause_value = CAUSE_STORE_ACCESS_FAULT;
-      trap_tval_value  = load_store_address;
     end else begin
       trap_cause_value = 32'b0;
-      trap_tval_value  = 32'b0;
     end
   end
 
@@ -412,11 +398,15 @@ module riscv #(
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
   assign mie_value = {20'b0, mie_meie, 11'b0};
   assign mip_value = {20'b0, irq_meip_sync2, 11'b0};
+
+  logic [31:0] mtvec_value, mepc_value, mcause_value;
+  assign mtvec_value  = {mtvec_base, 2'b00};
+  assign mepc_value   = {mepc_msbs, 1'b0};
+  assign mcause_value = {mcause_interrupt, 27'b0, mcause_code};
   assign interrupt_pending = irq_meip_sync2 && mie_meie && mstatus_mie;
 
   // Sliced here, not inside the case below: a constant part-select of a wider signal
-  // inside an always_comb/always_ff is an iverilog "sorry" (over-sensitive, not an
-  // error), avoided by slicing in a continuous assign instead.
+  // inside an always_comb/always_ff is an iverilog "sorry", avoided by slicing here.
   logic [31:0] mcycle_lo, mcycle_hi, minstret_lo, minstret_hi;
   assign mcycle_lo   = mcycle[31:0];
   assign mcycle_hi   = mcycle[63:32];
@@ -431,11 +421,11 @@ module riscv #(
       CSR_MSTATUSH:  csr_rdata = 32'b0;
       CSR_MISA:      csr_rdata = MISA_VALUE;
       CSR_MIE:       csr_rdata = mie_value;
-      CSR_MTVEC:     csr_rdata = mtvec;
+      CSR_MTVEC:     csr_rdata = mtvec_value;
       CSR_MSCRATCH:  csr_rdata = mscratch;
-      CSR_MEPC:      csr_rdata = mepc;
-      CSR_MCAUSE:    csr_rdata = mcause;
-      CSR_MTVAL:     csr_rdata = mtval;
+      CSR_MEPC:      csr_rdata = mepc_value;
+      CSR_MCAUSE:    csr_rdata = mcause_value;
+      CSR_MTVAL:     csr_rdata = 32'b0;
       CSR_MIP:       csr_rdata = mip_value;
       CSR_MCYCLE:    csr_rdata = mcycle_lo;
       CSR_MCYCLEH:   csr_rdata = mcycle_hi;
@@ -453,30 +443,48 @@ module riscv #(
   localparam cpu_trap = 4'b0000;
   localparam fetch_instr = 4'b0001;
   localparam ready_instr = 4'b0010;
-  localparam decode_instr = 4'b0011;
   localparam execute_instr = 4'b0100;
   localparam finish_load = 4'b0101;
   localparam finish_store = 4'b0110;
-  localparam check_pc = 4'b0111;
-  localparam reg_write = 4'b1000;
-`ifdef NANO_ONE_PORT_RF
   localparam fetch_rs1 = 4'b1100;
-  localparam fetch_rs2 = 4'b1101;
 
-  assign rf_raddr = cpu_state == fetch_rs2 ? rs2[3:0] : rs1[3:0];
-`endif
+  assign rd = (is_branch || is_store || is_cj || is_cjr) ? 5'b0 :
+              (is_cjal || is_cjalr) ? 5'd1 :
+              (is_clw || is_caddi4spn) ? {2'b01, instr[4:2]} :
+              (is_csrai || is_csrli || is_candi || is_cand ||
+               is_cor || is_cxor || is_csub) ? {2'b01, instr[9:7]} :
+              instr[11:7];
 
-  // Nano completes one instruction fully before returning here to redirect.
+  assign rs1 = (is_clwsp || is_cswsp || is_caddi4spn) ? 5'd2 :
+               (is_clw || is_csw || is_cbeqz || is_cbnez ||
+                is_csrai || is_csrli || is_candi || is_cand ||
+                is_cor || is_cxor || is_csub) ? {2'b01, instr[9:7]} :
+               (is_cjr || is_cjalr || is_cslli) ? instr[11:7] :
+               (is_cli || is_cmv) ? 5'b0 :
+               (is_caddi || is_caddi16sp || is_cadd) ? instr[11:7] :
+               instr[19:15];
+
+  assign rs2 = (is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd) ?
+                 instr[6:2] :
+               (is_csw || is_cand || is_cor || is_cxor || is_csub) ? {2'b01, instr[4:2]} :
+               (is_cbeqz || is_cbnez) ? 5'b0 :
+               instr[24:20];
+
+  assign rf_raddr = cpu_state == fetch_rs1 ? rs1[3:0] : rs2[3:0];
+  assign rf_rdata = |rf_raddr ? regs[rf_raddr] : 32'b0;
+
   assign take_interrupt = interrupt_pending && cpu_state == fetch_instr;
+
+  assign mem_wdata = is_sh ? {2{`RF_RS2[15:0]}} :
+                      is_sb ? {4{`RF_RS2[7:0]}} :
+                              `RF_RS2;
+  assign mem_wstrb = cpu_state == finish_store ? store_wstrb : 4'b0000;
 
   always_ff @(posedge clk) begin
     if (reset) begin
       pc <= 0;
       instr <= 0;
-      next_pc <= 0;
       mem_addr <= 0;
-      mem_wdata <= 0;
-      mem_wstrb <= 0;
       trap <= 0;
       cpu_state <= fetch_instr;
       mem_valid <= 0;
@@ -484,20 +492,14 @@ module riscv #(
       (* parallel_case, full_case *)
       case (cpu_state)
         fetch_instr: begin
-          skip_reg_write <= 0;
-`ifndef NANO_LATCH_RF
-          regs[0] <= 0;
-`endif
           if (take_interrupt) begin
-            // Nothing issues this cycle: next_pc becomes mtvec, and mstatus_mie
+            // Nothing issues this cycle: the address becomes mtvec, and mstatus_mie
             // reads already cleared next cycle, so the fetch below runs then.
-            next_pc <= mtvec;
+            mem_addr <= mtvec_value;
           end else begin
-            mem_wstrb <= 4'b0000;
             mem_instr <= 1;
             mem_valid <= 1;
             cpu_state <= ready_instr;
-            mem_addr <= next_pc;
           end
         end
 
@@ -506,150 +508,46 @@ module riscv #(
             mem_valid <= 0;
             pc <= mem_addr;
             instr <= mem_rdata[1:0] == 2'b11 ? mem_rdata : {16'b0, mem_rdata[15:0]};
-            cpu_state <= decode_instr;
+            cpu_state <= fetch_rs1;
           end
         end
 
-        decode_instr: begin
-          (* parallel_case, full_case *)
-          case (1'b1)
-            is_branch || is_store || is_cj || is_cjr: rd <= 0;
-            is_cjal || is_cjalr: rd <= 1;
-            is_clw || is_caddi4spn: rd <= {2'b01, instr[4:2]};
-            is_csrai || is_csrli || is_candi || is_cand ||
-              is_cor || is_cxor || is_csub: rd <= {2'b01, instr[9:7]};
-            default: rd <= instr[11:7];
-          endcase
-
-          (* parallel_case, full_case *)
-          case (1'b1)
-            is_clwsp || is_cswsp || is_caddi4spn: rs1 <= 2;
-            is_clw || is_csw || is_cbeqz || is_cbnez ||
-              is_csrai || is_csrli || is_candi || is_cand ||
-              is_cor || is_cxor || is_csub: rs1 <= {2'b01, instr[9:7]};
-            is_cjr || is_cjalr || is_cslli: rs1 <= instr[11:7];
-            is_cli || is_cmv: rs1 <= 0;
-            is_caddi || is_caddi16sp || is_cadd: rs1 <= instr[11:7];
-            default: rs1 <= instr[19:15];
-          endcase
-
-          (* parallel_case, full_case *)
-          case(1'b1)
-            is_cswsp || is_cslli || is_csrai || is_csrli || is_cmv || is_cadd: rs2 <= instr[6:2];
-            is_csw || is_cand || is_cor || is_cxor || is_csub: rs2 <= {2'b01, instr[4:2]};
-            is_cbeqz || is_cbnez: rs2 <= 0;
-            default: rs2 <= instr[24:20];
-          endcase
-`ifdef NANO_ONE_PORT_RF
-          cpu_state <= fetch_rs1;
-`else
-          cpu_state <= execute_instr;
-`endif
-        end
-
-`ifdef NANO_ONE_PORT_RF
         fetch_rs1: begin
-          op_rs1 <= regs[rf_raddr];
-          cpu_state <= rs2_valid ? fetch_rs2 : execute_instr;
-        end
-
-        fetch_rs2: begin
-          op_rs2 <= regs[rf_raddr];
+          op_rs1 <= rf_rdata;
           cpu_state <= execute_instr;
         end
-`endif
 
         execute_instr: begin
           if (take_trap) begin
-            skip_reg_write <= 1;
-            next_pc <= mtvec;
+            mem_addr <= mtvec_value;
             cpu_state <= fetch_instr;
           end else begin
             (* parallel_case, full_case *)
             case (1'b1)
-              is_lui: begin
-                reg_wdata <= immediate;
-                cpu_state <= reg_write;
-                next_pc <= pc + pc_inc;
-              end
-
-              is_auipc: begin
-                reg_wdata <= immediate + pc;
-                cpu_state <= reg_write;
-                next_pc <= pc + 4;
-              end
-
               is_jal || is_jalr: begin
-                pc_wdata <= jump_address;
-                reg_wdata <= pc + pc_inc;
-                skip_reg_write <= 0;
-                cpu_state <= check_pc;
+                mem_addr <= jump_address;
+                cpu_state <= fetch_instr;
               end
 
               is_branch: begin
                 (* parallel_case, full_case *)
                 case(1'b1)
-                  is_beq: pc_wdata <= `RF_RS1 == `RF_RS2 ? pc + immediate : pc + pc_inc;
-                  is_bne: pc_wdata <= `RF_RS1 != `RF_RS2 ? pc + immediate : pc + pc_inc;
-                  is_blt: pc_wdata <= $signed(`RF_RS1) < $signed(`RF_RS2) ? pc + immediate : pc + 4;
-                  is_bltu: pc_wdata <= `RF_RS1 < `RF_RS2 ? pc + immediate : pc + 4;
-                  is_bge: pc_wdata <= $signed(`RF_RS1) >= $signed(`RF_RS2) ? pc + immediate : pc + 4;
-                  is_bgeu: pc_wdata <= `RF_RS1 >= `RF_RS2 ? pc + immediate : pc + 4;
+                  is_beq: mem_addr <= `RF_RS1 == `RF_RS2 ? pc + immediate : pc + pc_inc;
+                  is_bne: mem_addr <= `RF_RS1 != `RF_RS2 ? pc + immediate : pc + pc_inc;
+                  is_blt: mem_addr <= $signed(`RF_RS1) < $signed(`RF_RS2) ? pc + immediate : pc + 4;
+                  is_bltu: mem_addr <= `RF_RS1 < `RF_RS2 ? pc + immediate : pc + 4;
+                  is_bge: mem_addr <= $signed(`RF_RS1) >= $signed(`RF_RS2) ? pc + immediate : pc + 4;
+                  is_bgeu: mem_addr <= `RF_RS1 >= `RF_RS2 ? pc + immediate : pc + 4;
                 endcase
-                skip_reg_write <= 1;
-                cpu_state <= check_pc;
+                cpu_state <= fetch_instr;
               end
 
-              is_math || is_math_immediate: begin
-                cpu_state <= reg_write;
-                next_pc <= pc + pc_inc;
-                (* parallel_case, full_case *)
-                case(1'b1)
-                  is_add || is_addi: begin
-                    reg_wdata <= `RF_RS1 + math_arg;
-                  end
-
-                  is_sub: begin
-                    reg_wdata <= `RF_RS1 - math_arg;
-                  end
-
-                  is_sll || is_slli: begin
-                    reg_wdata <= `RF_RS1 << shamt;
-                  end
-
-                  is_slt || is_slti: begin
-                    reg_wdata <= {31'b0, $signed(`RF_RS1) < $signed(math_arg)};
-                  end
-
-                  is_sltu || is_sltiu: begin
-                    reg_wdata <= {31'b0, `RF_RS1 < math_arg};
-                  end
-
-                  is_xor || is_xori: begin
-                    reg_wdata <= `RF_RS1 ^ math_arg;
-                  end
-
-                  is_srl || is_srli: begin
-                    reg_wdata <= `RF_RS1 >> shamt;
-                  end
-
-                  is_sra || is_srai: begin
-                    reg_wdata <= $signed(`RF_RS1) >>> shamt;
-                  end
-
-                  is_or || is_ori: begin
-                    reg_wdata <= `RF_RS1 | math_arg;
-                  end
-
-                  is_and || is_andi: begin
-                    reg_wdata <= `RF_RS1 & math_arg;
-                  end
-                endcase
+              is_lui || is_auipc || is_math || is_math_immediate || is_csr: begin
+                cpu_state <= fetch_instr;
+                mem_addr <= pc + pc_inc;
               end
 
               is_load_op || is_clwsp || is_clw: begin
-                // Misaligned and out-of-window accesses are excluded by take_trap above.
-                mem_wstrb <= 4'b0000;
                 mem_addr <= {load_store_address[31:2], 2'b00};
                 mem_instr <= 0; // can we have data
                 mem_valid <= 1; // kick off a memory request
@@ -657,28 +555,14 @@ module riscv #(
               end
 
               is_store_op || is_cswsp || is_csw: begin
-                (* parallel_case, full_case *)
-                case (1'b1)
-                  is_sw:  mem_wdata <= `RF_RS2;
-                  is_sh:  mem_wdata <= {2{`RF_RS2[15:0]}};
-                  is_sb:  mem_wdata <= {4{`RF_RS2[7:0]}};
-                endcase
-                mem_wstrb <= store_wstrb;
                 mem_addr <= {load_store_address[31:2], 2'b00};
                 mem_instr <= 0;
                 mem_valid <= 1; // kick off a memory request
                 cpu_state <= finish_store;
               end
 
-              is_csr: begin
-                reg_wdata <= csr_rdata;
-                cpu_state <= reg_write;
-                next_pc   <= pc + pc_inc;
-              end
-
               is_mret: begin
-                skip_reg_write <= 1;
-                next_pc <= mepc;
+                mem_addr <= mepc_value;
                 cpu_state <= fetch_instr;
               end
 
@@ -689,63 +573,11 @@ module riscv #(
           end
         end
 
-        check_pc: begin
-          if (pc_wdata[0]) begin
-            cpu_state <= cpu_trap;
-          end else begin
-            next_pc <= pc_wdata;
-            cpu_state <= skip_reg_write ? fetch_instr : reg_write;
-          end
-        end
-
-        reg_write: begin
-`ifndef NANO_LATCH_RF
-          regs[rd[3:0]] <= reg_wdata;
-`endif
-          cpu_state <= fetch_instr;
-        end
-
         finish_load: begin
           if (mem_ready) begin
-            (* parallel_case, full_case *)
-            case (1'b1)
-              is_lb: begin
-                case (addr24)
-                  2'b00: reg_wdata <= {{24{mem_rdata[7]}}, mem_rdata[7:0]};
-                  2'b01: reg_wdata <= {{24{mem_rdata[15]}}, mem_rdata[15:8]};
-                  2'b10: reg_wdata <= {{24{mem_rdata[23]}}, mem_rdata[23:16]};
-                  2'b11: reg_wdata <= {{24{mem_rdata[31]}}, mem_rdata[31:24]};
-                endcase
-              end
-
-              is_lbu: begin
-                case (addr24)
-                  2'b00: reg_wdata <= {24'b0, mem_rdata[7:0]};
-                  2'b01: reg_wdata <= {24'b0, mem_rdata[15:8]};
-                  2'b10: reg_wdata <= {24'b0, mem_rdata[23:16]};
-                  2'b11: reg_wdata <= {24'b0, mem_rdata[31:24]};
-                endcase
-              end
-
-              is_lh: begin
-                case (addr16)
-                  1'b0: reg_wdata <= {{16{mem_rdata[15]}}, mem_rdata[15:0]};
-                  1'b1: reg_wdata <= {{16{mem_rdata[31]}}, mem_rdata[31:16]};
-                endcase
-              end
-
-              is_lhu: begin
-                case (addr16)
-                  1'b0: reg_wdata <= {16'b0, mem_rdata[15:0]};
-                  1'b1: reg_wdata <= {16'b0, mem_rdata[31:16]};
-                endcase
-              end
-
-              is_lw: reg_wdata <= mem_rdata;
-            endcase
-            cpu_state <= reg_write;
+            cpu_state <= fetch_instr;
             mem_valid <= 0;
-            next_pc <= pc + pc_inc;
+            mem_addr <= pc + pc_inc;
           end
         end
 
@@ -753,7 +585,7 @@ module riscv #(
           if (mem_ready) begin
             cpu_state <= fetch_instr;
             mem_valid <= 0;
-            next_pc <= pc + pc_inc;
+            mem_addr <= pc + pc_inc;
           end
         end
 
@@ -762,6 +594,78 @@ module riscv #(
         end
       endcase
     end
+  end
+
+  // The register file is written on the edge that ends execute_instr, or finish_load for a load.
+  logic [31:0] alu_result, load_data, wb_data;
+  logic        wb_en;
+  always_comb begin
+    (* parallel_case, full_case *)
+    case (1'b1)
+      is_add || is_addi:   alu_result = `RF_RS1 + math_arg;
+      is_sub:              alu_result = `RF_RS1 - math_arg;
+      is_sll || is_slli:   alu_result = `RF_RS1 << shamt;
+      is_slt || is_slti:   alu_result = {31'b0, $signed(`RF_RS1) < $signed(math_arg)};
+      is_sltu || is_sltiu: alu_result = {31'b0, `RF_RS1 < math_arg};
+      is_xor || is_xori:   alu_result = `RF_RS1 ^ math_arg;
+      is_srl || is_srli:   alu_result = `RF_RS1 >> shamt;
+      is_sra || is_srai:   alu_result = $signed(`RF_RS1) >>> shamt;
+      is_or || is_ori:     alu_result = `RF_RS1 | math_arg;
+      default:             alu_result = `RF_RS1 & math_arg; // is_and || is_andi
+    endcase
+  end
+
+  assign wb_data = is_lui ? immediate :
+                   is_auipc ? immediate + pc :
+                   (is_jal || is_jalr) ? pc + pc_inc :
+                   is_csr ? csr_rdata :
+                            alu_result;
+
+  always_comb begin
+    (* parallel_case, full_case *)
+    case (1'b1)
+      is_lb: begin
+        case (addr24)
+          2'b00: load_data = {{24{mem_rdata[7]}}, mem_rdata[7:0]};
+          2'b01: load_data = {{24{mem_rdata[15]}}, mem_rdata[15:8]};
+          2'b10: load_data = {{24{mem_rdata[23]}}, mem_rdata[23:16]};
+          2'b11: load_data = {{24{mem_rdata[31]}}, mem_rdata[31:24]};
+        endcase
+      end
+
+      is_lbu: begin
+        case (addr24)
+          2'b00: load_data = {24'b0, mem_rdata[7:0]};
+          2'b01: load_data = {24'b0, mem_rdata[15:8]};
+          2'b10: load_data = {24'b0, mem_rdata[23:16]};
+          2'b11: load_data = {24'b0, mem_rdata[31:24]};
+        endcase
+      end
+
+      is_lh: begin
+        case (addr16)
+          1'b0: load_data = {{16{mem_rdata[15]}}, mem_rdata[15:0]};
+          1'b1: load_data = {{16{mem_rdata[31]}}, mem_rdata[31:16]};
+        endcase
+      end
+
+      is_lhu: begin
+        case (addr16)
+          1'b0: load_data = {16'b0, mem_rdata[15:0]};
+          1'b1: load_data = {16'b0, mem_rdata[31:16]};
+        endcase
+      end
+
+      default: load_data = mem_rdata; // is_lw
+    endcase
+  end
+
+  assign wb_en = |rd[3:0] && (cpu_state == finish_load ? mem_ready :
+    cpu_state == execute_instr && !take_trap &&
+    (is_lui || is_auipc || is_jal || is_jalr || is_math || is_math_immediate || is_csr));
+
+  always_ff @(posedge clk) begin
+    if (wb_en) regs[rd[3:0]] <= cpu_state == finish_load ? load_data : wb_data;
   end
 
   // !take_trap excludes an E-illegal CSR instruction, which is_valid alone does not.
@@ -774,18 +678,18 @@ module riscv #(
 
   always_ff @(posedge clk) begin
     if (reset) begin
-      mcycle         <= 64'b0;
-      minstret       <= 64'b0;
-      mscratch       <= 32'b0;
-      mtvec          <= 32'b0;
-      mepc           <= 32'b0;
-      mcause         <= 32'b0;
-      mtval          <= 32'b0;
-      mstatus_mie    <= 1'b0;
-      mstatus_mpie   <= 1'b0;
-      mie_meie       <= 1'b0;
-      irq_meip_sync1 <= 1'b0;
-      irq_meip_sync2 <= 1'b0;
+      mcycle           <= 64'b0;
+      minstret         <= 64'b0;
+      mscratch         <= 32'b0;
+      mtvec_base       <= 30'b0;
+      mepc_msbs        <= 31'b0;
+      mcause_code      <= 4'b0;
+      mcause_interrupt <= 1'b0;
+      mstatus_mie      <= 1'b0;
+      mstatus_mpie     <= 1'b0;
+      mie_meie         <= 1'b0;
+      irq_meip_sync1   <= 1'b0;
+      irq_meip_sync2   <= 1'b0;
     end else begin
       irq_meip_sync1 <= irq_meip;
       irq_meip_sync2 <= irq_meip_sync1;
@@ -805,25 +709,28 @@ module riscv #(
             mstatus_mpie <= csr_new_value[7];
           end
           CSR_MIE:      mie_meie <= csr_new_value[11];
-          CSR_MTVEC:    mtvec    <= {csr_new_value[31:2], 2'b00};
-          CSR_MSCRATCH: mscratch <= csr_new_value;
-          CSR_MEPC:     mepc     <= {csr_new_value[31:1], 1'b0};
-          CSR_MCAUSE:   mcause   <= csr_new_value;
-          CSR_MTVAL:    mtval    <= csr_new_value;
+          CSR_MTVEC:    mtvec_base <= csr_new_value[31:2];
+          CSR_MSCRATCH: mscratch   <= csr_new_value;
+          CSR_MEPC:     mepc_msbs  <= csr_new_value[31:1];
+          CSR_MCAUSE: begin
+            mcause_interrupt <= csr_new_value[31];
+            mcause_code      <= csr_new_value[3:0];
+          end
+          // CSR_MTVAL falls to default: read-only zero, so a write is legal but discarded.
           default: ;
         endcase
       end else if (take_interrupt) begin
-        mepc         <= next_pc;
-        mcause       <= CAUSE_MACHINE_EXTERNAL;
-        mtval        <= 32'b0;
-        mstatus_mpie <= mstatus_mie;
-        mstatus_mie  <= 1'b0;
+        mepc_msbs        <= mem_addr[31:1];
+        mcause_interrupt <= 1'b1;
+        mcause_code      <= CAUSE_MACHINE_EXTERNAL[3:0];
+        mstatus_mpie     <= mstatus_mie;
+        mstatus_mie      <= 1'b0;
       end else if (cpu_state == execute_instr && take_trap) begin
-        mepc         <= pc;
-        mcause       <= trap_cause_value;
-        mtval        <= trap_tval_value;
-        mstatus_mpie <= mstatus_mie;
-        mstatus_mie  <= 1'b0;
+        mepc_msbs        <= pc[31:1];
+        mcause_interrupt <= 1'b0;
+        mcause_code      <= trap_cause_value[3:0];
+        mstatus_mpie     <= mstatus_mie;
+        mstatus_mie      <= 1'b0;
       end else if (cpu_state == execute_instr && is_mret) begin
         mstatus_mie  <= mstatus_mpie;
         mstatus_mpie <= 1'b1;
@@ -831,47 +738,14 @@ module riscv #(
     end
   end
 
-`ifdef NANO_LATCH_RF
-  // Latches open only while clk is LOW, on a select/data pair captured a period earlier.
-  logic [15:0] we, we_q;
-  logic [31:0] wdata_q;
-
-  assign we[0] = cpu_state == fetch_instr;
-  genvar gw;
-  generate
-    for (gw = 1; gw < 16; gw = gw + 1) begin : g_we
-      assign we[gw] = cpu_state == reg_write && rd[3:0] == gw[3:0];
-    end
-  endgenerate
-
-  always_ff @(posedge clk) begin
-    we_q <= we;
-    wdata_q <= reg_wdata;
-  end
-
-  genvar gi;
-  generate
-    for (gi = 0; gi < 16; gi = gi + 1) begin : g_regs_latch
-      logic sel_q;
-      assign sel_q = we_q[gi];
-      if (gi == 0) begin : g_zero
-        always_latch if (!clk && sel_q) regs[0] = 32'b0;
-      end else begin : g_write
-        always_latch if (!clk && sel_q) regs[gi] = wdata_q;
-      end
-    end
-  endgenerate
-`endif
-
  `ifdef RISCV_FORMAL
-  assign rvfi_dbg_mtvec   = mtvec;
-  assign rvfi_dbg_mepc    = mepc;
-  assign rvfi_dbg_mcause  = mcause;
-  assign rvfi_dbg_mtval   = mtval;
+  assign rvfi_dbg_mtvec   = mtvec_value;
+  assign rvfi_dbg_mepc    = mepc_value;
+  assign rvfi_dbg_mcause  = mcause_value;
+  assign rvfi_dbg_mtval   = 32'b0;
   assign rvfi_dbg_mstatus = mstatus_value;
 
-  // prev_cpu_state tells a genuine arrival in fetch_instr apart from a cycle merely
-  // spent dwelling here doing interrupt-entry bookkeeping.
+  // prev_cpu_state tells a genuine arrival in fetch_instr apart from a dwell cycle.
   logic [3:0] prev_cpu_state;
   always_ff @(posedge clk)
     prev_cpu_state <= reset ? fetch_instr : cpu_state;
@@ -896,8 +770,7 @@ module riscv #(
     end
   end
 
-  // Set the cycle an interrupt redirects next_pc, cleared at the handler's first
-  // retirement -- the two can be cycles apart if a load/store was in flight.
+  // Set when an interrupt redirects the pc, cleared at the handler's first retirement.
   logic pending_rvfi_intr;
   always_ff @(posedge clk) begin
     if (reset) pending_rvfi_intr <= 1'b0;
@@ -960,8 +833,7 @@ module riscv #(
 `endif
 
   always_ff @(posedge clk) begin
-    // is_fetch_entry, not is_fetch: fires once per retirement, not once per cycle
-    // dwelled in fetch_instr doing interrupt-entry bookkeeping.
+    // is_fetch_entry, not is_fetch: once per retirement, not once per dwelled cycle.
     rvfi_valid_q <= !reset && (is_fetch_entry || trap);
 
     if (cpu_state == execute_instr) begin
@@ -975,14 +847,8 @@ module riscv #(
 
     // RVFI requires a trapping retirement to report no destination register.
     rvfi_rd_addr_q <= (is_fetch_entry && captured_take_trap) ? 5'b0 : rd;
-`ifdef NANO_LATCH_RF
-    // A retiring write's latch has not opened yet; reg_wdata already holds the value.
     rvfi_rd_wdata_q <=
-      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd ? reg_wdata : 0);
-`else
-    rvfi_rd_wdata_q <=
-      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd ? regs[rd[3:0]] : 0);
-`endif
+      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd[3:0] ? regs[rd[3:0]] : 0);
     rvfi_trap_q <= (is_fetch_entry && captured_take_trap) || trap;
     rvfi_halt_q <= trap;
 `ifdef RISCV_FORMAL_MEM_FAULT
@@ -992,7 +858,7 @@ module riscv #(
     rvfi_mem_fault_wmask_q <= fault_store ? captured_store_wstrb : 4'b0;
 `endif
     rvfi_pc_rdata_q <= pc;
-    rvfi_pc_wdata_q <= next_pc;
+    rvfi_pc_wdata_q <= mem_addr;
     rvfi_mode_q <= 3;
     rvfi_ixl_q <= 1;
     rvfi_intr_q <= is_fetch_entry && pending_rvfi_intr;
@@ -1042,4 +908,42 @@ module riscv #(
 `endif
   end
  `endif
+
+`ifdef FORMAL
+  logic clocked, clocked_q;
+  initial clocked = 1'b0;
+  initial clocked_q = 1'b0;
+  always_ff @(posedge clk) clocked <= 1'b1;
+  always_ff @(posedge clk) clocked_q <= clocked;
+  initial assume(reset);
+  always_comb if (!clocked) assume(reset);
+  always_comb if (clocked) assume(!reset);
+
+  // nano/qspi.v's own formal harness assumes this bus contract; proved here instead.
+  logic        mem_valid_q, mem_ready_q, mem_instr_q;
+  logic [31:0] mem_addr_q, mem_wdata_q;
+  logic [3:0]  mem_wstrb_q;
+  always_ff @(posedge clk) begin
+    mem_valid_q <= mem_valid;
+    mem_ready_q <= mem_ready;
+    mem_instr_q <= mem_instr;
+    mem_addr_q  <= mem_addr;
+    mem_wdata_q <= mem_wdata;
+    mem_wstrb_q <= mem_wstrb;
+  end
+  always_comb if (clocked_q && mem_valid_q && !mem_ready_q) begin
+    assert(mem_valid == 1'b1);
+    assert(mem_instr == mem_instr_q);
+    assert(mem_addr  == mem_addr_q);
+    assert(mem_wdata == mem_wdata_q);
+    assert(mem_wstrb == mem_wstrb_q);
+  end
+
+  // C makes every jump target 2-byte aligned, so none is checked: jalr clears bit 0, offsets
+  // are even, and pc and mem_addr only ever load those or a word-aligned address.
+  always_comb if (clocked_q) begin
+    assert(!pc[0]);
+    assert(!mem_addr[0]);
+  end
+`endif
 endmodule

@@ -17,10 +17,19 @@ override NANO_LIBERTY_URL := https://raw.githubusercontent.com/The-OpenROAD-Proj
 NANO_LIBERTY_DIR := $(TOOL_CACHE)/sky130
 NANO_LIBERTY     := $(NANO_LIBERTY_DIR)/sky130_fd_sc_hd__tt_025C_1v80.lib
 
-# `dfflibmap` maps flip-flops only; a latch left generic is priced at zero by `stat -liberty` without this techmap stub.
-override NANO_LATCHMAP_SHA256 := 5f28f158599cd6548fdf302fa3dbe2e306cf0aba431884f1c9b6305589cd560f
-override NANO_LATCHMAP_URL := https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/$(NANO_LIBERTY_COMMIT)/flow/platforms/sky130hd/cells_latch_hd.v
-NANO_LATCHMAP := $(NANO_LIBERTY_DIR)/cells_latch_hd.v
+# The cells the Tiny Tapeout flow's LibreLane excludes from synthesis: open_pdks' two lists at the PDK commit that flow resolves.
+ifneq ($(filter command line environment,$(origin NANO_PDK_COMMIT)),)
+$(error NANO_PDK_COMMIT cannot be set from the command line or the environment: change it \
+  in nano/nano.mk, together with the two SHA-256 digests below it)
+endif
+override NANO_PDK_COMMIT := 8afc8346a57fe1ab7934ba5a6056ea8b43078e71
+override NANO_NO_SYNTH_SHA256 := 8bd5ee6d949870fd389d177d4b987eeb4d22b55614eea3de8a8f6705fd8982be
+override NANO_DRC_EXCLUDE_SHA256 := 8785391a0540d4b96b52b242dc57bf337860e607eed09a25664673f710a9afb7
+override NANO_PDK_CELLS_URL := https://raw.githubusercontent.com/RTimothyEdwards/open_pdks/$(NANO_PDK_COMMIT)/sky130/openlane/sky130_fd_sc_hd
+
+NANO_NO_SYNTH       := $(NANO_LIBERTY_DIR)/no_synth.cells
+NANO_DRC_EXCLUDE    := $(NANO_LIBERTY_DIR)/drc_exclude.cells
+NANO_EXCLUDED_CELLS := $(NANO_LIBERTY_DIR)/nano_excluded.cells
 
 .PHONY: nano-liberty-setup
 nano-liberty-setup:
@@ -52,13 +61,18 @@ nano-liberty-setup:
 	}; \
 	rc=0; \
 	fetch '$(NANO_LIBERTY_URL)' '$(NANO_LIBERTY)' '$(NANO_LIBERTY_SHA256)' || rc=1; \
-	fetch '$(NANO_LATCHMAP_URL)' '$(NANO_LATCHMAP)' '$(NANO_LATCHMAP_SHA256)' || rc=1; \
+	fetch '$(NANO_PDK_CELLS_URL)/no_synth.cells' '$(NANO_NO_SYNTH)' '$(NANO_NO_SYNTH_SHA256)' || rc=1; \
+	fetch '$(NANO_PDK_CELLS_URL)/drc_exclude.cells' '$(NANO_DRC_EXCLUDE)' '$(NANO_DRC_EXCLUDE_SHA256)' || rc=1; \
+	if [ $$rc -eq 0 ]; then \
+	  cat '$(NANO_NO_SYNTH)' '$(NANO_DRC_EXCLUDE)' | sort -u > '$(NANO_EXCLUDED_CELLS)'; \
+	fi; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Stepped for the M-mode CSR/trap layer: mcycle/minstret at 64 bits, mtvec/mepc/mcause/mtval/mscratch, mstatus/mie/mip, the region/misalignment fault logic and the RVFI fault-channel reporting it needed, measure 76,982.6 um2 against the QSPI-front-end baseline's 60,859.6.
-override NANO_MAX_UM2 := 79000
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Re-derived when the instrument stopped running clockgate and started excluding the cells the flow excludes: 78,965.7 um2, a ranking between RTL versions and never a fit, which only a flow run with gate-level simulation says. Stepped down for Tier 3's four removed states and merged address registers: 73,137.6 um2 against the prior 78,965.7, both on this instrument, keeping the prior step's 2,034.3 um2 of headroom.
+override NANO_MAX_UM2 := 75200
 
-NANO_SRCS := nano/nano.v nano/qspi.v nano/area_top.v
+NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
+             nano/tt/src/tt_um_thejefflarson_nanocpu.v
 
 .PHONY: nano-area
 nano-area:
@@ -66,28 +80,44 @@ nano-area:
 	if [ $$rc -eq 2 ]; then exit 0; fi; \
 	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
 	$(MAKE) --no-print-directory nano-liberty-setup; \
-	yosys -p "$$(nano/synth_script.sh '$(NANO_LIBERTY)' $(NANO_SRCS))" \
+	yosys -p "$$(nano/synth_script.sh '$(NANO_LIBERTY)' '$(NANO_EXCLUDED_CELLS)' $(NANO_SRCS))" \
 	  > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }; \
 	python3 nano/area_report.py nano/area.json --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --max-um2 '$(NANO_MAX_UM2)'
 
-# Area and delay both come out of one synthesis run per register-file build; no ratchet, since this ranks RTL versions rather than gating either figure.
+# Area and delay both come out of one synthesis run; no ratchet, since this ranks RTL versions against each other rather than gating either figure.
 .PHONY: nano-timing
 nano-timing:
 	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
 	if [ $$rc -eq 2 ]; then exit 0; fi; \
 	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
 	$(MAKE) --no-print-directory nano-liberty-setup; \
-	yosys -p "$$(nano/timing_script.sh '$(NANO_LIBERTY)' '$(NANO_LATCHMAP)' nano/timing.flops.json '' $(NANO_SRCS))" \
-	  > nano/timing.flops.log 2>&1 & pid_flops=$$!; \
-	yosys -p "$$(nano/timing_script.sh '$(NANO_LIBERTY)' '$(NANO_LATCHMAP)' nano/timing.latches.json NANO_LATCH_RF $(NANO_SRCS))" \
-	  > nano/timing.latches.log 2>&1 & pid_latches=$$!; \
-	rc=0; \
-	wait $$pid_flops || { tail -40 nano/timing.flops.log; rc=1; }; \
-	wait $$pid_latches || { tail -40 nano/timing.latches.log; rc=1; }; \
-	[ $$rc -eq 0 ] || exit 1; \
+	yosys -p "$$(nano/timing_script.sh '$(NANO_LIBERTY)' '$(NANO_EXCLUDED_CELLS)' nano/timing.flops.json $(NANO_SRCS))" \
+	  > nano/timing.flops.log 2>&1 || { tail -40 nano/timing.flops.log; exit 1; }; \
 	python3 nano/timing_report.py --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' \
 	  --variant flops:nano/timing.flops.log:nano/timing.flops.json \
-	  --variant latches:nano/timing.latches.log:nano/timing.latches.json \
 	  --flow-correlation nano/timing_flow_correlation.json
+
+# The sky130_fd_sc_hd behavioral Verilog a gate-level simulation reads, pinned like the liberty above.
+ifneq ($(filter command line environment,$(origin NANO_SKY130_VERILOG_COMMIT)),)
+$(error NANO_SKY130_VERILOG_COMMIT cannot be set from the command line or the \
+  environment: it pins bytes this repo executes. Change it in nano/nano.mk, \
+  together with the SHA-256 digest below it)
+endif
+override NANO_SKY130_VERILOG_COMMIT := ac7fb61f06e6470b94e8afdf7c25268f62fbd7b1
+
+ifeq ($(shell printf '%s' '$(NANO_SKY130_VERILOG_COMMIT)' | grep -cE '^[0-9a-f]{40}$$'),0)
+$(error NANO_SKY130_VERILOG_COMMIT must be a full 40-hex commit id, not a branch or tag: \
+  '$(NANO_SKY130_VERILOG_COMMIT)')
+endif
+
+override NANO_SKY130_VERILOG_SHA256 := c613384ff89ea065c0d91e31db223471d7d70e546f6972c3b96f2abb8e7a8faf
+override NANO_SKY130_VERILOG_URL := https://codeload.github.com/google/skywater-pdk-libs-sky130_fd_sc_hd/tar.gz/$(NANO_SKY130_VERILOG_COMMIT)
+
+NANO_SKY130_VERILOG_DIR := $(TOOL_CACHE)/sky130-fd-sc-hd-verilog
+
+.PHONY: nano-sky130-verilog-setup
+nano-sky130-verilog-setup:
+	@./nano/sky130_verilog_setup.sh '$(NANO_SKY130_VERILOG_URL)' '$(NANO_SKY130_VERILOG_SHA256)' \
+	  '$(NANO_SKY130_VERILOG_DIR)'

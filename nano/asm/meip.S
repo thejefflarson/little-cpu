@@ -22,6 +22,9 @@ RVTEST_CODE_BEGIN
   li gp, 2
   li s0, 0
   li a0, 100
+  la a2, __irqctl
+  li a3, 1
+  sw a3, 0(a2)                  // arms irq_meip in the harness at this program point, not a cycle count
 1:
   lw t1, 0(t2)
   bnez t1, 2f

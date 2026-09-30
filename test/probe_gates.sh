@@ -1896,9 +1896,9 @@ ga_nano_fixture() {
 }
 
 d=$(ga_nano_fixture)
-mutate "$d/checks.cfg" 's/^hang     1     14$/hang     1     10/'
+mutate "$d/checks.cfg" 's/^hang     1     13$/hang     1     8/'
 probe "a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff" 1 \
-  "hang: depth 10 is below F+1 = 13" "cd '$d' && $GA ."
+  "hang: depth 8 is below F+1 = 12" "cd '$d' && $GA ."
 
 d=$(ga_nano_fixture)
 probe "control: nano's declared fork redirects every generated insn_* check" 0 \
@@ -2063,7 +2063,7 @@ with open(os.path.join(cfgname, name), "w") as f:
 PY
 
 probe "a generated .sby whose depth drifted from what was swept is refused, not read anyway" 1 \
-  "not the 9 this row swept" \
+  "not the 8 this row swept" \
   "$RFG && python3 ../../formal/remeasure-fg.py . --genchecks '$tmp/fake-genchecks.py'; rc=\$?; rm -rf '$REPO/nano/formal/fg-probe' '$REPO/nano/formal/fg-probe.cfg'; exit \$rc"
 
 probe "a harness directory with no checks.cfg is named, not measured as empty" 1 \
@@ -6730,6 +6730,23 @@ probe "a cover run that left no log is exit 2" 2 "logfile.txt does not exist" "$
 
 probe "wrong argument count is exit 2" 2 "usage:" "$CDT onearg"
 
+begin_group "nano/formal/probe_common.py"
+
+PC="python3 $REPO/nano/formal/traps-region-probe.py"
+
+pc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/formal" "$d/formal/riscv-formal"
+  cp "$REPO/nano/nano.v" "$d/nano/"
+  cp "$REPO/nano/formal/traps.sv" "$d/nano/formal/"
+  printf '%s' "$d"
+}
+
+d=$(pc_fixture)
+probe "a missing traps.sby is caught before any solver runs" 2 \
+  "nano/formal/traps.sby is missing from" \
+  "$PC --repo $d --workdir $d/work --sby /nonexistent"
+
 begin_group "nano/formal/ill-e-probe.py"
 
 IE="python3 $REPO/nano/formal/ill-e-probe.py"
@@ -8123,39 +8140,51 @@ SS_SCRIPT="$REPO/nano/synth_script.sh"
 
 probe "control: a plain liberty and source produce the expected yosys script" 0 \
   'dfflibmap -liberty "/tmp/lib.lib"' \
-  "$SS_SCRIPT /tmp/lib.lib nano/nano.v"
+  "$SS_SCRIPT /tmp/lib.lib /dev/null nano/nano.v"
 
 probe "a semicolon in the liberty path stays inside its own quoted token" 0 \
   '"/tmp/lib;evil.lib"' \
-  "$SS_SCRIPT '/tmp/lib;evil.lib' nano/nano.v"
+  "$SS_SCRIPT '/tmp/lib;evil.lib' /dev/null nano/nano.v"
 
 probe "a space in a source path does not split it into a second yosys argument" 0 \
   '"a b/c.v"' \
-  "$SS_SCRIPT /tmp/lib.lib 'a b/c.v'"
+  "$SS_SCRIPT /tmp/lib.lib /dev/null 'a b/c.v'"
+
+probe "every excluded cell reaches dfflibmap and abc as -dont_use" 0 \
+  'dfflibmap -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"; abc -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"' \
+  "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $SS_SCRIPT /tmp/lib.lib $tmp/one.cells nano/nano.v"
+
+probe "a missing excluded-cell list is refused, not read as none" 1 \
+  "refusing to measure cells the flow never uses" \
+  "$SS_SCRIPT /tmp/lib.lib $tmp/no-such.cells nano/nano.v"
 
 begin_group "nano/timing_script.sh"
 
 TS_SCRIPT="$REPO/nano/timing_script.sh"
 
-probe "control: a plain liberty and latchmap produce the expected yosys script" 0 \
-  'techmap -map "/tmp/latch.v"; abc -liberty "/tmp/lib.lib" -script +strash;dch,-f;map,-B,0.2;topo;stime,-c' \
-  "$TS_SCRIPT /tmp/lib.lib /tmp/latch.v /tmp/out.json '' nano/nano.v"
+probe "control: a plain liberty and source produce the expected yosys script" 0 \
+  'abc -liberty "/tmp/lib.lib" -script +strash;dch,-f;map,-B,0.2;topo;stime,-c' \
+  "$TS_SCRIPT /tmp/lib.lib /dev/null /tmp/out.json nano/nano.v"
 
-probe "no register-file define reads the default (flops) build" 0 \
-  'read_verilog -sv "nano/nano.v"' \
-  "$TS_SCRIPT /tmp/lib.lib /tmp/latch.v /tmp/out.json '' nano/nano.v"
+probe "a semicolon in the liberty path stays inside its own quoted token" 0 \
+  '"/tmp/lib;evil.lib"' \
+  "$TS_SCRIPT '/tmp/lib;evil.lib' /dev/null /tmp/out.json nano/nano.v"
 
-probe "a register-file define is passed straight through to read_verilog" 0 \
-  'read_verilog -sv -D NANO_LATCH_RF "nano/nano.v"' \
-  "$TS_SCRIPT /tmp/lib.lib /tmp/latch.v /tmp/out.json NANO_LATCH_RF nano/nano.v"
-
-probe "a semicolon in the latchmap path stays inside its own quoted token" 0 \
-  '"/tmp/latch;evil.v"' \
-  "$TS_SCRIPT /tmp/lib.lib '/tmp/latch;evil.v' /tmp/out.json '' nano/nano.v"
+probe "a semicolon in the stat-json path stays inside its own quoted token" 0 \
+  'tee -o "/tmp/out;evil.json"' \
+  "$TS_SCRIPT /tmp/lib.lib /dev/null '/tmp/out;evil.json' nano/nano.v"
 
 probe "a source list feeds read_verilog the same way synth_script.sh's does" 0 \
   'read_verilog -sv "a.v" "b.v"' \
-  "$TS_SCRIPT /tmp/lib.lib /tmp/latch.v /tmp/out.json '' a.v b.v"
+  "$TS_SCRIPT /tmp/lib.lib /dev/null /tmp/out.json a.v b.v"
+
+probe "every excluded cell reaches the timing run's dfflibmap and abc too" 0 \
+  'dfflibmap -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"; abc -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1" -script' \
+  "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $TS_SCRIPT /tmp/lib.lib $tmp/one.cells /tmp/out.json nano/nano.v"
+
+probe "a missing excluded-cell list is refused by the timing run too" 1 \
+  "refusing to measure cells the flow never uses" \
+  "$TS_SCRIPT /tmp/lib.lib $tmp/no-such.cells /tmp/out.json nano/nano.v"
 
 begin_group "make nano-liberty-setup"
 
@@ -8179,15 +8208,6 @@ probe "a liberty download whose bytes are not the pin is refused before it is ke
 d=$(new_case)
 probe "the refused liberty download is not kept to be served again" 0 \
   "refused=yes kept=no" "nl_aftermath $d sky130_fd_sc_hd__tt_025C_1v80.lib"
-
-d=$(new_case)
-probe "a latchmap download whose bytes are not the pin is refused before it is kept" 2 \
-  "cells_latch_hd.v -- refusing to keep it" \
-  "XDG_CACHE_HOME=$d/cache $NL"
-
-d=$(new_case)
-probe "the refused latchmap download is not kept to be served again" 0 \
-  "refused=yes kept=no" "nl_aftermath $d cells_latch_hd.v"
 
 begin_group "the Makefile's tool-path prepend"
 

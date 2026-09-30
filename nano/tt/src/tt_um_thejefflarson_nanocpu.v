@@ -1,7 +1,5 @@
-// Wraps `riscv` (nano/nano.v) for Tiny Tapeout: every core input is a pin or a register,
-// never a tied constant, and every output reaches uo_out through a register.
 `default_nettype none
-
+// The chip top: `riscv` plus the QSPI, UART and GPIO peripherals nano/bus.v routes to.
 module tt_um_thejefflarson_nanocpu (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -12,27 +10,21 @@ module tt_um_thejefflarson_nanocpu (
     input  wire        clk,
     input  wire        rst_n
 );
+  localparam int CLOCK_HZ = 64_000_000;
+
+  localparam logic [31:0] PSRAM_BASE  = 32'h1000_0000;
+  localparam logic [31:0] PSRAM_BYTES = 32'h0080_0000;
+  localparam logic [31:0] MAP_TOP     = PSRAM_BASE + PSRAM_BYTES + 32'd8 + 32'd8 + 32'd16;
+  localparam int          RAM_WORDS   = (MAP_TOP - PSRAM_BASE) / 4;
 
   logic reset;
   assign reset = !rst_n;
 
-  logic [31:0] mem_rdata_shift;
-  always_ff @(posedge clk) begin
-    if (reset) mem_rdata_shift <= 32'b0;
-    else if (ena) mem_rdata_shift <= {mem_rdata_shift[23:0], uio_in};
-  end
-
-  logic mem_ready;
-  always_ff @(posedge clk) begin
-    if (reset) mem_ready <= 1'b0;
-    else mem_ready <= ui_in[7];
-  end
-
-  logic        mem_valid, mem_instr, trap;
-  logic [31:0] mem_addr, mem_wdata;
+  logic        mem_valid, mem_instr, mem_ready, trap;
+  logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
 
-  riscv core (
+  riscv #(.RAM_BASE(PSRAM_BASE), .RAM_WORDS(RAM_WORDS)) core (
     .clk(clk),
     .reset(reset),
     .mem_valid(mem_valid),
@@ -41,48 +33,46 @@ module tt_um_thejefflarson_nanocpu (
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(mem_rdata_shift),
+    .mem_rdata(mem_rdata),
+    .irq_meip(ui_in[7]),
     .trap(trap)
   );
 
-  logic [31:0] addr_r, wdata_r;
-  logic [3:0]  wstrb_r;
-  logic        valid_r, instr_r, trap_r;
-  always_ff @(posedge clk) begin
-    addr_r  <= mem_addr;
-    wdata_r <= mem_wdata;
-    wstrb_r <= mem_wstrb;
-    valid_r <= mem_valid;
-    instr_r <= mem_instr;
-    trap_r  <= trap;
-  end
+  logic       sck, flash_cs_n, psram_cs_n, spare_cs_n, sio_oe;
+  logic [3:0] sio_out;
+  logic       uart_tx;
+  logic [6:0] gpio_out;
 
-  logic [71:0] observed;
-  assign observed = {1'b0, trap_r, instr_r, valid_r, wstrb_r, addr_r, wdata_r};
+  nano_bus #(.PSRAM_BASE(PSRAM_BASE), .PSRAM_BYTES(PSRAM_BYTES), .CLOCK_HZ(CLOCK_HZ)) bus (
+    .clk(clk),
+    .reset(reset),
+    .mem_valid(mem_valid),
+    .mem_instr(mem_instr),
+    .mem_ready(mem_ready),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(mem_rdata),
+    .sck(sck),
+    .flash_cs_n(flash_cs_n),
+    .psram_cs_n(psram_cs_n),
+    .spare_cs_n(spare_cs_n),
+    .sio_out(sio_out),
+    .sio_oe(sio_oe),
+    .sio_in(uio_in[7:4]),
+    .uart_tx(uart_tx),
+    .gpio_out(gpio_out),
+    .gpio_in(ui_in)
+  );
 
-  logic [7:0] observed_byte;
-  always_comb begin
-    case (ui_in[3:0])
-      4'd0: observed_byte = observed[7:0];
-      4'd1: observed_byte = observed[15:8];
-      4'd2: observed_byte = observed[23:16];
-      4'd3: observed_byte = observed[31:24];
-      4'd4: observed_byte = observed[39:32];
-      4'd5: observed_byte = observed[47:40];
-      4'd6: observed_byte = observed[55:48];
-      4'd7: observed_byte = observed[63:56];
-      4'd8: observed_byte = observed[71:64];
-      default: observed_byte = 8'b0;
-    endcase
-  end
+  assign uio_out = {sio_out, spare_cs_n, psram_cs_n, flash_cs_n, sck};
+  // sio turns around with the controller's own state; sck and the three selects are always output.
+  assign uio_oe  = {{4{sio_oe}}, 4'b1111};
 
-  assign uo_out  = observed_byte;
-  assign uio_out = 8'b0;
-  assign uio_oe  = 8'b0;
+  assign uo_out = {gpio_out, uart_tx};
 
   logic _unused;
-  assign _unused = &{ui_in[6:4], 1'b0};
-
+  assign _unused = &{ena, trap, 1'b0};
 endmodule
 
 `default_nettype wire

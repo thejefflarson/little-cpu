@@ -186,14 +186,16 @@ module nano_testbench(
   initial cycle = 0;
   always @(posedge clk) cycle <= cycle + 1;
 
-`ifndef NANO_IRQ_MEIP_CYCLE
-`define NANO_IRQ_MEIP_CYCLE 400
-`endif
-  // Level, asserted once and held: a real MEIP pin has no software-visible clear, so a
-  // handler that wants to stop taking it must disable mie.MEIE before mret. A program
-  // that never sets mstatus.MIE or mie.MEIE never observes this at all.
+  // A program arms this by storing to nano.lds' `.irqctl` word, so every build variant
+  // retires the same instructions up to that store; held level once set, since a real
+  // MEIP pin has no software-visible clear.
+  localparam bit [31:0] IRQCTL_ADDR = 32'h0001_0008;
   (* keep *) logic irq_meip;
-  assign irq_meip = cycle >= `NANO_IRQ_MEIP_CYCLE;
+  initial irq_meip = 1'b0;
+  always @(posedge clk) begin
+    if (reset) irq_meip <= 1'b0;
+    else if (mem_valid && mem_ready && |mem_wstrb && mem_addr == IRQCTL_ADDR) irq_meip <= 1'b1;
+  end
 
   riscv uut (
     .clk(clk),

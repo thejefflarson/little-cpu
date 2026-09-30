@@ -82,10 +82,14 @@ def grade(harness_dir, sby_name, retires):
 
 
 def main():
-    if len(sys.argv) != 4:
-        print(f"usage: {sys.argv[0]} <harness-dir> <sby-file> <retires:1|2>", file=sys.stderr)
+    args = sys.argv[1:]
+    if len(args) != 3:
+        print(
+            f"usage: {sys.argv[0]} <harness-dir> <sby-file> <retires:1|2>",
+            file=sys.stderr,
+        )
         return 2
-    harness_dir, sby_name, retires = sys.argv[1], sys.argv[2], sys.argv[3]
+    harness_dir, sby_name, retires = args
     if retires not in ("1", "2"):
         print(f"error: <retires> must be 1 or 2, not {retires!r}", file=sys.stderr)
         return 2

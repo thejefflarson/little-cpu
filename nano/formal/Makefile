@@ -101,6 +101,15 @@ components_qspi: qspi.sby ../qspi.v qspi-probe
 	rm -rf qspi
 	sby -f qspi.sby
 
+.PHONY: memreq-probe
+memreq-probe: memreq-probe.py memreq.sby ../nano.v
+	python3 $<
+
+.PHONY: components_memreq
+components_memreq: memreq.sby ../nano.v memreq-probe
+	rm -rf memreq
+	sby -f memreq.sby
+
 .PHONY: check-rvfi-insn-check
 check-rvfi-insn-check: $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_check.sv \
                        check-rvfi-insn-check.py | $(RISCV_FORMAL_DIR)
@@ -116,7 +125,9 @@ clean:
 	rm -rf complete-cover-probe ill_e ill_e_cover ill-e-probe
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
 	rm -rf qspi qspi-probe traps region-probe tval-probe
+	rm -rf memreq memreq-probe
 
 .PHONY: all clean
 all: check dmemcheck imemcheck dmemcheck_cover imemcheck_cover complete complete_cover \
-     ill_e ill_e_cover check-rvfi-insn-check components_qspi components_traps
+     ill_e ill_e_cover check-rvfi-insn-check components_qspi components_traps \
+     components_memreq

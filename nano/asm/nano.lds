@@ -16,6 +16,13 @@ SECTIONS {
         . = ALIGN(4);
     } >ram
 
+    /* One word, always reserved here so nano_testbench.v can hardcode its address. */
+    .irqctl : {
+        . = ALIGN(4);
+        __irqctl = .;
+        . += 4;
+    } >ram
+
     .data : {
         *(.data);
         *(.rodata);

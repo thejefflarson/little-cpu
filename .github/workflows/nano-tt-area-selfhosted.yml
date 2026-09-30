@@ -38,20 +38,6 @@ on:
         description: "stop at global routing on any remaining overflow, rather than Tiny Tapeout's own default of routing through it"
         type: boolean
         default: false
-      regfile:
-        description: "nano/nano.v register file"
-        type: choice
-        default: "flops"
-        options:
-          - "flops"
-          - "latches"
-      ports:
-        description: "nano/nano.v register-file read ports"
-        type: choice
-        default: "two"
-        options:
-          - "two"
-          - "one"
 
 permissions:
   contents: read
@@ -69,7 +55,7 @@ jobs:
   harden:
     name: harden (little-cpu-runners, no docker)
     runs-on: little-cpu-runners
-    timeout-minutes: 150
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -133,8 +119,6 @@ jobs:
         env:
           NANO_TT_STRATEGY: ${{ inputs.synth_strategy || 'AREA 0' }}
           NANO_TT_DISALLOW_CONGESTION: ${{ inputs.disallow_congestion && '1' || '0' }}
-          NANO_TT_REGFILE: ${{ inputs.regfile || 'flops' }}
-          NANO_TT_PORTS: ${{ inputs.ports || 'two' }}
         run: |
           librelane-env bash -c '
             set -euo pipefail
@@ -157,10 +141,6 @@ jobs:
           config["SYNTH_STRATEGY"] = strategy
           if os.environ["NANO_TT_DISALLOW_CONGESTION"] == "1":
               config["GRT_ALLOW_CONGESTION"] = 0
-          if os.environ["NANO_TT_REGFILE"] == "latches":
-              config["VERILOG_DEFINES"] = config.get("VERILOG_DEFINES", []) + ["NANO_LATCH_RF"]
-          if os.environ["NANO_TT_PORTS"] == "one":
-              config["VERILOG_DEFINES"] = config.get("VERILOG_DEFINES", []) + ["NANO_ONE_PORT_RF"]
           with open("src/config_merged.json", "w") as f:
               json.dump(config, f, indent=2)
           PYEOF
@@ -204,11 +184,59 @@ jobs:
           path: ${{ env.PDK_ROOT }}
           key: ${{ env.PDK_CACHE_KEY }}
 
-      - name: Report peak memory and job wall time
+      # always(): a stop-after-synthesis or timeout-cancelled run produces no final/ view, which this looks up rather than assumes.
+      - name: Locate the hardened netlist
+        id: gl_netlist
+        if: always()
+        working-directory: nano/tt
+        run: |
+          netlist=$(find runs/wokwi/final/nl -maxdepth 1 -name '*.nl.v' 2>/dev/null | head -1 || true)
+          if [ -n "$netlist" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "path=$(pwd)/$netlist" >> "$GITHUB_OUTPUT"
+            echo "found the hardened netlist: $netlist"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "no final/nl netlist this run -- nothing to gate-level simulate"
+          fi
+
+      - name: Set up the pinned RISC-V gcc
+        if: steps.gl_netlist.outputs.found == 'true'
+        uses: ./.github/actions/setup-riscv-gcc
+
+      - name: Set up OSS CAD Suite
+        if: steps.gl_netlist.outputs.found == 'true'
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      # Gates the job rather than only publishing a result: an unverified hardened netlist reaching tapeout is the exact risk clock gating owes a check for.
+      - name: Gate-level simulate the hardened netlist
+        id: gl_test
+        if: steps.gl_netlist.outputs.found == 'true'
+        env:
+          NANO_GL_NETLIST: ${{ steps.gl_netlist.outputs.path }}
+        run: make nano-gl-test NETLIST="$NANO_GL_NETLIST"
+
+      - name: Report the gate-level simulation
         if: always()
         env:
-          NANO_TT_REGFILE_REPORT: ${{ inputs.regfile || 'flops' }}
-          NANO_TT_PORTS_REPORT: ${{ inputs.ports || 'two' }}
+          NANO_GL_FOUND: ${{ steps.gl_netlist.outputs.found }}
+          NANO_GL_NETLIST: ${{ steps.gl_netlist.outputs.path }}
+          NANO_GL_RESULT: ${{ steps.gl_test.outcome || 'did not run' }}
+        run: |
+          summary_line() {
+            echo "$1"
+            echo "$1" >> "$GITHUB_STEP_SUMMARY"
+          }
+          summary_line "### nano gate-level simulation"
+          if [ "$NANO_GL_FOUND" = "true" ]; then
+            summary_line "netlist: $NANO_GL_NETLIST"
+            summary_line "result: $NANO_GL_RESULT"
+          else
+            summary_line "not run: this dispatch produced no final/nl netlist (a stop-after-synthesis run, or routing did not finish before the job's timeout)."
+          fi
+
+      - name: Report peak memory and job wall time
+        if: always()
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           if [ "$NANO_TT_STOP_AFTER_SYNTHESIS" = "1" ]; then
@@ -228,8 +256,6 @@ jobs:
           summary_line "tiles: ${{ inputs.tiles || '2x2' }}"
           summary_line "stop after synthesis: $stop_after_synthesis_report"
           summary_line "disallow congestion: ${{ inputs.disallow_congestion || 'false' }}"
-          summary_line "regfile: $NANO_TT_REGFILE_REPORT"
-          summary_line "ports: $NANO_TT_PORTS_REPORT"
           summary_line "wall time: ${elapsed}s"
           if [ -r /sys/fs/cgroup/memory.peak ]; then
             summary_line "cgroup memory.peak: $(cat /sys/fs/cgroup/memory.peak) bytes"
@@ -237,8 +263,7 @@ jobs:
             summary_line "cgroup memory.max_usage_in_bytes: $(cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes) bytes"
           fi
 
-      # A cancelled or failed run is exactly the case the earlier single-file copy
-      # missed reports for, so this walks every step directory rather than naming one.
+      # A cancelled or failed run is exactly the case the earlier single-file copy missed reports for, so this walks every step directory rather than naming one.
       - name: Collect the run directory's reports and logs
         if: always()
         run: |
@@ -258,6 +283,13 @@ jobs:
             mkdir -p "$(dirname "$dest")"
             cp "$log_file" "$dest" 2>/dev/null || true
           done < <(find nano/tt/runs/wokwi -maxdepth 2 -name '*.log' 2>/dev/null -print0)
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.gl_netlist.outputs.found == 'true'
+        with:
+          name: nano-tt-netlist
+          path: ${{ steps.gl_netlist.outputs.path }}
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

@@ -99,26 +99,20 @@ module rvfi_testbench (
       lw_misaligned || lh_misaligned || sw_misaligned || sh_misaligned ||
       load_region_fault || store_region_fault;
 
-  logic [31:0] expected_cause, expected_tval;
+  logic [31:0] expected_cause;
   always_comb begin
     if (is_ebreak) begin
       expected_cause = CAUSE_BREAKPOINT;
-      expected_tval  = 32'b0;
     end else if (is_ecall) begin
       expected_cause = CAUSE_ECALL_M;
-      expected_tval  = 32'b0;
     end else if (lw_misaligned || lh_misaligned) begin
       expected_cause = CAUSE_LOAD_MIS;
-      expected_tval  = load_addr;
     end else if (sw_misaligned || sh_misaligned) begin
       expected_cause = CAUSE_STORE_MIS;
-      expected_tval  = store_addr;
     end else if (load_region_fault) begin
       expected_cause = CAUSE_LOAD_FAULT;
-      expected_tval  = data_addr;
     end else begin
       expected_cause = CAUSE_STORE_FAULT;
-      expected_tval  = data_addr;
     end
   end
 
@@ -135,9 +129,9 @@ module rvfi_testbench (
     assert(dbg_mcause == expected_cause);
   end
 
-  // mtval is the one thing a trap saves that no self-reporting oracle sees.
-  always_comb if (live && rvfi_trap && expected_trap) begin
-    assert(dbg_mtval == expected_tval);
+  // mtval is read-only zero on this platform, asserted on every retirement.
+  always_comb if (live) begin
+    assert(dbg_mtval == 32'b0);
   end
 
   always_comb if (live && rvfi_intr) begin

@@ -32,12 +32,13 @@ MUTATIONS = {
         "reset, whether or not the chip select is actually low, and must be caught.",
     ),
     "queue-addressing": (
-        "                slot1_addr  <= stream_next_addr;\n",
-        "                slot1_addr  <= stream_next_addr + 31'd1;\n",
-        "invariant 3 (the prefetch buffer holds exactly the parcels at "
-        "[fetch_pc, fetch_pc+N)): tagging the second slot one parcel ahead of the "
-        "parcel it actually received breaks the buffer's own contiguity check and "
-        "must be caught.",
+        "                fetch_two_parcels     <= 1'b1;\n"
+        "                second_parcel_pending <= 1'b0;\n",
+        "                fetch_two_parcels     <= 1'b0;\n"
+        "                second_parcel_pending <= 1'b0;\n",
+        "invariant 3 (stream_next_addr advances by exactly the parcels a completing "
+        "fetch delivered): claiming a two-parcel completion delivered only one parcel "
+        "breaks the count the invariant checks and must be caught.",
     ),
 }
 
