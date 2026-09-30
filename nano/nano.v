@@ -116,8 +116,7 @@ module riscv #(
                store_region_fault;
   logic        take_trap;
   logic [31:0] trap_cause_value;
-  // mem_addr is also the next pc: an instruction ends with the address of its successor
-  // in it, and a load or store holds its own address there only while the bus request lives.
+  // mem_addr doubles as the next pc: an instruction ends with its successor's address in it.
   logic [31:0] pc;
   logic [4:0] rd, rs1, rs2;
   logic [31:0] load_store_address;
@@ -128,8 +127,7 @@ module riscv #(
   logic [31:0] pc_inc;
   logic [3:0] cpu_state;
 
-  // `rf_raddr` is the one address that reads `regs[]`: rs1 once into `op_rs1`, then rs2 live
-  // for as long as the instruction is held.
+  // `rf_raddr` reads `regs[]`: rs1 once into `op_rs1`, then rs2 live while the instruction is held.
   logic [31:0] op_rs1, rf_rdata;
   logic [3:0] rf_raddr;
 `define RF_RS1 op_rs1
@@ -146,7 +144,6 @@ module riscv #(
   assign cfunct6 = instr[15:10];
   assign funct7 = instr[31:25];
 
-  // immediate decoder (figure 2.4 & table 16.1)
   assign i_immediate = {{20{instr[31]}}, instr[31:20]};
   assign s_immediate = {{20{instr[31]}}, instr[31:25], instr[11:7]};
   assign b_immediate = {{20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0};
@@ -190,7 +187,6 @@ module riscv #(
     endcase
   end
 
-  // Table 24.2 RV32I and Table 16.5-7
   assign is_lui_op = opcode == 5'b01101 && uncompressed;
   assign is_lui = is_lui_op || is_clui;
   assign is_clui = quadrant == 2'b01 && cfunct3 == 3'b011 && clui_immediate != 0 &&
@@ -248,7 +244,6 @@ module riscv #(
   assign is_caddi16sp = quadrant == 2'b01 && cfunct3 == 3'b011 && instr[11:7] == 2 &&
     caddi16sp_immediate != 0;
   assign is_caddi4spn = quadrant == 2'b00 && cfunct3 == 3'b000 && caddi4spn_immediate != 0;
-  // c.li is addi in disguise
   assign is_cli = quadrant == 2'b01 && cfunct3 == 3'b010;
   assign is_slti = is_math_immediate_op && funct3 == 3'b010;
   assign is_sltiu = is_math_immediate_op && funct3 == 3'b011;
@@ -478,7 +473,6 @@ module riscv #(
   assign rf_raddr = cpu_state == fetch_rs1 ? rs1[3:0] : rs2[3:0];
   assign rf_rdata = |rf_raddr ? regs[rf_raddr] : 32'b0;
 
-  // Nano completes one instruction fully before returning here to redirect.
   assign take_interrupt = interrupt_pending && cpu_state == fetch_instr;
 
   assign mem_wdata = is_sh ? {2{`RF_RS2[15:0]}} :
@@ -602,8 +596,7 @@ module riscv #(
     end
   end
 
-  // The register file is written on the edge that ends the instruction's last state:
-  // execute_instr for everything with a result but a load, finish_load for a load.
+  // The register file is written on the edge that ends execute_instr, or finish_load for a load.
   logic [31:0] alu_result, load_data, wb_data;
   logic        wb_en;
   always_comb begin
@@ -777,8 +770,7 @@ module riscv #(
     end
   end
 
-  // Set the cycle an interrupt redirects the pc, cleared at the handler's first
-  // retirement -- the two can be cycles apart if a load/store was in flight.
+  // Set when an interrupt redirects the pc, cleared at the handler's first retirement.
   logic pending_rvfi_intr;
   always_ff @(posedge clk) begin
     if (reset) pending_rvfi_intr <= 1'b0;
@@ -841,8 +833,7 @@ module riscv #(
 `endif
 
   always_ff @(posedge clk) begin
-    // is_fetch_entry, not is_fetch: fires once per retirement, not once per cycle
-    // dwelled in fetch_instr doing interrupt-entry bookkeeping.
+    // is_fetch_entry, not is_fetch: once per retirement, not once per dwelled cycle.
     rvfi_valid_q <= !reset && (is_fetch_entry || trap);
 
     if (cpu_state == execute_instr) begin
@@ -948,9 +939,8 @@ module riscv #(
     assert(mem_wstrb == mem_wstrb_q);
   end
 
-  // C makes every jump target 2-byte aligned, so no control transfer checks its target
-  // and nothing can trap on one: jalr clears bit 0, every offset is even, and pc and
-  // mem_addr are only ever loaded from those or from a word-aligned address.
+  // C makes every jump target 2-byte aligned, so none is checked: jalr clears bit 0, offsets
+  // are even, and pc and mem_addr only ever load those or a word-aligned address.
   always_comb if (clocked_q) begin
     assert(!pc[0]);
     assert(!mem_addr[0]);

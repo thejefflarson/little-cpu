@@ -176,7 +176,6 @@ int main(int argc, char **argv) {
   // Every word of the simulated memory is zeroed before either image is poked in: an
   // undefined word turns the whole pipeline X under iverilog and stays green under
   // cxxrtl, which is the divergence test/testbench.v's own zeroing loop exists to avoid.
-  // A pin-level QSPI build has no single flat array -- "flash mem"/"psram mem" instead.
   const bool qspi_pins = items.count("mem mem") == 0;
   const char *rom_mem_name = qspi_pins ? "flash mem" : "mem mem";
   const char *ram_mem_name = qspi_pins ? "psram mem" : "mem mem";
