@@ -57,26 +57,24 @@ hand on the generated checks (both revert to PASS): writing `csr_new_value ^ 1` 
 takes `csrc_any_mscratch_ch0` to FAIL, and reporting `~csr_new_value` as `wdata` takes
 `csrw_mscratch_ch0` to FAIL.
 
-**`fault_ch0` is generated, and finding why it was red fixed a report.** nano can refuse an access
-(causes 5 and 7), so the omit was wrong and is gone; `fault` joins `[depth]` at 30 (insn's shape)
-with a `#floor`. Upstream's `rvfi_fault_check.sv` does not parse without `RISCV_FORMAL_CSR_MCAUSE`,
-so nano defines it and drives `rvfi_csr_mcause_*` at execute: `wmask` all ones on a trap entry or a
-`csrw mcause`, `wdata` the cause or the written value. An interrupt entry is not reported, since it
-belongs to no retire and every generated check ties the input off. With that in, the check failed
-on a correct core for two reasons, both in nano's RVFI report and neither in the datapath:
-`captured_is_opm` set `rvfi_mem_fault` for an M-extension encoding, which the check reads as an
-instruction fetch fault and requires `insn == 0` of; and `captured_load_fault`/`captured_store_fault`
-came from the region test alone, so an illegal encoding with a load or store opcode that also named
-an out-of-window address reported an access fault while `mcause` said 2. The fault flags now come
-from `trap_cause_value` (the fault is reported exactly when it is the trap's cause) and the M
-encoding no longer sets it. All 79 generated checks pass on the result; `is_opm_encoding` is left
-declared and unread rather than deleted, because a non-`ifdef` edit above the RVFI block moves line
-numbers the mapper's cell names carry and nano's ratchet has not been re-taken for it. The red
-direction is the failure itself. Measured: with the M term removed and the region flags still
-ungated, `fault_ch0` fails at its `mcause == 7` assertion on an illegal store; with both changes it
-passes. The M term's own failure is read from the upstream check (a fault with both masks zero is
-an instruction fetch fault and must have `insn == 0`) and was not run in isolation. `RISCV_FORMAL_MEM_FAULT` stays defined because `nano.v` and the generated instruction
-checks read it.
+**`fault_ch0` stays omitted, and the reason was wrong.** nano can refuse an access (causes 5 and 7),
+so "no fault line on the bus" was not the ground. It was tried: `fault` in `[depth]`, upstream's
+`RISCV_FORMAL_CSR_MCAUSE` defined (the check's source does not parse without it) and
+`rvfi_csr_mcause_*` driven at execute. It fails on a correct core for two reasons, both in nano's
+RVFI report. Measured: with the report otherwise as shipped it fails at the check's `mcause == 7`
+assertion, because `captured_load_fault`/`captured_store_fault` come from the region test alone,
+so an illegal encoding with a load or store opcode that also names an out-of-window address
+reports an access fault while `mcause` says 2; gating both on `trap_cause_value` fixed that and
+took all 79 generated checks green. But `captured_is_opm` also sets `rvfi_mem_fault` for an
+M-extension encoding, which the check reads as an instruction fetch fault and requires `insn == 0`
+of, and removing it made `make nano-test` report `divide.S` and `mul.S` as MONITOR-ERROR 106: the
+sanitized monitor's spec model executes mul/div, nano traps them, and the flag is what excuses
+the disagreement. So the flag has two consumers that disagree about what it means, and the whole
+attempt was reverted, `nano.v` carries no fault or mcause change, and the omit line now says this.
+DECISION NEEDED: excuse M encodings to the monitor through a signal of their own, then the
+gated fault flags and the mcause report can land and `fault_ch0` can be generated; not done here
+because it edits the oracle. `RISCV_FORMAL_MEM_FAULT` stays defined because `nano.v` and the
+generated instruction checks read it.
 
 **nonperturbation is one script over both designs.** `formal/check-nonperturbation.py` takes a
 design name (`littlecpu`, the default, or `nano`) and a table of sources, top module, and the
@@ -121,7 +119,7 @@ says so.
 | `mutation-check`, `MUTATION_DETECTORS` | **open**: nano has no mutation table. DECISION NEEDED: a nano `test/mutations/` set paired with its detectors is the next parity item and is not built here |
 | generated `insn`, `reg`, `pc_fwd`, `pc_bwd`, `causal`, `causal_mem`, `liveness`, `unique`, `hang`, `ill`, `csrw_mcycle`, `csrw_minstret`, `csrc_upcnt_*` | present |
 | generated `csrw_mscratch`, `csrc_any_mscratch` | **added here** |
-| generated `fault` | **added here** (needed nano.v's RVFI report to be corrected, above) |
+| generated `fault` | omitted on nano, reason corrected and measured above; DECISION NEEDED on the M-encoding excusal |
 | generated `csrc_inc_*` | omitted on both, same reason: red on a correct core |
 | generated `bus_*`, `causal_io` | omitted on both, with reasons in each `checks.cfg`: nano's fault-line and MMIO-region omits stand |
 
@@ -135,5 +133,5 @@ says so.
   so its `rd` term is dead: an instruction E-illegal by `rd` alone is not asserted trapping. The
   `rs1` and `rs2` terms are live and the wrong-rule probe covers them. Strengthening the antecedent
   from `rvfi_insn[11:7]` is a separate change.
-- nano's RVFI report is now the same shape as littlecpu's for faults: reported when the trap's cause
-  is the access fault. Nothing outside the formal build reads it.
+- nano still misreports `rvfi_mem_fault` for an illegal encoding that also names an out-of-window
+  address (cause 2, flagged as an access fault). Nothing graded reads it today.
