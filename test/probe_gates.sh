@@ -3311,8 +3311,8 @@ sr_fixture() {
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 commits=10 jalr=2 jalrret=1 jalrredir=2 otherredir=1 jalrwin=8 otherwin=3 rashit1=1 rassave1=4 rashitdeep=1 rassavedeep=4 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 commits=10 jalr=0 jalrret=0 jalrredir=0 otherredir=0 jalrwin=0 otherwin=0 rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -3365,6 +3365,26 @@ probe "the same for the bypass counter, per program rather than in total" 1 \
 d=$(sr_fixture); mutate "$d/counts" 's/ lsissue=6//'
 probe "a locality counter that stopped being printed is named too" 1 \
   "is missing lsissue" "$SR $d/counts"
+
+d=$(sr_fixture)
+probe "control: the jalr share and the return guess are reported under the table" 0 \
+  "A one-entry return register would hit 1 of 1 returns (100.00%) and save 4 cycles (5.00%)" \
+  "$SR $d/counts"
+
+d=$(sr_fixture); mutate "$d/counts" 's/rashit1=1/rashit1=2/'
+probe "a one-entry hit rate above the unbounded stack's is red" 1 \
+  "rashit1 is 2 against rashitdeep 1" "$SR $d/counts"
+
+d=$(sr_fixture); mutate "$d/counts" 's/jalrret=1/jalrret=3/'
+probe "more returns than jalr is red" 1 "jalrret is 3 against jalr 2" "$SR $d/counts"
+
+d=$(sr_fixture); mutate "$d/counts" 's/rassave1=4/rassave1=9/'
+probe "more cycles saved than the jalr redirects cost is red" 1 \
+  "rassave1 is 9 against jalrwin 8" "$SR $d/counts"
+
+d=$(sr_fixture); mutate "$d/counts" 's/ jalrwin=8//'
+probe "a redirect counter that stopped being printed is named too" 1 \
+  "is missing jalrwin" "$SR $d/counts"
 
 d=$(sr_fixture); mutate "$d/counts" 's/cycles=40/cycles=lots/'
 probe "a count that is not a number stops rather than summing to nonsense" 1 \
