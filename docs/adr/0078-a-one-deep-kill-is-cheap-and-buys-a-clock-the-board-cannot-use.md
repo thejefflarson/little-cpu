@@ -250,3 +250,7 @@ reopened, that is the part to keep.
   `nonperturbation`, `dmemcheck`, `imemcheck` and `make cosim-suite` (59/59) were all run on the
   spike and again on the reverted tree, which is byte-identical to `0b1728a` under `rtl/`,
   `formal/` and `test/`.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. The one-deep kill it priced is the ancestor of the kill the shipped design uses (X drops the word issued beside a redirect), and the 24 MHz step arithmetic it states is still the target `CLAUDE.md` quotes for Fmax work. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0232](0232-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).

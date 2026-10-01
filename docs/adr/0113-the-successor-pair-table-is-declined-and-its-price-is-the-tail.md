@@ -309,3 +309,7 @@ this is closed for good.
 
 `pairtable-candidate` carried the working RTL and is not merged; the branch is the record of what was
 built, and nothing under `rtl/` lands from it.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. The guessed-pair mechanism it measured was deleted outright by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)). Its lesson that a cost which is a variance needs sixteen seeds, because the tail is what `SOC_MIN_MHZ` grades, still stands and `CLAUDE.md` still cites it for that. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0232](0232-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).

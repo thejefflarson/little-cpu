@@ -210,3 +210,7 @@ and no cycles at all". That is still a decline under the standing rule not to ta
 that costs measured speed, and it is a much narrower one than this ADR recorded. The trade this ADR
 names — a LUT level in, a 32-bit carry chain out — is still what the netlist does; what changed is
 that the tree around it has enough slack at 12 MHz to absorb it. The RTL is not carried on `main`.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. Two of its findings outlive the pipeline and `CLAUDE.md` still cites them for that: the period is spelling-dependent, and the compressed decode and immediate generation stay closed for area. Only its claim that decode pays solely in the fetch loop is superseded. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0232](0232-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).

@@ -175,3 +175,7 @@ around, exactly as ADR-0088 and ADR-0090 recorded it.
 - **A design whose fetch holds its output register requires a reset that spans a clock edge.** Three
   of this repo's four harnesses already provide one. `test/cxxrtl.cc` does not, and that is now
   written down.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. The `next_pc` stall arm it measured no longer exists in that form: `fetch_pc_next` is composed in `rtl/littlecpu.v` from registered redirects, and the ROM is addressed off it a cycle ahead. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0232](0232-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).

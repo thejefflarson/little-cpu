@@ -350,3 +350,7 @@ best of them still needs the refill policy that would amend the no-wrong-path-st
 
 **HELD, and the ranking this ADR gave the direction is now worse on every axis it measured.** No RTL
 is carried on `main`; the `soc/depth/` fixes are instrument repairs, not candidates.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. Its direction, taking the tail of the fetch loop out, is what `rtl/fetcher.v` does; the one-window skid that shipped first was then deleted for placed cells (ADR-0221, amended), so the pricing of a register in the loop describes the fused decoder's head, not today's. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0232](0232-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).

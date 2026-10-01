@@ -153,3 +153,7 @@ arithmetic read −47%, because the clock fell past a divider step. **That is a 
 not change the answer**: `SOC_MIN_MHZ` is 12.0 and does not slide, and a candidate whose median
 placement reads 12.06 MHz with seven of sixteen underneath has no margin to ship into. **HELD.** The
 RTL is not carried on `main`; only this amendment is.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. The early register write it priced sat on the second fetch-address loop (`accessor_out.rd_data` through the write-through bypass to `next_pc`), which the registered redirect removed. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0232](0232-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).
