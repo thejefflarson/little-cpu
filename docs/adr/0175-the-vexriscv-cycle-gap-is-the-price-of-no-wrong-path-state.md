@@ -192,3 +192,7 @@ A security review of this ADR found three defects; the decision is unchanged by 
    measurement, taken on the tree that landed executor-only forwarding, before this ADR's hazard
    split existed. This ADR's figure is this run, on the tree named above. Neither total is owed a
    re-take against the other — the cause-C split this ADR reads did not exist on ADR-0154's tree.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. The no-wrong-path-state commitment it priced was rewritten by ADR-0221 (fetch follows a static guess; X redirects only on a miss) and the hazard split's `hzC` is zero by construction under ADR-0222, so the VexRiscv cycle gap it explains is the pre-refactor gap. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0225](0225-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).

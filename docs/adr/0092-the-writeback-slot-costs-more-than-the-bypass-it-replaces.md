@@ -265,3 +265,7 @@ status and the `.S` suite's spec-checked counts move with its retire counts.
 **HELD, and by a wider margin than when it was filed.** The clock this buys is now nothing at all and
 the cycles it costs are 12.4% of the figure this project quotes. The RTL is not carried on `main`;
 only this amendment is.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. The scoreboard slot it priced as a fourth bypass is not what B2 built: the regfile's write-through bypass plus X's forwarding mux cover that producer with no extra slot (ADR-0222). `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0225](0225-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).

@@ -124,3 +124,7 @@ arm cannot price it.
 - **Not claimed: that a deferred answer is free in general.** It is free *here* because the fast arm
   covers 43.4% of compiled accesses and the slow arm's cycle is spent off the loop. A workload whose
   base registers all sit near edges pays the suite's price, not Dhrystone's.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. The deferred region answer and the fast-arm/slow-arm split it shipped were deleted by [ADR-0214](0214-stage-b3-deletes-the-region-wait-and-moves-the-interrupt-take-into-x.md), which answers the test combinationally in X. Its finding that a harness cannot reach inside an instance without a silent error still stands and `CLAUDE.md` still cites it for that. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0225](0225-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).

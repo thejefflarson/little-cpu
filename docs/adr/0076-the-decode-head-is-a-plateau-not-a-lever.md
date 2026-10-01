@@ -229,3 +229,7 @@ that claimed to rule it out could not have.
   issue: the ceilings do not execute, and R and M are the same function as what is checked in.
 - **The suite was run to say the tree is unchanged, not to grade a change.** 59/59 on `make test`
   with both baselines matching, on a working tree byte-identical to `2d79878` under `rtl/`.
+
+## Pointer amendment, 2026-10-01
+
+The pipeline this ADR priced, a fused decoder whose fetch address closed a loop through decode, was replaced by the D/X split ([ADR-0208](0208-stage-b1-splits-decode-into-d-and-x-stall-only.md)) and a stateless, register-addressed fetch ([ADR-0221](0221-a-register-only-fetch-address-over-a-one-window-skid-ships-as-the-fetch-front-end.md)). Its measurement stands as dated. What survives is the ceiling method and the churn bands, which `CLAUDE.md` still cites; the 21% it attributed to the decode head and `next_pc` terms describes a loop that no longer exists. `CLAUDE.md` now keeps one pointer to this class of ADR instead of citing each ([ADR-0225](0225-the-cross-core-product-is-re-stamped-after-the-fetch-refactor.md)).
