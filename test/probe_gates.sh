@@ -8167,23 +8167,23 @@ JSON
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "control: a measurement within budget is green" 0 "RATCHET:" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "total above the ratchet names the figure and the budget" 1 \
   "is over the 5.0 um2 budget" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 5"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 5"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 probe "a missing stat.json is refused, not read as a zero-area design" 1 \
   "does not exist" \
-  "$AR $d/missing.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/missing.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 printf 'not json' > "$d/bad.json"
 probe "a truncated stat.json is refused, not read as an empty report" 1 \
   "is not JSON" \
-  "$AR $d/bad.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/bad.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/zero.json" <<'JSON'
@@ -8191,7 +8191,7 @@ cat > "$d/zero.json" <<'JSON'
 JSON
 probe "zero cells is refused, not read as a zero-area design" 1 \
   "reports zero cells" \
-  "$AR $d/zero.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/zero.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/unknown.json" <<'JSON'
@@ -8199,7 +8199,7 @@ cat > "$d/unknown.json" <<'JSON'
 JSON
 probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
   "not in" \
-  "$AR $d/unknown.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/unknown.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 # `stat.json` is left unwritten on purpose: if `load_stat` ran before `check_liberty`, this
 # would report "does not exist" instead, so the message below can only appear when the
@@ -8207,12 +8207,12 @@ probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 probe "a missing liberty file is refused before the JSON is even opened" 1 \
   "no liberty file at" \
-  "$AR $d/stat.json --liberty $d/does-not-exist.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/does-not-exist.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); ar_stat "$d"
 probe "a liberty file that does not match the pinned digest is refused" 1 \
   "does not match the pinned digest" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 10"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/nodesign.json" <<'JSON'
@@ -8220,7 +8220,7 @@ cat > "$d/nodesign.json" <<'JSON'
 JSON
 probe "a report with no 'design' key at all is refused, not read as zero" 1 \
   "carries no 'design' totals" \
-  "$AR $d/nodesign.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/nodesign.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/badshape.json" <<'JSON'
@@ -8228,7 +8228,7 @@ cat > "$d/badshape.json" <<'JSON'
 JSON
 probe "a design entry missing area/num_cells/by_type is refused, not read as what is left" 1 \
   "not the area, num_cells and num_cells_by_type fields" \
-  "$AR $d/badshape.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/badshape.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/nanarea.json" <<'JSON'
@@ -8236,17 +8236,23 @@ cat > "$d/nanarea.json" <<'JSON'
 JSON
 probe "a non-finite area in the JSON is refused, not compared as if it were real" 1 \
   "is not a finite number" \
-  "$AR $d/nanarea.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/nanarea.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "a non-finite --max-um2 is refused before the ratchet compares anything" 2 \
   "not a finite, positive um2 budget" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 nan"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 nan"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "the trend against a recorded figure is printed beside the verdict" 0 \
   "TREND: +2.2" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+printf 'FAKE_INV\n' > "$d/excluded.cells"
+probe "a report that uses a cell the flow excludes is refused, not measured" 1 \
+  "uses cell type(s) the Tiny Tapeout" \
+  "$AR $d/stat.json --excluded $d/excluded.cells --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 begin_group "nano/timing_report.py"
 
@@ -8268,30 +8274,30 @@ EOF
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 probe "control: one register-file build reports its area and delay" 0 \
   "delay : 100.00 ps" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 tr_log "$d/flops.log" 100.00; tr_log "$d/latches.log" 200.00
 probe "control: both register-file builds are reported from one call" 0 \
   "delay : 200.00 ps" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha \
      --variant flops:$d/flops.log:$d/stat.json --variant latches:$d/latches.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 probe "a missing synthesis log is refused, not read as a zero-delay design" 1 \
   "no synthesis log at" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/missing.log:$d/stat.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/missing.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 : > "$d/noline.log"
 probe "a log with no ABC stime Delay line is refused" 1 \
   "carries no ABC" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/noline.log:$d/stat.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/noline.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
 probe "a missing stat.json is refused, not read as a zero-area design" 1 \
   "does not exist, so NOTHING was" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/missing.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/missing.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
 cat > "$d/badshape.json" <<'JSON'
@@ -8299,7 +8305,7 @@ cat > "$d/badshape.json" <<'JSON'
 JSON
 probe "a stat.json missing area/num_cells/by_type is refused, not read as what is left" 1 \
   "the area, num_cells and num_cells_by_type fields" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/badshape.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/badshape.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
 cat > "$d/unknown.json" <<'JSON'
@@ -8307,37 +8313,37 @@ cat > "$d/unknown.json" <<'JSON'
 JSON
 probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
   "not in" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/unknown.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/unknown.json"
 
 d=$(ar_liberty); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 probe "a liberty file that does not match the pinned digest is refused" 1 \
   "does not match the pinned digest" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
      --variant flops:$d/flops.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00; ar_stat "$d"
 probe "a missing liberty file is refused before any variant is read" 1 \
   "no liberty file at" \
-  "$TR --liberty $d/does-not-exist.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
+  "$TR --excluded /dev/null --liberty $d/does-not-exist.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 probe "a missing correlation record is refused, not silently skipped" 1 \
   "no correlation record at" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
      --flow-correlation $d/does-not-exist.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 printf '{"local_um2": 1.0}' > "$d/bare.json"
 probe "a correlation record missing a required field is refused" 1 \
   "correlation record with no provenance is not a correlation" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
      --flow-correlation $d/bare.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 tr_correlation "$d/corr.json"
 probe "control: the correlation prints its factor and both halves' provenance" 0 \
   "1.250x the local figure" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
      --flow-correlation $d/corr.json"
 
 begin_group "nano/srcs_guard.sh"
@@ -8373,12 +8379,16 @@ probe "a space in a source path does not split it into a second yosys argument" 
   "$SS_SCRIPT /tmp/lib.lib /dev/null 'a b/c.v'"
 
 probe "every excluded cell reaches dfflibmap and abc as -dont_use" 0 \
-  'dfflibmap -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"; abc -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"' \
+  'dfflibmap -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1; abc -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1' \
   "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $SS_SCRIPT /tmp/lib.lib $tmp/one.cells nano/nano.v"
 
 probe "a missing excluded-cell list is refused, not read as none" 1 \
   "refusing to measure cells the flow never uses" \
   "$SS_SCRIPT /tmp/lib.lib $tmp/no-such.cells nano/nano.v"
+
+probe "a cell name that is not a bare sky130 cell is refused, not spliced into the script" 1 \
+  "names something other than a sky130_fd_sc_hd cell" \
+  "printf 'x; bad\\n' > $tmp/bad.cells; $SS_SCRIPT /tmp/lib.lib $tmp/bad.cells nano/nano.v"
 
 begin_group "nano/timing_script.sh"
 
@@ -8401,12 +8411,16 @@ probe "a source list feeds read_verilog the same way synth_script.sh's does" 0 \
   "$TS_SCRIPT /tmp/lib.lib /dev/null /tmp/out.json a.v b.v"
 
 probe "every excluded cell reaches the timing run's dfflibmap and abc too" 0 \
-  'dfflibmap -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"; abc -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1" -script' \
+  'dfflibmap -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1; abc -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1 -script' \
   "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $TS_SCRIPT /tmp/lib.lib $tmp/one.cells /tmp/out.json nano/nano.v"
 
 probe "a missing excluded-cell list is refused by the timing run too" 1 \
   "refusing to measure cells the flow never uses" \
   "$TS_SCRIPT /tmp/lib.lib $tmp/no-such.cells /tmp/out.json nano/nano.v"
+
+probe "the timing run refuses a cell name that is not a bare sky130 cell too" 1 \
+  "names something other than a sky130_fd_sc_hd cell" \
+  "printf 'x; bad\\n' > $tmp/bad.cells; $TS_SCRIPT /tmp/lib.lib $tmp/bad.cells /tmp/out.json nano/nano.v"
 
 begin_group "make nano-liberty-setup"
 

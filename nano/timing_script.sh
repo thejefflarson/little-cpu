@@ -1,6 +1,6 @@
 #!/bin/sh
-# Prints `make nano-timing`'s yosys -p script: ABC's `stime -c` and `stat -liberty -json`
-# give delay and area from one run, over the cells the flow allows.
+# Prints `make nano-timing`'s yosys -p script, delay and area from one run; excluded cell
+# names go bare, since dfflibmap matches -dont_use literally, quotes included.
 liberty=$1
 excluded=$2
 stat_json=$3
@@ -14,7 +14,12 @@ srcs=""
 for f in "$@"; do
   srcs="$srcs \"$f\""
 done
-dont_use=$(grep -v -e '^#' -e '^[[:space:]]*$' "$excluded" | sort -u | sed 's/.*/ -dont_use "&"/' | tr -d '\n')
+cells=$(grep -v -e '^#' -e '^[[:space:]]*$' "$excluded" | sort -u)
+if printf '%s\n' "$cells" | sed '/^$/d' | grep -v -q -x -E 'sky130_fd_sc_hd__[a-z0-9_]+'; then
+  echo "error: '$excluded' names something other than a sky130_fd_sc_hd cell." >&2
+  exit 1
+fi
+dont_use=$(printf '%s\n' "$cells" | sed '/^$/d; s/.*/ -dont_use &/' | tr -d '\n')
 
 printf 'read_verilog -sv%s; hierarchy -auto-top; flatten -noscopeinfo; synth; dfflibmap -liberty "%s"%s; abc -liberty "%s"%s -script +strash;dch,-f;map,-B,0.2;topo;stime,-c; tee -o "%s" stat -liberty "%s" -json\n' \
   "$srcs" "$liberty" "$dont_use" "$liberty" "$dont_use" "$stat_json" "$liberty"
