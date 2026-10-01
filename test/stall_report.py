@@ -92,8 +92,10 @@ LS_SUBSETS = {
 # charges them (test/cxxrtl.cc).
 HAZARD_SPLIT = ["hzA", "hzB", "hzC"]
 HAZARD_CSR = "hzCcsr"
+REDIRECT_KEYS = ["commits", "jalr", "jalrret", "jalrredir", "otherredir", "jalrwin",
+                 "otherwin", "rashit1", "rassave1", "rashitdeep", "rassavedeep"]
 REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +
-            [LS_ISSUES] + list(LS_SUBSETS) + HAZARD_SPLIT + [HAZARD_CSR])
+            [LS_ISSUES] + list(LS_SUBSETS) + HAZARD_SPLIT + [HAZARD_CSR] + REDIRECT_KEYS)
 
 def parse(path):
     """`<program> key=value ...` per line. Returns a list of (name, counts)."""
@@ -176,6 +178,16 @@ def main():
         if counts[key] > counts[LS_ISSUES]
     ]
 
+    redirect_chain = [("jalrret", "jalr"), ("jalr", "commits"), ("jalrredir", "jalr"),
+                      ("rashit1", "rashitdeep"), ("rashitdeep", "jalrret"),
+                      ("rassave1", "jalrwin"), ("rassavedeep", "jalrwin")]
+    redirect_broken = [
+        f"  {name}: {sub} is {counts[sub]} against {sup} {counts[sup]}"
+        for name, counts in rows
+        for sub, sup in redirect_chain
+        if counts[sub] > counts[sup]
+    ]
+
     width = max(len(name) for name, _ in rows)
     header = f"{'PROGRAM':<{width}} {'CYCLES':>8} {'RETIRED':>8} {'CPI':>6} {'ISSUE':>8}"
     header += "".join(f"{HEADINGS[r]:>9}" for r in REASONS)
@@ -247,6 +259,33 @@ def main():
         "neither costs a cycle any more -- they are reported as workload locality\n"
         "measurements, not as stall causes."
     )
+    def of(n, d):
+        return f"{100 * n / d:.2f}%" if d else "-"
+
+    t = total
+    print()
+    print("== jalr and the return-address guess ==")
+    print()
+    print(
+        f"{t['jalr']} of {t['commits']} committed instructions are jalr "
+        f"({of(t['jalr'], t['commits'])}); {t['jalrret']} of them ({of(t['jalrret'], t['jalr'])}) "
+        f"are returns (rd = x0, rs1 = x1 or x5)."
+    )
+    print(
+        f"{t['jalrredir']} jalr redirected, costing {t['jalrwin']} idle cycles in X "
+        f"({of(t['jalrwin'], t['cycles'])} of all cycles); the {t['otherredir']} other redirects "
+        f"(branch and jal misses, traps, mret) cost {t['otherwin']} ({of(t['otherwin'], t['cycles'])})."
+    )
+    print(
+        f"A one-entry return register would hit {t['rashit1']} of {t['jalrret']} returns "
+        f"({of(t['rashit1'], t['jalrret'])}) and save {t['rassave1']} cycles "
+        f"({of(t['rassave1'], t['cycles'])})."
+    )
+    print(
+        f"A 64-entry stack, the nesting-free bound, would hit {t['rashitdeep']} "
+        f"({of(t['rashitdeep'], t['jalrret'])}) and save {t['rassavedeep']} cycles "
+        f"({of(t['rassavedeep'], t['cycles'])})."
+    )
     print()
     print(args.workload)
     print()
@@ -266,6 +305,15 @@ def main():
             + "\n*** Every cycle is charged to exactly one column by the runner,\n"
             "*** so this is a field name that has drifted between test/cxxrtl.cc\n"
             "*** and this script, not a slower core."
+        )
+
+    if redirect_broken:
+        sys.exit(
+            "\n*** a redirect counter is larger than the set it is a subset of:\n"
+            + "\n".join(redirect_broken)
+            + "\n*** test/cxxrtl.cc's RedirectAccount counts all of them on X's own\n"
+            "*** resolving cycles, so this is a counter reading a different event\n"
+            "*** than the one it is named for, not a workload."
         )
 
     if ls_broken:

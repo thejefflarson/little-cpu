@@ -646,7 +646,8 @@ and `make compare-coremark` print that block arithmetic every run, and ADR-0098 
 distortions. `soc/compare/product.json` carries a `base` that is a commit on `main`, which is why
 the stamp is taken by the weekly `.github/workflows/compare-product-schedule.yml` dispatched on
 `main` and not on a PR branch: this repo squash-merges and deletes branches, so no checkout could
-resolve a PR-branch commit once merged. Two graded checks stand in front of every number:
+resolve a PR-branch commit once merged; the workflow pushes the branch that carries the stamp and
+opens an issue linking it, and a person opens the PR (ADR-0233). Two graded checks stand in front of every number:
 `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of the core's own
 synthesis — an all-NOP image once placed a quarter of this core with a plausible critical path
 beside it (ADR-0086) — and `make compare-smoke` requires all three cores to publish the same
@@ -732,7 +733,7 @@ between the two cores at the ISA they share *widens* rather than narrows: VexRis
   and slower in nanoseconds. `soc/depth/path_stages.py` attributes a path, not a decision, and its
   level count orders nothing (ADR-0116); `soc/routing_bins.py` shows the routing on the fetch
   path was flat, with no long hop and no column to pin (ADR-0114). The SoC is routing-dominated
-  and **there is no single lever**: reading `soc.timing.rpt` finds candidates, not wins.
+  and **there is no single lever**: reading `build/soc.timing.rpt` finds candidates, not wins.
   **Measure the whole set**: a ceiling over one term bounds only that term, and a ceiling is as
   perishable as a CPI cost, so re-take either on the tree you mean to spend it in.
 - **A machine with spare cores and a CI pod saturated at its quota are different instruments.**
@@ -778,7 +779,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
                     # compare-product-schedule-publish, stall-sites, pin-help-text,
-                    # formal-ci-coverage)
+                    # formal-ci-coverage, yosys-script-oneline, tmp-path)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-startup-test, nano-littlecpu-test and
                     # nano-qspi-loop-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
@@ -819,9 +820,9 @@ make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entr
                     # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.
                     # SOC_SEARCH_SEEDS overrides the seed list, SOC_SEARCH_COUNT the
                     # default draw's size
-make bitstream      # icepack the board wrapper into board.bin; BOARD_OSC=internal uses
+make bitstream      # icepack the board wrapper into build/board.bin; BOARD_OSC=internal uses
                     # SB_HFOSC instead of the crystal. No board needed
-make prog           # iceprog board.bin onto the UPduino; root on macOS
+make prog           # iceprog build/board.bin onto the UPduino; root on macOS
 make suite-board    # the .S suite on the part, in batches, read back over the UART; root
 make dhrystone-board # Dhrystone built for the board; flash with `make prog`, read the UART
 make coremark-board # CoreMark built for the up5k at COREMARK_UP5K_CFLAGS (-Os -flto, not
@@ -874,7 +875,7 @@ make compare-product # both factors of every cross-core pair in one run, stamped
                     # soc/compare/product.json with the commit, seeds and CFLAGS behind
                     # each number. COMPARE_PRODUCT_SEEDS picks the sweep (twelve by
                     # default). Not a gate, not on CI -- a scheduled workflow re-takes
-                    # it weekly and opens a PR when it moved
+                    # it weekly and opens an issue when it moved
 
 make -C formal check                # the generated riscv-formal checks, always a fresh run;
                                     # both tie-off checks are prerequisites
@@ -1022,6 +1023,13 @@ a decision was measured against them. `nproc` and `free` inside a pod report the
   done. Elaboration succeeding is not a substitute.
 - **Never commit build artifacts** (`test/rtl.cc`, `sim`, `*.vvp`, `*.vcd`, `rvfi_macros.vh`,
   `formal/` output dirs). `test/monitor.v` is the one deliberate exception.
+- **Scratch goes in the worktree; downloaded tools go in `~/.cache/little-cpu`.** The question that
+  sorts them is whether two worktrees would want the same bytes: a downloaded tool, yes; a build
+  product or a log someone reads afterwards, no, and it belongs under the gitignored `build/`
+  (`$(BUILD)`), where one worktree cannot overwrite another. `mktemp` is for a file nothing reads
+  after the script exits. `test/tmp_path_test.sh` refuses a literal `/tmp/` in a tracked Makefile or
+  shell script. It cannot see an ad-hoc command, so `make test > …` and its kin write under the
+  worktree or the session's scratch directory, never a fixed `/tmp` name.
 - **riscv-formal is SHA-pinned.** A pin bump regenerates `test/monitor.v`, re-runs the generated
   checks, and re-derives the sanitizer's site counts and `COMPLETE_EXCLUSIONS` rather than editing
   them to silence a failure.
@@ -1108,9 +1116,10 @@ is among the retired fetch-loop dead ends under Measurements.
 flows `chparam` it before `hierarchy`, so a wider ROM is one override rather than an
 edit; at 4096 words the LFE5U-25F reads `DP16KD` 36 → 40 of 56 and Fmax 35.11 → 34.78 MHz,
 a null. The default is unchanged, so every existing target is a no-op. **Keep every
-`yosys -p` script that names `SOC_ROM_CHPARAM` on ONE line**: a backslash-newline inside
-the single quotes is not a shell continuation, both characters reach yosys, and it stops
-with `No such command: \`.
+multi-command `yosys -p` script on ONE line**: a backslash-newline inside the quotes is
+stripped by GNU Make 3.81 (macOS) but reaches yosys under 4.x (the runners), which stops
+with `No such command: \`. `test/yosys_script_oneline_test.py` refuses the pattern in the
+Makefile and `nano/*.mk` on `make test`.
 
 **8 KB of text is the ceiling on the up5k, and it is the fetch loop's, not the part's.** `rtl/imemory.v`
 refuses a `ROM_WORDS` that is not a power of two because both its range tests are reductions on the

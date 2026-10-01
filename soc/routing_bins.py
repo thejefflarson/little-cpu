@@ -33,7 +33,7 @@ touch that thing.
 Usage: routing_bins.py <baseline_sweep.sh CSV> <synth JSON> [--top littlesoc]
 
 The sweep keeps a report per seed and does not keep the netlist those seeds were
-placed from, because synthesis does not depend on the seed. Re-make `soc.json`
+placed from, because synthesis does not depend on the seed. Re-make `build/soc.json`
 at the sweep's own base commit rather than reaching for whichever one is lying
 around: a netlist from another tree resolves some of the names and quietly
 leaves the rest in the `neither` bin.

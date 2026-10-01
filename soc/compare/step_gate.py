@@ -21,7 +21,7 @@ never averaged and never merged.
 Reads the same `icetime -r` report `make compare-timing` already writes, through
 soc/timing_split.py's walk rather than a second parser of its own.
 
-  step_gate.py compare.littlecpu.timing.rpt --core littlecpu --step 12.0
+  step_gate.py build/compare.littlecpu.timing.rpt --core littlecpu --step 12.0
 """
 
 import argparse
