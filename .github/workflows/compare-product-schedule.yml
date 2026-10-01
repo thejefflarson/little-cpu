@@ -1,9 +1,8 @@
 name: Cross-core product re-take
 
-# Weekly, re-measures every cross-core throughput pair soc/compare/ knows -- Dhrystone
-# against VexRiscv and CoreMark against VexRiscv and Hazard3, on both up5k and ECP5 --
-# and opens a pull request only when the OLD stamp would have called itself stale against
-# the tree this run checked out.
+# Weekly, re-measures every cross-core throughput pair soc/compare/ knows, on both up5k and
+# ECP5, and publishes only when the OLD stamp would have called itself stale. It opens an
+# ISSUE linking a pushed branch: a PR opened with the workflow's own token gets no CI.
 on:
   schedule:
     - cron: "23 5 * * 1" # weekly, Monday
@@ -11,12 +10,13 @@ on:
 
 permissions:
   contents: write # git push, for the branch carrying the refreshed stamp
-  pull-requests: write # gh pr create
+  issues: write # gh issue create
+  pull-requests: read # gh pr list, for the already-open guard
 
 jobs:
   re-take:
     name: re-take
-    # workflow_dispatch can target any ref; this job pushes a branch and opens a PR,
+    # workflow_dispatch can target any ref; this job pushes a branch and opens an issue,
     # so it only ever measures and publishes from main.
     if: github.ref == 'refs/heads/main'
     runs-on: little-cpu-runners
@@ -25,7 +25,10 @@ jobs:
     timeout-minutes: 300
     steps:
       - name: Record job start
-        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+        run: |
+          echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/compare-product"
+          echo "OUT_DIR=$RUNNER_TEMP/compare-product" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,9 +44,9 @@ jobs:
       - name: Save the currently committed stamp
         run: |
           if [ -f soc/compare/product.json ]; then
-            cp soc/compare/product.json /tmp/product.before.json
+            cp soc/compare/product.json "$OUT_DIR/product.before.json"
           else
-            echo '{}' > /tmp/product.before.json
+            echo '{}' > "$OUT_DIR/product.before.json"
           fi
 
       - name: make compare-product
@@ -53,8 +56,10 @@ jobs:
         id: diff
         run: |
           set -euo pipefail
-          python3 soc/compare/product_diff.py /tmp/product.before.json soc/compare/product.json \
-            | tee /tmp/product-diff.md
+          python3 soc/compare/product_diff.py "$OUT_DIR/product.before.json" soc/compare/product.json \
+            > "$OUT_DIR/product-diff.md"
+          cat "$OUT_DIR/product-diff.md"
+          cp soc/compare/product.json "$OUT_DIR/product.json"
 
           # `make print-VAR` never errors on a VAR this tree does not define --
           # it echoes an empty line (Makefile's print-% recipe) -- so a tree
@@ -120,7 +125,7 @@ jobs:
           # to be news" and the run looks identical to a clean negative, which
           # is the shape of silence this whole step exists to avoid.
           set +e
-          python3 soc/compare/product_diff.py /tmp/product.before.json \
+          python3 soc/compare/product_diff.py "$OUT_DIR/product.before.json" \
                soc/compare/product.json --require-news --repo . \
                "${current_args[@]}"
           rc=$?
@@ -133,13 +138,10 @@ jobs:
           esac
 
       - name: Upload the freshly measured stamp
-        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: compare-product-stamp
-          path: |
-            soc/compare/product.json
-            /tmp/product-diff.md
+          path: ${{ env.OUT_DIR }}
           if-no-files-found: warn
           retention-days: 14
 
@@ -150,46 +152,18 @@ jobs:
             echo "### Cross-core product re-take: no change"
             echo
             echo "Re-measured $(date -u '+%Y-%m-%dT%H:%M:%SZ'); nothing moved enough to be"
-            echo "news. Not opening a PR."
+            echo "news. Not publishing."
             echo
-            cat /tmp/product-diff.md
+            cat "$OUT_DIR/product-diff.md"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Open a PR with the refreshed stamp
+      - name: Publish the refreshed stamp
         if: steps.diff.outputs.moved == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
           gh auth setup-git
-          branch="compare-product/refresh-$(date -u +%Y%m%d)-$GITHUB_RUN_ID"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add soc/compare/product.json
-          {
-            echo "Refresh the cross-core product stamp"
-            echo
-            cat /tmp/product-diff.md
-          } > /tmp/commit-message.md
-          git commit -F /tmp/commit-message.md
-          git push --quiet origin "$branch"
-          {
-            cat /tmp/product-diff.md
-            echo
-            echo "Machine-refreshed by \`.github/workflows/compare-product-schedule.yml\`."
-            echo "This PR only updates \`soc/compare/product.json\`. CLAUDE.md's cross-core"
-            echo "paragraph and any ADR that quotes this pair's numbers still need a"
-            echo "person to read this diff and decide whether the prose needs updating --"
-            echo "see CLAUDE.md's own rule that numbers there stay hand-written."
-          } > /tmp/pr-body.md
-          gh pr create --title "Refresh the cross-core product stamp ($(date -u +%Y-%m-%d))" \
-            --body-file /tmp/pr-body.md --head "$branch" --base main
-          {
-            echo "### Cross-core product re-take: opened a PR"
-            echo
-            cat /tmp/product-diff.md
-          } >> "$GITHUB_STEP_SUMMARY"
+          .github/scripts/publish-product-refresh.sh "$OUT_DIR"
 
       - name: Report job wall time
         if: always()
