@@ -40,7 +40,7 @@ fi
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
 
-python3 "$REPO/nano/gl_census.py" "$NETLIST" --includes "$WORKDIR/cells.v"
+python3 "$REPO/nano/gl_census.py" "$NETLIST" --require dlclkp --includes "$WORKDIR/cells.v"
 
 # shellcheck disable=SC2086
 "$CC" $CFLAGS -nostdlib -I "$REPO/test/asm" -T "$REPO/nano/tb/asm/nano_tt.lds" \

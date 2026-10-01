@@ -68,8 +68,8 @@ nano-liberty-setup:
 	fi; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Re-derived when the instrument stopped running clockgate and started excluding the cells the flow excludes: 78,965.7 um2, a ranking between RTL versions and never a fit, which only a flow run with gate-level simulation says. Stepped down for Tier 3's four removed states and merged address registers: 73,137.6 um2 against the prior 78,965.7, both on this instrument, keeping the prior step's 2,034.3 um2 of headroom.
-override NANO_MAX_UM2 := 75200
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Re-derived when the register file, the CSRs, op_rs1 and the fetched word moved onto hand-instantiated clock gates: 66,998.0 um2 against 75,082.0 on the same instrument without them, with the prior step's 2,034.3 um2 of headroom. A ranking between RTL versions, never a fit, which only a flow run with gate-level simulation says.
+override NANO_MAX_UM2 := 69100
 
 NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
              nano/tt/src/tt_um_thejefflarson_nanocpu.v
@@ -83,7 +83,8 @@ nano-area:
 	yosys -p "$$(nano/synth_script.sh '$(NANO_LIBERTY)' '$(NANO_EXCLUDED_CELLS)' $(NANO_SRCS))" \
 	  > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }; \
 	python3 nano/area_report.py nano/area.json --liberty '$(NANO_LIBERTY)' \
-	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --max-um2 '$(NANO_MAX_UM2)'
+	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --max-um2 '$(NANO_MAX_UM2)' \
+	  --excluded '$(NANO_EXCLUDED_CELLS)'
 
 # Area and delay both come out of one synthesis run; no ratchet, since this ranks RTL versions against each other rather than gating either figure.
 .PHONY: nano-timing
@@ -95,9 +96,20 @@ nano-timing:
 	yosys -p "$$(nano/timing_script.sh '$(NANO_LIBERTY)' '$(NANO_EXCLUDED_CELLS)' nano/timing.flops.json $(NANO_SRCS))" \
 	  > nano/timing.flops.log 2>&1 || { tail -40 nano/timing.flops.log; exit 1; }; \
 	python3 nano/timing_report.py --liberty '$(NANO_LIBERTY)' \
-	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' \
+	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --excluded '$(NANO_EXCLUDED_CELLS)' \
 	  --variant flops:nano/timing.flops.log:nano/timing.flops.json \
 	  --flow-correlation nano/timing_flow_correlation.json
+
+NANO_GL_NETLIST := nano/gl-local/nano.nl.v
+
+.PHONY: nano-gl-local-netlist
+nano-gl-local-netlist: nano-liberty-setup
+	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
+	if [ $$rc -eq 2 ]; then exit 0; fi; \
+	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
+	mkdir -p nano/gl-local; \
+	yosys -q -l nano/gl-local/synth.log -p "$$(nano/flow_netlist_script.sh '$(NANO_LIBERTY)' '$(NANO_EXCLUDED_CELLS)' '$(NANO_GL_NETLIST)' $(NANO_SRCS))" \
+	  > nano/gl-local/synth.stdout 2>&1 || { tail -40 nano/gl-local/synth.stdout; exit 1; }
 
 # The sky130_fd_sc_hd behavioral Verilog a gate-level simulation reads, pinned like the liberty above.
 ifneq ($(filter command line environment,$(origin NANO_SKY130_VERILOG_COMMIT)),)

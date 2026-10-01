@@ -167,6 +167,8 @@ nano/tb/nano-tt-test/
 nano/tb/nano-uio-oe-probe/
 nano/tb/nano-gl-test/
 nano/tb/nano-gl-gate-probe/
+nano/tb/nano-gl-stuck-gate-probe/
+nano/gl-local/
 nano/gl-census-probe/
 tools/
 test/a.out.dSYM/

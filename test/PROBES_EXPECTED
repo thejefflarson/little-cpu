@@ -117,6 +117,7 @@ a capitalised spelling is the same word and is caught too
 a carry hop is counted apart from a LUT level
 a casing keyword the table does not define stops rather than guessing
 a cause proof going red somewhere else is not evidence either
+a cell name that is not a bare sky130 cell is refused, not spliced into the script
 a cell type outside the read liberty is refused, not priced at zero
 a cell type outside the read liberty is refused, not priced at zero
 a cell type that moved is reported as a count, both ways
@@ -436,6 +437,7 @@ a repo root with no Makefile is red before anything is parsed
 a repo with no .github/workflows is red rather than a scan of nothing
 a report naming some other clock does not stand in for this one
 a report that does not exist is named, not read as zero
+a report that uses a cell the flow excludes is refused, not measured
 a report under the floor fails, because the floor is the board clock
 a report with no 'design' key at all is refused, not read as zero
 a report with no routing hop in it is a failed read, not a wired design
@@ -764,6 +766,7 @@ control: an untracked file is out of scope and does not fail the build
 control: and names the corner and constraint it was placed against
 control: another commit's canonical netlist is built from its own tree
 control: block RAM resets tied to a constant are green
+control: dlclkp_1, which nano_gated_reg instantiates by hand, is accepted though excluded
 control: the Zkt-isolation assertion fails at its own line
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
@@ -866,6 +869,9 @@ excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
 half of a macro-guarded group is red, where none of it is not
+only dlclkp_1 is let through: another excluded clock gate is refused
+the area run defines the flow's SCL and reads the liberty as a library, so the hand-placed clock gates survive
+the timing run defines the flow's SCL and reads the liberty as a library too
 x_busy reading mul_div_counter directly is red (finding 1)
 hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
@@ -1052,6 +1058,7 @@ the third core's ROM drifting behind the other two is red
 the timer address the programs arm is checked against the timer
 the timer moving in the core's copy alone is red
 the timer moving in the proof's copy alone is red
+the timing run refuses a cell name that is not a bare sky130 cell too
 the trend against a recorded figure is printed beside the verdict
 the trend against the recorded count is printed beside the verdict
 the two definitions the predicates are built from are pinned literally

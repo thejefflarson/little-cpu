@@ -1,6 +1,6 @@
 # ADR-0219: nano uses the Tiny Tapeout flow as shipped
 
-**Status:** Accepted · 2026-09-30 · supersedes ADR-0213
+**Status:** Accepted · 2026-09-30 · supersedes ADR-0213; its "no clock gating" decision is superseded by ADR-0224
 
 ## Context
 
@@ -73,3 +73,23 @@ register reaches a default-flow netlist, and still clocks through `buf_1` and `b
 - Overriding the PDK's cell lists to allow `edfxtp_1` was considered and not tried: it is another
   change to the flow rather than to the design, and the lists' reason for excluding `_1` cells is
   a drive-strength policy this repo has not measured.
+
+## Amendment 1 (2026-09-30): the flip-flop exclusions did not take effect
+
+The instrument as first merged passed each excluded cell to `dfflibmap` and `abc` as
+`-dont_use "name"`. `abc` strips the quotes; `dfflibmap` matches the name literally, quotes
+included, so no flip-flop was ever excluded. On Tier 3's tree the result still held 577
+`edfxtp_1` and 467 `dfxtp_1`, both of which the flow forbids. The probes graded only the
+script's text, so none could see it.
+
+Both scripts now pass the names bare, and refuse a list holding anything but a
+`sky130_fd_sc_hd__` cell name. `nano/area_report.py` and `nano/timing_report.py` now read the
+list too and refuse a report that uses any cell on it. That grades the outcome, and a probe
+forces it red.
+
+With the exclusions in effect, the same RTL (main after Tier 3) reads 75,082.0 µm² against
+73,137.6, with every enabled flop now a `dfxtp_2` behind a `mux2_1`, which is what the flow
+builds. `NANO_MAX_UM2` moves to 77,100. The figures in this ADR's decision and in ADR-0218's
+table were taken with the flops unexcluded. Their ranking holds, since every row used the
+same instrument, but their absolute values do not.
+

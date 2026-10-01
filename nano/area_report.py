@@ -93,7 +93,20 @@ def load_stat(path, target_name="nano-area"):
     return design
 
 
-def validate_design(design, stat_path, liberty_path, liberty_cells, target_name="nano-area"):
+# The PDK lists this cell as excluded from synthesis, but nano_gated_reg instantiates it by hand,
+# which dfflibmap and abc never see, so the mapped netlist holds it.
+CLOCK_GATE_CELLS = {"sky130_fd_sc_hd__dlclkp_1"}
+
+
+def read_excluded(path, target_name="nano-area"):
+    try:
+        with open(path) as f:
+            return {line.strip() for line in f if line.strip() and not line.startswith("#")}
+    except FileNotFoundError:
+        sys.exit(f"*** make {target_name}: no excluded-cell list at {path}.")
+
+
+def validate_design(design, stat_path, liberty_path, liberty_cells, excluded_cells, target_name="nano-area"):
     """Checks one `stat -liberty -json` `design` entry against every shape of "nothing
     was measured". `nano/timing_report.py` shares this with `summarise` below, since
     both read the same report shape off a different ABC script's own mapping.
@@ -141,6 +154,15 @@ def validate_design(design, stat_path, liberty_path, liberty_cells, target_name=
             "*** `stat -liberty` would otherwise silently price at zero."
         )
 
+    forbidden = sorted((set(by_type) & excluded_cells) - CLOCK_GATE_CELLS)
+    if forbidden:
+        sys.exit(
+            f"*** make {target_name}: {stat_path} uses cell type(s) the Tiny Tapeout\n"
+            f"*** flow excludes from synthesis: {', '.join(forbidden)}.\n"
+            "*** A figure built from cells the flow never places measures a different\n"
+            "*** chip; the synthesis script is not applying the excluded-cell list."
+        )
+
     return {
         "area": float(area),
         "sequential_area": float(design.get("sequential_area", 0.0)),
@@ -149,10 +171,13 @@ def validate_design(design, stat_path, liberty_path, liberty_cells, target_name=
     }
 
 
-def summarise(stat_path, liberty_path, liberty_sha256, max_um2):
+def summarise(stat_path, liberty_path, liberty_sha256, excluded_path):
     liberty_cells = check_liberty(liberty_path, liberty_sha256, target_name="nano-area")
+    excluded_cells = read_excluded(excluded_path)
     design = load_stat(stat_path)
-    return validate_design(design, stat_path, liberty_path, liberty_cells, target_name="nano-area")
+    return validate_design(
+        design, stat_path, liberty_path, liberty_cells, excluded_cells, target_name="nano-area"
+    )
 
 
 def finite_positive_um2(raw):
@@ -184,13 +209,16 @@ def main():
         "--max-um2", type=finite_positive_um2, required=True, help="NANO_MAX_UM2 budget"
     )
     parser.add_argument(
+        "--excluded", required=True, help="the cells the flow excludes from synthesis"
+    )
+    parser.add_argument(
         "--previous", type=float,
         help="the figure NANO_MAX_UM2 was last derived from, printed as a trend. "
         "Diagnostic only -- it never changes the exit status.",
     )
     args = parser.parse_args()
 
-    s = summarise(args.stat_json, args.liberty, args.liberty_sha256, args.max_um2)
+    s = summarise(args.stat_json, args.liberty, args.liberty_sha256, args.excluded)
     area, num_cells = s["area"], s["num_cells"]
 
     print(f"cells         : {num_cells}")

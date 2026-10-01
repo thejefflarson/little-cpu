@@ -1,5 +1,5 @@
 #!/bin/bash
-# Ties the fixture's real enabled flop's enable low and requires it to stop toggling.
+# Forces the fixture's real dlclkp_1 GATE low and requires its counter to stop counting.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -24,8 +24,8 @@ mutant="$WORKDIR/fixture.mutant.v"
 python3 - "$FIXTURE" "$mutant" <<'PYEOF'
 import sys
 src = open(sys.argv[1]).read()
-old = "sky130_fd_sc_hd__mux2_1 hold_or_flip (.X(next), .A0(q), .A1(q_n), .S(enable));"
-new = "sky130_fd_sc_hd__mux2_1 hold_or_flip (.X(next), .A0(q), .A1(q_n), .S(1'b0));"
+old = "sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(gclk), .GATE(gate), .CLK(clk_b2));"
+new = "sky130_fd_sc_hd__dlclkp_1 icg (.GCLK(gclk), .GATE(1'b0), .CLK(clk_b2));"
 if old not in src:
     sys.exit("error: nano_gl_gate_probe_fixture.v no longer spells the enable "
               "connection this probe mutates -- re-anchor it.")
@@ -37,12 +37,12 @@ if cmp -s "$FIXTURE" "$mutant"; then
 fi
 
 run() {  # $1 = fixture path, $2 = output vvp path
-  python3 "$REPO/nano/gl_census.py" "$1" --includes "$2.cells.v" >/dev/null
+  python3 "$REPO/nano/gl_census.py" "$1" --require dlclkp --includes "$2.cells.v" >/dev/null
   iverilog -g2012 -D FUNCTIONAL '-DUNIT_DELAY=#1' -I "$CELL_DIR" -o "$2" "$2.cells.v" "$1"
   vvp "$2"
 }
 
-echo "control: enable driven high"
+echo "control: GATE driven high"
 out=$(run "$FIXTURE" "$WORKDIR/control.vvp")
 echo "$out"
 if ! printf '%s\n' "$out" | grep -q '^PASS'; then
@@ -52,13 +52,13 @@ if ! printf '%s\n' "$out" | grep -q '^PASS'; then
 fi
 
 echo
-echo "mutant: enable tied to a constant 0"
+echo "mutant: GATE forced to a constant 0"
 out=$(run "$mutant" "$WORKDIR/mutant.vvp")
 echo "$out"
 if ! printf '%s\n' "$out" | grep -q '^FAIL'; then
-  echo "*** a flop whose enable is tied low still toggled." >&2
+  echo "*** a dlclkp cell with GATE stuck low still let its counter advance." >&2
   exit 1
 fi
 
 echo
-echo "the real cell models catch a stuck enable: the shipping fixture toggles, the mutant does not."
+echo "the real dlclkp_1 model catches a stuck-low GATE: the shipping fixture counts, the mutant does not."

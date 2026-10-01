@@ -164,6 +164,11 @@ nano-gl-test: nano-sky130-verilog-setup nano-gl-gate-probe nano-gl-census-probe
 	  exit 2; \
 	fi
 	@./nano/tb/run_nano_gl_test.sh '$(NANO_CFLAGS)' '$(NETLIST)' '$(NANO_SKY130_VERILOG_DIR)'
+	@./nano/tb/nano_gl_stuck_gate_probe.sh '$(NANO_CFLAGS)' '$(NETLIST)' '$(NANO_SKY130_VERILOG_DIR)'
+
+.PHONY: nano-gl-local
+nano-gl-local: nano-gl-local-netlist
+	@$(MAKE) --no-print-directory nano-gl-test NETLIST='$(NANO_GL_NETLIST)'
 
 # nano-qspi-resume-test's reproduction, plus one clk of injected round-trip latency. On `make test`'s path.
 nano/tb/nano_qspi_latency.vvp: $(NANO_QSPI_RESUME_SRCS)
