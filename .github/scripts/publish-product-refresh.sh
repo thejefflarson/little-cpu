@@ -1,7 +1,6 @@
 #!/bin/bash
-# Commits the refreshed cross-core stamp to a branch, pushes it, and opens an issue that
-# links the compare page. A pull request opened by the workflow's own token gets no CI,
-# so a person opens it from that link. Skips when a refresh is already open.
+# Pushes the refreshed stamp to a branch and opens an issue linking its compare page, since
+# a PR opened with the workflow's own token gets no CI. Skips when a refresh is open.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
@@ -28,8 +27,8 @@ summary() {
 
 open_issues=$(gh issue list --state open --limit 200 --json number,title \
   --jq ".[] | select(.title | startswith(\"$TITLE_PREFIX\")) | \"#\\(.number)\"")
-open_prs=$(gh pr list --state open --limit 200 --json number,headRefName \
-  --jq ".[] | select(.headRefName | startswith(\"$BRANCH_PREFIX\")) | \"#\\(.number)\"")
+open_prs=$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
+  --jq ".[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$BRANCH_PREFIX\"))) | \"#\\(.number)\"")
 if [ -n "$open_issues$open_prs" ]; then
   {
     echo "### Cross-core product re-take: a refresh is already open"

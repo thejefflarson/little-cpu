@@ -8,6 +8,10 @@ on:
     - cron: "23 5 * * 1" # weekly, Monday
   workflow_dispatch:
 
+concurrency:
+  group: compare-product-schedule
+  cancel-in-progress: false
+
 permissions:
   contents: write # git push, for the branch carrying the refreshed stamp
   issues: write # gh issue create
