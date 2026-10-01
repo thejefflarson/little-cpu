@@ -6,11 +6,12 @@ cd "$ROOT"
 RISCV_GCC_CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu
 export PATH="$RISCV_GCC_CACHE/riscv-gcc/bin:$RISCV_GCC_CACHE/oss-cad-suite/bin:$PATH"
 
+mkdir -p build
 # How much of the 8192-byte ROM a batch's PROGRAMS may fill.
 DRIVER_BYTES=$(riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
-                 -DBOARD_SUITE -I test/asm -c -o /tmp/.drv.$$.o test/board/board_suite.S 2>/dev/null \
-               && riscv-none-elf-size /tmp/.drv.$$.o | awk 'NR==2{print $1+$2}')
-rm -f /tmp/.drv.$$.o
+                 -DBOARD_SUITE -I test/asm -c -o build/.drv.$$.o test/board/board_suite.S 2>/dev/null \
+               && riscv-none-elf-size build/.drv.$$.o | awk 'NR==2{print $1+$2}')
+rm -f build/.drv.$$.o
 : "${DRIVER_BYTES:=512}"
 BUDGET=${BUDGET:-$(( 8192 - DRIVER_BYTES - 600 ))}
 READ_MS=${READ_MS:-8000}
@@ -19,11 +20,11 @@ OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteboard.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
 
 # RESULTS ARE WRITTEN AS THEY ARRIVE, to a path that outlives this script.
-RESULTS=${RESULTS:-/tmp/suite_board_results.txt}
+RESULTS=${RESULTS:-build/suite_board_results.txt}
 : > "$RESULTS"
 # Every raw capture, kept. Diagnosing a missing verdict without the bytes means
 # re-running the suite, and the suite takes minutes.
-RAWDIR=${RAWDIR:-/tmp/suite_board_raw}
+RAWDIR=${RAWDIR:-build/suite_board_raw}
 rm -rf "$RAWDIR"; mkdir -p "$RAWDIR"
 
 # rvc.S is 12256 bytes and does not fit an 8192-byte ROM even alone.

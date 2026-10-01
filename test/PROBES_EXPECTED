@@ -216,6 +216,8 @@ a file the manifest stopped naming is red before shasum ever runs
 a file the manifest stopped naming is red before shasum ever runs
 a file with no row in the index is named as orphaned
 a file with two rows in the index is named
+a fixed /tmp/ scratch name in a script is red, and located
+a fixed /tmp/ scratch name in the Makefile is red, and located
 a fixture that opens its body on the head line is still inspected
 a floor line that is neither a number nor EXCLUDED is named
 a floor line this loop cannot parse is a floor that is not enforced
@@ -559,6 +561,8 @@ a term with no allow-list behind it stops rather than grading nothing
 a testbench simulating a different map than the image is linked for is red
 a tie-off at every harness that no baseline declares is red
 a timer base aligned only for one hart is red
+a tmp-path allow-list entry whose site lost its /tmp/ is red
+a tmp-path scan of a tree git cannot list is red, not green
 a token handed to a step other than the publish step is red
 a token handed to the step that executes upstream code is red
 a tool that exits nonzero while printing is refused on its status
@@ -864,6 +868,7 @@ control: the shipping pin-bump workflow keeps credentials off the upstream-code 
 control: the shipping publish step really reaches gh pr create
 control: the shipping schedule workflow confines its credential to the publish step
 control: the shipping tree has no fallback search outside its exceptions
+control: the shipping tree has no literal /tmp/ outside its exceptions
 control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
 control: the shipping tree names the seven stall signals and the six CPI reasons consistently

@@ -9000,6 +9000,47 @@ d=$(new_case)
 probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
   "cannot enumerate any tracked files" "$RGS $d"
 
+begin_group "test/tmp_path_test.sh"
+
+TPT="$HERE/tmp_path_test.sh"
+
+tpt_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/tmp_path_test.sh" "$d/test/"
+  cp "$REPO/soc/uart_baud_sweep.sh" "$d/soc/"
+  cp "$REPO/Makefile" "$d/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(tpt_fixture)
+probe "control: the shipping tree has no literal /tmp/ outside its exceptions" 0 \
+  "no literal /tmp/ path" "$TPT $d"
+
+d=$(tpt_fixture)
+mutate "$d/soc/uart_baud_sweep.sh" 's|"\$ERR"|/tmp/uartsweep.err|'
+git -C "$d" add -A
+probe "a fixed /tmp/ scratch name in a script is red, and located" 1 \
+  "soc/uart_baud_sweep.sh:" "$TPT $d"
+
+d=$(tpt_fixture)
+mutate "$d/Makefile" 's|write_cxxrtl \$(BUILD)/elaborate-strict.cc|write_cxxrtl /tmp/elaborate-strict.cc|'
+git -C "$d" add -A
+probe "a fixed /tmp/ scratch name in the Makefile is red, and located" 1 \
+  "Makefile:" "$TPT $d"
+
+d=$(tpt_fixture)
+mutate "$d/test/probe_gates.sh" 's|/tmp/|/scratch/|g'
+git -C "$d" add -A
+probe "a tmp-path allow-list entry whose site lost its /tmp/ is red" 1 \
+  "the allow-list exempts test/probe_gates.sh" "$TPT $d"
+
+d=$(new_case)
+probe "a tmp-path scan of a tree git cannot list is red, not green" 1 \
+  "cannot enumerate any tracked files" "$TPT $d"
+
 begin_group "test/probes_header_test.py"
 
 PH="python3 $REPO/test/probes_header_test.py"
