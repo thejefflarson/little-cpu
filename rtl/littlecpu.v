@@ -127,7 +127,7 @@ module littlecpu #(
   // `fetch_pc` advances on D's own guess while issuing; a stalled D holds it instead.
   logic  [31:0] fetch_pc;
   logic  [31:0] fetch_pc_next;
-  logic         decoder_issuing, fetch_wait, fetch_fault;
+  logic         decoder_issuing, decoder_refetch, fetch_wait, fetch_fault;
   logic         x_redirect;
   logic  [31:0] x_redirect_target;
   logic  [31:0] decoder_predicted_pc;
@@ -145,7 +145,10 @@ module littlecpu #(
     .clk(clk),
     .reset(reset),
     .pc(fetch_pc),
-    .next_pc(fetch_pc_next),
+    .issuing(decoder_issuing),
+    .refetch(decoder_refetch),
+    .redirect(x_redirect_q),
+    .redirect_target(x_redirect_target_q),
     .imem_data(imem_data),
     .imem_data2(imem_data2),
     .imem_stall(fetch_stall),
@@ -158,7 +161,7 @@ module littlecpu #(
     .imem_addr_next(fetcher_imem_addr_next)
   );
   assign imem_addr_next = fetcher_imem_addr_next;
-  // Never F's word-granular `imem_addr_next`. The redirect always wins over D's stall.
+  // D's own pc: the fetcher's address runs ahead of it. The redirect always wins over D's stall.
   assign fetch_pc_next = x_redirect_q      ? x_redirect_target_q :
                          !decoder_issuing  ? fetch_pc :
                                              decoder_predicted_pc;
@@ -209,6 +212,7 @@ module littlecpu #(
     .accessor_out_valid(accessor_out_valid),
     .issuing(decoder_issuing),
     .predicted_pc(decoder_predicted_pc),
+    .refetch(decoder_refetch),
     .read_rs1(read_rs1),
     .read_rs2(read_rs2),
     .x_redirect_delayed(x_redirect_q),

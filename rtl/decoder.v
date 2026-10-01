@@ -9,7 +9,7 @@ module decoder #(
   input  fetcher_output in,
   input  logic x_busy,  // X still working `out` (the divider)
   input  executor_output executor_out,
-  input  logic fetch_stall,  // the fetch port went to a load/store; `in.instr` is data
+  input  logic fetch_stall,  // the fetcher holds no whole instruction at `in.pc`
   input  logic bus_wait,
   // Decode's request for the bus; the platform ANDs it against its own grant.
   output logic bus_request,
@@ -18,6 +18,8 @@ module decoder #(
   output logic issuing,
   // The guessed target when taken, else `+2`/`+4`.
   output logic [31:0] predicted_pc,
+  // What follows this instruction in fetch order is not the next word: a taken guess or `fence.i`.
+  output logic refetch,
   output logic [4:0] read_rs1,
   output logic [4:0] read_rs2,
   // X's redirect a register later (rtl/littlecpu.v): `in` was fetched down the wrong path, so
@@ -364,6 +366,8 @@ module decoder #(
   localparam int PREDICT_LOW_BITS  = LS_TEXT_ADDR_BITS + 2;
   logic [PREDICT_LOW_BITS-1:0] predict_target_low;
   assign predict_target_low = fetcher_pc[PREDICT_LOW_BITS-1:0] + immediate[PREDICT_LOW_BITS-1:0];
+
+  assign refetch = predict_taken || instr_fencei;
 
   assign predicted_pc = predict_taken
     ? {fetcher_pc[31:PREDICT_LOW_BITS], predict_target_low}
