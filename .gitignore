@@ -1,5 +1,3 @@
-# Every flat artifact of the place-and-time flows, the bitstreams, the compare harness and the
-# sweeps lands under build/.
 # `make fit`: the netlist it places, nextpnr's log -- which IS the measurement, so keep
 # it around to read -- and the yosys log, kept out of the terminal so no yosys cell count
 # is ever mistaken for an area number.
