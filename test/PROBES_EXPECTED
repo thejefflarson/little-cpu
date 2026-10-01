@@ -58,6 +58,7 @@ a .sby stating depth twice is refused, since sby searches to the last
 a <retires> argument that is not 1 or 2 is refused
 a C floor copied out of the measured table is rejected, not honoured
 a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field
+a CONTROL_FIELDS entry wider than a register NUMBER is red
 a CoreMark RAM comparison over no words is named as unable to fail
 a CoreMark census with no block RAM line is a synthesis that did not finish
 a CoreMark clock for a core nobody graded is named rather than ignored
@@ -68,6 +69,7 @@ a CoreMark run that never made the cross-core check is red
 a CoreMark simulation this cannot parse is a run that did not happen
 a CoreMark testbench simulating a different map than the image is linked for is red
 a FAIL verdict from the underlying sim is red for nano's startup check too
+a FREE line with no harness behind it is red
 a MAP_TOP inside the topmost window is red
 a Makefile make cannot parse does not pass by silence
 a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
@@ -130,6 +132,7 @@ a check that APPEARED needs a line -- the shape check runs both ways
 a check that went red is red here
 a check that wrote no status fails the shard, named, rather than reaching the baseline
 a check with no skip line is refused, not handed to pono anyway
+a checker that cannot run on the leaking mutant is exit 2, not a red proof
 a checkout that leaves the token in .git/config is red
 a checkout that leaves the token in .git/config is red
 a checks directory that is not there is refused
@@ -142,6 +145,7 @@ a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
 a combined actions/cache step in place of restore is refused
 a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
+a commented-out CI step does not count as run
 a commit that stages more than the stamp is red
 a commit under the age floor stops the bump, naming its age
 a configuration for another corner is refused, not reported
@@ -187,6 +191,7 @@ a depth line this cannot parse leaves the tie unenforced, so it stops instead
 a depth one below the floor is red, naming F and G
 a design entry missing area/num_cells/by_type is refused, not read as what is left
 a design that MET the target has measured the target
+a design whose Makefile is gone is exit-nonzero, not skipped
 a different riscv-none-elf-gcc earlier on PATH is red, not silently used
 a differing value is a divergence, located by change index
 a directory the glob stopped matching is red, not a suite of size zero
@@ -225,6 +230,7 @@ a gap in the sequence is not a defect
 a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
 a gap opening between the timer's reservation and the UART is red
+a gate that passes a leaking core is not standing in front of anything
 a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway
 a generated .sby whose depth drifted from what was swept is refused, not read anyway
 a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway
@@ -244,6 +250,7 @@ a hand-typed fixture is red on an unquoted heredoc delimiter too
 a hand-typed fixture with no anchor and no cp of a real file is red
 a harness directory with no checks.cfg is named, not measured as empty
 a harness directory with no checks.cfg is named, not measured as empty
+a harness named both HARNESS and FREE is red
 a harness that is red at rest makes the two mutations meaningless
 a harness that is red at rest makes the two mutations meaningless
 a harness with no data RAM at all does not pass by silence
@@ -284,6 +291,7 @@ a malformed baseline line is named rather than skipped
 a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
+a matrix proof dropped from the workflow is red
 a memcheck with no cover sibling has an untied depth, and is red
 a mid-word # does not hide a real sed -i after it
 a missing PLL file is refused rather than read as agreement
@@ -308,6 +316,7 @@ a missing regenerate output is refused rather than committing nothing
 a missing riscv-formal clone is named, not blamed on the ISA string
 a missing schedule workflow file is an error, not an empty pass
 a missing schedule workflow file is an error, not an empty pass
+a missing source is exit 2 before anything runs
 a missing stat.json is refused, not read as a zero-area design
 a missing stat.json is refused, not read as a zero-area design
 a missing synthesis log is refused, not read as a zero-delay design
@@ -337,6 +346,8 @@ a mutation with no program leg is a real entry, not a missing file
 a name defined twice is checked at both definitions, not just the last
 a named .sby that does not exist is refused
 a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff
+a nano harness that stopped tying the input off is red
+a nano target CI stopped running is red, and named
 a nested helper's own closing brace does not end the outer fixture early
 a netlist from another tree is named, not binned as `neither`
 a netlist that is not there is refused, not read as equal
@@ -409,6 +420,7 @@ a reason dropped from one downstream site is red, and named
 a redirect counter that stopped being printed is named too
 a reason dropped from the decoder's own composition is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
+a red that is not a structural difference is not the red this probe wants
 a ref that names no commit here is refused before any placement
 a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
@@ -426,6 +438,7 @@ a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
+a repo root that does not exist is red before anything is read
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
 a repo root that does not exist is red before anything is scanned
@@ -445,6 +458,7 @@ a report with no utilisation table is missing half the measurement
 a respelled address arm stops rather than proving the shipping core
 a respelled anchor stops rather than pinning nothing
 a respelled anchor stops rather than pinning nothing
+a respelled anchor stops rather than probing the shipping core twice
 a respelled cause comparison stops rather than pinning nothing
 a respelled constant-latency assertion stops rather than pinning nothing
 a respelled divide case item stops the same way
@@ -489,6 +503,7 @@ a semicolon in the liberty path stays inside its own quoted token
 a semicolon in the liberty path stays inside its own quoted token
 a semicolon in the stat-json path stays inside its own quoted token
 a shard spec that is not <i>/<n> is refused before anything runs
+a shipping core that already fails the gate proves nothing about a leak
 a shipping core that fails ill_e is red before any mutant runs
 a shipping harness that cannot reach its own cover goal is red
 a shipping harness that cannot reach its own goals is red
@@ -540,6 +555,8 @@ a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point thr
 a synthesis that failed is not a passed control either
 a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
+a target added to littlecpu's all with no CI step is red
+a target added to nano's all with no CI step is red
 a term with no allow-list behind it stops rather than grading nothing
 a testbench simulating a different map than the image is linked for is red
 a tie-off at every harness that no baseline declares is red
@@ -629,10 +646,13 @@ an exclusion with no reason written under it is rejected
 an exemption naming no program is red, not a program quietly excused
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
+an ill_e cover that cannot go red is not a control
+an ill_e shipping harness that cannot reach its own cover goal is red
 an image objcopy wrote nothing into is red, not empty and accepted
 an image whose RAM outgrows the part's SPRAM does not fit either
 an indented line equal to a plain heredoc's token does not close it early
 an injection site that moved stops the control, loudly
+an input held constant that no baseline declares is red
 an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
 an ls_access with an extra encoding proving is red
@@ -646,6 +666,7 @@ an unexpected PASS is red for nano's suite too
 an unexpected PASS is red too -- the baseline is not a ceiling
 an unexpected agreement is red -- both directions, as everywhere
 an unexpected runner status is RUNNER-ERROR, carrying it
+an unknown --core is exit 2
 an unlisted core_portme.h would shadow the port's header, and is caught
 an unlisted core_portme.h would shadow the port's header, and is caught
 an unlisted site is red and named, with the file:line quoted
@@ -688,8 +709,9 @@ board.lds putting .data back at ram's origin is red
 board.lds putting the stack back at the top of ram is red
 boot.lds putting .data back at ram's origin is red
 boot.lds putting the stack back at the top of ram is red
-cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red
+check is run only when the shards and the baseline collector are both there
 check-sources actually refusing on a mismatch is red even if the text still warns
+cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red
 columns that do not add up blame the report, not the core
 columns that no longer add up to the cycle count are red
 complete.sby moving away leaves the depth tie with nothing to read
@@ -766,7 +788,6 @@ control: an untracked file is out of scope and does not fail the build
 control: and names the corner and constraint it was placed against
 control: another commit's canonical netlist is built from its own tree
 control: block RAM resets tied to a constant are green
-control: the Zkt-isolation assertion fails at its own line
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms fail, each at its own line
@@ -781,19 +802,24 @@ control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0
 control: every line of the littlecpu-subset manifest marked EXCLUDED is red too
 control: every named source present proceeds
 control: every site names every port of littlecpu
+control: every target in both designs' all lists is run by ci.yml
 control: fixture_anchor finds its literal in the real file
 control: formal/Makefile also puts the cached suite first
 control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
 control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not
+control: littlecpu's shipping core passes the gate and the leak fails it
 control: mutate on a real match rewrites the file and returns 0
 control: mutate_remove deletes a file that is there
 control: nano's declared fork redirects every generated insn_* check
 control: nano's dmemcheck reaches its goal and the stalled-bus mutant does not
+control: nano's harnesses tie off and its trap harness stays free, both directions
+control: nano's ill_e reaches its goal and the stalled-bus mutant does not
 control: nano's imemcheck reaches its goal and the stalled-bus mutant does not
 control: nano's own suite is graded the same way, and it is green
 control: nano's real divider defect is a baselined green, not a hidden one
+control: nano's shipping core passes the gate and the leak fails it
 control: nano's startup check is graded the same way, and it is green
 control: nano/formal/Makefile also puts the cached suite first
 control: one register-file build reports its area and delay
@@ -801,6 +827,7 @@ control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: the ECP5 arm reads its own fabric's two cell names
 control: the MUL constant-latency assertion fails at its own line
+control: the Zkt-isolation assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
 control: the block RAM is named at the end of the path it sits at
 control: the cached suite is put first when nothing claims PATH
@@ -824,8 +851,8 @@ control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
-control: the shipping executor reaches x_busy only through its one gate
 control: the shipping exclusion set matches its baseline both ways
+control: the shipping executor reaches x_busy only through its one gate
 control: the shipping fetchqueue passes its own bench
 control: the shipping files describe one machine
 control: the shipping fixtures are all mutate/mutate_remove, every anchor holds
@@ -856,10 +883,9 @@ coremark.lds putting .data back at ram's origin is red
 coremark.lds putting the stack back at the top of ram is red
 cores given with no --target-core among them is refused
 data past the end of the simulated RAM is red, not silent
-a CONTROL_FIELDS entry wider than a register NUMBER is red
-dx_output.rs1 widened past 5 bits is red, unclassified
 deleting an rtl file and leaving its line is red
 dividers that make a frequency CORE_HZ does not state is red
+dx_output.rs1 widened past 5 bits is red, unclassified
 ecp5 names fewer than twelve seeds and is refused before any placement
 every excluded cell reaches dfflibmap and abc as -dont_use
 every excluded cell reaches the timing run's dfflibmap and abc too
@@ -869,10 +895,10 @@ excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
 half of a macro-guarded group is red, where none of it is not
-x_busy reading mul_div_counter directly is red (finding 1)
 hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
+ill_e asked of littlecpu's harness is refused, not run
 ill_e catches a wrong RV32E rule, and the shipping core still passes
 insn_excluded must be a plain disjunction, not an expression
 layer 1: the trap comparison moved INTO the span is refused, not gated
@@ -893,6 +919,7 @@ nano's floor is one column, and one that does not parse is named
 nano's remeasure-fg still lists check-solver-btorsim as a prerequisite
 nano's runner exit 4 is MONITOR-ERROR too, carrying nano's own code
 nano's suite goes through the same shape check first
+nano's trap proof with no CI step is red
 netlist-diff reaches the same check as netlist-digest does
 no base ref names nothing to sweep against
 no components.sby is exit 2 here too, not a green control
@@ -908,6 +935,7 @@ no named source at all is reported, and is not a failure
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
 no riscv-formal checkout is exit 2 here too, not a probe against nothing
+no riscv-formal checkout is exit 2, not a probe against nothing
 no riscv-formal checkout is exit 2, not a probe against nothing
 no riscv-formal checkout is exit 2, not an ill_e probe against nothing
 no riscv-none-elf-gcc on PATH at all is red
@@ -1004,6 +1032,8 @@ the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence
 the exemption does not extend to a write of the WRONG register
+the free harness with no line in the baseline is red
+the free trap harness tied low would grade no interrupt entry, and is red
 the generated check set's isa line swept along with the flags is red
 the harness giving the UART its own baud rate is red
 the harness moving away takes the probe with it, loudly
@@ -1100,6 +1130,7 @@ wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2
 wrong argument count is exit 2 -- the inputs are broken, not the checks
+x_busy reading mul_div_counter directly is red (finding 1)
 zero CoreMark iterations would divide the work by nothing
 zero cells is refused, not read as a zero-area design
 zero runs would divide the work by nothing

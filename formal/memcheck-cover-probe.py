@@ -2,10 +2,10 @@
 """Forces imemcheck.sv/dmemcheck.sv's own cover goal to go unreached, and requires
 the matching *_cover.sby to fail because of it rather than pass regardless of the
 environment -- complete-cover-probe.py's shape, generalised over both memchecks and
-both cores.
+both cores, and over nano's ill_e, whose harness has the same testbench shape.
 
 Usage: memcheck-cover-probe.py --harness {formal,nano/formal}
-                                --check {imemcheck,dmemcheck}
+                                --check {imemcheck,dmemcheck,ill_e}
                                 [--repo DIR] [--workdir DIR] [--sby SBY]
 
 WHY THIS EXISTS. Neither memcheck states a cover goal proving it ever reaches the
@@ -134,7 +134,7 @@ def main():
     parser.add_argument(
         "--check",
         required=True,
-        choices=("imemcheck", "dmemcheck"),
+        choices=("imemcheck", "dmemcheck", "ill_e"),
     )
     here = pathlib.Path(__file__).resolve().parent
     parser.add_argument("--repo", default=str(here.parent), help="tree to read formal/ and nano/ from")
@@ -145,6 +145,8 @@ def main():
     repo = pathlib.Path(args.repo).resolve()
     harness, check = args.harness, args.check
     is_nano = harness == "nano/formal"
+    if check == "ill_e" and not is_nano:
+        stop("ill_e is nano's harness; littlecpu has no such check.")
     names = [f"{harness}/{check}_cover.sby", f"{harness}/{check}.sv"]
     names.append("nano/nano.v" if is_nano else "formal/arbiter.v")
     for name in names:
