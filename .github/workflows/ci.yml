@@ -857,9 +857,10 @@ jobs:
   formal-extra:
     name: formal-extra
     # Measured: dmemcheck 400 MB, imemcheck 364, complete 277, complete_cover 113, cover
-    # 64.
+    # 64. About 16 min alone and past 20 when other PRs' jobs share the pool, so the
+    # ceiling leaves room for contention rather than timing out a passing proof.
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
