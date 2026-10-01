@@ -13,21 +13,14 @@ fi
 
 RETIRED_NAMES='riscv64-elf-gcc riscv64-unknown-elf-gcc'
 
-# The allow-list: paths where an old name is a measurement's own record, not a live
-# search. Exact files and directory prefixes only -- no glob wide enough to also excuse a
-# future soc/ or test/ script.
+# Paths where an old name is a record, not a live search: exact files and directory
+# prefixes only, never a glob wide enough to excuse a future soc/ or test/ script.
 allow_paths() {
   sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' <<'PATHS'
 # Dated decision records and their index. History: several of them quote the exact
 # names a build used to search for, which is the value of the record. Every prose
 # doc under here, including the manifests, inherits the exemption the same way.
 docs/
-
-# The weekly cross-core stamp (`make compare-product`). It records the command
-# line each pair's image was actually built with, and its own current stamp
-# predates the pin; the schedule workflow re-takes it under the pinned compiler
-# on its own.
-soc/compare/product.json
 
 # The probe that forces this check red plants both retired names in a fixture
 # and quotes them in its label. A probe that cannot name what it is planting is
@@ -47,8 +40,8 @@ trap 'rm -rf "$tmp"' EXIT
 
 allow_paths > "$tmp/allow"
 if [ ! -s "$tmp/allow" ]; then
-  echo "error: the allow-list is empty, so every dated ADR and the cross-core stamp" >&2
-  echo "would go red for quoting history." >&2
+  echo "error: the allow-list is empty, so every dated ADR would go red for" >&2
+  echo "quoting history." >&2
   exit 1
 fi
 
@@ -97,7 +90,7 @@ if [ -s "$tmp/unexpected" ]; then
   echo "'search riscv64-elf-gcc, then riscv64-unknown-elf-gcc' to resolving the" >&2
   echo "one pinned name and saying 'run make riscv-gcc-setup' when it is" >&2
   echo "missing. Copy that wording rather than reviving a search; if the use" >&2
-  echo "above genuinely records history -- a dated ADR, the cross-core stamp --" >&2
+  echo "above genuinely records history -- a dated ADR --" >&2
   echo "add its path to the allow-list in test/riscv_gcc_search_test.sh." >&2
 fi
 
