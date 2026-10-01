@@ -6,24 +6,25 @@ cd "$ROOT"
 RISCV_GCC_CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu
 export PATH="$RISCV_GCC_CACHE/riscv-gcc/bin:$RISCV_GCC_CACHE/oss-cad-suite/bin:$PATH"
 
+mkdir -p build
 # How much of the 8192-byte ROM a batch's PROGRAMS may fill.
 DRIVER_BYTES=$(riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
-                 -DBOARD_SUITE -I test/asm -c -o /tmp/.drv.$$.o test/board/board_suite.S 2>/dev/null \
-               && riscv-none-elf-size /tmp/.drv.$$.o | awk 'NR==2{print $1+$2}')
-rm -f /tmp/.drv.$$.o
+                 -DBOARD_SUITE -I test/asm -c -o build/.drv.$$.o test/board/board_suite.S 2>/dev/null \
+               && riscv-none-elf-size build/.drv.$$.o | awk 'NR==2{print $1+$2}')
+rm -f build/.drv.$$.o
 : "${DRIVER_BYTES:=512}"
 BUDGET=${BUDGET:-$(( 8192 - DRIVER_BYTES - 600 ))}
 READ_MS=${READ_MS:-8000}
-FTREAD=${FTREAD:-$ROOT/ftread}
+FTREAD=${FTREAD:-$ROOT/build/ftread}
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteboard.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
 
 # RESULTS ARE WRITTEN AS THEY ARRIVE, to a path that outlives this script.
-RESULTS=${RESULTS:-/tmp/suite_board_results.txt}
+RESULTS=${RESULTS:-build/suite_board_results.txt}
 : > "$RESULTS"
 # Every raw capture, kept. Diagnosing a missing verdict without the bytes means
 # re-running the suite, and the suite takes minutes.
-RAWDIR=${RAWDIR:-/tmp/suite_board_raw}
+RAWDIR=${RAWDIR:-build/suite_board_raw}
 rm -rf "$RAWDIR"; mkdir -p "$RAWDIR"
 
 # rvc.S is 12256 bytes and does not fit an 8192-byte ROM even alone.
@@ -60,11 +61,11 @@ icebram -g 32 1024 > "$OUT/ph_even.hex"
 icebram -g 32 1024 > "$OUT/ph_odd.hex"
 cp "$OUT/ph_even.hex" soc/rom_even.hex
 cp "$OUT/ph_odd.hex" soc/rom_odd.hex
-rm -f board.json board.asc board.bin
-if ! make board.asc BOARD_OSC=internal BOARD_ROM=noop-rom >"$OUT/place.log" 2>&1; then
+rm -f build/board.json build/board.asc build/board.bin
+if ! make build/board.asc BOARD_OSC=internal BOARD_ROM=noop-rom >"$OUT/place.log" 2>&1; then
   echo "PLACE FAILED:"; tail -15 "$OUT/place.log" | sed 's/^/   /'; exit 1
 fi
-cp board.asc "$OUT/base.asc"
+cp build/board.asc "$OUT/base.asc"
 echo "   placed [$SECONDS s]"
 echo
 i=0
@@ -95,14 +96,14 @@ while read -r progs; do
      || ! icebram "$OUT/ph_odd.hex" soc/rom_odd.hex < "$OUT/b0.asc" > "$OUT/b1.asc" 2>>"$OUT/ib.log"; then
     echo "   ROM SWAP FAILED:"; sed 's/^/      /' "$OUT/ib.log" | head -6; continue
   fi
-  icepack "$OUT/b1.asc" board.bin || { echo "   PACK FAILED"; continue; }
-  echo "   swap:  $(wc -c < board.bin | tr -d ' ') bytes, no re-placement  [$((SECONDS-t0))s]"
+  icepack "$OUT/b1.asc" build/board.bin || { echo "   PACK FAILED"; continue; }
+  echo "   swap:  $(wc -c < build/board.bin | tr -d ' ') bytes, no re-placement  [$((SECONDS-t0))s]"
 
   t0=$SECONDS
   flashed=""
   for attempt in 1 2 3 4; do
     echo "   flashing (iceprog, attempt $attempt):"
-    if iceprog board.bin 2>&1 | tee "$OUT/flash.log" | sed 's/^/      | /' \
+    if iceprog build/board.bin 2>&1 | tee "$OUT/flash.log" | sed 's/^/      | /' \
        && grep -q 'VERIFY OK' "$OUT/flash.log"; then
       flashed=yes; break
     fi

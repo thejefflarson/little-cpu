@@ -10,28 +10,13 @@ Usage: pin_bump_token_test.py [repo-root]
 """
 
 import pathlib
-import re
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from workflow_steps import steps  # noqa: E402
 
 WORKFLOW = ".github/workflows/riscv-formal-pin-bump.yml"
 UPSTREAM_CODE_SCRIPT = "bump-riscv-formal-pin.sh"
-
-
-def steps(text):
-    """The workflow's steps as (header, body) chunks, split on the '- ' item marker."""
-    lines = text.splitlines()
-    start = next(i for i, l in enumerate(lines) if re.match(r"^\s*steps:\s*$", l))
-    chunks, cur = [], None
-    for line in lines[start + 1:]:
-        if re.match(r"^\s{6}- ", line):
-            if cur is not None:
-                chunks.append(cur)
-            cur = [line]
-        elif cur is not None:
-            cur.append(line)
-    if cur is not None:
-        chunks.append(cur)
-    return ["\n".join(c) for c in chunks]
 
 
 def main(argv):

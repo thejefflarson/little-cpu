@@ -1,3 +1,5 @@
+BUILD ?= build
+
 include formal/pin.mk
 include soc/compare/hazard3_pin.mk
 
@@ -7,6 +9,9 @@ RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_ALIGNED
 
 rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 	python3 $^ > $@
+
+$(BUILD):
+	mkdir -p $@
 
 SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
@@ -334,8 +339,8 @@ dual-dhrystone-aggregate: dual-sim
 # Keep this yosys -p script on one line: a backslash split inside its single quotes stays
 # literal, and yosys dies on it on CI's make though not on macOS's.
 .PHONY: elaborate-strict
-elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS)
-	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) $(SIM_TB_SRCS); hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl /tmp/elaborate-strict.cc'
+elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS) | $(BUILD)
+	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) $(SIM_TB_SRCS); hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl $(BUILD)/elaborate-strict.cc'
 
 MONITOR_GEN = cd $(RISCV_FORMAL_DIR)/monitor && python3 generate.py -i rv32imc -c 1 -a -p monitor
 
@@ -637,6 +642,11 @@ march-test:
 riscv-gcc-search-test:
 	@./test/riscv_gcc_search_test.sh
 
+# Refuses a fixed scratch path outside $(BUILD) in a tracked Makefile or script.
+.PHONY: tmp-path-test
+tmp-path-test:
+	@./test/tmp_path_test.sh
+
 .PHONY: macro-register-test
 macro-register-test:
 	@./test/macro_register_test.sh
@@ -655,6 +665,10 @@ band-source-test:
 .PHONY: probes-header-test
 probes-header-test:
 	@python3 ./test/probes_header_test.py
+
+.PHONY: yosys-script-oneline-test
+yosys-script-oneline-test:
+	@python3 ./test/yosys_script_oneline_test.py
 
 .PHONY: stall-sites-test
 stall-sites-test:
@@ -734,7 +748,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test \
       riscv-gcc-pin-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
-      riscv-gcc-search-test \
+      riscv-gcc-search-test tmp-path-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
@@ -743,7 +757,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test \
       nano-memmap-test nano-tt-test \
-      stall-sites-test pin-help-text-test formal-ci-coverage-test
+      stall-sites-test pin-help-text-test formal-ci-coverage-test yosys-script-oneline-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
@@ -839,10 +853,10 @@ coremark: sim
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
             rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
-fit.json: $(FIT_SRCS)
-	@echo 'yosys: synthesising littlecpu for ice40 (log: fit.synth.log)'
+$(BUILD)/fit.json: $(FIT_SRCS) | $(BUILD)
+	@echo 'yosys: synthesising littlecpu for ice40 (log: $(BUILD)/fit.synth.log)'
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
-	  > fit.synth.log 2>&1 || { tail -40 fit.synth.log; exit 1; }
+	  > $(BUILD)/fit.synth.log 2>&1 || { tail -40 $(BUILD)/fit.synth.log; exit 1; }
 
 # 4441 = 4347 + 40 + 54: the higher of this tree's local and job counts, the churn band measured
 # on this tree, and the widest toolchain gap measured on one tree (derivation: ADR-0220).
@@ -857,10 +871,10 @@ fit-toolchain:
 	@soc/print_toolchain.sh $(FIT_TOOLS)
 
 .PHONY: fit
-fit: fit-toolchain fit.json
-	@nextpnr-ice40 --up5k --package sg48 --json fit.json --pcf-allow-unconstrained \
-	  > fit.log 2>&1 || true
-	@python3 soc/fit_report.py fit.log --max-lc $(FIT_MAX_LC) --previous $(FIT_LAST_LC)
+fit: fit-toolchain $(BUILD)/fit.json
+	@nextpnr-ice40 --up5k --package sg48 --json $(BUILD)/fit.json --pcf-allow-unconstrained \
+	  > $(BUILD)/fit.log 2>&1 || true
+	@python3 soc/fit_report.py $(BUILD)/fit.log --max-lc $(FIT_MAX_LC) --previous $(FIT_LAST_LC)
 
 SOC_PROG      ?= datainit.c
 SOC_ROM_WORDS := 2048
@@ -922,10 +936,10 @@ SOC_SYNTH := read_verilog -sv $(SOC_SRCS); \
              synth_ice40 -device u -dsp -spram -top littlesoc
 SOC_PNR   := nextpnr-ice40 --up5k --package sg48 --pcf soc/littlesoc.pcf
 
-soc.json: $(SOC_SRCS) soc-rom
-	@echo 'yosys: synthesising littlesoc for ice40 (log: soc.synth.log)'
+$(BUILD)/soc.json: $(SOC_SRCS) soc-rom | $(BUILD)
+	@echo 'yosys: synthesising littlesoc for ice40 (log: $(BUILD)/soc.synth.log)'
 	@yosys -p '$(SOC_SYNTH) -json $@' \
-	  > soc.synth.log 2>&1 || { tail -40 soc.synth.log; exit 1; }
+	  > $(BUILD)/soc.synth.log 2>&1 || { tail -40 $(BUILD)/soc.synth.log; exit 1; }
 	@# rtl/memory.v maps to SPRAM only because its read port is no-change on a
 	@# write; the read-first spelling maps the same array to 148 `SB_RAM40_4K`
 	@# -- five times the part's entire block RAM -- and yosys reports that as a
@@ -933,9 +947,9 @@ soc.json: $(SOC_SRCS) soc-rom
 	@# rtl/imemory.v maps to block RAM only while it stays a plain synchronous
 	@# array. The census below is what catches either regression; soc/cell_census.py
 	@# carries the reasoning for matching by exact count rather than by name.
-	@python3 soc/cell_census.py soc.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
+	@python3 soc/cell_census.py $(BUILD)/soc.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
 	  "rtl/memory.v has stopped matching the SPRAM shape -- read its header comment about the no-change read port"
-	@python3 soc/cell_census.py soc.synth.log SB_RAM40_4K $(SOC_EXPECT_EBR) \
+	@python3 soc/cell_census.py $(BUILD)/soc.synth.log SB_RAM40_4K $(SOC_EXPECT_EBR) \
 	  "rtl/imemory.v or rtl/regfile.v has stopped inferring block RAM, or the ROM size changed"
 
 # `|| true` matters: nextpnr's exit status is not the signal (icetime's report of the
@@ -954,27 +968,27 @@ endif
 soc-pin-check: soc-rom
 	@python3 soc/soc_pin.py check-sources $(SOC_PIN) $(SOC_SRCS) $(SOC_ROM_HEX)
 
-soc.asc: soc.json soc/littlesoc.pcf $(if $(SOC_SEED_PINNED),soc-pin-check)
-	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: soc.pnr.log)'
+$(BUILD)/soc.asc: $(BUILD)/soc.json soc/littlesoc.pcf $(if $(SOC_SEED_PINNED),soc-pin-check)
+	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: $(BUILD)/soc.pnr.log)'
 	@seed='$(SOC_SEED)'; \
 	if [ -n '$(SOC_SEED_PINNED)' ]; then \
 	  seed=$$(python3 soc/soc_pin.py seed $(SOC_PIN)) || exit 1; \
 	fi; \
 	if [ -n "$$seed" ]; then \
-	  $(SOC_PNR) --json $< --seed "$$seed" --asc $@ > soc.pnr.log 2>&1 || true; \
+	  $(SOC_PNR) --json $< --seed "$$seed" --asc $@ > $(BUILD)/soc.pnr.log 2>&1 || true; \
 	else \
-	  $(SOC_PNR) --json $< --asc $@ > soc.pnr.log 2>&1 || true; \
+	  $(SOC_PNR) --json $< --asc $@ > $(BUILD)/soc.pnr.log 2>&1 || true; \
 	fi
 	@test -s $@ || { \
 	  echo '*** make soc-timing: nextpnr produced no bitstream, so NOTHING was'; \
 	  echo '*** measured. That is a failed placement, not a slow design.'; \
-	  tail -30 soc.pnr.log; \
+	  tail -30 $(BUILD)/soc.pnr.log; \
 	  rm -f $@; \
 	  exit 1; \
 	}
-	@grep -q 'ICESTORM_LC:' soc.pnr.log || { \
+	@grep -q 'ICESTORM_LC:' $(BUILD)/soc.pnr.log || { \
 	  echo '*** make soc-timing: nextpnr printed no utilisation table.'; \
-	  tail -30 soc.pnr.log; \
+	  tail -30 $(BUILD)/soc.pnr.log; \
 	  rm -f $@; \
 	  exit 1; \
 	}
@@ -988,17 +1002,17 @@ soc-timing-toolchain:
 	@soc/print_toolchain.sh $(SOC_TIMING_TOOLS)
 
 .PHONY: soc-timing
-soc-timing: soc-timing-toolchain soc.asc
-	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' soc.pnr.log
-	@grep -E "Max frequency for clock .*'clk" soc.pnr.log | tail -1 \
+soc-timing: soc-timing-toolchain $(BUILD)/soc.asc
+	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' $(BUILD)/soc.pnr.log
+	@grep -E "Max frequency for clock .*'clk" $(BUILD)/soc.pnr.log | tail -1 \
 	  | sed -e 's/^Info: /nextpnr /' -e 's/^ERROR: /nextpnr /'
 	@echo
 	@echo '== icetime: the critical path, and the LOGIC/ROUTING SPLIT =='
-	@icetime -d up5k -P sg48 -p soc/littlesoc.pcf -t -r soc.timing.rpt soc.asc \
-	  > soc.icetime.log 2>&1 || { cat soc.icetime.log; exit 1; }
+	@icetime -d up5k -P sg48 -p soc/littlesoc.pcf -t -r $(BUILD)/soc.timing.rpt $(BUILD)/soc.asc \
+	  > $(BUILD)/soc.icetime.log 2>&1 || { cat $(BUILD)/soc.icetime.log; exit 1; }
 	@echo
-	@echo 'Every hop, with its cell and its delay: soc.timing.rpt'
-	@echo 'nextpnr placement and its own timing analysis: soc.pnr.log'
+	@echo 'Every hop, with its cell and its delay: $(BUILD)/soc.timing.rpt'
+	@echo 'nextpnr placement and its own timing analysis: $(BUILD)/soc.pnr.log'
 	@echo
 	@echo 'READ ADR-0054 BEFORE QUOTING ANY OF THIS. It is a static estimate for'
 	@echo 'one placement of one build at the worst-case corner, and it is'
@@ -1012,7 +1026,7 @@ soc-timing: soc-timing-toolchain soc.asc
 	@# The ratchet is applied by the thing that already parses the report. It
 	@# was a `python3 -c` here, i.e. a SECOND parser of the same file -- and the
 	@# second one was the one holding the gate.
-	@python3 soc/timing_split.py soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
+	@python3 soc/timing_split.py $(BUILD)/soc.timing.rpt --min-mhz $(SOC_MIN_MHZ)
 
 .PHONY: soc-seed-search
 soc-seed-search: soc-timing-toolchain
@@ -1033,21 +1047,21 @@ ECP5_EXPECT_DSP    := 4
 
 ECP5_SEED ?=
 
-ecp5.json: $(SOC_SRCS) soc-rom
-	@echo 'yosys: synthesising littlesoc for ECP5 (log: ecp5.synth.log)'
+$(BUILD)/ecp5.json: $(SOC_SRCS) soc-rom | $(BUILD)
+	@echo 'yosys: synthesising littlesoc for ECP5 (log: $(BUILD)/ecp5.synth.log)'
 	@# Plain `synth_ecp5`, no mapper flags. abc9 is this script's default on this
 	@# part, so passing `-noabc9` would be as much of a mapper change as turning
 	@# abc9 on is on ice40, and a mapper change landing under a brand-new
 	@# instrument would confound both.
 	@yosys -p 'read_verilog -sv $(SOC_SRCS); $(SOC_ROM_CHPARAM) synth_ecp5 -top littlesoc -json $@' \
-	  > ecp5.synth.log 2>&1 || { tail -40 ecp5.synth.log; exit 1; }
-	@python3 soc/cell_census.py ecp5.synth.log DP16KD $(ECP5_EXPECT_DP16KD) \
+	  > $(BUILD)/ecp5.synth.log 2>&1 || { tail -40 $(BUILD)/ecp5.synth.log; exit 1; }
+	@python3 soc/cell_census.py $(BUILD)/ecp5.synth.log DP16KD $(ECP5_EXPECT_DP16KD) \
 	  "rtl/memory.v's no-change read port was shaped for SPRAM inference and there is no SPRAM on this part, so a spelling that stops matching block RAM falls back to LUT RAM and says nothing" \
 	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DP16KD
-	@python3 soc/cell_census.py ecp5.synth.log TRELLIS_DPR16X4 $(ECP5_EXPECT_LUTRAM) \
+	@python3 soc/cell_census.py $(BUILD)/ecp5.synth.log TRELLIS_DPR16X4 $(ECP5_EXPECT_LUTRAM) \
 	  "rtl/regfile.v has stopped inferring distributed RAM, which is the only memory it maps to here -- zero means it fell into flops and soft muxes" \
 	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_LUTRAM
-	@python3 soc/cell_census.py ecp5.synth.log MULT18X18D $(ECP5_EXPECT_DSP) \
+	@python3 soc/cell_census.py $(BUILD)/ecp5.synth.log MULT18X18D $(ECP5_EXPECT_DSP) \
 	  "rtl/executor.v's multiplier has stopped inferring a DSP block; in soft logic it would be invisible in a frequency number and enormous in area" \
 	  --gate 'make ecp5-timing' --declared ECP5_EXPECT_DSP
 	@python3 soc/bram_reset_check.py $@ --gate 'make ecp5-timing'
@@ -1062,38 +1076,38 @@ ICESUGAR_PROG    ?= soc/blink.S
 
 ICESUGAR_ROM     ?= soc-rom
 
-icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf
+$(BUILD)/icesugar.json: $(ICESUGAR_SRCS) soc/icesugar_pro.lpf | $(BUILD)
 	@$(MAKE) --no-print-directory $(ICESUGAR_ROM) SOC_PROG=$(ICESUGAR_PROG)
-	@echo 'yosys: synthesising $(ICESUGAR_TOP) for $(ICESUGAR_PART) (log: icesugar.synth.log)'
+	@echo 'yosys: synthesising $(ICESUGAR_TOP) for $(ICESUGAR_PART) (log: $(BUILD)/icesugar.synth.log)'
 	@# chparam names littlesoc, not $(ICESUGAR_TOP): the parameter lives on the
 	@# submodule icesugar_pro_top instantiates at its own default, so setting
 	@# littlesoc's default before hierarchy is what icesugar_pro_top inherits.
 	@yosys -p 'read_verilog -sv $(ICESUGAR_SRCS); $(SOC_ROM_CHPARAM) synth_ecp5 -top $(ICESUGAR_TOP) -json $@' \
-	  > icesugar.synth.log 2>&1 || { tail -40 icesugar.synth.log; exit 1; }
+	  > $(BUILD)/icesugar.synth.log 2>&1 || { tail -40 $(BUILD)/icesugar.synth.log; exit 1; }
 	@python3 soc/bram_reset_check.py $@ --gate 'make icesugar-bitstream'
 
-icesugar.config: icesugar.json
+$(BUILD)/icesugar.config: $(BUILD)/icesugar.json
 	@rm -f $@
-	@echo 'nextpnr: placing $(ICESUGAR_TOP) on $(ICESUGAR_PART) (log: icesugar.pnr.log)'
+	@echo 'nextpnr: placing $(ICESUGAR_TOP) on $(ICESUGAR_PART) (log: $(BUILD)/icesugar.pnr.log)'
 	@# DO NOT ADD `--freq` HERE. The LPF states the pad and nextpnr multiplies it by the
 	@# EHXPLLL's dividers; a flat --freq overwrites that derived figure, and the design is
 	@# then graded against a period it does not run at. Missing the derived one is an
 	@# ERROR from nextpnr, which is what makes this recipe the bitstream's timing gate.
 	@nextpnr-ecp5 $(ICESUGAR_DEVICE) --package $(ICESUGAR_PACKAGE) --speed $(ICESUGAR_SPEED) \
 	  --json $< --lpf soc/icesugar_pro.lpf \
-	  --textcfg $@ > icesugar.pnr.log 2>&1 || { tail -30 icesugar.pnr.log; exit 1; }
-	@test -s $@ || { echo '*** nextpnr wrote no configuration.'; tail -30 icesugar.pnr.log; exit 1; }
+	  --textcfg $@ > $(BUILD)/icesugar.pnr.log 2>&1 || { tail -30 $(BUILD)/icesugar.pnr.log; exit 1; }
+	@test -s $@ || { echo '*** nextpnr wrote no configuration.'; tail -30 $(BUILD)/icesugar.pnr.log; exit 1; }
 
-icesugar.bit: icesugar.config
+$(BUILD)/icesugar.bit: $(BUILD)/icesugar.config
 	@ecppack $< $@
 	@test -s $@ || { echo '*** ecppack wrote no bitstream.'; exit 1; }
 
 .PHONY: icesugar-bitstream
-icesugar-bitstream: icesugar.bit
+icesugar-bitstream: $(BUILD)/icesugar.bit
 	@echo
 	@echo '== $(ICESUGAR_PART): a bitstream, not a measurement =='
-	@grep -E 'Max frequency for clock' icesugar.pnr.log | tail -1
-	@ls -l icesugar.bit | awk '{ print "icesugar.bit  " $$5 " bytes" }'
+	@grep -E 'Max frequency for clock' $(BUILD)/icesugar.pnr.log | tail -1
+	@ls -l $(BUILD)/icesugar.bit | awk '{ print "$(BUILD)/icesugar.bit  " $$5 " bytes" }'
 	@echo
 	@echo 'Put it on the board with `make icesugar-prog`. What the tools think'
 	@echo 'the placement does is above; a board is the only thing that can'
@@ -1105,9 +1119,9 @@ ICESUGAR_PID     ?= 0x602b
 ICESUGAR_READ_S  ?= 30
 
 .PHONY: icesugar-prog
-icesugar-prog: icesugar.bit
+icesugar-prog: $(BUILD)/icesugar.bit
 	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) \
-	  -m icesugar.bit
+	  -m $(BUILD)/icesugar.bit
 	@echo
 	@echo 'Loaded into SRAM; the design is running. Read it with'
 	@echo '`make icesugar-read`, or power-cycle the board to go back to flash.'
@@ -1118,21 +1132,21 @@ icesugar-read:
 
 .PHONY: icesugar-dhrystone
 icesugar-dhrystone:
-	@rm -f icesugar.json icesugar.config icesugar.bit
+	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
 	@$(MAKE) --no-print-directory dhrystone-rom
-	@$(MAKE) --no-print-directory icesugar.bit ICESUGAR_ROM=noop-rom
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_ROM=noop-rom
 	@$(MAKE) --no-print-directory icesugar-prog
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
-	  --out icesugar_dhrystone.txt
+	  --out $(BUILD)/icesugar_dhrystone.txt
 
 ICESUGAR_COREMARK_ROM_WORDS := 4096
 
 .PHONY: icesugar-coremark
 icesugar-coremark:
-	@rm -f icesugar.json icesugar.config icesugar.bit
+	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
 	@$(MAKE) --no-print-directory coremark-rom-ecp5 \
 	  SOC_ROM_WORDS=$(ICESUGAR_COREMARK_ROM_WORDS)
-	@$(MAKE) --no-print-directory icesugar.bit ICESUGAR_ROM=noop-rom \
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_ROM=noop-rom \
 	  SOC_ROM_WORDS=$(ICESUGAR_COREMARK_ROM_WORDS)
 	@$(MAKE) --no-print-directory icesugar-prog
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
@@ -1144,42 +1158,45 @@ ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 ecp5-timing-toolchain:
 	@soc/print_toolchain.sh $(ECP5_TOOLS)
 
-ecp5.config: ecp5.json soc/littlesoc.lpf
-	@rm -f $@ ecp5.report.json
-	@echo 'nextpnr: placing and routing littlesoc on $(ECP5_PART) (log: ecp5.pnr.log)'
+$(BUILD)/ecp5.config: $(BUILD)/ecp5.json soc/littlesoc.lpf
+	@rm -f $@ $(BUILD)/ecp5.report.json
+	@echo 'nextpnr: placing and routing littlesoc on $(ECP5_PART) (log: $(BUILD)/ecp5.pnr.log)'
 	@nextpnr-ecp5 $(ECP5_DEVICE) --package $(ECP5_PACKAGE) --speed $(ECP5_SPEED) \
 	  --json $< --lpf soc/littlesoc.lpf --lpf-allow-unconstrained \
 	  --freq $(ECP5_TARGET_MHZ) $(if $(ECP5_SEED),--seed '$(ECP5_SEED)') \
-	  --textcfg $@ --report ecp5.report.json > ecp5.pnr.log 2>&1 || true
-	@{ test -s $@ && test -s ecp5.report.json; } || { \
+	  --textcfg $@ --report $(BUILD)/ecp5.report.json > $(BUILD)/ecp5.pnr.log 2>&1 || true
+	@{ test -s $@ && test -s $(BUILD)/ecp5.report.json; } || { \
 	  echo '*** make ecp5-timing: nextpnr wrote no configuration and report pair,'; \
 	  echo '*** so NOTHING was measured. That is a failed run, not a slow design,'; \
 	  echo '*** and it is deliberately NOT graded against whatever the last run'; \
 	  echo '*** left on disk.'; \
-	  tail -30 ecp5.pnr.log; \
-	  rm -f $@ ecp5.report.json; \
+	  tail -30 $(BUILD)/ecp5.pnr.log; \
+	  rm -f $@ $(BUILD)/ecp5.report.json; \
 	  exit 1; \
 	}
 
 .PHONY: ecp5-timing
-ecp5-timing: ecp5-timing-toolchain ecp5.config
+ecp5-timing: ecp5-timing-toolchain $(BUILD)/ecp5.config
 	@echo
 	@echo '== nextpnr-ecp5: the frequency, its corner and its constraint =='
-	@python3 soc/ecp5_report.py ecp5.report.json ecp5.config \
+	@python3 soc/ecp5_report.py $(BUILD)/ecp5.report.json $(BUILD)/ecp5.config \
 	  --clock $(ECP5_CLOCK) --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
 	@echo
-	@echo "Placement, routing and nextpnr's own timing analysis: ecp5.pnr.log"
+	@echo "Placement, routing and nextpnr's own timing analysis: $(BUILD)/ecp5.pnr.log"
 
 FTDI_CFLAGS ?= $(shell pkg-config --cflags libftdi1 2>/dev/null || echo -I/opt/homebrew/opt/libftdi/include/libftdi1)
 FTDI_LIBS   ?= $(shell pkg-config --libs libftdi1 2>/dev/null || echo -L/opt/homebrew/opt/libftdi/lib -lftdi1)
 
-ftread: soc/ftread.c
+$(BUILD)/ftread: soc/ftread.c | $(BUILD)
 	@command -v cc >/dev/null || { echo 'error: no C compiler for the host.' >&2; exit 1; }
 	cc -O2 -Wall -o $@ $< $(FTDI_CFLAGS) $(FTDI_LIBS)
-	@echo 'built ./ftread -- run it as root: sudo ./ftread 115200 8000'
+	@echo 'built $@ -- run it as root: sudo $@ 115200 8000'
+
+.PHONY: ftread
+ftread: $(BUILD)/ftread
 
 .PHONY: suite-board
-suite-board: ftread
+suite-board: $(BUILD)/ftread
 	@echo 'Runs the .S suite on the part, in batches. Needs root for the same'
 	@echo 'reason `make prog` does. Roughly ten minutes.'
 	@echo
@@ -1220,10 +1237,10 @@ DHRY_BOARD_RUNS  ?= 20000
 
 .PHONY: dhrystone-board
 dhrystone-board:
-	@rm -f board.json board.asc board.bin
-	@$(MAKE) --no-print-directory board.bin BOARD_OSC=$(BOARD_OSC) BOARD_ROM=dhrystone-rom
+	@rm -f $(BUILD)/board.json $(BUILD)/board.asc $(BUILD)/board.bin
+	@$(MAKE) --no-print-directory $(BUILD)/board.bin BOARD_OSC=$(BOARD_OSC) BOARD_ROM=dhrystone-rom
 	@echo
-	@echo 'Dhrystone is in board.bin. Flash it with `make prog`, then read the'
+	@echo 'Dhrystone is in $(BUILD)/board.bin. Flash it with `make prog`, then read the'
 	@echo 'report off the UART -- it prints itself, cycles and all.'
 
 # Two names, not one target with two bodies: make's last-wins recipe and first-wins `?=`
@@ -1299,10 +1316,10 @@ coremark-rom-up5k: coremark-pin-check
 
 .PHONY: coremark-board
 coremark-board:
-	@rm -f board.json board.asc board.bin
-	@$(MAKE) --no-print-directory board.bin BOARD_OSC=$(BOARD_OSC) BOARD_ROM=coremark-rom-up5k
+	@rm -f $(BUILD)/board.json $(BUILD)/board.asc $(BUILD)/board.bin
+	@$(MAKE) --no-print-directory $(BUILD)/board.bin BOARD_OSC=$(BOARD_OSC) BOARD_ROM=coremark-rom-up5k
 	@echo
-	@echo 'CoreMark is in board.bin. Flash it with `make prog`, then read the'
+	@echo 'CoreMark is in $(BUILD)/board.bin. Flash it with `make prog`, then read the'
 	@echo 'report off the UART -- it prints itself, cycles and all.'
 
 BOARD ?= upduino
@@ -1328,40 +1345,38 @@ noop-rom:
 board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)
 	@./soc/board_elaborate.sh yosys $(BOARD_TOP) $(BOARD_SRCS)
 
-board.json: $(BOARD_SRCS) $(BOARD_ROM)
-	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: board.synth.log)'
-	@yosys -p 'read_verilog -sv $(BOARD_SRCS); \
-	   chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); \
-	   synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@' \
-	  > board.synth.log 2>&1 || { tail -40 board.synth.log; exit 1; }
-	@python3 soc/cell_census.py board.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
+$(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) | $(BUILD)
+	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: $(BUILD)/board.synth.log)'
+	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@' \
+	  > $(BUILD)/board.synth.log 2>&1 || { tail -40 $(BUILD)/board.synth.log; exit 1; }
+	@python3 soc/cell_census.py $(BUILD)/board.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
 	  "the board wrapper changed how rtl/memory.v maps -- the SoC underneath it is the same design"
 
-board.asc: board.json $(BOARD_PCF)
-	@echo 'nextpnr: placing $(BOARD_TOP) on up5k/sg48 (log: board.pnr.log)'
+$(BUILD)/board.asc: $(BUILD)/board.json $(BOARD_PCF)
+	@echo 'nextpnr: placing $(BOARD_TOP) on up5k/sg48 (log: $(BUILD)/board.pnr.log)'
 	@nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF) --json $< \
-	  --asc $@ > board.pnr.log 2>&1 || true
+	  --asc $@ > $(BUILD)/board.pnr.log 2>&1 || true
 	@test -s $@ || { \
 	  echo '*** make bitstream: nextpnr wrote no .asc, so there is nothing to'; \
 	  echo '*** pack. That is a failed placement, not a slow design.'; \
-	  tail -30 board.pnr.log; \
+	  tail -30 $(BUILD)/board.pnr.log; \
 	  rm -f $@; \
 	  exit 1; \
 	}
 
-board.bin: board.asc
+$(BUILD)/board.bin: $(BUILD)/board.asc
 	@icepack $< $@
-	@echo "board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
+	@echo "$(BUILD)/board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
 
 .PHONY: bitstream
-bitstream: board.bin
+bitstream: $(BUILD)/board.bin
 	@echo
 	@echo "== $(BOARD): a bitstream, not a measurement =="
 	@# No `-p`: icetime's pcf parser takes exactly two arguments per line and
 	@# rejects the `-nowarn` this board's file needs, which nextpnr requires so
 	@# that an unused clock pin under BOARD_OSC=internal is not an error. The
 	@# flag only teaches icetime the IO net names, and nothing here reads them.
-	@icetime -d up5k -P sg48 -t board.asc 2>&1 | tail -3
+	@icetime -d up5k -P sg48 -t $(BUILD)/board.asc 2>&1 | tail -3
 	@echo
 	@echo 'This says what the TOOLS think the placement does. A board is the only'
 	@echo 'thing that can disagree, and none has run this yet.'
@@ -1369,14 +1384,14 @@ bitstream: board.bin
 ICEPROG_DEV  ?=
 ICEPROG_SUDO ?= $(if $(filter Darwin,$(shell uname -s)),sudo,)
 .PHONY: prog
-prog: board.bin
+prog: $(BUILD)/board.bin
 	@command -v iceprog >/dev/null || { \
 	  echo '*** iceprog is not on PATH. It ships with the OSS CAD Suite that'; \
 	  echo '*** `make setup` caches -- put its bin/ first on PATH.'; \
 	  exit 1; \
 	}
 	@echo 'Flashing $(BOARD). On macOS this needs root -- see docs/flashing-the-upduino.md.'
-	$(ICEPROG_SUDO) iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') board.bin
+	$(ICEPROG_SUDO) iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') $(BUILD)/board.bin
 
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
 
@@ -1384,46 +1399,46 @@ DUAL_EXPECT_DP16KD := 40
 DUAL_EXPECT_LUTRAM := 64
 DUAL_EXPECT_DSP    := 8
 
-dual_ecp5.json: $(DUAL_SRCS) soc-rom
-	@echo 'yosys: synthesising littledualsoc for ECP5 (log: dual_ecp5.synth.log)'
+$(BUILD)/dual_ecp5.json: $(DUAL_SRCS) soc-rom | $(BUILD)
+	@echo 'yosys: synthesising littledualsoc for ECP5 (log: $(BUILD)/dual_ecp5.synth.log)'
 	@yosys -p 'read_verilog -sv $(DUAL_SRCS); synth_ecp5 -top littledualsoc -json $@' \
-	  > dual_ecp5.synth.log 2>&1 || { tail -40 dual_ecp5.synth.log; exit 1; }
-	@python3 soc/cell_census.py dual_ecp5.synth.log DP16KD $(DUAL_EXPECT_DP16KD) \
+	  > $(BUILD)/dual_ecp5.synth.log 2>&1 || { tail -40 $(BUILD)/dual_ecp5.synth.log; exit 1; }
+	@python3 soc/cell_census.py $(BUILD)/dual_ecp5.synth.log DP16KD $(DUAL_EXPECT_DP16KD) \
 	  "two fetch windows are two copies of the banked ROM and one data RAM; a count that stopped doubling means the second window stopped being its own storage" \
 	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_DP16KD
-	@python3 soc/cell_census.py dual_ecp5.synth.log TRELLIS_DPR16X4 $(DUAL_EXPECT_LUTRAM) \
+	@python3 soc/cell_census.py $(BUILD)/dual_ecp5.synth.log TRELLIS_DPR16X4 $(DUAL_EXPECT_LUTRAM) \
 	  "one register file per hart as distributed RAM; zero means it fell into flops and soft muxes, half means one core did" \
 	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_LUTRAM
-	@python3 soc/cell_census.py dual_ecp5.synth.log MULT18X18D $(DUAL_EXPECT_DSP) \
+	@python3 soc/cell_census.py $(BUILD)/dual_ecp5.synth.log MULT18X18D $(DUAL_EXPECT_DSP) \
 	  "one multiplier per hart; in soft logic either would be invisible in a frequency number and enormous in area" \
 	  --gate 'make dual-ecp5-timing' --declared DUAL_EXPECT_DSP
 	@python3 soc/bram_reset_check.py $@ --gate 'make dual-ecp5-timing'
 
-dual_ecp5.config: dual_ecp5.json soc/littlesoc.lpf
-	@rm -f $@ dual_ecp5.report.json
-	@echo 'nextpnr: placing and routing littledualsoc on $(ECP5_PART) (log: dual_ecp5.pnr.log)'
+$(BUILD)/dual_ecp5.config: $(BUILD)/dual_ecp5.json soc/littlesoc.lpf
+	@rm -f $@ $(BUILD)/dual_ecp5.report.json
+	@echo 'nextpnr: placing and routing littledualsoc on $(ECP5_PART) (log: $(BUILD)/dual_ecp5.pnr.log)'
 	@nextpnr-ecp5 $(ECP5_DEVICE) --package $(ECP5_PACKAGE) --speed $(ECP5_SPEED) \
 	  --json $< --lpf soc/littlesoc.lpf --lpf-allow-unconstrained \
 	  --freq $(ECP5_TARGET_MHZ) $(if $(ECP5_SEED),--seed '$(ECP5_SEED)') \
-	  --textcfg $@ --report dual_ecp5.report.json > dual_ecp5.pnr.log 2>&1 || true
-	@{ test -s $@ && test -s dual_ecp5.report.json; } || { \
+	  --textcfg $@ --report $(BUILD)/dual_ecp5.report.json > $(BUILD)/dual_ecp5.pnr.log 2>&1 || true
+	@{ test -s $@ && test -s $(BUILD)/dual_ecp5.report.json; } || { \
 	  echo '*** make dual-ecp5-timing: nextpnr wrote no configuration and report'; \
 	  echo '*** pair, so NOTHING was measured. That is a failed run, not a slow'; \
 	  echo '*** design, and it is deliberately NOT graded against whatever the'; \
 	  echo '*** last run left on disk.'; \
-	  tail -30 dual_ecp5.pnr.log; \
-	  rm -f $@ dual_ecp5.report.json; \
+	  tail -30 $(BUILD)/dual_ecp5.pnr.log; \
+	  rm -f $@ $(BUILD)/dual_ecp5.report.json; \
 	  exit 1; \
 	}
 
 .PHONY: dual-ecp5-timing
-dual-ecp5-timing: ecp5-timing-toolchain dual_ecp5.config
+dual-ecp5-timing: ecp5-timing-toolchain $(BUILD)/dual_ecp5.config
 	@echo
 	@echo '== nextpnr-ecp5: the DUAL frequency, its corner and its constraint =='
-	@python3 soc/ecp5_report.py dual_ecp5.report.json dual_ecp5.config \
+	@python3 soc/ecp5_report.py $(BUILD)/dual_ecp5.report.json $(BUILD)/dual_ecp5.config \
 	  --clock $(ECP5_CLOCK) --part $(ECP5_PART) --constraint-mhz $(ECP5_TARGET_MHZ)
 	@echo
-	@echo "Placement, routing and nextpnr's own timing analysis: dual_ecp5.pnr.log"
+	@echo "Placement, routing and nextpnr's own timing analysis: $(BUILD)/dual_ecp5.pnr.log"
 
 TOOLS ?= $(sort $(FIT_TOOLS) $(SOC_TIMING_TOOLS) $(ECP5_TOOLS))
 
@@ -1442,7 +1457,7 @@ doctor:
 	soc/print_toolchain.sh "$$CC" $(SOC_TIMING_TOOLS)
 
 NETLIST_PART ?= up5k
-NETLIST_OUT  ?= netlist.out
+NETLIST_OUT  ?= $(BUILD)/netlist.out
 
 ifeq ($(NETLIST_PART),up5k)
 NETLIST_ROM     := soc-rom
@@ -1586,28 +1601,30 @@ compare-rom: compare-geometry-test
 	python3 soc/compare/rom_flat.py "$$tmp/bench.hex" \
 	  soc/compare/rom_flat.hex --rom-words $(COMPARE_ROM_WORDS)
 
-compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
+$(BUILD)/compare.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
+	@mkdir -p $(@D)
 	@echo 'yosys: synthesising $(COMPARE_CORE_TOP) alone for up5k (log: $@)'
 	@yosys -p '$(COMPARE_CORE_READ); synth_ice40 -device u -dsp -spram -top $(COMPARE_CORE_TOP); stat' \
 	  > $@ 2>&1 || { tail -40 $@; exit 1; }
 
-compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
-	@echo 'yosys: synthesising $(COMPARE_TOP) for up5k (log: compare.$(COMPARE_CORE).synth.log)'
+$(BUILD)/compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
+	@mkdir -p $(@D)
+	@echo 'yosys: synthesising $(COMPARE_TOP) for up5k (log: $(BUILD)/compare.$(COMPARE_CORE).synth.log)'
 	@# chparam BEFORE hierarchy, so the harness's geometry has one source -- the
 	@# variables above -- rather than a second copy in each .v file's defaults.
 	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); hierarchy -top $(COMPARE_TOP); synth_ice40 -device u -dsp -spram -top $(COMPARE_TOP) -json $@; stat' \
-	  > compare.$(COMPARE_CORE).synth.log 2>&1 \
-	  || { tail -40 compare.$(COMPARE_CORE).synth.log; exit 1; }
+	  > $(BUILD)/compare.$(COMPARE_CORE).synth.log 2>&1 \
+	  || { tail -40 $(BUILD)/compare.$(COMPARE_CORE).synth.log; exit 1; }
 
-compare.$(COMPARE_CORE).asc: compare.$(COMPARE_CORE).json $(COMPARE_PCF)
-	@echo 'nextpnr: placing $(COMPARE_TOP) on $(COMPARE_PART) (log: compare.$(COMPARE_CORE).pnr.log)'
+$(BUILD)/compare.$(COMPARE_CORE).asc: $(BUILD)/compare.$(COMPARE_CORE).json $(COMPARE_PCF)
+	@echo 'nextpnr: placing $(COMPARE_TOP) on $(COMPARE_PART) (log: $(BUILD)/compare.$(COMPARE_CORE).pnr.log)'
 	@nextpnr-ice40 $(COMPARE_PNR_FLAGS) --json $< --pcf $(COMPARE_PCF) \
 	  $(if $(COMPARE_SEED),--seed '$(COMPARE_SEED)') --asc $@ \
-	  > compare.$(COMPARE_CORE).pnr.log 2>&1 || true
+	  > $(BUILD)/compare.$(COMPARE_CORE).pnr.log 2>&1 || true
 	@test -s $@ || { \
 	  echo '*** make compare-timing: nextpnr produced no bitstream, so NOTHING'; \
 	  echo '*** was measured. That is a failed placement, not a fast design.'; \
-	  tail -30 compare.$(COMPARE_CORE).pnr.log; \
+	  tail -30 $(BUILD)/compare.$(COMPARE_CORE).pnr.log; \
 	  rm -f $@; \
 	  exit 1; \
 	}
@@ -1616,14 +1633,14 @@ COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                       soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                       soc/compare/bench_tb.v
 
-compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-pin-check \
-             | $(HAZARD3_DIR)
+$(BUILD)/compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-pin-check \
+             | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_SMOKE_SRCS)
 
 .PHONY: compare-smoke
-compare-smoke: compare.vvp
+compare-smoke: $(BUILD)/compare.vvp
 	@vvp $<
 
 COMPARE_DHRY_RUNS   ?= 400
@@ -1642,8 +1659,8 @@ COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                      soc/compare/dhry_monitor.v soc/compare/dhry_tb.v
 
-compare.dhry.vvp: $(COMPARE_DHRY_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
-                  | $(HAZARD3_DIR)
+$(BUILD)/compare.dhry.vvp: $(COMPARE_DHRY_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
+                  | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_DHRY_SRCS)
@@ -1651,50 +1668,50 @@ compare.dhry.vvp: $(COMPARE_DHRY_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
 COMPARE_DHRY_SOLO_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                           soc/compare/dhry_monitor.v soc/compare/dhry_solo_tb.v
 
-compare.dhry.solo.vvp: $(COMPARE_DHRY_SOLO_SRCS)
+$(BUILD)/compare.dhry.solo.vvp: $(COMPARE_DHRY_SOLO_SRCS) | $(BUILD)
 	iverilog -I./rtl/ -g2012 -o $@ $(COMPARE_DHRY_SOLO_SRCS)
 
 COMPARE_DHRY_VEXC_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                           soc/compare/bench_vexriscv.v \
                           soc/compare/dhry_monitor.v soc/compare/dhry_vexc_tb.v
 
-compare.dhry.vexc.vvp: $(COMPARE_DHRY_VEXC_SRCS) $(VEXRISCV_V) vexriscv-pin-check
+$(BUILD)/compare.dhry.vexc.vvp: $(COMPARE_DHRY_VEXC_SRCS) $(VEXRISCV_V) vexriscv-pin-check | $(BUILD)
 	iverilog -I./rtl/ -g2012 -o $@ $(VEXRISCV_V) $(COMPARE_DHRY_VEXC_SRCS)
 
 COMPARE_DHRY_HAZA_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                           soc/compare/bench_hazard3.v \
                           soc/compare/dhry_monitor.v soc/compare/dhry_haza_tb.v
 
-compare.dhry.haza.vvp: $(COMPARE_DHRY_HAZA_SRCS) | $(HAZARD3_DIR)
+$(BUILD)/compare.dhry.haza.vvp: $(COMPARE_DHRY_HAZA_SRCS) | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(HAZARD3_SRCS) $(COMPARE_DHRY_HAZA_SRCS)
 
 .PHONY: compare-dhrystone
-compare-dhrystone: compare.dhry.vvp compare.dhry.solo.vvp compare.dhry.vexc.vvp \
-                   compare.dhry.haza.vvp
-	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
-	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
-	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 compare.hazard3.core.log
+compare-dhrystone: $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp \
+                   $(BUILD)/compare.dhry.haza.vvp
+	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv $(BUILD)/compare.vexriscv.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 $(BUILD)/compare.hazard3.core.log
 	@echo '== the three-way row: littlecpu, VexRiscv and Hazard3, all at RV32IM =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
-	  '$(COMPARE_DHRY_CFLAGS)' hardware compare.dhry.vvp littlecpu,vexriscv,hazard3 \
-	  littlecpu=compare.littlecpu.core.log vexriscv=compare.vexriscv.core.log \
-	  hazard3=compare.hazard3.core.log
+	  '$(COMPARE_DHRY_CFLAGS)' hardware $(BUILD)/compare.dhry.vvp littlecpu,vexriscv,hazard3 \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log vexriscv=$(BUILD)/compare.vexriscv.core.log \
+	  hazard3=$(BUILD)/compare.hazard3.core.log
 	@echo
 	@echo '== the ISA-cost row: littlecpu alone, at its native ISA =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
-	  '$(DHRY_CFLAGS)' hardware compare.dhry.solo.vvp littlecpu \
-	  littlecpu=compare.littlecpu.core.log
+	  '$(DHRY_CFLAGS)' hardware $(BUILD)/compare.dhry.solo.vvp littlecpu \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log
 	@echo
 	@echo '== the pairwise-C row: littlecpu and VexRiscv alone, both at rv32imc =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
-	  '$(COMPARE_DHRY_VEXC_CFLAGS)' hardware compare.dhry.vexc.vvp littlecpu,vexriscv \
-	  littlecpu=compare.littlecpu.core.log vexriscv=compare.vexriscv.core.log
+	  '$(COMPARE_DHRY_VEXC_CFLAGS)' hardware $(BUILD)/compare.dhry.vexc.vvp littlecpu,vexriscv \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log vexriscv=$(BUILD)/compare.vexriscv.core.log
 	@echo
 	@echo '== the pairwise-A row: littlecpu and Hazard3 alone, both at RV32IMA =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
-	  '$(COMPARE_DHRY_HAZA_CFLAGS)' hardware compare.dhry.haza.vvp littlecpu,hazard3 \
-	  littlecpu=compare.littlecpu.core.log hazard3=compare.hazard3.core.log
+	  '$(COMPARE_DHRY_HAZA_CFLAGS)' hardware $(BUILD)/compare.dhry.haza.vvp littlecpu,hazard3 \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log hazard3=$(BUILD)/compare.hazard3.core.log
 	@if [ -f soc/compare/product.json ]; then \
 	  echo '== the stamped cross-core product, if the stamp still matches this tree =='; \
 	  python3 soc/compare/product_check.py soc/compare/product.json dhrystone \
@@ -1722,8 +1739,8 @@ COMPARE_COREMARK_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                          soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
                          soc/compare/dhry_monitor.v soc/compare/coremark_tb.v
 
-compare.coremark.vvp: $(COMPARE_COREMARK_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
-                       | $(HAZARD3_DIR)
+$(BUILD)/compare.coremark.vvp: $(COMPARE_COREMARK_SRCS) $(VEXRISCV_V) vexriscv-pin-check \
+                       | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_COREMARK_SRCS)
@@ -1731,51 +1748,51 @@ compare.coremark.vvp: $(COMPARE_COREMARK_SRCS) $(VEXRISCV_V) vexriscv-pin-check 
 COMPARE_COREMARK_SOLO_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                               soc/compare/dhry_monitor.v soc/compare/coremark_solo_tb.v
 
-compare.coremark.solo.vvp: $(COMPARE_COREMARK_SOLO_SRCS)
+$(BUILD)/compare.coremark.solo.vvp: $(COMPARE_COREMARK_SOLO_SRCS) | $(BUILD)
 	iverilog -I./rtl/ -g2012 -o $@ $(COMPARE_COREMARK_SOLO_SRCS)
 
 COMPARE_COREMARK_VEXC_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                               soc/compare/bench_vexriscv.v \
                               soc/compare/dhry_monitor.v soc/compare/coremark_vexc_tb.v
 
-compare.coremark.vexc.vvp: $(COMPARE_COREMARK_VEXC_SRCS) $(VEXRISCV_V) vexriscv-pin-check
+$(BUILD)/compare.coremark.vexc.vvp: $(COMPARE_COREMARK_VEXC_SRCS) $(VEXRISCV_V) vexriscv-pin-check | $(BUILD)
 	iverilog -I./rtl/ -g2012 -o $@ $(VEXRISCV_V) $(COMPARE_COREMARK_VEXC_SRCS)
 
 COMPARE_COREMARK_HAZA_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                               soc/compare/bench_hazard3.v \
                               soc/compare/dhry_monitor.v soc/compare/coremark_haza_tb.v
 
-compare.coremark.haza.vvp: $(COMPARE_COREMARK_HAZA_SRCS) | $(HAZARD3_DIR)
+$(BUILD)/compare.coremark.haza.vvp: $(COMPARE_COREMARK_HAZA_SRCS) | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(HAZARD3_SRCS) $(COMPARE_COREMARK_HAZA_SRCS)
 
 .PHONY: compare-coremark
-compare-coremark: compare.coremark.vvp compare.coremark.solo.vvp \
-                  compare.coremark.vexc.vvp compare.coremark.haza.vvp
-	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu compare.littlecpu.core.log
-	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv compare.vexriscv.core.log
-	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 compare.hazard3.core.log
+compare-coremark: $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp \
+                  $(BUILD)/compare.coremark.vexc.vvp $(BUILD)/compare.coremark.haza.vvp
+	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv $(BUILD)/compare.vexriscv.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 $(BUILD)/compare.hazard3.core.log
 	@echo '== the three-way row: littlecpu, VexRiscv and Hazard3, all at RV32IM =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
-	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' compare.coremark.vvp \
+	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' $(BUILD)/compare.coremark.vvp \
 	  littlecpu,vexriscv,hazard3
 	@echo
 	@echo '== the ISA-cost row: littlecpu alone, at its native ISA =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
-	  $(COMPARE_COREMARK_CYCLES) '$(COREMARK_CFLAGS)' compare.coremark.solo.vvp \
-	  littlecpu littlecpu=compare.littlecpu.core.log
+	  $(COMPARE_COREMARK_CYCLES) '$(COREMARK_CFLAGS)' $(BUILD)/compare.coremark.solo.vvp \
+	  littlecpu littlecpu=$(BUILD)/compare.littlecpu.core.log
 	@echo
 	@echo '== the pairwise-C row: littlecpu and VexRiscv alone, both at rv32imc =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_VEXC_CFLAGS)' \
-	  compare.coremark.vexc.vvp littlecpu,vexriscv \
-	  littlecpu=compare.littlecpu.core.log vexriscv=compare.vexriscv.core.log
+	  $(BUILD)/compare.coremark.vexc.vvp littlecpu,vexriscv \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log vexriscv=$(BUILD)/compare.vexriscv.core.log
 	@echo
 	@echo '== the pairwise-A row: littlecpu and Hazard3 alone, both at RV32IMA =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_HAZA_CFLAGS)' \
-	  compare.coremark.haza.vvp littlecpu,hazard3 \
-	  littlecpu=compare.littlecpu.core.log hazard3=compare.hazard3.core.log
+	  $(BUILD)/compare.coremark.haza.vvp littlecpu,hazard3 \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log hazard3=$(BUILD)/compare.hazard3.core.log
 
 .PHONY: compare-timing
 # The memories are shared; the DSP count is the core's own, and Hazard3's is soft logic.
@@ -1786,60 +1803,62 @@ COMPARE_ECP5_EXPECT_DSP_vexriscv  := 4
 COMPARE_ECP5_EXPECT_DSP_hazard3   := 0
 COMPARE_ECP5_EXPECT_DSP := $(COMPARE_ECP5_EXPECT_DSP_$(COMPARE_CORE))
 
-compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
+$(BUILD)/compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
+	@mkdir -p $(@D)
 	@echo 'yosys: synthesising $(COMPARE_CORE_TOP) alone for ECP5 (log: $@)'
 	@yosys -p '$(COMPARE_CORE_READ); synth_ecp5 -top $(COMPARE_CORE_TOP); stat' \
 	  > $@ 2>&1 || { tail -40 $@; exit 1; }
 
-compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
-	@echo 'yosys: synthesising $(COMPARE_TOP) for ECP5 (log: compare_ecp5.$(COMPARE_CORE).synth.log)'
+$(BUILD)/compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
+	@mkdir -p $(@D)
+	@echo 'yosys: synthesising $(COMPARE_TOP) for ECP5 (log: $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log)'
 	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
-	  > compare_ecp5.$(COMPARE_CORE).synth.log 2>&1 \
-	  || { tail -40 compare_ecp5.$(COMPARE_CORE).synth.log; exit 1; }
-	@python3 soc/cell_census.py compare_ecp5.$(COMPARE_CORE).synth.log DP16KD \
+	  > $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log 2>&1 \
+	  || { tail -40 $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log; exit 1; }
+	@python3 soc/cell_census.py $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log DP16KD \
 	  $(COMPARE_ECP5_EXPECT_DP16KD) \
 	  'the harness memories fell out of block RAM, which is silent in a frequency and enormous in area' \
 	  --gate 'make compare-timing COMPARE_PART=ecp5' --declared COMPARE_ECP5_EXPECT_DP16KD
-	@python3 soc/cell_census.py compare_ecp5.$(COMPARE_CORE).synth.log TRELLIS_DPR16X4 \
+	@python3 soc/cell_census.py $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log TRELLIS_DPR16X4 \
 	  $(COMPARE_ECP5_EXPECT_LUTRAM) \
 	  'a register file fell out of LUT RAM into flip-flops, which no frequency reports' \
 	  --gate 'make compare-timing COMPARE_PART=ecp5' --declared COMPARE_ECP5_EXPECT_LUTRAM
-	@python3 soc/cell_census.py compare_ecp5.$(COMPARE_CORE).synth.log MULT18X18D \
+	@python3 soc/cell_census.py $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log MULT18X18D \
 	  $(COMPARE_ECP5_EXPECT_DSP) \
 	  'this core mapped a different number of hard multipliers than the comparison declares for it' \
 	  --gate 'make compare-timing COMPARE_PART=ecp5' \
 	  --declared COMPARE_ECP5_EXPECT_DSP_$(COMPARE_CORE)
 	@python3 soc/bram_reset_check.py $@ --gate 'make compare-timing COMPARE_PART=ecp5'
 
-compare_ecp5.$(COMPARE_CORE).config: compare_ecp5.$(COMPARE_CORE).json soc/compare/bench_ecp5.lpf
-	@rm -f $@ compare_ecp5.$(COMPARE_CORE).report.json
-	@echo 'nextpnr: placing $(COMPARE_TOP) on $(ECP5_PART) (log: compare_ecp5.$(COMPARE_CORE).pnr.log)'
+$(BUILD)/compare_ecp5.$(COMPARE_CORE).config: $(BUILD)/compare_ecp5.$(COMPARE_CORE).json soc/compare/bench_ecp5.lpf
+	@rm -f $@ $(BUILD)/compare_ecp5.$(COMPARE_CORE).report.json
+	@echo 'nextpnr: placing $(COMPARE_TOP) on $(ECP5_PART) (log: $(BUILD)/compare_ecp5.$(COMPARE_CORE).pnr.log)'
 	@nextpnr-ecp5 $(ECP5_DEVICE) --package $(ECP5_PACKAGE) --speed $(ECP5_SPEED) \
 	  --json $< --lpf soc/compare/bench_ecp5.lpf --lpf-allow-unconstrained \
 	  --freq $(ECP5_TARGET_MHZ) $(if $(ECP5_SEED),--seed '$(ECP5_SEED)') \
-	  --textcfg $@ --report compare_ecp5.$(COMPARE_CORE).report.json \
-	  > compare_ecp5.$(COMPARE_CORE).pnr.log 2>&1 || true
-	@{ test -s $@ && test -s compare_ecp5.$(COMPARE_CORE).report.json; } || { \
+	  --textcfg $@ --report $(BUILD)/compare_ecp5.$(COMPARE_CORE).report.json \
+	  > $(BUILD)/compare_ecp5.$(COMPARE_CORE).pnr.log 2>&1 || true
+	@{ test -s $@ && test -s $(BUILD)/compare_ecp5.$(COMPARE_CORE).report.json; } || { \
 	  echo '*** make compare-ecp5-timing: nextpnr wrote no configuration and'; \
 	  echo '*** report pair, so NOTHING was measured. That is a failed run, not'; \
 	  echo '*** a slow design, and it is deliberately NOT graded against whatever'; \
 	  echo '*** the last run left on disk.'; \
-	  tail -30 compare_ecp5.$(COMPARE_CORE).pnr.log; \
-	  rm -f $@ compare_ecp5.$(COMPARE_CORE).report.json; \
+	  tail -30 $(BUILD)/compare_ecp5.$(COMPARE_CORE).pnr.log; \
+	  rm -f $@ $(BUILD)/compare_ecp5.$(COMPARE_CORE).report.json; \
 	  exit 1; \
 	}
 
 .PHONY: compare-ecp5-timing
-compare-ecp5-timing: compare_ecp5.$(COMPARE_CORE).config compare_ecp5.$(COMPARE_CORE).core.log
+compare-ecp5-timing: $(BUILD)/compare_ecp5.$(COMPARE_CORE).config $(BUILD)/compare_ecp5.$(COMPARE_CORE).core.log
 	@echo
 	@echo '== is the core still there? =='
-	@python3 soc/compare/placed_vs_synth.py compare_ecp5.$(COMPARE_CORE).pnr.log \
-	  compare_ecp5.$(COMPARE_CORE).core.log $(COMPARE_CORE) --part ecp5 \
+	@python3 soc/compare/placed_vs_synth.py $(BUILD)/compare_ecp5.$(COMPARE_CORE).pnr.log \
+	  $(BUILD)/compare_ecp5.$(COMPARE_CORE).core.log $(COMPARE_CORE) --part ecp5 \
 	  --min-ratio $(COMPARE_MIN_RATIO)
 	@echo
 	@echo '== nextpnr-ecp5: $(COMPARE_CORE) on $(ECP5_PART) =='
-	@python3 soc/ecp5_report.py compare_ecp5.$(COMPARE_CORE).report.json \
-	  compare_ecp5.$(COMPARE_CORE).config --clock clk --part $(ECP5_PART) \
+	@python3 soc/ecp5_report.py $(BUILD)/compare_ecp5.$(COMPARE_CORE).report.json \
+	  $(BUILD)/compare_ecp5.$(COMPARE_CORE).config --clock clk --part $(ECP5_PART) \
 	  --constraint-mhz $(ECP5_TARGET_MHZ)
 	@echo
 	@echo 'ECP5 SYNTHESISES ITS CLOCK: EHXPLLL gives ref x M / N / D on a fine grid,'
@@ -1848,19 +1867,19 @@ compare-ecp5-timing: compare_ecp5.$(COMPARE_CORE).config compare_ecp5.$(COMPARE_
 	@python3 soc/bands.py ecp5 --note
 
 .PHONY: compare-up5k-timing
-compare-up5k-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.log
-	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' compare.$(COMPARE_CORE).pnr.log
+compare-up5k-timing: $(BUILD)/compare.$(COMPARE_CORE).asc $(BUILD)/compare.$(COMPARE_CORE).core.log
+	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' $(BUILD)/compare.$(COMPARE_CORE).pnr.log
 	@echo
 	@echo '== is the core still there? =='
-	@python3 soc/compare/placed_vs_synth.py compare.$(COMPARE_CORE).pnr.log \
-	  compare.$(COMPARE_CORE).core.log $(COMPARE_CORE) --part up5k \
+	@python3 soc/compare/placed_vs_synth.py $(BUILD)/compare.$(COMPARE_CORE).pnr.log \
+	  $(BUILD)/compare.$(COMPARE_CORE).core.log $(COMPARE_CORE) --part up5k \
 	  --min-ratio $(COMPARE_MIN_RATIO)
 	@echo
 	@echo '== icetime: the critical path, and the LOGIC/ROUTING SPLIT =='
 	@icetime $(COMPARE_ICETIME_ARG) -p $(COMPARE_PCF) -t \
-	  -r compare.$(COMPARE_CORE).timing.rpt compare.$(COMPARE_CORE).asc \
-	  > compare.$(COMPARE_CORE).icetime.log 2>&1 \
-	  || { cat compare.$(COMPARE_CORE).icetime.log; exit 1; }
+	  -r $(BUILD)/compare.$(COMPARE_CORE).timing.rpt $(BUILD)/compare.$(COMPARE_CORE).asc \
+	  > $(BUILD)/compare.$(COMPARE_CORE).icetime.log 2>&1 \
+	  || { cat $(BUILD)/compare.$(COMPARE_CORE).icetime.log; exit 1; }
 	@echo
 	@echo 'THIS IS NOT `make soc-timing`, AND NOT A LIKE-FOR-LIKE COMPARISON.'
 	@echo 'Different part, smaller memories, no timer, and the cores implement'
@@ -1868,10 +1887,10 @@ compare-up5k-timing: compare.$(COMPARE_CORE).asc compare.$(COMPARE_CORE).core.lo
 	@echo 'file and no traps for VexRiscv, RV32IMA with no C and no counters'
 	@echo 'for Hazard3. Quote the ISA and the geometry with the number. One'
 	@echo 'placement is a sample: soc/compare/sweep.sh runs four each.'
-	@python3 soc/timing_split.py compare.$(COMPARE_CORE).timing.rpt
+	@python3 soc/timing_split.py $(BUILD)/compare.$(COMPARE_CORE).timing.rpt
 	@echo
 	@echo '== the step gate: does this core reach the only clock the board has? =='
-	@python3 soc/compare/step_gate.py compare.$(COMPARE_CORE).timing.rpt \
+	@python3 soc/compare/step_gate.py $(BUILD)/compare.$(COMPARE_CORE).timing.rpt \
 	  --core $(COMPARE_CORE) --step $(COMPARE_STEP_MHZ)
 
 ifeq ($(COMPARE_PART),ecp5)
@@ -1881,18 +1900,18 @@ compare-timing: compare-up5k-timing
 endif
 
 clean:
-	rm -f fit.json fit.log fit.synth.log
-	rm -f soc.json soc.asc soc.synth.log soc.pnr.log soc.timing.rpt
-	rm -f board.json board.asc board.bin board.synth.log board.pnr.log
-	rm -f ecp5.json ecp5.config ecp5.report.json ecp5.synth.log ecp5.pnr.log
-	rm -f dual_ecp5.json dual_ecp5.config dual_ecp5.report.json dual_ecp5.synth.log dual_ecp5.pnr.log
+	rm -f $(BUILD)/fit.json $(BUILD)/fit.log $(BUILD)/fit.synth.log
+	rm -f $(BUILD)/soc.json $(BUILD)/soc.asc $(BUILD)/soc.synth.log $(BUILD)/soc.pnr.log $(BUILD)/soc.timing.rpt
+	rm -f $(BUILD)/board.json $(BUILD)/board.asc $(BUILD)/board.bin $(BUILD)/board.synth.log $(BUILD)/board.pnr.log
+	rm -f $(BUILD)/ecp5.json $(BUILD)/ecp5.config $(BUILD)/ecp5.report.json $(BUILD)/ecp5.synth.log $(BUILD)/ecp5.pnr.log
+	rm -f $(BUILD)/dual_ecp5.json $(BUILD)/dual_ecp5.config $(BUILD)/dual_ecp5.report.json $(BUILD)/dual_ecp5.synth.log $(BUILD)/dual_ecp5.pnr.log
 	rm -f test/dual_rtl.cc dual-sim
 	rm -f soc/rom_even.hex soc/rom_odd.hex
-	rm -f compare.*.json compare.*.asc compare.*.log compare.*.rpt compare.vvp
-	rm -f compare_ecp5.*.json compare_ecp5.*.config compare_ecp5.*.log
-	rm -f compare.dhry.vvp compare.dhry.solo.vvp compare.dhry.vexc.vvp compare.dhry.haza.vvp
-	rm -f compare.coremark.vvp compare.coremark.solo.vvp compare.coremark.vexc.vvp \
-	      compare.coremark.haza.vvp
+	rm -f $(BUILD)/compare.*.json $(BUILD)/compare.*.asc $(BUILD)/compare.*.log $(BUILD)/compare.*.rpt $(BUILD)/compare.vvp
+	rm -f $(BUILD)/compare_ecp5.*.json $(BUILD)/compare_ecp5.*.config $(BUILD)/compare_ecp5.*.log
+	rm -f $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp $(BUILD)/compare.dhry.haza.vvp
+	rm -f $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp $(BUILD)/compare.coremark.vexc.vvp \
+	      $(BUILD)/compare.coremark.haza.vvp
 	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex
 	rm -f soc/compare/dhry_even.hex soc/compare/dhry_odd.hex soc/compare/dhry_flat.hex
 	rm -f soc/compare/dhry_ram.hex

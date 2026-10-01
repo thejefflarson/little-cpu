@@ -19,7 +19,7 @@ for required in "NETLIST_SYNTH=${NETLIST_SYNTH:-}" "NETLIST_PNR=${NETLIST_PNR:-}
 done
 pnr_out=${NETLIST_PNR_OUT:---asc}
 pnr_done=${NETLIST_PNR_DONE:-Info: Program finished normally.}
-out=${NETLIST_OUT:-netlist.out}
+out=${NETLIST_OUT:-build/netlist.out}
 case $out in
   ""|/|*..*) echo "*** soc/netlist_determinism.sh: NETLIST_OUT='$out' is not a" >&2
              echo "*** directory this may delete and rebuild." >&2; exit 2 ;;

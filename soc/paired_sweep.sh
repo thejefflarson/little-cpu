@@ -30,7 +30,7 @@ git rev-parse --verify --quiet "$base_ref^{commit}" > /dev/null || {
 }
 base_sha=$(git rev-parse "$base_ref")
 
-out=${PAIRED_OUT:-paired.out}
+out=${PAIRED_OUT:-build/paired.out}
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 

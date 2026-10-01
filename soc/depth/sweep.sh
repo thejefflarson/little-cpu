@@ -9,7 +9,7 @@ if [ ${#seeds[@]} -eq 0 ]; then seeds=(0 1 2 3); fi
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
-out=${DEPTH_OUT:-$root/depth.out}
+out=${DEPTH_OUT:-$root/build/depth.out}
 mkdir -p "$out"
 mem=$out/imemory_depth.v
 python3 soc/depth/variants.py "$mem"
