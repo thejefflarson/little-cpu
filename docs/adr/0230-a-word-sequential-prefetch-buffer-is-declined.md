@@ -1,4 +1,4 @@
-# 0223 — A word-sequential prefetch buffer is declined
+# 0230 — A word-sequential prefetch buffer is declined
 
 Status: Declined · 2026-10-01
 
