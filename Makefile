@@ -660,6 +660,10 @@ probes-header-test:
 stall-sites-test:
 	@python3 ./test/stall_sites_test.py
 
+.PHONY: formal-ci-coverage-test
+formal-ci-coverage-test:
+	@python3 ./test/formal_ci_coverage_test.py
+
 # soc_pin.py's own usage block says check-sources exits 0 -- a mismatch warns, it does
 # not fail -- and this keeps the soc-timing recipe's help text saying the same thing.
 .PHONY: pin-help-text-test
@@ -739,7 +743,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test \
       nano-memmap-test nano-tt-test \
-      stall-sites-test pin-help-text-test
+      stall-sites-test pin-help-text-test formal-ci-coverage-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles

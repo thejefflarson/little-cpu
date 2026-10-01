@@ -3,10 +3,12 @@
 causal_ch0
 causal_mem_ch0
 cover
+csrc_any_mscratch_ch0
 csrc_upcnt_mcycle_ch0
 csrc_upcnt_minstret_ch0
 csrw_mcycle_ch0
 csrw_minstret_ch0
+csrw_mscratch_ch0
 hang
 ill_ch0
 insn_add_ch0
