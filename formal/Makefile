@@ -117,8 +117,12 @@ multihart-tie-off: check-multihart-tie-off.py MULTIHART_TIE_OFF ../rtl/littlecpu
 	python3 $< . MULTIHART_TIE_OFF ..
 
 .PHONY: nonperturbation
-nonperturbation: check-nonperturbation.py
+nonperturbation: check-nonperturbation.py nonperturbation-probe
 	python3 $<
+
+.PHONY: nonperturbation-probe
+nonperturbation-probe: nonperturbation-probe.py check-nonperturbation.py $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
+	python3 $< littlecpu --workdir nonperturbation-probe
 
 .PHONY: components_decoder components_executor components_accessor components_pcloop components_traps \
         components_busarbiter
@@ -194,7 +198,7 @@ clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
 	rm -rf pcloop_cover traps_cover busarbiter_cover fg-probe fg-probe.cfg
-	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe
+	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe nonperturbation-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean
