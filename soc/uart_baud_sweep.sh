@@ -2,12 +2,14 @@
 set -uo pipefail
 FTREAD=${FTREAD:-$(cd "$(dirname "$0")" && pwd)/../build/ftread}
 MS=${MS:-6000}
+ERR=$(cd "$(dirname "$0")" && pwd)/../build/uartsweep.err
+mkdir -p "$(dirname "$ERR")"
 [ -x "$FTREAD" ] || { echo "no ftread at $FTREAD -- build it with 'make ftread'" >&2; exit 1; }
 
 echo "rate     bytes  clean%  digits eol  sample"
 for baud in 105000 108000 110000 112000 114000 115200 116000 118000 120000 122000 125000; do
-  out=$("$FTREAD" "$baud" "$MS" 2>/tmp/uartsweep.err)
-  st=$(tr -d '\n' < /tmp/uartsweep.err)
+  out=$("$FTREAD" "$baud" "$MS" 2>"$ERR")
+  st=$(tr -d '\n' < "$ERR")
   b=$(sed -E 's/.*bytes=([0-9]+).*/\1/' <<<"$st"); p=$(sed -E 's/.*printable=([0-9]+).*/\1/' <<<"$st")
   d=$(sed -E 's/.*digits=([0-9]+).*/\1/' <<<"$st"); e=$(sed -E 's/.*eol=([0-9]+).*/\1/' <<<"$st")
   for v in b p d e; do [ -z "${!v}" ] && eval "$v=0"; done

@@ -339,8 +339,8 @@ dual-dhrystone-aggregate: dual-sim
 # Keep this yosys -p script on one line: a backslash split inside its single quotes stays
 # literal, and yosys dies on it on CI's make though not on macOS's.
 .PHONY: elaborate-strict
-elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS)
-	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) $(SIM_TB_SRCS); hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl /tmp/elaborate-strict.cc'
+elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS) | $(BUILD)
+	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) $(SIM_TB_SRCS); hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl $(BUILD)/elaborate-strict.cc'
 
 MONITOR_GEN = cd $(RISCV_FORMAL_DIR)/monitor && python3 generate.py -i rv32imc -c 1 -a -p monitor
 
@@ -642,6 +642,11 @@ march-test:
 riscv-gcc-search-test:
 	@./test/riscv_gcc_search_test.sh
 
+# Refuses a fixed scratch path outside $(BUILD) in a tracked Makefile or script.
+.PHONY: tmp-path-test
+tmp-path-test:
+	@./test/tmp_path_test.sh
+
 .PHONY: macro-register-test
 macro-register-test:
 	@./test/macro_register_test.sh
@@ -739,7 +744,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test \
       riscv-gcc-pin-test memmap-test \
       adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
-      riscv-gcc-search-test \
+      riscv-gcc-search-test tmp-path-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
