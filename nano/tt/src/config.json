@@ -39,5 +39,32 @@
 
   "MAGIC_DEF_LABELS": 0,
 
-  "MAGIC_WRITE_LEF_PINONLY": 1
+  "MAGIC_WRITE_LEF_PINONLY": 1,
+
+  "//": "The register file is a hard block. make nano-rf-macro-install fetches the three pinned files into ../macro, which is not committed.",
+  "MACROS": {
+    "rf_top": {
+      "instances": {
+        "core.regfile": {
+          "location": [0.1, 45.0],
+          "orientation": "E"
+        }
+      },
+      "gds": ["dir::../macro/rf_top.gds.gz"],
+      "lef": ["dir::../macro/rf_top.lef"],
+      "lib": {
+        "*": ["dir::../macro/rf_top.lib"]
+      }
+    }
+  },
+
+  "PDN_MACRO_CONNECTIONS": ["core.regfile VPWR VGND VDPWR VGND"],
+
+  "RUN_IRDROP_REPORT": 0,
+  "MAGIC_NO_EXT_UNIQUE": 1,
+  "ERROR_ON_PDN_VIOLATIONS": 0,
+  "FP_PDN_HORIZONTAL_LAYER": "met3",
+  "FP_MACRO_HORIZONTAL_HALO": "3",
+  "FP_MACRO_VERTICAL_HALO": "0",
+  "FP_PDN_VOFFSET": "10"
 }
