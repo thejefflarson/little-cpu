@@ -121,7 +121,7 @@ nonperturbation: check-nonperturbation.py nonperturbation-probe
 	python3 $<
 
 .PHONY: nonperturbation-probe
-nonperturbation-probe: nonperturbation-probe.py check-nonperturbation.py $(RTL_SOURCES)
+nonperturbation-probe: nonperturbation-probe.py check-nonperturbation.py $(RTL_SOURCES) | $(RISCV_FORMAL_DIR)
 	python3 $< littlecpu --workdir nonperturbation-probe
 
 .PHONY: components_decoder components_executor components_accessor components_pcloop components_traps \
