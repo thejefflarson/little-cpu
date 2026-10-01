@@ -18,13 +18,13 @@ checks: ../../formal/genchecks-audit.py ../../formal/genchecks-local.py checks.c
 	python3 $< .
 
 .PHONY: check
-check: checks $(RISCV_FORMAL_DIR)
+check: checks interrupt-tie-off $(RISCV_FORMAL_DIR)
 	-$(MAKE) -C checks -j$(JOBS) -k
 	$(MAKE) check-baseline
 
 # The same slice-and-stop as formal/'s, and the same script: two sets, one layout.
 .PHONY: check-shard
-check-shard: checks $(RISCV_FORMAL_DIR)
+check-shard: checks interrupt-tie-off $(RISCV_FORMAL_DIR)
 	../../formal/check-shard.sh checks '$(CHECK_SHARD)' $(JOBS)
 
 .PHONY: check-baseline
@@ -56,7 +56,11 @@ complete-exclusions: ../../formal/check-complete-exclusions.py complete.sv \
                      COMPLETE_EXCLUSIONS | $(RISCV_FORMAL_DIR)
 	python3 $< complete.sv COMPLETE_EXCLUSIONS $(RISCV_FORMAL_DIR)
 ill_e: ill_e.sby ill_e.sv ../nano.v ill-e-probe | $(RISCV_FORMAL_DIR)
-ill_e_cover: ill_e_cover.sby ill_e.sv ../nano.v | $(RISCV_FORMAL_DIR)
+ill_e_cover: ill_e_cover.sby ill_e.sv ../nano.v ill-e-cover-probe ../../formal/cover-depth-tie.py \
+             ../../formal/cover_log.py ../../formal/depth_rules.py FORCE | $(RISCV_FORMAL_DIR)
+	rm -rf $@
+	sby -f $<
+	python3 ../../formal/cover-depth-tie.py ill_e_cover/logfile.txt ill_e.sv ill_e.sby
 
 .PHONY: components_traps
 components_traps: traps.sby traps.sv ../nano.v traps-region-probe traps-tval-probe \
@@ -88,6 +92,11 @@ imemcheck-cover-probe: ../../formal/memcheck-cover-probe.py imemcheck.sv imemche
                        ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $< --harness nano/formal --check imemcheck --workdir memcheck-cover-probe/imemcheck
 
+.PHONY: ill-e-cover-probe
+ill-e-cover-probe: ../../formal/memcheck-cover-probe.py ill_e.sv ill_e_cover.sby ../nano.v \
+                   | $(RISCV_FORMAL_DIR)
+	python3 $< --harness nano/formal --check ill_e --workdir memcheck-cover-probe/ill_e
+
 .PHONY: ill-e-probe
 ill-e-probe: ill-e-probe.py ill_e.sv ill_e.sby ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
@@ -110,6 +119,18 @@ components_memreq: memreq.sby ../nano.v memreq-probe
 	rm -rf memreq
 	sby -f memreq.sby
 
+.PHONY: interrupt-tie-off
+interrupt-tie-off: ../../formal/check-interrupt-tie-off.py INTERRUPT_TIE_OFF | $(RISCV_FORMAL_DIR)
+	python3 $< --core nano . INTERRUPT_TIE_OFF $(RISCV_FORMAL_DIR)
+
+.PHONY: nonperturbation nonperturbation-probe
+nonperturbation: ../../formal/check-nonperturbation.py nonperturbation-probe ../nano.v \
+                 | $(RISCV_FORMAL_DIR)
+	python3 $< nano
+nonperturbation-probe: ../../formal/nonperturbation-probe.py ../../formal/check-nonperturbation.py \
+                       ../nano.v | $(RISCV_FORMAL_DIR)
+	python3 $< nano --workdir nonperturbation-probe
+
 .PHONY: check-rvfi-insn-check
 check-rvfi-insn-check: $(RISCV_FORMAL_DIR)/checks/rvfi_insn_check.sv rvfi_insn_check.sv \
                        check-rvfi-insn-check.py | $(RISCV_FORMAL_DIR)
@@ -125,9 +146,9 @@ clean:
 	rm -rf complete-cover-probe ill_e ill_e_cover ill-e-probe
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
 	rm -rf qspi qspi-probe traps region-probe tval-probe
-	rm -rf memreq memreq-probe
+	rm -rf memreq memreq-probe nonperturbation-probe
 
 .PHONY: all clean
 all: check dmemcheck imemcheck dmemcheck_cover imemcheck_cover complete complete_cover \
      ill_e ill_e_cover check-rvfi-insn-check components_qspi components_traps \
-     components_memreq
+     components_memreq interrupt-tie-off nonperturbation

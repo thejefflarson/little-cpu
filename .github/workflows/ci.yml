@@ -568,6 +568,23 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      - name: make -C nano/formal nonperturbation
+        run: |
+          set +e
+          make -C nano/formal nonperturbation > "$RUNNER_TEMP/nano-nonperturbation.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/nano-nonperturbation.txt"
+          {
+            echo "### nano RVFI non-perturbation"
+            echo '```'
+            cat "$RUNNER_TEMP/nano-nonperturbation.txt"
+            echo '```'
+            echo "A pass here means nano's RVFI instrumentation is UNREAD by the core."
+            echo "It is not sequential equivalence and does not claim to be."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
       - name: Report job wall time
         if: always()
         run: |
@@ -889,6 +906,15 @@ jobs:
         run: make -C nano/formal components_qspi
       - name: nanocpu components_memreq (the core holds a bus request stable until mem_ready, which components_qspi assumes)
         run: make -C nano/formal components_memreq
+
+      - name: nanocpu components_traps (trap entry and the interrupt path; every other nano harness ties irq_meip low)
+        run: make -C nano/formal components_traps
+
+      - name: nanocpu ill_e (RV32E's register-naming restriction, read off the core's own RVFI report)
+        run: make -C nano/formal ill_e
+
+      - name: nanocpu ill_e_cover (ill_e's anti-vacuity control, tied to its depth)
+        run: make -C nano/formal ill_e_cover
 
       - name: Report job wall time
         if: always()

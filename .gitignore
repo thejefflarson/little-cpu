@@ -178,3 +178,5 @@ icesugar.synth.log
 icesugar.pnr.log
 icesugar_dhrystone.txt
 .scratch/
+formal/nonperturbation-probe/
+nano/formal/nonperturbation-probe/

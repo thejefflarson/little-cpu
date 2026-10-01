@@ -37,6 +37,5 @@ module rvfi_testbench (
 
   always @* if (live && e_illegal) assert(rvfi_trap);
 
-  // a LOAD naming x16 (rd) and x17 (rs1) at once, correctly flagged illegal
-  cover property (live && rvfi_insn[6:0] == 7'b0000011 && rvfi_rd_addr == 5'd16 && rvfi_rs1_addr == 5'd17 && rvfi_trap);
+  cover property (live && rvfi_insn[6:0] == 7'b0000011 && rvfi_rs1_addr == 5'd17 && rvfi_trap); // not rd: a trap reports rd as 0
 endmodule

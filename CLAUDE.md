@@ -800,7 +800,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
                     # compare-product-schedule-publish, stall-sites, pin-help-text,
-                    # yosys-script-oneline)
+                    # formal-ci-coverage, yosys-script-oneline)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-startup-test, nano-littlecpu-test and
                     # nano-qspi-loop-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
@@ -986,6 +986,20 @@ make -C nano/formal components_qspi  # nano_qspi_ctrl's three invariants (CS0/CS
                     # PSRAM_CS_LOW_LIMIT clocks; the prefetch buffer holds exactly the
                     # parcels at [fetch_pc, fetch_pc+N)) by k-induction; qspi-probe is
                     # its forced-red prerequisite
+make -C nano/formal components_traps # nano's trap entry and interrupt path: the only harness
+                    # that leaves irq_meip free, with traps-region-probe and
+                    # traps-tval-probe as forced-red prerequisites
+make -C nano/formal ill_e # RV32E's register-naming restriction, read off nano's own RVFI report
+make -C nano/formal ill_e_cover # its anti-vacuity control: reachable on the correct core, tied
+                    # to ill_e's depth by cover-depth-tie.py, behind ill-e-cover-probe, which
+                    # stalls the bus and requires the goal to go unreached
+make -C nano/formal nonperturbation # nano's RVFI instrumentation is unread by the core; the same
+                    # script as littlecpu's, `check-nonperturbation.py nano`, behind
+                    # nonperturbation-probe.py, which leaks an rvfi_* bit into a real output
+make -C nano/formal interrupt-tie-off # nano's INTERRUPT_TIE_OFF, both directions
+make -C nano/formal all # every target above plus check, the memchecks and components_memreq;
+                    # test/formal_ci_coverage_test.py requires each to be run by a ci.yml step,
+                    # for both designs' `all` lists
 ```
 
 `make sail-setup` and `make lint-setup` unpack into `~/.cache/little-cpu` (`XDG_CACHE_HOME` moves
