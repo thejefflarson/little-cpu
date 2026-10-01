@@ -61,3 +61,26 @@ The `UPSTREAM` set is measured at the pin, not chosen. `rvfi_channel.sv` and
 and `rvfi_fault_check.sv` wire it to a `(* keep *)` wire that nothing in them
 then reads; `rvfi_pc_fwd_check.sv` and `rvfi_pc_bwd_check.sv` are the only
 two that act on it, and what they do is stop expecting pc continuity.
+
+## nano
+
+`nano/formal/INTERRUPT_TIE_OFF` is the same declaration for nano's harnesses, graded by the same
+script with `--core nano`, which swaps the module (`riscv`) and the tied port (`.irq_meip(1'b0)`).
+Two things differ from littlecpu's file:
+
+```
+FREE      <path>         a file in nano/formal/ that instantiates riscv and leaves
+                         irq_meip free on purpose. It must NOT tie the input off:
+                         nano/formal/traps.sv is the oracle for trap entry and the
+                         interrupt path, so it is graded as carefully as the files
+                         that must not see one.
+```
+
+`--core nano` also sweeps every `HARNESS` file's instantiation for an input held at a constant
+other than `irq_meip`. Any such input is a restriction on the generated checks that nothing
+recorded, and is red. `nano/formal/memreq.sby` proves over `riscv` as the top with every input
+free, the interrupt included, and so needs no line.
+
+There is no `MULTIHART_TIE_OFF` for nano and none is owed: `formal/MULTIHART_TIE_OFF` records the
+grant wait and write snoop that `rtl/littlecpu.v` grew for `rtl/littledual.v`, and nano is one hart
+with one initiator on its bus and no arbiter, so it has no such input to tie.

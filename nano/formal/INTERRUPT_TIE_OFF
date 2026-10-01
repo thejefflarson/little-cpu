@@ -1,0 +1,19 @@
+# nano's interrupt tie-off, declared in every riscv-formal harness in nano/formal/; format and rationale in docs/manifests/interrupt-tie-off.md.
+# There is no MULTIHART_TIE_OFF beside it: nano is one hart with no arbiter, and docs/manifests/interrupt-tie-off.md says why that needs no manifest.
+
+HARNESS  wrapper.v
+HARNESS  complete.sv
+HARNESS  dmemcheck.sv
+HARNESS  imemcheck.sv
+HARNESS  ill_e.sv
+
+# The one harness that leaves irq_meip free: the oracle for trap entry and the interrupt path.
+FREE     traps.sv
+
+UPSTREAM checks/rvfi_channel.sv
+UPSTREAM checks/rvfi_macros.vh
+UPSTREAM checks/rvfi_insn_check.sv
+UPSTREAM checks/rvfi_ill_check.sv
+UPSTREAM checks/rvfi_fault_check.sv
+UPSTREAM checks/rvfi_pc_fwd_check.sv
+UPSTREAM checks/rvfi_pc_bwd_check.sv

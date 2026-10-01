@@ -128,3 +128,5 @@ tools/
 test/a.out.dSYM/
 .claude/worktrees/
 .scratch/
+formal/nonperturbation-probe/
+nano/formal/nonperturbation-probe/

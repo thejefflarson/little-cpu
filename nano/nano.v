@@ -826,6 +826,14 @@ module riscv #(
   assign rvfi_csr_minstret_rdata = rvfi_csr_minstret_rdata_q;
   assign rvfi_csr_minstret_wdata = rvfi_csr_minstret_wdata_q;
 `endif
+`ifdef RISCV_FORMAL_CSR_MSCRATCH
+  logic [31:0] rvfi_csr_mscratch_rmask_q, rvfi_csr_mscratch_wmask_q, rvfi_csr_mscratch_rdata_q,
+               rvfi_csr_mscratch_wdata_q;
+  assign rvfi_csr_mscratch_rmask = rvfi_csr_mscratch_rmask_q;
+  assign rvfi_csr_mscratch_wmask = rvfi_csr_mscratch_wmask_q;
+  assign rvfi_csr_mscratch_rdata = rvfi_csr_mscratch_rdata_q;
+  assign rvfi_csr_mscratch_wdata = rvfi_csr_mscratch_wdata_q;
+`endif
 
 `ifdef RISCV_FORMAL_MEM_FAULT
   wire fault_load  = is_fetch_entry && captured_load_fault;
@@ -883,6 +891,14 @@ module riscv #(
       rvfi_csr_minstret_rdata_q <= minstret;
       rvfi_csr_minstret_wdata_q <= {wr_minstreth ? csr_new_value : minstret_hi,
                                      wr_minstret  ? csr_new_value : minstret_lo};
+    end
+`endif
+`ifdef RISCV_FORMAL_CSR_MSCRATCH
+    if (cpu_state == execute_instr) begin
+      rvfi_csr_mscratch_rmask_q <= {32{is_csr && csr_addr == CSR_MSCRATCH}};
+      rvfi_csr_mscratch_wmask_q <= {32{csr_wen && csr_addr == CSR_MSCRATCH}};
+      rvfi_csr_mscratch_rdata_q <= mscratch;
+      rvfi_csr_mscratch_wdata_q <= (csr_wen && csr_addr == CSR_MSCRATCH) ? csr_new_value : mscratch;
     end
 `endif
 
