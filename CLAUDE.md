@@ -752,7 +752,7 @@ VexRiscv on both.
   (ADR-0097 as amended). `soc/depth/path_stages.py` attributes a path, not a decision, and its
   level count orders nothing (ADR-0116); `soc/routing_bins.py` shows the routing on that path is
   flat, with no long hop and no column to pin (ADR-0114). The SoC is routing-dominated and
-  **there is no single lever**: reading `soc.timing.rpt` finds candidates, not wins, the decode
+  **there is no single lever**: reading `build/soc.timing.rpt` finds candidates, not wins, the decode
   head is a plateau at 3.3% deleted whole, and the period is in the fetch loop, whose inputs to `next_pc` are worth 21% only
   all together — collecting that means the pc stops depending on this cycle's decode, which is the
   no-wrong-path-state commitment (ADR-0076). **Measure the whole set**: a ceiling over one term
@@ -840,9 +840,9 @@ make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entr
                     # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.
                     # SOC_SEARCH_SEEDS overrides the seed list, SOC_SEARCH_COUNT the
                     # default draw's size
-make bitstream      # icepack the board wrapper into board.bin; BOARD_OSC=internal uses
+make bitstream      # icepack the board wrapper into build/board.bin; BOARD_OSC=internal uses
                     # SB_HFOSC instead of the crystal. No board needed
-make prog           # iceprog board.bin onto the UPduino; root on macOS
+make prog           # iceprog build/board.bin onto the UPduino; root on macOS
 make suite-board    # the .S suite on the part, in batches, read back over the UART; root
 make dhrystone-board # Dhrystone built for the board; flash with `make prog`, read the UART
 make coremark-board # CoreMark built for the up5k at COREMARK_UP5K_CFLAGS (-Os -flto, not

@@ -1,73 +1,31 @@
+# Every flat artifact of the place-and-time flows, the bitstreams, the compare harness and the
+# sweeps lands under build/.
 # `make fit`: the netlist it places, nextpnr's log -- which IS the measurement, so keep
 # it around to read -- and the yosys log, kept out of the terminal so no yosys cell count
 # is ever mistaken for an area number.
-fit.json
-fit.log
-fit.synth.log
+# `make soc-timing`: the SoC netlist, the placed bitstream ASCII, the three logs and the
+# `icetime` report.
+/build/
 nano/area.json
 nano/area.synth.log
 nano/timing.flops.json
 nano/timing.flops.log
 nano/timing.latches.json
 nano/timing.latches.log
-# `make soc-timing`: the SoC netlist, the placed bitstream ASCII, the three logs and the
-# `icetime` report.
-soc.json
-soc.asc
-soc.synth.log
-soc.pnr.log
-soc.timing.rpt
-soc.icetime.log
-soc.canon.json
-soc.canon.log
-ecp5.json
-ecp5.config
-ecp5.report.json
-ecp5.synth.log
-ecp5.pnr.log
-dual_ecp5.json
-dual_ecp5.config
-dual_ecp5.report.json
-dual_ecp5.synth.log
-dual_ecp5.pnr.log
-
-board.json
-board.asc
-board.bin
-board.synth.log
-board.pnr.log
-ftread
 soc/rom_even.hex
 soc/rom_odd.hex
-compare.*.json
-compare.*.asc
-compare.*.log
-compare.*.rpt
-compare.vvp
 soc/compare/rom_even.hex
 soc/compare/rom_odd.hex
 soc/compare/rom_flat.hex
-compare_ecp5.*.json
-compare_ecp5.*.config
-compare_ecp5.*.report.json
-compare_ecp5.*.log
-compare.dhry.vvp
 soc/compare/dhry_even.hex
 soc/compare/dhry_odd.hex
 soc/compare/dhry_flat.hex
 soc/compare/dhry_ram.hex
-compare.coremark.vvp
 soc/compare/coremark_even.hex
 soc/compare/coremark_odd.hex
 soc/compare/coremark_flat.hex
 soc/compare/coremark_ram.hex
-depth.out/
-depth.*.csv
-baseline.out/
-paired.out/
 /.worktrees/
-netlist.out/
-fetch_ahead.out/
 formal/riscv-formal
 formal/riscv-formal.tmp
 soc/compare/hazard3
@@ -171,10 +129,4 @@ nano/gl-census-probe/
 tools/
 test/a.out.dSYM/
 .claude/worktrees/
-icesugar.json
-icesugar.config
-icesugar.bit
-icesugar.synth.log
-icesugar.pnr.log
-icesugar_dhrystone.txt
 .scratch/
