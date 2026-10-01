@@ -193,7 +193,9 @@ if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
        "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 region=0" \
        "hzA=4 hzB=3 hzC=3 hzCcsr=0" \
-       "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
+       "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1" \
+       "commits=10 jalr=1 jalrret=1 jalrredir=1 otherredir=1 jalrwin=2 otherwin=2" \
+       "rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0"
 fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;

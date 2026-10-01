@@ -92,9 +92,6 @@ LS_SUBSETS = {
 # charges them (test/cxxrtl.cc).
 HAZARD_SPLIT = ["hzA", "hzB", "hzC"]
 HAZARD_CSR = "hzCcsr"
-# Redirect accounting, counted from X's own signals in test/cxxrtl.cc. A window is the run
-# of cycles X resolves nothing after a redirect; the RAS columns replay a return-address
-# guess over the committed stream and charge a hit with its jalr's window.
 REDIRECT_KEYS = ["commits", "jalr", "jalrret", "jalrredir", "otherredir", "jalrwin",
                  "otherwin", "rashit1", "rassave1", "rashitdeep", "rassavedeep"]
 REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +
@@ -181,8 +178,6 @@ def main():
         if counts[key] > counts[LS_ISSUES]
     ]
 
-    # Each is a subset of the one before it, per program; a count outside its superset means the
-    # runner counted a different event than the one named.
     redirect_chain = [("jalrret", "jalr"), ("jalr", "commits"), ("jalrredir", "jalr"),
                       ("rashit1", "rashitdeep"), ("rashitdeep", "jalrret"),
                       ("rassave1", "jalrwin"), ("rassavedeep", "jalrwin")]

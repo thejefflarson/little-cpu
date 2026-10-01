@@ -1,4 +1,4 @@
-# 0224 — A return-address guess is declined on its own number
+# 0231 — A return-address guess is declined on its own number
 
 Status: Accepted. 2026-10-01. Measured on `main` at 11cc506 (the merged fetch refactor,
 ADR-0221 as amended), compiled with the pinned xPack `riscv-none-elf-gcc` 15.2.0.
