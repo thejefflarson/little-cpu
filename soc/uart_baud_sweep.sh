@@ -1,6 +1,6 @@
 #!/bin/bash
 set -uo pipefail
-FTREAD=${FTREAD:-$(cd "$(dirname "$0")" && pwd)/ftread}
+FTREAD=${FTREAD:-$(cd "$(dirname "$0")" && pwd)/../build/ftread}
 MS=${MS:-6000}
 [ -x "$FTREAD" ] || { echo "no ftread at $FTREAD -- build it with 'make ftread'" >&2; exit 1; }
 

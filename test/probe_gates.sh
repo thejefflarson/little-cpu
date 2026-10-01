@@ -3125,18 +3125,18 @@ probe "a path that does not reconcile blames the script, not the design" 1 \
 # files describe THIS run.
 ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   local d; d=$(new_case)
-  mkdir -p "$d/soc/compare" "$d/bin"
+  mkdir -p "$d/soc/compare" "$d/bin" "$d/build"
   copy_makefile_includes "$d"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
   # The pair a previous, COMPLETE run left behind.
-  cat > "$d/ecp5.config" <<'CFG'
+  cat > "$d/build/ecp5.config" <<'CFG'
 .device LFE5U-25F
 
 .comment Part: LFE5U-25F-6CABGA381
 CFG
-  cat > "$d/ecp5.report.json" <<'JSON'
+  cat > "$d/build/ecp5.report.json" <<'JSON'
 {
   "fmax": {"$glbnet$clk$TRELLIS_IO_IN": {"achieved": 40.0, "constraint": 200.0}},
   "utilization": {"DP16KD": {"available": 56, "used": 36}},
@@ -3156,12 +3156,12 @@ CFG
   ]
 }
 JSON
-  cp "$d/ecp5.report.json" "$d/complete.json"
-  echo 'Info: a previous run' > "$d/ecp5.pnr.log"
-  # Dated rather than merely written first: what makes the recipe run is that `ecp5.json`
+  cp "$d/build/ecp5.report.json" "$d/complete.json"
+  echo 'Info: a previous run' > "$d/build/ecp5.pnr.log"
+  # Dated rather than merely written first: what makes the recipe run is that `build/ecp5.json`
   # is newer than the pair, and a stamp settles that without leaning on the filesystem's
   # timestamp resolution.
-  touch -t 202001010000 "$d/ecp5.config" "$d/ecp5.report.json"
+  touch -t 202001010000 "$d/build/ecp5.config" "$d/build/ecp5.report.json"
   # `ecp5-timing-toolchain` asks both tools for a version and the Trellis database for
   # its device table before anything else runs, so all three have to answer or a probe
   # would go red before reaching the guard it is about.
@@ -3173,7 +3173,7 @@ JSON
   chmod +x "$d/bin/yosys" "$d/bin/nextpnr-ecp5"
   mkdir -p "$d/trellis-db"
   echo '{"families": {}}' > "$d/trellis-db/devices.json"
-  touch "$d/ecp5.json"
+  touch "$d/build/ecp5.json"
   printf '%s' "$d"
 }
 
@@ -3185,12 +3185,12 @@ ecp5_stale_run() {  # $1 = fixture dir
 # Stands in for a COMPLETE run: writes both files and exits 1, which is what the real
 # nextpnr does every time it misses the pinned constraint.
 d=$(ecp5_stale_fixture <<'STUB'
-cat > ecp5.config <<CFG
+cat > build/ecp5.config <<CFG
 .device LFE5U-25F
 
 .comment Part: LFE5U-25F-6CABGA381
 CFG
-cp complete.json ecp5.report.json
+cp complete.json build/ecp5.report.json
 exit 1
 STUB
 )
@@ -3201,21 +3201,21 @@ d=$(ecp5_stale_fixture <<< 'exit 1')
 probe "a nextpnr that died early is NOT graded on the last run's pair" 2 \
   "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 
-# `.DELETE_ON_ERROR` would remove `ecp5.config` on its own, because that one is a make
+# `.DELETE_ON_ERROR` would remove `build/ecp5.config` on its own, because that one is a make
 # target.
 d=$(ecp5_stale_fixture <<< 'exit 1')
 probe "the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target" 1 \
   "does not exist, so NOTHING was" \
   "$(ecp5_stale_run "$d") > /dev/null 2>&1; \
    printf '.device LFE5U-25F\n\n.comment Part: LFE5U-25F-6CABGA381\n' > '$d/good.config'; \
-   python3 '$REPO/soc/ecp5_report.py' '$d/ecp5.report.json' '$d/good.config' \
+   python3 '$REPO/soc/ecp5_report.py' '$d/build/ecp5.report.json' '$d/good.config' \
      --clock clk --part LFE5U-25F-6CABGA381 --constraint-mhz 200.0"
 
-d=$(ecp5_stale_fixture <<< ': > ecp5.config; exit 1')
+d=$(ecp5_stale_fixture <<< ': > build/ecp5.config; exit 1')
 probe "a configuration truncated to nothing is caught, which test -e cannot be" 2 \
   "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 
-d=$(ecp5_stale_fixture <<< 'cp complete.json ecp5.config; exit 1')
+d=$(ecp5_stale_fixture <<< 'cp complete.json build/ecp5.config; exit 1')
 probe "a configuration written without its report is half a run, not a run" 2 \
   "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 

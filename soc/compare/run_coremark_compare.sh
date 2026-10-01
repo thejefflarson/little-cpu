@@ -13,7 +13,7 @@ fi
 ITERATIONS=$1
 CYCLE_LIMIT=$2
 CFLAGS=$3
-VVP_BIN=${4:-compare.coremark.vvp}
+VVP_BIN=${4:-build/compare.coremark.vvp}
 CORES_CSV=${5:-littlecpu,vexriscv,hazard3}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
@@ -29,7 +29,7 @@ else
   CORE_LOGS=()
   IFS=',' read -ra default_cores <<< "$CORES_CSV"
   for core in "${default_cores[@]}"; do
-    CORE_LOGS+=("$core=$REPO/compare.$core.core.log")
+    CORE_LOGS+=("$core=$REPO/build/compare.$core.core.log")
   done
 fi
 

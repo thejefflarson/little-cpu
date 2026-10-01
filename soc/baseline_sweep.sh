@@ -36,11 +36,12 @@ if [ -z "$seeds" ]; then
   exit 2
 fi
 
-out=${BASELINE_OUT:-baseline.out}
+out=${BASELINE_OUT:-build/baseline.out}
 name=${BASELINE_NAME:-baseline}
 csv="$out/$name.csv"
 
 tools=$(make -s "$toolchain_target" "$@")
+build=$(make -s print-BUILD "$@")
 
 prog=$(make -s print-SOC_PROG "$@")
 rom_words=$(make -s print-SOC_ROM_WORDS "$@")
@@ -114,7 +115,7 @@ for seed in $seeds; do
     default) arg="" ;;
     *)       arg=$seed ;;
   esac
-  # up5k's recipe writes soc.timing.rpt before SOC_MIN_MHZ, so a seed under the floor
+  # up5k's recipe writes $build/soc.timing.rpt before SOC_MIN_MHZ, so a seed under the floor
   # is real data with a nonzero exit; only a missing artifact stops the sweep below.
   if log=$(make "$place_target" "$seed_var=$arg" "$@" 2>&1); then
     make_status=0
@@ -123,7 +124,7 @@ for seed in $seeds; do
   fi
   missing=0
   for artifact in $artifacts; do
-    [ -s "$artifact" ] || missing=1
+    [ -s "$build/$artifact" ] || missing=1
   done
   if [ "$missing" = 1 ]; then
     printf '%s\n' "$log" >&2
@@ -137,7 +138,7 @@ for seed in $seeds; do
          "real placement, not a sweep failure."
   fi
   for artifact in $artifacts; do
-    cp "$artifact" "$out/$name.$seed.${artifact#*.}"
+    cp "$build/$artifact" "$out/$name.$seed.${artifact#*.}"
   done
 
   case $part in
