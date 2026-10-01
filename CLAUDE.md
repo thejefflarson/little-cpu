@@ -668,7 +668,7 @@ VexRiscv's, alongside Hazard3's (ADR-0183); `soc/compare/product.json` itself is
 by that change, because its `base` is a commit on the PR branch that added the sweep, and this repo
 squash-merges and deletes branches, so no checkout could resolve that commit once merged. The
 weekly `.github/workflows/compare-product-schedule.yml` re-take, dispatched on `main` after this
-lands, takes the real stamp from there instead and opens the PR that carries it. Two graded checks stand in front of
+lands, takes the real stamp from there instead, pushes the branch that carries it and opens an issue linking it (ADR-0233); a person opens the PR. Two graded checks stand in front of
 every number: `soc/compare/placed_vs_synth.py` refuses a placed
 count under `COMPARE_MIN_RATIO` of the core's own synthesis — an all-NOP image once placed a
 quarter of this core with a plausible critical path beside it (ADR-0086) — and `make compare-smoke`
@@ -800,7 +800,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
                     # compare-product-schedule-publish, stall-sites, pin-help-text,
-                    # formal-ci-coverage, tmp-path)
+                    # formal-ci-coverage, yosys-script-oneline, tmp-path)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-startup-test, nano-littlecpu-test and
                     # nano-qspi-loop-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
@@ -896,7 +896,7 @@ make compare-product # both factors of every cross-core pair in one run, stamped
                     # soc/compare/product.json with the commit, seeds and CFLAGS behind
                     # each number. COMPARE_PRODUCT_SEEDS picks the sweep (twelve by
                     # default). Not a gate, not on CI -- a scheduled workflow re-takes
-                    # it weekly and opens a PR when it moved
+                    # it weekly and opens an issue when it moved
 
 make -C formal check                # the generated riscv-formal checks, always a fresh run;
                                     # both tie-off checks are prerequisites
@@ -1137,9 +1137,10 @@ executor-only spelling ships (ADR-0154).
 flows `chparam` it before `hierarchy`, so a wider ROM is one override rather than an
 edit; at 4096 words the LFE5U-25F reads `DP16KD` 36 → 40 of 56 and Fmax 35.11 → 34.78 MHz,
 a null. The default is unchanged, so every existing target is a no-op. **Keep every
-`yosys -p` script that names `SOC_ROM_CHPARAM` on ONE line**: a backslash-newline inside
-the single quotes is not a shell continuation, both characters reach yosys, and it stops
-with `No such command: \`.
+multi-command `yosys -p` script on ONE line**: a backslash-newline inside the quotes is
+stripped by GNU Make 3.81 (macOS) but reaches yosys under 4.x (the runners), which stops
+with `No such command: \`. `test/yosys_script_oneline_test.py` refuses the pattern in the
+Makefile and `nano/*.mk` on `make test`.
 
 **8 KB of text is the ceiling on the up5k, and it is the fetch loop's, not the part's.** `rtl/imemory.v`
 refuses a `ROM_WORDS` that is not a power of two because both its range tests are reductions on the

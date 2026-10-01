@@ -77,7 +77,6 @@ a PASS with no counts line is not a pass
 a PDK cache save step with no if: always() only saves on job success
 a PLL fed by something other than the constrained pad is red
 a PLL told its input is something the pad is not is red
-a PR opened against a base other than main is red
 a PROBES_EXPECTED header that lost only its multiset line is refused
 a PROBES_EXPECTED run through a whole-file LC_ALL=C sort is refused
 a PROBES_EXPECTED with its header deleted is refused
@@ -93,6 +92,9 @@ a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
 a VCO outside the range the part locks over is red
 a backslash-continued sed -i is still a raw edit
+a backslash-newline after the closing quote, between recipe arguments, is green
+a backslash-newline inside a double-quoted yosys -p script is red
+a backslash-newline inside a single-quoted yosys -p script is red
 a bare unpaired with no grader does not pass by silence
 a base that is not a 40-character SHA is refused as malformed, not graded stale
 a base tree whose make fails is refused, not quietly given ours
@@ -313,11 +315,11 @@ a missing excluded-cell list is refused, not read as none
 a missing liberty file is refused before any variant is read
 a missing liberty file is refused before the JSON is even opened
 a missing parser stops the run rather than grading with a second one
+a missing publish script is an error, not an empty pass
 a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
 a missing ramdiff for the SECOND core is red, not silently skipped
 a missing regenerate output is refused rather than committing nothing
 a missing riscv-formal clone is named, not blamed on the ISA string
-a missing schedule workflow file is an error, not an empty pass
 a missing schedule workflow file is an error, not an empty pass
 a missing source is exit 2 before anything runs
 a missing stat.json is refused, not read as a zero-area design
@@ -585,6 +587,7 @@ a tree git cannot list is a scan of nothing, not a green one
 a tree git cannot list is a scan of nothing, not a green one
 a tree that instantiates the core nowhere is not a clean one
 a tree that names no synth script of its own says whose was used
+a tree with no Makefile is an error, not an empty pass
 a tree with no Makefile is red, not a scan of nothing
 a tree with no source file at all is red rather than vacuously green
 a trip prints the trend too, since that is the run that needs it
@@ -612,6 +615,7 @@ an allow-list entry whose site lost the string is red
 an allow-list entry whose site no longer has the word is red
 an allow-listed fixture that gained a real anchor is red until the entry is deleted
 an allow-listed sed -i that no longer appears anywhere is red too
+an already-open refresh issue that the guard does not read is red
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
@@ -661,6 +665,7 @@ an injection site that moved stops the control, loudly
 an input held constant that no baseline declares is red
 an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
+an issue body whose compare link does not open the pull request form is red
 an ls_access with an extra encoding proving is red
 an objcopy that refuses names the region it refused for
 an orphaned base recovers --require-news as news rather than refusing the run
@@ -755,6 +760,7 @@ control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
 control: a moved, settled upstream with no branch here proceeds
 control: a netlist digests, and the digest is a sha256
 control: a nextpnr that wrote its pair is graded, exit 1 and all
+control: a one-line quoted yosys -p script is green
 control: a one-retire floor is F+2, not F+G+2
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
@@ -870,7 +876,7 @@ control: the shipping index has one row per file and no number twice
 control: the shipping manifest rules on every rtl/*.v file
 control: the shipping model's accounting identity holds on a real build
 control: the shipping pin-bump workflow keeps credentials off the upstream-code step
-control: the shipping publish step really reaches gh pr create
+control: the shipping publish script pushes one branch and opens one issue
 control: the shipping schedule workflow confines its credential to the publish step
 control: the shipping tree has no fallback search outside its exceptions
 control: the shipping tree has no literal /tmp/ outside its exceptions
@@ -902,6 +908,9 @@ excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
 half of a macro-guarded group is red, where none of it is not
+opening a pull request with the workflow's own token instead of an issue is red
+publishing with a refresh issue or PR already open is red
+the pre-fix commit line -- '-m' and '-F' together -- is red for the reason it used to fail
 hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
@@ -967,7 +976,6 @@ over budget names the count and the budget
 perl -pi is a raw edit like sed -i
 product_write.py refuses a --base that is not a 40-character commit SHA
 reg_rs1 laundered through out.rd_data's own register is still red
-renaming the publish step out of reach stops rather than passing
 renaming the upstream-code step out of reach stops rather than passing
 retires that stopped being spec-checked is its own status
 rule 1 declares a site count, so a generator change cannot ship unapplied
@@ -1063,7 +1071,6 @@ the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything
 the override prints the mismatch it was passed to get past
-the pre-fix git commit line -- '-m' and '-F' together -- is red for the reason it used to fail
 the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's
 the proof going red somewhere else is not evidence
