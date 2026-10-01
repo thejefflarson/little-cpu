@@ -1,4 +1,4 @@
-# ADR-0220: nano's formal suite reaches parity with littlecpu's where it applies
+# ADR-0223: nano's formal suite reaches parity with littlecpu's where it applies
 
 **Status:** Accepted · 2026-09-30
 
