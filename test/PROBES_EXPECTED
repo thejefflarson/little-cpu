@@ -119,6 +119,7 @@ a capitalised spelling is the same word and is caught too
 a carry hop is counted apart from a LUT level
 a casing keyword the table does not define stops rather than guessing
 a cause proof going red somewhere else is not evidence either
+a cell name that is not a bare sky130 cell is refused, not spliced into the script
 a cell type outside the read liberty is refused, not priced at zero
 a cell type outside the read liberty is refused, not priced at zero
 a cell type that moved is reported as a count, both ways
@@ -367,6 +368,7 @@ a non-numeric floor is named rather than compared arithmetically
 a non-numeric retire count is NO-COUNTS, not a silent PASS
 a non-numeric retire count is graded NO-COUNTS, not compared as an integer
 a non-numeric spec-checked count is NO-COUNTS too
+a one-entry hit rate above the unbounded stack's is red
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-field baseline line is rejected before the suite runs
@@ -416,6 +418,7 @@ a reached line whose wording hides its step stops rather than switching the tie 
 a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
+a redirect counter that stopped being printed is named too
 a reason dropped from the decoder's own composition is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a red that is not a structural difference is not the red this probe wants
@@ -449,6 +452,7 @@ a repo root with no Makefile is red before anything is parsed
 a repo with no .github/workflows is red rather than a scan of nothing
 a report naming some other clock does not stand in for this one
 a report that does not exist is named, not read as zero
+a report that uses a cell the flow excludes is refused, not measured
 a report under the floor fails, because the floor is the board clock
 a report with no 'design' key at all is refused, not read as zero
 a report with no routing hop in it is a failed read, not a wired design
@@ -834,6 +838,7 @@ control: the correlation prints its factor and both halves' provenance
 control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
 control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone
+control: the jalr share and the return guess are reported under the table
 control: the formal flow's lower-case rv32imc is a different thing
 control: the insn checks move to pono and the others do not
 control: the load and store paths both report an X exactly when one is there
@@ -899,6 +904,8 @@ ill_e asked of littlecpu's harness is refused, not run
 ill_e catches a wrong RV32E rule, and the shipping core still passes
 insn_excluded must be a plain disjunction, not an expression
 layer 1: the trap comparison moved INTO the span is refused, not gated
+more cycles saved than the jalr redirects cost is red
+more returns than jalr is red
 layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 margin above the step is reported as unspendable, not as speed
@@ -1082,6 +1089,7 @@ the third core's ROM drifting behind the other two is red
 the timer address the programs arm is checked against the timer
 the timer moving in the core's copy alone is red
 the timer moving in the proof's copy alone is red
+the timing run refuses a cell name that is not a bare sky130 cell too
 the trend against a recorded figure is printed beside the verdict
 the trend against the recorded count is printed beside the verdict
 the two definitions the predicates are built from are pinned literally
