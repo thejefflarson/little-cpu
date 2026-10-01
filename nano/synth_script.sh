@@ -1,6 +1,6 @@
 #!/bin/sh
-# Prints `make nano-area`'s yosys -p script, quoting every path (an unquoted `;` opens a
-# second command). Cells the flow excludes from synthesis are excluded here too.
+# Prints `make nano-area`'s yosys -p script with every path quoted (an unquoted `;` opens a
+# second command) and excluded cell names bare, since dfflibmap matches -dont_use literally.
 liberty=$1
 excluded=$2
 shift 2
@@ -12,6 +12,11 @@ srcs=""
 for f in "$@"; do
   srcs="$srcs \"$f\""
 done
-dont_use=$(grep -v -e '^#' -e '^[[:space:]]*$' "$excluded" | sort -u | sed 's/.*/ -dont_use "&"/' | tr -d '\n')
+cells=$(grep -v -e '^#' -e '^[[:space:]]*$' "$excluded" | sort -u)
+if printf '%s\n' "$cells" | sed '/^$/d' | grep -v -q -x -E 'sky130_fd_sc_hd__[a-z0-9_]+'; then
+  echo "error: '$excluded' names something other than a sky130_fd_sc_hd cell." >&2
+  exit 1
+fi
+dont_use=$(printf '%s\n' "$cells" | sed '/^$/d; s/.*/ -dont_use &/' | tr -d '\n')
 printf 'read_verilog -sv%s; hierarchy -auto-top; flatten -noscopeinfo; synth; dfflibmap -liberty "%s"%s; abc -liberty "%s"%s; tee -o nano/area.json stat -liberty "%s" -json\n' \
   "$srcs" "$liberty" "$dont_use" "$liberty" "$dont_use" "$liberty"

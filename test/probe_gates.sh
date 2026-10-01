@@ -193,7 +193,9 @@ if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
        "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 region=0" \
        "hzA=4 hzB=3 hzC=3 hzCcsr=0" \
-       "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1"
+       "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1" \
+       "commits=10 jalr=1 jalrret=1 jalrredir=1 otherredir=1 jalrwin=2 otherwin=2" \
+       "rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0"
 fi
 case ${STUB_SIM_EXIT:-0} in
   0) echo "PASS" ;;
@@ -3123,18 +3125,18 @@ probe "a path that does not reconcile blames the script, not the design" 1 \
 # files describe THIS run.
 ecp5_stale_fixture() {  # stdin = the stub nextpnr-ecp5's body, after --version
   local d; d=$(new_case)
-  mkdir -p "$d/soc/compare" "$d/bin"
+  mkdir -p "$d/soc/compare" "$d/bin" "$d/build"
   copy_makefile_includes "$d"
   cp "$REPO/soc/littlesoc.lpf" "$REPO/soc/ecp5_report.py" \
      "$REPO/soc/print_toolchain.sh" "$d/soc/"
   cp -R "$REPO/rtl" "$d/"
   # The pair a previous, COMPLETE run left behind.
-  cat > "$d/ecp5.config" <<'CFG'
+  cat > "$d/build/ecp5.config" <<'CFG'
 .device LFE5U-25F
 
 .comment Part: LFE5U-25F-6CABGA381
 CFG
-  cat > "$d/ecp5.report.json" <<'JSON'
+  cat > "$d/build/ecp5.report.json" <<'JSON'
 {
   "fmax": {"$glbnet$clk$TRELLIS_IO_IN": {"achieved": 40.0, "constraint": 200.0}},
   "utilization": {"DP16KD": {"available": 56, "used": 36}},
@@ -3154,12 +3156,12 @@ CFG
   ]
 }
 JSON
-  cp "$d/ecp5.report.json" "$d/complete.json"
-  echo 'Info: a previous run' > "$d/ecp5.pnr.log"
-  # Dated rather than merely written first: what makes the recipe run is that `ecp5.json`
+  cp "$d/build/ecp5.report.json" "$d/complete.json"
+  echo 'Info: a previous run' > "$d/build/ecp5.pnr.log"
+  # Dated rather than merely written first: what makes the recipe run is that `build/ecp5.json`
   # is newer than the pair, and a stamp settles that without leaning on the filesystem's
   # timestamp resolution.
-  touch -t 202001010000 "$d/ecp5.config" "$d/ecp5.report.json"
+  touch -t 202001010000 "$d/build/ecp5.config" "$d/build/ecp5.report.json"
   # `ecp5-timing-toolchain` asks both tools for a version and the Trellis database for
   # its device table before anything else runs, so all three have to answer or a probe
   # would go red before reaching the guard it is about.
@@ -3171,7 +3173,7 @@ JSON
   chmod +x "$d/bin/yosys" "$d/bin/nextpnr-ecp5"
   mkdir -p "$d/trellis-db"
   echo '{"families": {}}' > "$d/trellis-db/devices.json"
-  touch "$d/ecp5.json"
+  touch "$d/build/ecp5.json"
   printf '%s' "$d"
 }
 
@@ -3183,12 +3185,12 @@ ecp5_stale_run() {  # $1 = fixture dir
 # Stands in for a COMPLETE run: writes both files and exits 1, which is what the real
 # nextpnr does every time it misses the pinned constraint.
 d=$(ecp5_stale_fixture <<'STUB'
-cat > ecp5.config <<CFG
+cat > build/ecp5.config <<CFG
 .device LFE5U-25F
 
 .comment Part: LFE5U-25F-6CABGA381
 CFG
-cp complete.json ecp5.report.json
+cp complete.json build/ecp5.report.json
 exit 1
 STUB
 )
@@ -3199,21 +3201,21 @@ d=$(ecp5_stale_fixture <<< 'exit 1')
 probe "a nextpnr that died early is NOT graded on the last run's pair" 2 \
   "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 
-# `.DELETE_ON_ERROR` would remove `ecp5.config` on its own, because that one is a make
+# `.DELETE_ON_ERROR` would remove `build/ecp5.config` on its own, because that one is a make
 # target.
 d=$(ecp5_stale_fixture <<< 'exit 1')
 probe "the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target" 1 \
   "does not exist, so NOTHING was" \
   "$(ecp5_stale_run "$d") > /dev/null 2>&1; \
    printf '.device LFE5U-25F\n\n.comment Part: LFE5U-25F-6CABGA381\n' > '$d/good.config'; \
-   python3 '$REPO/soc/ecp5_report.py' '$d/ecp5.report.json' '$d/good.config' \
+   python3 '$REPO/soc/ecp5_report.py' '$d/build/ecp5.report.json' '$d/good.config' \
      --clock clk --part LFE5U-25F-6CABGA381 --constraint-mhz 200.0"
 
-d=$(ecp5_stale_fixture <<< ': > ecp5.config; exit 1')
+d=$(ecp5_stale_fixture <<< ': > build/ecp5.config; exit 1')
 probe "a configuration truncated to nothing is caught, which test -e cannot be" 2 \
   "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 
-d=$(ecp5_stale_fixture <<< 'cp complete.json ecp5.config; exit 1')
+d=$(ecp5_stale_fixture <<< 'cp complete.json build/ecp5.config; exit 1')
 probe "a configuration written without its report is half a run, not a run" 2 \
   "so NOTHING was measured" "$(ecp5_stale_run "$d")"
 
@@ -3311,8 +3313,8 @@ sr_fixture() {
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 commits=10 jalr=2 jalrret=1 jalrredir=2 otherredir=1 jalrwin=8 otherwin=3 rashit1=1 rassave1=4 rashitdeep=1 rassavedeep=4 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 commits=10 jalr=0 jalrret=0 jalrredir=0 otherredir=0 jalrwin=0 otherwin=0 rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -3365,6 +3367,26 @@ probe "the same for the bypass counter, per program rather than in total" 1 \
 d=$(sr_fixture); mutate "$d/counts" 's/ lsissue=6//'
 probe "a locality counter that stopped being printed is named too" 1 \
   "is missing lsissue" "$SR $d/counts"
+
+d=$(sr_fixture)
+probe "control: the jalr share and the return guess are reported under the table" 0 \
+  "A one-entry return register would hit 1 of 1 returns (100.00%) and save 4 cycles (5.00%)" \
+  "$SR $d/counts"
+
+d=$(sr_fixture); mutate "$d/counts" 's/rashit1=1/rashit1=2/'
+probe "a one-entry hit rate above the unbounded stack's is red" 1 \
+  "rashit1 is 2 against rashitdeep 1" "$SR $d/counts"
+
+d=$(sr_fixture); mutate "$d/counts" 's/jalrret=1/jalrret=3/'
+probe "more returns than jalr is red" 1 "jalrret is 3 against jalr 2" "$SR $d/counts"
+
+d=$(sr_fixture); mutate "$d/counts" 's/rassave1=4/rassave1=9/'
+probe "more cycles saved than the jalr redirects cost is red" 1 \
+  "rassave1 is 9 against jalrwin 8" "$SR $d/counts"
+
+d=$(sr_fixture); mutate "$d/counts" 's/ jalrwin=8//'
+probe "a redirect counter that stopped being printed is named too" 1 \
+  "is missing jalrwin" "$SR $d/counts"
 
 d=$(sr_fixture); mutate "$d/counts" 's/cycles=40/cycles=lots/'
 probe "a count that is not a number stops rather than summing to nonsense" 1 \
@@ -8145,23 +8167,23 @@ JSON
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "control: a measurement within budget is green" 0 "RATCHET:" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "total above the ratchet names the figure and the budget" 1 \
   "is over the 5.0 um2 budget" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 5"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 5"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 probe "a missing stat.json is refused, not read as a zero-area design" 1 \
   "does not exist" \
-  "$AR $d/missing.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/missing.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 printf 'not json' > "$d/bad.json"
 probe "a truncated stat.json is refused, not read as an empty report" 1 \
   "is not JSON" \
-  "$AR $d/bad.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/bad.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/zero.json" <<'JSON'
@@ -8169,7 +8191,7 @@ cat > "$d/zero.json" <<'JSON'
 JSON
 probe "zero cells is refused, not read as a zero-area design" 1 \
   "reports zero cells" \
-  "$AR $d/zero.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/zero.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/unknown.json" <<'JSON'
@@ -8177,7 +8199,7 @@ cat > "$d/unknown.json" <<'JSON'
 JSON
 probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
   "not in" \
-  "$AR $d/unknown.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/unknown.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 # `stat.json` is left unwritten on purpose: if `load_stat` ran before `check_liberty`, this
 # would report "does not exist" instead, so the message below can only appear when the
@@ -8185,12 +8207,12 @@ probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 probe "a missing liberty file is refused before the JSON is even opened" 1 \
   "no liberty file at" \
-  "$AR $d/stat.json --liberty $d/does-not-exist.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/does-not-exist.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); ar_stat "$d"
 probe "a liberty file that does not match the pinned digest is refused" 1 \
   "does not match the pinned digest" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 10"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/nodesign.json" <<'JSON'
@@ -8198,7 +8220,7 @@ cat > "$d/nodesign.json" <<'JSON'
 JSON
 probe "a report with no 'design' key at all is refused, not read as zero" 1 \
   "carries no 'design' totals" \
-  "$AR $d/nodesign.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/nodesign.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/badshape.json" <<'JSON'
@@ -8206,7 +8228,7 @@ cat > "$d/badshape.json" <<'JSON'
 JSON
 probe "a design entry missing area/num_cells/by_type is refused, not read as what is left" 1 \
   "not the area, num_cells and num_cells_by_type fields" \
-  "$AR $d/badshape.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/badshape.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 cat > "$d/nanarea.json" <<'JSON'
@@ -8214,17 +8236,23 @@ cat > "$d/nanarea.json" <<'JSON'
 JSON
 probe "a non-finite area in the JSON is refused, not compared as if it were real" 1 \
   "is not a finite number" \
-  "$AR $d/nanarea.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+  "$AR $d/nanarea.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "a non-finite --max-um2 is refused before the ratchet compares anything" 2 \
   "not a finite, positive um2 budget" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 nan"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 nan"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 probe "the trend against a recorded figure is printed beside the verdict" 0 \
   "TREND: +2.2" \
-  "$AR $d/stat.json --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --previous 4"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+printf 'FAKE_INV\n' > "$d/excluded.cells"
+probe "a report that uses a cell the flow excludes is refused, not measured" 1 \
+  "uses cell type(s) the Tiny Tapeout" \
+  "$AR $d/stat.json --excluded $d/excluded.cells --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
 begin_group "nano/timing_report.py"
 
@@ -8246,30 +8274,30 @@ EOF
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 probe "control: one register-file build reports its area and delay" 0 \
   "delay : 100.00 ps" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 tr_log "$d/flops.log" 100.00; tr_log "$d/latches.log" 200.00
 probe "control: both register-file builds are reported from one call" 0 \
   "delay : 200.00 ps" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha \
      --variant flops:$d/flops.log:$d/stat.json --variant latches:$d/latches.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib")
 probe "a missing synthesis log is refused, not read as a zero-delay design" 1 \
   "no synthesis log at" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/missing.log:$d/stat.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/missing.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
 : > "$d/noline.log"
 probe "a log with no ABC stime Delay line is refused" 1 \
   "carries no ABC" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/noline.log:$d/stat.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/noline.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
 probe "a missing stat.json is refused, not read as a zero-area design" 1 \
   "does not exist, so NOTHING was" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/missing.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/missing.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
 cat > "$d/badshape.json" <<'JSON'
@@ -8277,7 +8305,7 @@ cat > "$d/badshape.json" <<'JSON'
 JSON
 probe "a stat.json missing area/num_cells/by_type is refused, not read as what is left" 1 \
   "the area, num_cells and num_cells_by_type fields" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/badshape.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/badshape.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00
 cat > "$d/unknown.json" <<'JSON'
@@ -8285,37 +8313,37 @@ cat > "$d/unknown.json" <<'JSON'
 JSON
 probe "a cell type outside the read liberty is refused, not priced at zero" 1 \
   "not in" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/unknown.json"
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/unknown.json"
 
 d=$(ar_liberty); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 probe "a liberty file that does not match the pinned digest is refused" 1 \
   "does not match the pinned digest" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
      --variant flops:$d/flops.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); tr_log "$d/flops.log" 100.00; ar_stat "$d"
 probe "a missing liberty file is refused before any variant is read" 1 \
   "no liberty file at" \
-  "$TR --liberty $d/does-not-exist.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
+  "$TR --excluded /dev/null --liberty $d/does-not-exist.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 probe "a missing correlation record is refused, not silently skipped" 1 \
   "no correlation record at" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
      --flow-correlation $d/does-not-exist.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 printf '{"local_um2": 1.0}' > "$d/bare.json"
 probe "a correlation record missing a required field is refused" 1 \
   "correlation record with no provenance is not a correlation" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
      --flow-correlation $d/bare.json"
 
 d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00
 tr_correlation "$d/corr.json"
 probe "control: the correlation prints its factor and both halves' provenance" 0 \
   "1.250x the local figure" \
-  "$TR --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
      --flow-correlation $d/corr.json"
 
 begin_group "nano/srcs_guard.sh"
@@ -8351,12 +8379,16 @@ probe "a space in a source path does not split it into a second yosys argument" 
   "$SS_SCRIPT /tmp/lib.lib /dev/null 'a b/c.v'"
 
 probe "every excluded cell reaches dfflibmap and abc as -dont_use" 0 \
-  'dfflibmap -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"; abc -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"' \
+  'dfflibmap -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1; abc -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1' \
   "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $SS_SCRIPT /tmp/lib.lib $tmp/one.cells nano/nano.v"
 
 probe "a missing excluded-cell list is refused, not read as none" 1 \
   "refusing to measure cells the flow never uses" \
   "$SS_SCRIPT /tmp/lib.lib $tmp/no-such.cells nano/nano.v"
+
+probe "a cell name that is not a bare sky130 cell is refused, not spliced into the script" 1 \
+  "names something other than a sky130_fd_sc_hd cell" \
+  "printf 'x; bad\\n' > $tmp/bad.cells; $SS_SCRIPT /tmp/lib.lib $tmp/bad.cells nano/nano.v"
 
 begin_group "nano/timing_script.sh"
 
@@ -8379,12 +8411,16 @@ probe "a source list feeds read_verilog the same way synth_script.sh's does" 0 \
   "$TS_SCRIPT /tmp/lib.lib /dev/null /tmp/out.json a.v b.v"
 
 probe "every excluded cell reaches the timing run's dfflibmap and abc too" 0 \
-  'dfflibmap -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1"; abc -liberty "/tmp/lib.lib" -dont_use "sky130_fd_sc_hd__edfxtp_1" -script' \
+  'dfflibmap -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1; abc -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1 -script' \
   "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $TS_SCRIPT /tmp/lib.lib $tmp/one.cells /tmp/out.json nano/nano.v"
 
 probe "a missing excluded-cell list is refused by the timing run too" 1 \
   "refusing to measure cells the flow never uses" \
   "$TS_SCRIPT /tmp/lib.lib $tmp/no-such.cells /tmp/out.json nano/nano.v"
+
+probe "the timing run refuses a cell name that is not a bare sky130 cell too" 1 \
+  "names something other than a sky130_fd_sc_hd cell" \
+  "printf 'x; bad\\n' > $tmp/bad.cells; $TS_SCRIPT /tmp/lib.lib $tmp/bad.cells /tmp/out.json nano/nano.v"
 
 begin_group "make nano-liberty-setup"
 
@@ -9027,6 +9063,47 @@ probe "an allow-list entry whose site lost both retired names is red" 1 \
 d=$(new_case)
 probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
   "cannot enumerate any tracked files" "$RGS $d"
+
+begin_group "test/tmp_path_test.sh"
+
+TPT="$HERE/tmp_path_test.sh"
+
+tpt_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO/test/probe_gates.sh" "$REPO/test/tmp_path_test.sh" "$d/test/"
+  cp "$REPO/soc/uart_baud_sweep.sh" "$d/soc/"
+  cp "$REPO/Makefile" "$d/"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(tpt_fixture)
+probe "control: the shipping tree has no literal /tmp/ outside its exceptions" 0 \
+  "no literal /tmp/ path" "$TPT $d"
+
+d=$(tpt_fixture)
+mutate "$d/soc/uart_baud_sweep.sh" 's|"\$ERR"|/tmp/uartsweep.err|'
+git -C "$d" add -A
+probe "a fixed /tmp/ scratch name in a script is red, and located" 1 \
+  "soc/uart_baud_sweep.sh:" "$TPT $d"
+
+d=$(tpt_fixture)
+mutate "$d/Makefile" 's|write_cxxrtl \$(BUILD)/elaborate-strict.cc|write_cxxrtl /tmp/elaborate-strict.cc|'
+git -C "$d" add -A
+probe "a fixed /tmp/ scratch name in the Makefile is red, and located" 1 \
+  "Makefile:" "$TPT $d"
+
+d=$(tpt_fixture)
+mutate "$d/test/probe_gates.sh" 's|/tmp/|/scratch/|g'
+git -C "$d" add -A
+probe "a tmp-path allow-list entry whose site lost its /tmp/ is red" 1 \
+  "the allow-list exempts test/probe_gates.sh" "$TPT $d"
+
+d=$(new_case)
+probe "a tmp-path scan of a tree git cannot list is red, not green" 1 \
+  "cannot enumerate any tracked files" "$TPT $d"
 
 begin_group "test/probes_header_test.py"
 

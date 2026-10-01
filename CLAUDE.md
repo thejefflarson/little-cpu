@@ -752,7 +752,7 @@ VexRiscv on both.
   (ADR-0097 as amended). `soc/depth/path_stages.py` attributes a path, not a decision, and its
   level count orders nothing (ADR-0116); `soc/routing_bins.py` shows the routing on that path is
   flat, with no long hop and no column to pin (ADR-0114). The SoC is routing-dominated and
-  **there is no single lever**: reading `soc.timing.rpt` finds candidates, not wins, the decode
+  **there is no single lever**: reading `build/soc.timing.rpt` finds candidates, not wins, the decode
   head is a plateau at 3.3% deleted whole, and the period is in the fetch loop, whose inputs to `next_pc` are worth 21% only
   all together — collecting that means the pc stops depending on this cycle's decode, which is the
   no-wrong-path-state commitment (ADR-0076). **Measure the whole set**: a ceiling over one term
@@ -800,7 +800,7 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
                     # compare-product-schedule-publish, stall-sites, pin-help-text,
-                    # formal-ci-coverage, yosys-script-oneline)
+                    # formal-ci-coverage, yosys-script-oneline, tmp-path)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
                     # dual-build, nano-test, nano-startup-test, nano-littlecpu-test and
                     # nano-qspi-loop-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
@@ -841,9 +841,9 @@ make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entr
                     # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.
                     # SOC_SEARCH_SEEDS overrides the seed list, SOC_SEARCH_COUNT the
                     # default draw's size
-make bitstream      # icepack the board wrapper into board.bin; BOARD_OSC=internal uses
+make bitstream      # icepack the board wrapper into build/board.bin; BOARD_OSC=internal uses
                     # SB_HFOSC instead of the crystal. No board needed
-make prog           # iceprog board.bin onto the UPduino; root on macOS
+make prog           # iceprog build/board.bin onto the UPduino; root on macOS
 make suite-board    # the .S suite on the part, in batches, read back over the UART; root
 make dhrystone-board # Dhrystone built for the board; flash with `make prog`, read the UART
 make coremark-board # CoreMark built for the up5k at COREMARK_UP5K_CFLAGS (-Os -flto, not
@@ -1044,6 +1044,13 @@ a decision was measured against them. `nproc` and `free` inside a pod report the
   done. Elaboration succeeding is not a substitute.
 - **Never commit build artifacts** (`test/rtl.cc`, `sim`, `*.vvp`, `*.vcd`, `rvfi_macros.vh`,
   `formal/` output dirs). `test/monitor.v` is the one deliberate exception.
+- **Scratch goes in the worktree; downloaded tools go in `~/.cache/little-cpu`.** The question that
+  sorts them is whether two worktrees would want the same bytes: a downloaded tool, yes; a build
+  product or a log someone reads afterwards, no, and it belongs under the gitignored `build/`
+  (`$(BUILD)`), where one worktree cannot overwrite another. `mktemp` is for a file nothing reads
+  after the script exits. `test/tmp_path_test.sh` refuses a literal `/tmp/` in a tracked Makefile or
+  shell script. It cannot see an ad-hoc command, so `make test > …` and its kin write under the
+  worktree or the session's scratch directory, never a fixed `/tmp` name.
 - **riscv-formal is SHA-pinned.** A pin bump regenerates `test/monitor.v`, re-runs the generated
   checks, and re-derives the sanitizer's site counts and `COMPLETE_EXCLUSIONS` rather than editing
   them to silence a failure.

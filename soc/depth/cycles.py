@@ -21,7 +21,7 @@ nothing. The counters ride on `--stalls`, so they are read on exactly the cycles
 the stall accounting is read on, and each run appends its line to `$DEPTH_LOG`
 because test/run_tests.sh keeps only the `STALLS` line off a run's stdout.
 
-Usage: cycles.py [--runs N]     (writes into depth.out/)
+Usage: cycles.py [--runs N]     (writes into build/depth.out/)
 """
 
 import argparse
@@ -131,8 +131,8 @@ def main():
     args = parser.parse_args()
 
     os.chdir(ROOT)
-    work = pathlib.Path(os.environ.get("DEPTH_WORK", "depth.out"))
-    work.mkdir(exist_ok=True)
+    work = pathlib.Path(os.environ.get("DEPTH_WORK", "build/depth.out"))
+    work.mkdir(parents=True, exist_ok=True)
     source = work / "depth_cycles.cc"
     source.write_text(patch(pathlib.Path("test/cxxrtl.cc")))
 

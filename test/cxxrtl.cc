@@ -122,6 +122,74 @@ constexpr StallReason kStallReasons[] = {
     {"uut decoder bus_wait", 5},
 };
 
+// Where a redirect's cycles go, and what a return-address guess would have saved. Counted
+// from X's own signals, nothing in the RTL. A redirect's cost is the run of cycles X
+// resolves nothing after it, up to the next resolving cycle.
+struct RedirectAccount {
+  uint64_t commits = 0, jalr = 0, returns = 0;
+  uint64_t jalr_redirects = 0, other_redirects = 0;
+  uint64_t jalr_window = 0, other_window = 0;
+  // A one-entry return register, and an unbounded stack as the nesting-free upper bound.
+  uint64_t hit1 = 0, hit_deep = 0, saved1 = 0, saved_deep = 0;
+  bool window_open = false, window_jalr = false, window_hit1 = false, window_hit_deep = false;
+  uint64_t window_len = 0;
+  bool ras1_valid = false;
+  uint32_t ras1 = 0;
+  std::vector<uint32_t> deep;
+
+  void close_window() {
+    if (!window_open)
+      return;
+    (window_jalr ? jalr_window : other_window) += window_len;
+    if (window_hit1)
+      saved1 += window_len;
+    if (window_hit_deep)
+      saved_deep += window_len;
+    window_open = false;
+  }
+
+  void cycle(bool resolving, bool commit, bool redirect, bool is_jal, bool is_jalr,
+             uint32_t pc, uint32_t pc_inc, uint32_t rd, uint32_t rs1, uint32_t target) {
+    if (window_open && !resolving)
+      window_len++;
+    if (!resolving)
+      return;
+    close_window();
+    bool hit1_now = false, hit_deep_now = false;
+    if (commit) {
+      commits++;
+      if (is_jalr) {
+        jalr++;
+        if (rd == 0 && (rs1 == 1 || rs1 == 5)) {
+          returns++;
+          hit1_now = ras1_valid && ras1 == target;
+          hit_deep_now = !deep.empty() && deep.back() == target;
+          hit1 += hit1_now;
+          hit_deep += hit_deep_now;
+          ras1_valid = false;
+          if (!deep.empty())
+            deep.pop_back();
+        }
+      }
+      if ((is_jal || is_jalr) && (rd == 1 || rd == 5)) {
+        ras1_valid = true;
+        ras1 = pc + pc_inc;
+        deep.push_back(pc + pc_inc);
+        if (deep.size() > 64)
+          deep.erase(deep.begin());
+      }
+    }
+    if (redirect) {
+      (is_jalr ? jalr_redirects : other_redirects)++;
+      window_open = true;
+      window_jalr = is_jalr;
+      window_hit1 = hit1_now;
+      window_hit_deep = hit_deep_now;
+      window_len = 0;
+    }
+  }
+};
+
 struct Args {
   std::string rom_path;
   std::string ram_path;
@@ -316,6 +384,34 @@ int main(int argc, char **argv) {
     }
   }
 
+  const cxxrtl::debug_item *x_committing = nullptr, *x_in_valid = nullptr, *x_busy_item = nullptr,
+                           *x_redirect_item = nullptr, *x_is_jalr = nullptr, *x_is_jal = nullptr,
+                           *x_pc = nullptr, *x_pc_inc = nullptr, *x_rd = nullptr, *x_rs1 = nullptr,
+                           *x_target = nullptr;
+  if (args.stalls) {
+    try {
+      x_committing = &all_debug_items.at("uut executor committing").at(0);
+      x_in_valid = &all_debug_items.at("uut executor in_valid").at(0);
+      x_busy_item = &all_debug_items.at("uut executor x_busy").at(0);
+      x_redirect_item = &all_debug_items.at("uut executor redirect").at(0);
+      x_is_jalr = &all_debug_items.at("uut executor in_is_jalr").at(0);
+      x_is_jal = &all_debug_items.at("uut executor in_is_jal").at(0);
+      x_pc = &all_debug_items.at("uut executor in_pc").at(0);
+      x_pc_inc = &all_debug_items.at("uut executor pc_inc").at(0);
+      x_rd = &all_debug_items.at("uut executor in_rd").at(0);
+      x_rs1 = &all_debug_items.at("uut executor in_rs1").at(0);
+      x_target = &all_debug_items.at("uut executor resolved_target").at(0);
+    } catch (const std::out_of_range &) {
+      std::fprintf(stderr,
+                    "error: --stalls needs rtl/executor.v's `committing`, `in_valid`, "
+                    "`x_busy`, `redirect`, `in_is_jal`, `in_is_jalr`, `in_pc`, `pc_inc`, "
+                    "`in_rd`, `in_rs1` and `resolved_target` as debug items, and at "
+                    "least one is not in the simulated design.\n");
+      return 3;
+    }
+  }
+  RedirectAccount redirects;
+
   uint64_t counted_cycles = 0;
   uint64_t issue_cycles = 0;
   uint64_t unattributed_cycles = 0;
@@ -339,10 +435,23 @@ int main(int argc, char **argv) {
                  (unsigned long long)hazard_a, (unsigned long long)hazard_b,
                  (unsigned long long)hazard_c, (unsigned long long)hazard_c_csr);
     std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u"
-                 " guesses=%u guesshits=%u guessmisses=%u\n",
+                 " guesses=%u guesshits=%u guessmisses=%u",
                  (unsigned long long)unattributed_cycles, ls_issues->curr[0],
                  ls_edges->curr[0], ls_bypasses->curr[0], guesses->curr[0],
                  guess_hits->curr[0], guess_misses->curr[0]);
+    redirects.close_window();
+    std::printf(" commits=%llu jalr=%llu jalrret=%llu jalrredir=%llu otherredir=%llu"
+                 " jalrwin=%llu otherwin=%llu rashit1=%llu rassave1=%llu"
+                 " rashitdeep=%llu rassavedeep=%llu\n",
+                 (unsigned long long)redirects.commits, (unsigned long long)redirects.jalr,
+                 (unsigned long long)redirects.returns,
+                 (unsigned long long)redirects.jalr_redirects,
+                 (unsigned long long)redirects.other_redirects,
+                 (unsigned long long)redirects.jalr_window,
+                 (unsigned long long)redirects.other_window,
+                 (unsigned long long)redirects.hit1, (unsigned long long)redirects.saved1,
+                 (unsigned long long)redirects.hit_deep,
+                 (unsigned long long)redirects.saved_deep);
   };
 
   auto finish = [&](int code) {
@@ -386,6 +495,10 @@ int main(int argc, char **argv) {
     if (args.stalls) {
       top.debug_eval();
       counted_cycles++;
+      redirects.cycle((x_in_valid->curr[0] & 1) && !(x_busy_item->curr[0] & 1),
+                      x_committing->curr[0] & 1, x_redirect_item->curr[0] & 1,
+                      x_is_jal->curr[0] & 1, x_is_jalr->curr[0] & 1, x_pc->curr[0],
+                      x_pc_inc->curr[0], x_rd->curr[0], x_rs1->curr[0], x_target->curr[0]);
       if ((stall_any->curr[0] & 1) == 0) {
         issue_cycles++;
       } else {

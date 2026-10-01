@@ -73,9 +73,9 @@ def main():
 
     if any(PLACEMENT_ERROR.match(line) for line in lines):
         print("Placement failed on IO, which is the expected state (ADR-0038 decision 1a);")
-        print("the utilisation above is the measurement. Full log: fit.log")
+        print("the utilisation above is the measurement. Full log: build/fit.log")
     else:
-        print("Placement did not report an IO error -- read fit.log before quoting this.")
+        print("Placement did not report an IO error -- read build/fit.log before quoting this.")
 
     got = int(lc)
 
