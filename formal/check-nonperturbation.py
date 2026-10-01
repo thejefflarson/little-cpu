@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Prove, structurally, that the RVFI instrumentation is unread by the core.
 
-Run from formal/ -- the paths below are relative to it.
+Usage: check-nonperturbation.py [littlecpu|nano]     # default littlecpu
+
+Both designs are graded the same way, by the same code: DESIGNS below names, per design, its
+sources, its top module and the defines that switch its instrumentation on. Everything after
+that table is design-blind.
 
 WHAT THIS PROVES, AND WHAT IT DOES NOT
 --------------------------------------
@@ -88,18 +92,35 @@ import subprocess
 import sys
 import tempfile
 
-RTL = [
-    "structs.v",
-    "fetcher.v",
-    "regfile.v",
-    "csrs.v",
-    "decoder.v",
-    "regsel.v",
-    "executor.v",
-    "accessor.v",
-    "writeback.v",
-    "littlecpu.v",
-]
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir)
+
+# Paths resolve from this file's own location, not from the working directory: the Makefiles
+# run it from formal/ and nano/formal/, but a bare `python3 formal/check-...` from the repo
+# root is the obvious thing to try and would otherwise fail inside yosys with a missing-file
+# error that says nothing about why.
+DESIGNS = {
+    "littlecpu": {
+        "top": "littlecpu",
+        "sources": [os.path.join(ROOT, "rtl", f) for f in (
+            "structs.v", "fetcher.v", "regfile.v", "csrs.v", "decoder.v", "regsel.v",
+            "executor.v", "accessor.v", "writeback.v", "littlecpu.v")],
+        "defines": "-D RISCV_FORMAL ",
+        "header": None,
+    },
+    "nano": {
+        "top": "riscv",
+        "sources": [os.path.join(ROOT, "nano", "nano.v")],
+        # nano's rvfi_* ports come from riscv-formal's macro header, which these defines
+        # parameterise: the set nano/formal/checks.cfg gives the generated checks, so every
+        # optional port exists.
+        "defines": ("-D RISCV_FORMAL -D RISCV_FORMAL_NRET=1 -D RISCV_FORMAL_XLEN=32 "
+                    "-D RISCV_FORMAL_ILEN=32 -D RISCV_FORMAL_COMPRESSED "
+                    "-D RISCV_FORMAL_ALIGNED_MEM -D RISCV_FORMAL_E "
+                    "-D RISCV_FORMAL_MEM_FAULT -D RISCV_FORMAL_CSR_MCYCLE "
+                    "-D RISCV_FORMAL_CSR_MINSTRET -D RISCV_FORMAL_CSR_MSCRATCH "),
+        "header": os.path.join(ROOT, "formal", "riscv-formal", "checks", "rvfi_macros.vh"),
+    },
+}
 
 # Repeated rather than looped: `opt_clean` is a single fanout sweep, and a removal can
 # expose the next one, so it has to run to a fixpoint.
@@ -108,27 +129,28 @@ SWEEP_PASSES = 6
 # How many colour-refinement rounds the structural comparison runs before it gives up.
 WL_ROUNDS = 8
 
-# Resolved from this file's own location, not from the working directory: the Makefile
-# runs it from formal/, but a bare `python3 formal/check-...` from the repo root is the
-# obvious thing to try and would otherwise fail inside yosys with a missing-file error
-# that says nothing about why.
-RTL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "rtl")
-
-def yosys_script(out_dir):
+def yosys_script(out_dir, design):
     """One yosys invocation, three builds, three JSON netlists."""
-    srcs = " ".join(os.path.join(RTL_DIR, f) for f in RTL)
+    srcs = " ".join(design["sources"])
+    top = design["top"]
     sweep = "\n".join(["opt_clean -purge"] * SWEEP_PASSES)
 
     def build(name, defines, delete_ports):
+        header = (
+            [f"read_verilog {defines}-sv {design['header']}"]
+            if defines and design["header"]
+            else []
+        )
         return "\n".join(
-            [
-                "design -reset",
+            ["design -reset"]
+            + header
+            + [
                 f"read_verilog {defines}-sv {srcs}",
-                "hierarchy -check -top littlecpu",
+                f"hierarchy -check -top {top}",
                 "proc",
                 "flatten",
             ]
-            + (["delete -port littlecpu/rvfi_*"] if delete_ports else [])
+            + ([f"delete -port {top}/rvfi_*"] if delete_ports else [])
             + [
                 "memory_map",
                 "simplemap",
@@ -140,13 +162,13 @@ def yosys_script(out_dir):
     return "\n".join(
         [
             build("gold", "", False),
-            build("instrumented", "-D RISCV_FORMAL ", False),
-            build("gate", "-D RISCV_FORMAL ", True),
+            build("instrumented", design["defines"], False),
+            build("gate", design["defines"], True),
         ]
     )
 
-def run_yosys(out_dir):
-    script = yosys_script(out_dir)
+def run_yosys(out_dir, design):
+    script = yosys_script(out_dir, design)
     path = os.path.join(out_dir, "build.ys")
     with open(path, "w") as f:
         f.write(script + "\n")
@@ -164,13 +186,13 @@ def run_yosys(out_dir):
         if line.startswith("Warning:"):
             print("  yosys: " + line)
 
-def load(out_dir, name):
+def load(out_dir, name, top):
     with open(os.path.join(out_dir, name + ".json")) as f:
-        design = json.load(f)
-    mods = design["modules"]
-    if "littlecpu" not in mods:
-        raise SystemExit("%s.json has no littlecpu module" % name)
-    return mods["littlecpu"]
+        netlist = json.load(f)
+    mods = netlist["modules"]
+    if top not in mods:
+        raise SystemExit("%s.json has no %s module" % (name, top))
+    return mods[top]
 
 def histogram(mod):
     return collections.Counter(c["type"] for c in mod["cells"].values())
@@ -360,14 +382,25 @@ def selftest_fingerprint(mod):
     return problems
 
 def main():
+    which = sys.argv[1] if len(sys.argv) > 1 else "littlecpu"
+    if len(sys.argv) > 2 or which not in DESIGNS:
+        print("usage: check-nonperturbation.py [%s]" % "|".join(DESIGNS), file=sys.stderr)
+        return 2
+    design = DESIGNS[which]
+    top = design["top"]
+    for src in design["sources"] + ([design["header"]] if design["header"] else []):
+        if not os.path.isfile(src):
+            print("error: %s does not exist, so there is nothing to build." % src,
+                  file=sys.stderr)
+            return 2
     failures = []
 
     with tempfile.TemporaryDirectory(prefix="nonperturbation.") as out_dir:
         print("Building gold / instrumented / gate netlists (yosys)...")
-        run_yosys(out_dir)
-        gold = load(out_dir, "gold")
-        instrumented = load(out_dir, "instrumented")
-        gate = load(out_dir, "gate")
+        run_yosys(out_dir, design)
+        gold = load(out_dir, "gold", top)
+        instrumented = load(out_dir, "instrumented", top)
+        gate = load(out_dir, "gate", top)
 
     gold_hist = histogram(gold)
     inst_hist = histogram(instrumented)
@@ -415,8 +448,8 @@ def main():
         )
     if gate_rvfi:
         failures.append(
-            "`delete -port littlecpu/rvfi_*` left %d rvfi_* port(s): %s"
-            % (len(gate_rvfi), ", ".join(gate_rvfi))
+            "`delete -port %s/rvfi_*` left %d rvfi_* port(s): %s"
+            % (top, len(gate_rvfi), ", ".join(gate_rvfi))
         )
     # The margin is a floor, not a measurement: the instrumentation is thousands of cells
     # (rtl/structs.v's shadow payload alone is >100 bits per stage), so anything under a
@@ -465,10 +498,10 @@ def main():
             print("    %-24s %8d %8d %+8d" % (t, g, a, a - g))
         failures.append(
             "cell histogram differs by %d cell(s) in %d type(s). Cells that "
-            "survive `delete -port littlecpu/rvfi_*` plus a full sweep are "
+            "survive `delete -port %s/rvfi_*` plus a full sweep are "
             "cells a REAL signal depends on -- an `ifdef RISCV_FORMAL` value "
             "has reached the core (ADR-0006, ADR-0020)."
-            % (gate_cells - gold_cells, len(rows))
+            % (gate_cells - gold_cells, len(rows), top)
         )
 
     gold_cc, gold_nc, gold_local = fingerprint(gold)
