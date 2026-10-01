@@ -9056,9 +9056,10 @@ probe "a reintroduced fallback search in a live consumer is red, and located" 1 
   "nano/bench/run_qspi_loop_buffer_test.sh:" "$RGS $d"
 
 d=$(rgs_fixture)
-rgs_edit "$d" soc/compare/product.json 's/riscv64-unknown-elf-gcc/pinned-riscv-none-elf-gcc/g'
+rgs_edit "$d" test/probe_gates.sh 's/riscv64-unknown-elf-gcc/pinned-riscv-none-elf-gcc/g'
+rgs_edit "$d" test/probe_gates.sh 's/riscv64-elf-gcc/pinned-riscv-none-elf-gcc/g'
 probe "an allow-list entry whose site lost both retired names is red" 1 \
-  "the allow-list exempts soc/compare/product.json" "$RGS $d"
+  "the allow-list exempts test/probe_gates.sh" "$RGS $d"
 
 d=$(new_case)
 probe "a tree git cannot list is a scan of nothing, not a green one" 1 \
