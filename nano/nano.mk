@@ -68,8 +68,8 @@ nano-liberty-setup:
 	fi; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Re-derived when the instrument's flip-flop exclusions started taking effect: 75,082.0 um2 against 73,137.6 on the same RTL, with the prior step's 2,034.3 um2 of headroom. A ranking between RTL versions, never a fit, which only a flow run with gate-level simulation says.
-override NANO_MAX_UM2 := 77100
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Re-derived when the register file, the CSRs, op_rs1 and the fetched word moved onto hand-instantiated clock gates: 66,998.0 um2 against 75,082.0 on the same instrument without them, with the prior step's 2,034.3 um2 of headroom. A ranking between RTL versions, never a fit, which only a flow run with gate-level simulation says.
+override NANO_MAX_UM2 := 69100
 
 NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
              nano/tt/src/tt_um_thejefflarson_nanocpu.v
@@ -99,6 +99,17 @@ nano-timing:
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --excluded '$(NANO_EXCLUDED_CELLS)' \
 	  --variant flops:nano/timing.flops.log:nano/timing.flops.json \
 	  --flow-correlation nano/timing_flow_correlation.json
+
+NANO_GL_NETLIST := nano/gl-local/nano.nl.v
+
+.PHONY: nano-gl-local-netlist
+nano-gl-local-netlist: nano-liberty-setup
+	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
+	if [ $$rc -eq 2 ]; then exit 0; fi; \
+	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
+	mkdir -p nano/gl-local; \
+	yosys -q -l nano/gl-local/synth.log -p "$$(nano/flow_netlist_script.sh '$(NANO_LIBERTY)' '$(NANO_EXCLUDED_CELLS)' '$(NANO_GL_NETLIST)' $(NANO_SRCS))" \
+	  > nano/gl-local/synth.stdout 2>&1 || { tail -40 nano/gl-local/synth.stdout; exit 1; }
 
 # The sky130_fd_sc_hd behavioral Verilog a gate-level simulation reads, pinned like the liberty above.
 ifneq ($(filter command line environment,$(origin NANO_SKY130_VERILOG_COMMIT)),)

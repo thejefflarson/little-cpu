@@ -1,3 +1,38 @@
+// Loads `d` when `enable` is high: a sky130 clock gate feeding plain flops under the flow's SCL
+// define, an enabled flop on `clk` everywhere else, so sims and proofs read the gate's `enable`.
+module nano_gated_reg #(
+  parameter int W = 32
+) (
+  input  logic         clk,
+  input  logic         enable,
+  input  logic [W-1:0] d,
+  output logic [W-1:0] q
+);
+`ifdef SCL_sky130_fd_sc_hd
+  logic gated_clk;
+  sky130_fd_sc_hd__dlclkp_1 gate (.GATE(enable), .CLK(clk), .GCLK(gated_clk));
+  always_ff @(posedge gated_clk) q <= d;
+`else
+  always_ff @(posedge clk) if (enable) q <= d;
+`endif
+endmodule
+
+// With a synchronous reset, which must be part of the enable: a gated clock stops while it is low.
+module nano_gated_reg_r #(
+  parameter int W = 32,
+  parameter logic [W-1:0] RESET_VALUE = '0
+) (
+  input  logic         clk,
+  input  logic         reset,
+  input  logic         enable,
+  input  logic [W-1:0] d,
+  output logic [W-1:0] q
+);
+  nano_gated_reg #(.W(W)) r (
+    .clk(clk), .enable(reset || enable), .d(reset ? RESET_VALUE : d), .q(q)
+  );
+endmodule
+
 module riscv #(
   // The RAM window a load/store must land in or fault (cause 5/7); matches nano.lds.
   parameter logic [31:0] RAM_BASE  = 32'h0001_0000,
@@ -61,7 +96,7 @@ module riscv #(
   logic rs1_valid, rs2_valid;
   logic is_e_illegal;
   logic is_valid;
-  logic [31:0] regs[0:15];
+  logic [15:0][31:0] regs;
 
   localparam logic [31:0] MISA_VALUE = 32'h4000_0014; // RV32, E, C
   localparam logic [11:0] CSR_MSTATUS    = 12'h300;
@@ -405,13 +440,12 @@ module riscv #(
   assign mcause_value = {mcause_interrupt, 27'b0, mcause_code};
   assign interrupt_pending = irq_meip_sync2 && mie_meie && mstatus_mie;
 
-  // Sliced here, not inside the case below: a constant part-select of a wider signal
-  // inside an always_comb/always_ff is an iverilog "sorry", avoided by slicing here.
   logic [31:0] mcycle_lo, mcycle_hi, minstret_lo, minstret_hi;
-  assign mcycle_lo   = mcycle[31:0];
-  assign mcycle_hi   = mcycle[63:32];
-  assign minstret_lo = minstret[31:0];
-  assign minstret_hi = minstret[63:32];
+  logic [31:0] mcycle_inc_lo, mcycle_inc_hi, minstret_inc_lo, minstret_inc_hi;
+  assign mcycle   = {mcycle_hi, mcycle_lo};
+  assign minstret = {minstret_hi, minstret_lo};
+  assign {mcycle_inc_hi, mcycle_inc_lo}     = mcycle + 64'd1;
+  assign {minstret_inc_hi, minstret_inc_lo} = minstret + 64'd1;
 
   always_comb begin
     csr_implemented = 1'b1;
@@ -482,8 +516,6 @@ module riscv #(
 
   always_ff @(posedge clk) begin
     if (reset) begin
-      pc <= 0;
-      instr <= 0;
       mem_addr <= 0;
       trap <= 0;
       cpu_state <= fetch_instr;
@@ -506,14 +538,11 @@ module riscv #(
         ready_instr: begin
           if (mem_ready) begin
             mem_valid <= 0;
-            pc <= mem_addr;
-            instr <= mem_rdata[1:0] == 2'b11 ? mem_rdata : {16'b0, mem_rdata[15:0]};
             cpu_state <= fetch_rs1;
           end
         end
 
         fetch_rs1: begin
-          op_rs1 <= rf_rdata;
           cpu_state <= execute_instr;
         end
 
@@ -664,8 +693,23 @@ module riscv #(
     cpu_state == execute_instr && !take_trap &&
     (is_lui || is_auipc || is_jal || is_jalr || is_math || is_math_immediate || is_csr));
 
-  always_ff @(posedge clk) begin
-    if (wb_en) regs[rd[3:0]] <= cpu_state == finish_load ? load_data : wb_data;
+  nano_gated_reg_r #(.W(64)) fetch_reg (
+    .clk(clk), .reset(reset), .enable(cpu_state == ready_instr && mem_ready),
+    .d({mem_rdata[1:0] == 2'b11 ? mem_rdata : {16'b0, mem_rdata[15:0]}, mem_addr}),
+    .q({instr, pc})
+  );
+
+  nano_gated_reg #(.W(32)) rs1_reg (
+    .clk(clk), .enable(cpu_state == fetch_rs1), .d(rf_rdata), .q(op_rs1)
+  );
+
+  logic [31:0] rf_wdata;
+  assign rf_wdata = cpu_state == finish_load ? load_data : wb_data;
+  assign regs[0] = 32'b0;
+  for (genvar i = 1; i < 16; i++) begin : g_regs
+    nano_gated_reg #(.W(32)) r (
+      .clk(clk), .enable(wb_en && rd[3:0] == 4'(i)), .d(rf_wdata), .q(regs[i])
+    );
   end
 
   // !take_trap excludes an E-illegal CSR instruction, which is_valid alone does not.
@@ -676,67 +720,70 @@ module riscv #(
   assign wr_minstreth = csr_wen && csr_addr == CSR_MINSTRETH;
   assign instret = cpu_state == execute_instr && !take_trap;
 
+  // A CSR write, a trap and an mret never coincide; mtval is read-only zero, so a write to it loads nothing.
+  logic trap_entry, mret_exec;
+  logic wr_mstatus, wr_mie, wr_mtvec, wr_mscratch, wr_mepc, wr_mcause;
+  assign trap_entry = take_interrupt || (cpu_state == execute_instr && take_trap);
+  assign mret_exec  = cpu_state == execute_instr && !take_trap && is_mret;
+  assign wr_mstatus  = csr_wen && csr_addr == CSR_MSTATUS;
+  assign wr_mie      = csr_wen && csr_addr == CSR_MIE;
+  assign wr_mtvec    = csr_wen && csr_addr == CSR_MTVEC;
+  assign wr_mscratch = csr_wen && csr_addr == CSR_MSCRATCH;
+  assign wr_mepc     = csr_wen && csr_addr == CSR_MEPC;
+  assign wr_mcause   = csr_wen && csr_addr == CSR_MCAUSE;
+
   always_ff @(posedge clk) begin
     if (reset) begin
-      mcycle           <= 64'b0;
-      minstret         <= 64'b0;
-      mscratch         <= 32'b0;
-      mtvec_base       <= 30'b0;
-      mepc_msbs        <= 31'b0;
-      mcause_code      <= 4'b0;
-      mcause_interrupt <= 1'b0;
-      mstatus_mie      <= 1'b0;
-      mstatus_mpie     <= 1'b0;
-      mie_meie         <= 1'b0;
-      irq_meip_sync1   <= 1'b0;
-      irq_meip_sync2   <= 1'b0;
+      irq_meip_sync1 <= 1'b0;
+      irq_meip_sync2 <= 1'b0;
     end else begin
       irq_meip_sync1 <= irq_meip;
       irq_meip_sync2 <= irq_meip_sync1;
-
-      mcycle   <= wr_mcycle   ? {mcycle_hi, csr_new_value} :
-                 wr_mcycleh   ? {csr_new_value, mcycle_lo}  :
-                                mcycle + 64'd1;
-      minstret <= wr_minstret  ? {minstret_hi, csr_new_value} :
-                 wr_minstreth  ? {csr_new_value, minstret_lo}  :
-                 instret       ? minstret + 64'd1 : minstret;
-
-      if (csr_wen) begin
-        (* parallel_case *)
-        case (csr_addr)
-          CSR_MSTATUS: begin
-            mstatus_mie  <= csr_new_value[3];
-            mstatus_mpie <= csr_new_value[7];
-          end
-          CSR_MIE:      mie_meie <= csr_new_value[11];
-          CSR_MTVEC:    mtvec_base <= csr_new_value[31:2];
-          CSR_MSCRATCH: mscratch   <= csr_new_value;
-          CSR_MEPC:     mepc_msbs  <= csr_new_value[31:1];
-          CSR_MCAUSE: begin
-            mcause_interrupt <= csr_new_value[31];
-            mcause_code      <= csr_new_value[3:0];
-          end
-          // CSR_MTVAL falls to default: read-only zero, so a write is legal but discarded.
-          default: ;
-        endcase
-      end else if (take_interrupt) begin
-        mepc_msbs        <= mem_addr[31:1];
-        mcause_interrupt <= 1'b1;
-        mcause_code      <= CAUSE_MACHINE_EXTERNAL[3:0];
-        mstatus_mpie     <= mstatus_mie;
-        mstatus_mie      <= 1'b0;
-      end else if (cpu_state == execute_instr && take_trap) begin
-        mepc_msbs        <= pc[31:1];
-        mcause_interrupt <= 1'b0;
-        mcause_code      <= trap_cause_value[3:0];
-        mstatus_mpie     <= mstatus_mie;
-        mstatus_mie      <= 1'b0;
-      end else if (cpu_state == execute_instr && is_mret) begin
-        mstatus_mie  <= mstatus_mpie;
-        mstatus_mpie <= 1'b1;
-      end
     end
   end
+
+  // wr_minstret and wr_minstreth imply instret, so either write is also a count cycle.
+  nano_gated_reg_r #(.W(32)) mcycle_lo_reg (
+    .clk(clk), .reset(reset), .enable(!wr_mcycleh),
+    .d(wr_mcycle ? csr_new_value : mcycle_inc_lo), .q(mcycle_lo)
+  );
+  nano_gated_reg_r #(.W(32)) mcycle_hi_reg (
+    .clk(clk), .reset(reset), .enable(!wr_mcycle),
+    .d(wr_mcycleh ? csr_new_value : mcycle_inc_hi), .q(mcycle_hi)
+  );
+  nano_gated_reg_r #(.W(32)) minstret_lo_reg (
+    .clk(clk), .reset(reset), .enable(instret && !wr_minstreth),
+    .d(wr_minstret ? csr_new_value : minstret_inc_lo), .q(minstret_lo)
+  );
+  nano_gated_reg_r #(.W(32)) minstret_hi_reg (
+    .clk(clk), .reset(reset), .enable(instret && !wr_minstret),
+    .d(wr_minstreth ? csr_new_value : minstret_inc_hi), .q(minstret_hi)
+  );
+  nano_gated_reg_r #(.W(32)) mscratch_reg (
+    .clk(clk), .reset(reset), .enable(wr_mscratch), .d(csr_new_value), .q(mscratch)
+  );
+  nano_gated_reg_r #(.W(30)) mtvec_reg (
+    .clk(clk), .reset(reset), .enable(wr_mtvec), .d(csr_new_value[31:2]), .q(mtvec_base)
+  );
+  nano_gated_reg_r #(.W(31)) mepc_reg (
+    .clk(clk), .reset(reset), .enable(wr_mepc || trap_entry),
+    .d(wr_mepc ? csr_new_value[31:1] : take_interrupt ? mem_addr[31:1] : pc[31:1]), .q(mepc_msbs)
+  );
+  nano_gated_reg_r #(.W(5)) mcause_reg (
+    .clk(clk), .reset(reset), .enable(wr_mcause || trap_entry),
+    .d(wr_mcause ? {csr_new_value[31], csr_new_value[3:0]} :
+       take_interrupt ? {1'b1, CAUSE_MACHINE_EXTERNAL[3:0]} : {1'b0, trap_cause_value[3:0]}),
+    .q({mcause_interrupt, mcause_code})
+  );
+  nano_gated_reg_r #(.W(2)) mstatus_reg (
+    .clk(clk), .reset(reset), .enable(wr_mstatus || trap_entry || mret_exec),
+    .d(wr_mstatus ? {csr_new_value[7], csr_new_value[3]} :
+       mret_exec ? {1'b1, mstatus_mpie} : {mstatus_mie, 1'b0}),
+    .q({mstatus_mpie, mstatus_mie})
+  );
+  nano_gated_reg_r #(.W(1)) mie_reg (
+    .clk(clk), .reset(reset), .enable(wr_mie), .d(csr_new_value[11]), .q(mie_meie)
+  );
 
  `ifdef RISCV_FORMAL
   assign rvfi_dbg_mtvec   = mtvec_value;

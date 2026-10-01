@@ -932,7 +932,8 @@ make sail-reservation-probe  # ask the MODEL what a trap and an mret do to an LR
 
 make nano-liberty-setup # once: fetch the pinned sky130hd liberty nanocpu's area
                     # instrument reads
-make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, never
+make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty` with the flow's
+                    # SCL define so its hand-placed clock gates are counted, never
                     # merged with the brief's own TT-flow/LibreLane number; ratchet
                     # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
                     # nano/nano.v lands
@@ -941,6 +942,10 @@ make nano-timing    # area AND delay from one delay-oriented synthesis run, both
                     # instrument like `make cycles`. Prints its own limits and the
                     # dated, stale correlation against the last real flow run. Not on
                     # `make test`'s path, the same standing as `make nano-area`
+make nano-gl-local  # a netlist of the tt_um top built locally (yosys, the flow's SCL define,
+                    # the allowed cells) through nano-gl-test: clock gates required, and a
+                    # stuck-low register-file gate must fail it (ADR-0224). Not on `make
+                    # test`'s path
 make nano-test      # nano/asm's six hand-written x0-x15 programs under BOTH sim legs --
                     # nano-sim (cxxrtl) and nano/tb/nano_icarus.vvp (iverilog, wrapped by
                     # nano_sim_icarus.sh behind nano-sim's own CLI) -- graded against

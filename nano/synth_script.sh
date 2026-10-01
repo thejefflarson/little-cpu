@@ -18,5 +18,5 @@ if printf '%s\n' "$cells" | sed '/^$/d' | grep -v -q -x -E 'sky130_fd_sc_hd__[a-
   exit 1
 fi
 dont_use=$(printf '%s\n' "$cells" | sed '/^$/d; s/.*/ -dont_use &/' | tr -d '\n')
-printf 'read_verilog -sv%s; hierarchy -auto-top; flatten -noscopeinfo; synth; dfflibmap -liberty "%s"%s; abc -liberty "%s"%s; tee -o nano/area.json stat -liberty "%s" -json\n' \
-  "$srcs" "$liberty" "$dont_use" "$liberty" "$dont_use" "$liberty"
+printf 'read_liberty -overwrite -setattr liberty_cell -lib "%s"; read_verilog -sv -D SCL_sky130_fd_sc_hd%s; hierarchy -auto-top; flatten -noscopeinfo; synth; dfflibmap -liberty "%s"%s; abc -liberty "%s"%s; tee -o nano/area.json stat -liberty "%s" -json\n' \
+  "$liberty" "$srcs" "$liberty" "$dont_use" "$liberty" "$dont_use" "$liberty"

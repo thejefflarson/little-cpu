@@ -8232,6 +8232,27 @@ probe "a report that uses a cell the flow excludes is refused, not measured" 1 \
   "uses cell type(s) the Tiny Tapeout" \
   "$AR $d/stat.json --excluded $d/excluded.cells --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
+ar_gate_fixture() {  # $1 = the clock-gate cell the report uses; it is on the excluded list
+  local d; d=$(ar_liberty)
+  sed "s/FAKE_INV/$1/" "$d/fake.lib" > "$d/gate.lib"
+  mv "$d/gate.lib" "$d/fake.lib"
+  ar_stat "$d"
+  sed "s/FAKE_INV/$1/" "$d/stat.json" > "$d/gate.json"
+  mv "$d/gate.json" "$d/stat.json"
+  printf '%s\n' "$1" > "$d/excluded.cells"
+  printf '%s' "$d"
+}
+
+d=$(ar_gate_fixture sky130_fd_sc_hd__dlclkp_1); sha=$(ar_sha "$d/fake.lib")
+probe "control: dlclkp_1, which nano_gated_reg instantiates by hand, is accepted though excluded" 0 \
+  "RATCHET:" \
+  "$AR $d/stat.json --excluded $d/excluded.cells --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
+d=$(ar_gate_fixture sky130_fd_sc_hd__dlclkp_2); sha=$(ar_sha "$d/fake.lib")
+probe "only dlclkp_1 is let through: another excluded clock gate is refused" 1 \
+  "uses cell type(s) the Tiny Tapeout" \
+  "$AR $d/stat.json --excluded $d/excluded.cells --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
+
 begin_group "nano/timing_report.py"
 
 TR="python3 $REPO/nano/timing_report.py"
@@ -8360,6 +8381,10 @@ probe "every excluded cell reaches dfflibmap and abc as -dont_use" 0 \
   'dfflibmap -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1; abc -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1' \
   "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $SS_SCRIPT /tmp/lib.lib $tmp/one.cells nano/nano.v"
 
+probe "the area run defines the flow's SCL and reads the liberty as a library, so the hand-placed clock gates survive" 0 \
+  'read_liberty -overwrite -setattr liberty_cell -lib "/tmp/lib.lib"; read_verilog -sv -D SCL_sky130_fd_sc_hd' \
+  "$SS_SCRIPT /tmp/lib.lib /dev/null nano/nano.v"
+
 probe "a missing excluded-cell list is refused, not read as none" 1 \
   "refusing to measure cells the flow never uses" \
   "$SS_SCRIPT /tmp/lib.lib $tmp/no-such.cells nano/nano.v"
@@ -8385,12 +8410,16 @@ probe "a semicolon in the stat-json path stays inside its own quoted token" 0 \
   "$TS_SCRIPT /tmp/lib.lib /dev/null '/tmp/out;evil.json' nano/nano.v"
 
 probe "a source list feeds read_verilog the same way synth_script.sh's does" 0 \
-  'read_verilog -sv "a.v" "b.v"' \
+  'read_verilog -sv -D SCL_sky130_fd_sc_hd "a.v" "b.v"' \
   "$TS_SCRIPT /tmp/lib.lib /dev/null /tmp/out.json a.v b.v"
 
 probe "every excluded cell reaches the timing run's dfflibmap and abc too" 0 \
   'dfflibmap -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1; abc -liberty "/tmp/lib.lib" -dont_use sky130_fd_sc_hd__edfxtp_1 -script' \
   "printf 'sky130_fd_sc_hd__edfxtp_1\\n' > $tmp/one.cells; $TS_SCRIPT /tmp/lib.lib $tmp/one.cells /tmp/out.json nano/nano.v"
+
+probe "the timing run defines the flow's SCL and reads the liberty as a library too" 0 \
+  'read_liberty -overwrite -setattr liberty_cell -lib "/tmp/lib.lib"; read_verilog -sv -D SCL_sky130_fd_sc_hd' \
+  "$TS_SCRIPT /tmp/lib.lib /dev/null /tmp/out.json nano/nano.v"
 
 probe "a missing excluded-cell list is refused by the timing run too" 1 \
   "refusing to measure cells the flow never uses" \

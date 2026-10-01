@@ -1,6 +1,6 @@
 # ADR-0219: nano uses the Tiny Tapeout flow as shipped
 
-**Status:** Accepted · 2026-09-30 · supersedes ADR-0213
+**Status:** Accepted · 2026-09-30 · supersedes ADR-0213; its "no clock gating" decision is superseded by ADR-0224
 
 ## Context
 
