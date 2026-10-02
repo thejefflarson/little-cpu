@@ -197,8 +197,7 @@ jobs:
           name: compare-product-stamp
           path: ${{ runner.temp }}/compare-product
 
-      # The one make target the publish job may run: it needs only python3, and without it the
-      # refresh branch would fail the committed-document freshness check.
+      # The one make target the publish job may run; it needs only python3.
       - name: Stage the stamp and regenerate the comparison document
         env:
           OUT_DIR: ${{ runner.temp }}/compare-product

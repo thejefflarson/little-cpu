@@ -8931,7 +8931,7 @@ probe "a commit that leaves the regenerated comparison document behind is red" 1
   "files other than soc/compare/product.json and docs/comparison.md" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
-d=$(cpsp_fixture 's|CYCLE_FLOOR|CYCLE_FLOOR_RENAMED|')
+d=$(cpsp_fixture 's|CYCLE_FLOOR|CYCLE_FLR|')
 probe "an issue body that stops naming the hand-updated cycle floor is red" 1 \
   "CYCLE_FLOOR is updated by hand" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
