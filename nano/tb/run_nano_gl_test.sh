@@ -40,7 +40,10 @@ fi
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
 
-python3 "$REPO/nano/gl_census.py" "$NETLIST" --includes "$WORKDIR/cells.v"
+# The macro's gate-level view is its behavioural model, taken from nano.v: this run checks
+# the logic around the register file against that model, never the macro's layout.
+python3 "$REPO/nano/gl_census.py" "$NETLIST" --includes "$WORKDIR/cells.v" \
+  --macro rf_top --macro-source "$REPO/nano/nano.v" --macro-model "$WORKDIR/rf_top_model.v"
 
 # shellcheck disable=SC2086
 "$CC" $CFLAGS -nostdlib -I "$REPO/test/asm" -T "$REPO/nano/tb/asm/nano_tt.lds" \
@@ -50,8 +53,8 @@ python3 "$REPO/nano/gl_census.py" "$NETLIST" --includes "$WORKDIR/cells.v"
 "$OBJCOPY" -O verilog --verilog-data-width=4 --remove-section=.text \
   --adjust-vma=-0x10000000 "$WORKDIR/tt_gpio_uart.elf" "$WORKDIR/tt_gpio_uart.ram.hex"
 
-iverilog -g2012 -D FUNCTIONAL '-DUNIT_DELAY=#1' -I "$CELL_DIR" -o "$WORKDIR/nano_gl.vvp" \
-  "$WORKDIR/cells.v" "$NETLIST" \
+iverilog -g2012 -D FUNCTIONAL -D GL_TEST '-DUNIT_DELAY=#1' -I "$CELL_DIR" -o "$WORKDIR/nano_gl.vvp" \
+  "$WORKDIR/cells.v" "$NETLIST" "$WORKDIR/rf_top_model.v" \
   "$REPO/nano/tb/nano_qspi_flash_model.v" "$REPO/nano/tb/nano_qspi_psram_model.v" \
   "$REPO/nano/tb/nano_tt_tb.v"
 

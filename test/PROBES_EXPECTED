@@ -291,6 +291,10 @@ a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lost [depth] line trips the shape check AND the verdict check
+a macro LEF that does not match its pinned digest is refused
+a macro LEF with no SIZE line is refused, not priced at zero
+a macro in the report that the run did not name is refused, not dropped
+a macro the report does not carry is refused, not priced at zero
 a make that fails only under TOOLS_ON_PATH is red, not read as respected
 a malformed baseline line is named rather than skipped
 a malformed baseline line is named rather than skipped
@@ -503,6 +507,7 @@ a runner that passes but prints no per-program line leaves nothing to compare
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused
+a second instance of the macro is refused, not priced once
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a semicolon in the liberty path stays inside its own quoted token
@@ -600,6 +605,7 @@ a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
+a workflow that never fetches the register-file macro is refused
 a wrong-rule mutant that still passes is not a control
 an #insn-check naming a file that does not exist is refused
 an ABI alias outside x0-x15 (a7 = x17) is caught the same way
@@ -754,6 +760,7 @@ control: a full-pass check set against an empty baseline is green
 control: a good CoreMark run reports all three cores' figures
 control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
+control: a macro is priced from its LEF and printed apart from the soft logic
 control: a matching pin names its own seed and MHz
 control: a measurement within budget is green
 control: a measurement within budget is green
@@ -930,6 +937,7 @@ more than seven arguments is a usage error too
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
+naming a macro without its LEF is refused, not priced at zero
 nano's baseline is checked for a one-field line too
 nano's check-solver guard also runs past a stray file of its name
 nano's check-solver guard runs on a clean tree, not only when a file forces it
@@ -1062,6 +1070,7 @@ the hold branch holding on something other than x_busy is red, and named
 the isa list is what wires a model in, not the insns/ directory alone
 the iverilog leg failing its own baseline is red before any comparison
 the linker script's RAM origin drifting from the RTL's base is red
+the macro's footprint counts against the ratchet, not only the soft logic
 the manifest is checked here too, and before the setup probe
 the model moving away takes the probe with it, loudly
 the model moving away takes this probe with it too
