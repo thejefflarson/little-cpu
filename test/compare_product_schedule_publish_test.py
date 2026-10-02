@@ -87,6 +87,7 @@ def run_case(root, real_git, tmp, name, issues=(), open_prs="", args=None):
 
     repo = case / "repo"
     (repo / "soc" / "compare").mkdir(parents=True)
+    (repo / "docs").mkdir()
     (repo / ".github" / "scripts").mkdir(parents=True)
     shutil.copy(root / SCRIPT, repo / SCRIPT)
 
@@ -128,10 +129,12 @@ def run_case(root, real_git, tmp, name, issues=(), open_prs="", args=None):
     real("config", "user.email", "committer@example.com")
     real("config", "user.name", "Committer")
     (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 1}}\n')
+    (repo / "docs" / "comparison.md").write_text("old render\n")
     (repo / "README.md").write_text("tracked\n")
     real("add", "-A")
     real("commit", "-q", "-m", "initial")
     (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 2}}\n')
+    (repo / "docs" / "comparison.md").write_text("new render\n")
     (repo / "README.md").write_text("a stray edit the script must not commit\n")
 
     result = subprocess.run(
@@ -164,6 +167,8 @@ def check_publish(case):
     body = read(logs["issue-body"])
     if DIFF_LINE not in body:
         failures.append("the issue body does not carry the measured diff")
+    if "soc/compare/CYCLE_FLOOR" not in body:
+        failures.append("the issue body does not say CYCLE_FLOOR is updated by hand")
     if f"https://github.com/o/r/compare/main...{branch}?expand=1" not in body:
         failures.append("the issue body does not link the compare page for the pushed branch")
     if read(logs["summary"]).strip() == "":
@@ -172,8 +177,9 @@ def check_publish(case):
     if subject != "Refresh the cross-core product stamp":
         failures.append(f"the commit's subject line is {subject!r}")
     committed = real("show", "--name-only", "--format=", "HEAD").split()
-    if committed != ["soc/compare/product.json"]:
-        failures.append(f"the commit touches files other than soc/compare/product.json: {committed!r}")
+    if sorted(committed) != ["docs/comparison.md", "soc/compare/product.json"]:
+        failures.append("the commit touches files other than soc/compare/product.json and "
+                        f"docs/comparison.md: {committed!r}")
     if DIFF_LINE not in real("log", "-1", "--pretty=%b"):
         failures.append("the commit message does not carry the measured diff")
     if real("config", "user.name").strip() != "github-actions[bot]":

@@ -8847,6 +8847,21 @@ probe "a publish job that runs make beside the write token is red" 1 \
   "also runs measurement tools" \
   "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
+d=$(cpst_fixture 's|^          make compare-doc$|          make compare-doc-test|')
+probe "a publish job that runs any make target but compare-doc is red" 1 \
+  "also runs measurement tools" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|^          make compare-doc$|          make compare-doc fit|')
+probe "a publish job that rides a second target on make compare-doc is red" 1 \
+  "also runs measurement tools" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|^          make compare-doc$|          true|')
+probe "a publish job that never regenerates the comparison document is red" 1 \
+  "never runs \`make compare-doc\`" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
 d=$(cpst_fixture 's|^      contents: read$|      contents: write|')
 probe "a measure job holding a write scope is red" 1 \
   "the measure job holds a write-scoped token" \
@@ -8909,6 +8924,16 @@ probe "a push carrying no per-command credential helper is red" 1 \
 d=$(cpsp_fixture 's|add soc/compare/product.json|add -A|')
 probe "a commit that stages more than the stamp is red" 1 \
   "files other than soc/compare/product.json" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|add soc/compare/product.json docs/comparison.md|add soc/compare/product.json|')
+probe "a commit that leaves the regenerated comparison document behind is red" 1 \
+  "files other than soc/compare/product.json and docs/comparison.md" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|CYCLE_FLOOR|CYCLE_FLOOR_RENAMED|')
+probe "an issue body that stops naming the hand-updated cycle floor is red" 1 \
+  "CYCLE_FLOOR is updated by hand" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
 d=$(cpsp_fixture 's|-\${GITHUB_RUN_ID:-local}"|"|')

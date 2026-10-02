@@ -150,6 +150,7 @@ a clock turns the per-MHz figure into an absolute one
 a combined actions/cache step in place of restore is refused
 a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
 a commented-out CI step does not count as run
+a commit that leaves the regenerated comparison document behind is red
 a commit that stages more than the stamp is red
 a commit under the age floor stops the bump, naming its age
 a configuration for another corner is refused, not reported
@@ -422,6 +423,9 @@ a proof going red somewhere else is not evidence about the mtval arm
 a prose copy of a band figure goes red where it is written
 a publish job on the self-hosted pool is red
 a publish job that ignores the measure job's moved output is red
+a publish job that never regenerates the comparison document is red
+a publish job that rides a second target on make compare-doc is red
+a publish job that runs any make target but compare-doc is red
 a publish job that runs make beside the write token is red
 a push aimed at main instead of the refresh branch is red
 a push carrying no per-command credential helper is red
@@ -683,6 +687,7 @@ an injection site that moved stops the control, loudly
 an input held constant that no baseline declares is red
 an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
+an issue body that stops naming the hand-updated cycle floor is red
 an issue body whose compare link does not open the pull request form is red
 an ls_access with an extra encoding proving is red
 an objcopy that refuses names the region it refused for
