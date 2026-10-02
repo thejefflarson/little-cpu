@@ -24,7 +24,7 @@ The FT232H is both the programmer and the serial port. `iceprog` leaves it in MP
 - **Unplugging and replugging the board** brings the device node back.
 - **If the driver has been unloaded**, nothing attaches after a replug. `make ftread` builds
   `./ftread`, which talks libftdi directly and reads the UART with no device node. Run it as root:
-  `sudo ./ftread 115200 8000`. `make suite-board` builds and uses it the same way.
+  `sudo ./ftread 115200 8000`. `make suite-board` builds and uses it, running the script as you and only `iceprog` and `ftread` under `ICEPROG_SUDO`.
 
 The iCESugar-Pro doesn't have this problem. Its serial port is a CDC device on the iCELink
 debugger, a device node that flashing never takes away (`soc/board_read.py`).

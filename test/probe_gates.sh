@@ -3945,6 +3945,19 @@ mutate "$d/test/bench/dhry_port.c" 's/#ifdef DHRY_UART/#ifdef DHRY_UART_NEVER_DE
 probe "DHRY_UART no longer gating any code in dhry_port.c is red" 1 \
   "dhry_port.o came out byte-identical" "$DP $d"
 
+begin_group "test/board_verdict_test.sh"
+
+BV="$HERE/board_verdict_test.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+probe "control: hostile UART verdicts are rejected and nothing executes" 0 \
+  "hostile verdicts rejected" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "s/''|\*\[!0-9\]\*) echo PARSE; return 0;;/NEVERMATCH) :;;/"
+probe "a verdict parser that stops validating the UART text is red" 1 \
+  "graded" "$BV $d/board_verdict.sh"
+
 begin_group "test/adr_numbering_test.sh"
 
 AN="$HERE/adr_numbering_test.sh"
