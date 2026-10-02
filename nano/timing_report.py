@@ -21,7 +21,9 @@ import json
 import re
 import sys
 
-from area_report import check_liberty, load_stat, read_excluded, validate_design
+from area_report import (
+    add_macro_args, check_liberty, load_stat, macro_areas, read_excluded, validate_design,
+)
 
 STIME_LINE = re.compile(r"Delay\s*=\s*([0-9.]+)\s*ps")
 YOSYS_VERSION = re.compile(r"^Yosys\s+\S+.*$", re.MULTILINE)
@@ -45,10 +47,11 @@ def read_delay_ps(log_path):
     return float(matches[-1])
 
 
-def read_area_um2(json_path, liberty_path, liberty_cells, excluded_cells):
+def read_area_um2(json_path, liberty_path, liberty_cells, excluded_cells, macros):
     design = load_stat(json_path, target_name="nano-timing")
     validated = validate_design(
-        design, json_path, liberty_path, liberty_cells, excluded_cells, target_name="nano-timing"
+        design, json_path, liberty_path, liberty_cells, excluded_cells, target_name="nano-timing",
+        macros=macros,
     )
     return validated["area"]
 
@@ -82,9 +85,11 @@ def main():
         "--flow-correlation",
         help="a JSON file recording the last local-vs-flow area pair this tree measured",
     )
+    add_macro_args(parser)
     args = parser.parse_args()
 
     liberty_cells = check_liberty(args.liberty, args.liberty_sha256, target_name="nano-timing")
+    macros = macro_areas(args, target_name="nano-timing")
     excluded_cells = read_excluded(args.excluded, target_name="nano-timing")
 
     print("nano local timing/area instrument -- a ranking proxy, never a flow number")
@@ -102,7 +107,7 @@ def main():
 
     for name, log_path, json_path in args.variant:
         delay_ps = read_delay_ps(log_path)
-        area_um2 = read_area_um2(json_path, args.liberty, liberty_cells, excluded_cells)
+        area_um2 = read_area_um2(json_path, args.liberty, liberty_cells, excluded_cells, macros)
         print(f"register file: {name}")
         print(f"  area  : {area_um2:.2f} um2   (this recipe's own mapping, not NANO_MAX_UM2)")
         print(f"  delay : {delay_ps:.2f} ps    (ABC's mapped estimate, pre-layout)")

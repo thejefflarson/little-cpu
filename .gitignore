@@ -122,6 +122,9 @@ nano/tb/nano-qspi-latency-probe/
 nano/tb/nano-tt-test/
 nano/tb/nano-uio-oe-probe/
 nano/tb/nano-gl-test/
+nano/tb/nano-rf-model-test/
+nano/tb/nano-rf-timing-probe/
+nano/tt/macro/
 nano/tb/nano-gl-gate-probe/
 nano/gl-census-probe/
 tools/

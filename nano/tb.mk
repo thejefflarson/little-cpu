@@ -22,12 +22,21 @@ nano/tb/nano_icarus.vvp: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS)
 nano-x-probe: rvfi_macros.vh test/monitor.sim.v
 	@./nano/tb/nano_x_probe.sh '$(NANO_CFLAGS)' '$(NANO_SIM_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
 
+.PHONY: nano-rf-model-test
+nano-rf-model-test:
+	@./nano/tb/nano_rf_model_probe.sh
+
+.PHONY: nano-rf-timing-probe
+nano-rf-timing-probe: rvfi_macros.vh test/monitor.sim.v
+	@./nano/tb/nano_rf_timing_probe.sh '$(NANO_CFLAGS)' '$(NANO_SIM_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
+
 .PHONY: nano-meip-floor-probe
 nano-meip-floor-probe: nano-sim
 	@./nano/tb/nano_meip_floor_probe.sh ./nano-sim '$(NANO_CFLAGS)'
 
 .PHONY: nano-test
-nano-test: nano-sim nano/tb/nano_icarus.vvp nano-x-probe nano-meip-floor-probe
+nano-test: nano-sim nano/tb/nano_icarus.vvp nano-x-probe nano-meip-floor-probe \
+          nano-rf-timing-probe nano-rf-model-test
 	@./nano/tb/nano_dual_leg_test.sh ./nano-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
 	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
 
