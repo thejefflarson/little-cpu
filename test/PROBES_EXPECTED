@@ -197,6 +197,7 @@ a depth one below the floor is red, naming F and G
 a design entry missing area/num_cells/by_type is refused, not read as what is left
 a design that MET the target has measured the target
 a design whose Makefile is gone is exit-nonzero, not skipped
+a different ISA in the generated comparison is red, and located
 a different riscv-none-elf-gcc earlier on PATH is red, not silently used
 a differing value is a divergence, located by change index
 a directory the glob stopped matching is red, not a suite of size zero
@@ -214,6 +215,7 @@ a fault bit that never reaches its own stored word is red
 a feedback path the divider formula does not describe is red
 a field the runner stopped printing is named, not counted as zero
 a field with no value is a malformed line
+a fifth rv32im in the generated comparison is red, not exempted
 a file named twice is red rather than averaging into one pass
 a file pushed over the comment-density budget is named and red
 a file that moved away takes the check with it, loudly

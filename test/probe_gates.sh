@@ -4218,6 +4218,7 @@ ma_fixture() {
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
   cp "$REPO/soc/compare/product.json" "$d/soc/compare/"
+  cp "$REPO/docs/comparison.md" "$d/docs/"
   cp "$REPO/soc/compare/run_product.sh" "$d/soc/compare/"
   cp "$REPO/soc/compare/product_write.py" "$d/soc/compare/"
   cp "$REPO/soc/compare/run_coremark_compare.sh" "$d/soc/compare/"
@@ -4298,6 +4299,19 @@ ma_edit "$d" Makefile \
 COMPARE_DHRY_CFLAGS := -march=rv32im/'
 probe "a second occurrence of a counted exception value is red" 1 \
   "the exception \`Makefile rv32im 2\` matched 3 time(s), not 2" "$MA $d"
+
+d=$(ma_fixture)
+printf 'CFLAGS `-march=rv32im -mabi=ilp32`\n' >> "$d/docs/comparison.md"
+git -C "$d" add -A
+probe "a fifth rv32im in the generated comparison is red, not exempted" 1 \
+  "the exception \`docs/comparison.md rv32im 4\` matched 5 time(s), not 4" "$MA $d"
+
+d=$(ma_fixture)
+cmp_line=$(( $(wc -l < "$d/docs/comparison.md") + 1 ))
+printf 'CFLAGS `-march=rv32imc -mabi=ilp32`\n' >> "$d/docs/comparison.md"
+git -C "$d" add -A
+probe "a different ISA in the generated comparison is red, and located" 1 \
+  "docs/comparison.md:${cmp_line}: -march=rv32imc" "$MA $d"
 
 d=$(ma_fixture)
 printf 'built at -march=rv32im_zicsr once.\n' > "$d/docs/adrenaline.md"
