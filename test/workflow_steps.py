@@ -3,6 +3,21 @@
 import re
 
 
+def jobs(text):
+    """The workflow's jobs as {name: text}, split on the two-space-indented job keys."""
+    lines = text.splitlines()
+    start = next(i for i, l in enumerate(lines) if re.match(r"^jobs:\s*$", l))
+    found, name = {}, None
+    for line in lines[start + 1:]:
+        m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if m:
+            name = m.group(1)
+            found[name] = []
+        elif name is not None:
+            found[name].append(line)
+    return {n: "\n".join(b) for n, b in found.items()}
+
+
 def steps(text):
     """The workflow's steps as text chunks, split on the '- ' item marker."""
     lines = text.splitlines()

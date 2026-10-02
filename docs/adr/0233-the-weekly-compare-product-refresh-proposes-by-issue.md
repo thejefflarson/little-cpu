@@ -38,3 +38,35 @@ while the first waited.
 - The script sits under `.github/scripts/`, not `soc/compare/`, because
   `soc/compare/product_diff.py --require-news` treats a change under `soc/compare/` as news and would
   make the stamp stale against its own publisher.
+
+## Amendment: measure and publish are separate jobs
+
+The workflow first ran `make compare-product` and the publish script in one job holding
+`contents: write` and `issues: write`. A tool the measurement ran (the RISC-V gcc, the OSS CAD
+Suite, `make`'s recipes) could rewrite the publish script or the stamp before the publish step ran
+with `GH_TOKEN`, on a pool shared with other jobs. The workflow is now two jobs:
+
+- **`measure`** has `contents: read` and runs every tool. It uploads only `product.json` and
+  `product-diff.md` as the `compare-product-stamp` artifact, on success, and exports whether the
+  stamp moved as a job output.
+- **`publish`** (`needs: measure`, only when `moved == 'true'`) is the one job with write scopes
+  (`contents: write`, `issues: write`, `pull-requests: read`). It checks out `main` fresh, downloads
+  the artifact into a separate directory, copies `product.json` over the checked-out stamp and runs
+  the script from that checkout. It needs only `git` and `gh`, so it runs on `ubuntu-latest`, off the
+  self-hosted pool. The script's open-refresh guard, the concurrency group and the issue route are
+  unchanged.
+- **No global credential helper.** The workflow no longer runs `gh auth setup-git`, which writes a
+  helper into the runner's global git config. The script passes
+  `-c credential.helper= -c 'credential.helper=!gh auth git-credential'` on each push, so the
+  credential exists only for that command.
+
+What the split does not prevent: a compromised measurement can still write a hostile `product.json`
+or diff into the artifact. The publish job commits only `soc/compare/product.json` to a branch and
+puts the diff in an issue, and a person reads both before opening a pull request, which then gets
+its own checks.
+
+`test/compare_product_schedule_token_test.py` grades the split: no job holding a write scope runs
+`make` or a toolchain setup action, only `publish` holds one, `measure` declares `contents: read`,
+`publish` runs on `ubuntu-latest` and on `measure`'s output, and `gh auth setup-git` is absent.
+`test/compare_product_schedule_publish_test.py` requires the push to carry the per-command helper.
+A real dispatch has not run this shape; the first scheduled or manual run on `main` is its test.
