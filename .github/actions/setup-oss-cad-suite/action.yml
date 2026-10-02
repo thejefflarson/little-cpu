@@ -41,7 +41,8 @@ runs:
         # The asset name carries the date without dashes: 2026-06-29 -> ...-20260629.tgz
         asset="oss-cad-suite-linux-x64-${tag//-/}.tgz"
         digest=$(jq -r --arg a "$asset" '.assets[] | select(.name == $a) | .digest' <<<"$release" | cut -d: -f2)
-        test -n "$digest"
+        # Written to GITHUB_OUTPUT and a cache key; a newline in it would inject a second output.
+        [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "unexpected digest: $digest" >&2; exit 1; }
         echo "tag=$tag" >> "$GITHUB_OUTPUT"
         echo "asset=$asset" >> "$GITHUB_OUTPUT"
         echo "digest=$digest" >> "$GITHUB_OUTPUT"
