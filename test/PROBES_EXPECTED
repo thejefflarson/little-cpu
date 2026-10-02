@@ -599,6 +599,7 @@ a trip prints the trend too, since that is the run that needs it
 a truncated netlist is refused, which is what a full disk leaves
 a truncated report blames the run rather than parsing what is left
 a truncated stat.json is refused, not read as an empty report
+a verdict parser that stops validating the UART text is red
 a verdict under twelve seeds is refused with the count named
 a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
@@ -824,6 +825,7 @@ control: every site names every port of littlecpu
 control: every target in both designs' all lists is run by ci.yml
 control: fixture_anchor finds its literal in the real file
 control: formal/Makefile also puts the cached suite first
+control: hostile UART verdicts are rejected and nothing executes
 control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
 control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not

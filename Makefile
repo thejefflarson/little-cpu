@@ -692,6 +692,10 @@ lut4-site-test:
 dhry-board-parity-test:
 	@./test/dhry_board_parity_test.sh
 
+.PHONY: board-verdict-test
+board-verdict-test:
+	@./test/board_verdict_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -752,7 +756,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
+      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test \
@@ -1197,10 +1201,10 @@ ftread: $(BUILD)/ftread
 
 .PHONY: suite-board
 suite-board: $(BUILD)/ftread
-	@echo 'Runs the .S suite on the part, in batches. Needs root for the same'
-	@echo 'reason `make prog` does. Roughly ten minutes.'
+	@echo 'Runs the .S suite on the part, in batches. The script runs as you; only'
+	@echo 'iceprog and ftread run under ICEPROG_SUDO, as `make prog` does. Roughly ten minutes.'
 	@echo
-	@sudo ./soc/run_suite_board.sh
+	@ICEPROG_SUDO='$(ICEPROG_SUDO)' FTREAD='$(abspath $(BUILD))/ftread' ./soc/run_suite_board.sh
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
