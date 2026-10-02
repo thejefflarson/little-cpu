@@ -1,0 +1,5 @@
+# littlecpu's own cycle factors (DMIPS/MHz, CoreMark/MHz) at RV32IM, graded both ways by
+# soc/compare/comparison.py ratchet: a drop is a regression, a rise owes this file an update.
+# Hand-edit from the committed stamp; never regenerate from a run. Opponents are not listed.
+dhrystone littlecpu rv32im 0.9949122055269736
+coremark littlecpu rv32im 2.7815870066507746

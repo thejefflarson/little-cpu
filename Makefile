@@ -654,6 +654,15 @@ macro-register-test:
 # A `.gitignore` rule never applies to a file git already tracks, so a tracked file
 # matching one is always a mistake -- a dead rule, or a commit that should not have
 # happened.
+.PHONY: compare-doc
+compare-doc:
+	@python3 soc/compare/comparison.py write
+
+.PHONY: compare-doc-test
+compare-doc-test:
+	@python3 soc/compare/comparison.py check
+	@python3 soc/compare/comparison.py ratchet
+
 .PHONY: tracked-ignored-test
 tracked-ignored-test:
 	@./test/tracked_ignored_test.sh
@@ -757,7 +766,8 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test \
       nano-memmap-test nano-tt-test \
-      stall-sites-test pin-help-text-test formal-ci-coverage-test yosys-script-oneline-test
+      stall-sites-test pin-help-text-test formal-ci-coverage-test yosys-script-oneline-test \
+      compare-doc-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
