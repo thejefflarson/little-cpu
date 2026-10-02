@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Refuses a backslash-newline inside the quoted script of a `yosys -p` recipe line.
+"""Refuses a backslash-newline inside the quoted script of a `yosys -p` recipe line,
+whether the program is spelled `yosys` or `$(YOSYS)` and whether `-p` follows it on the
+same line or on a continuation.
 
 GNU Make 3.81 (macOS) strips the backslash-newline inside single quotes; 4.x keeps both
 characters and hands yosys `\\`, which dies with `No such command: \\`. A script that
@@ -13,37 +15,43 @@ import re
 import sys
 
 FILES = ["Makefile", "nano/*.mk"]
-YOSYS_P = re.compile(r"\byosys\b[^#\n]*?\s-p\s+(?=['\"])")
+JOINED = "\x01"  # stands for a backslash-newline once a recipe's physical lines are joined
+YOSYS_P = re.compile(
+    r"(?:\byosys\b|\$[({]YOSYS[)}])[^#\n]*?[\s" + JOINED + r"]-p[\s" + JOINED + r"]+(?=['\"])")
 
 
-def quote_open_at_end(line, in_quote):
-    """The quote character still open after `line`, given the one open before it."""
-    for ch in line.rstrip("\n").rstrip("\\"):
-        if in_quote:
-            if ch == in_quote:
-                in_quote = None
-        elif ch in "'\"":
-            in_quote = ch
-    return in_quote
+def logical_lines(text):
+    """(first physical line number, joined text) per make logical line."""
+    out = []
+    physical = text.splitlines()
+    i = 0
+    while i < len(physical):
+        start = i
+        parts = [physical[i]]
+        while physical[i].rstrip().endswith("\\") and i + 1 < len(physical):
+            parts[-1] = parts[-1].rstrip()[:-1]
+            i += 1
+            parts.append(physical[i])
+        out.append((start + 1, JOINED.join(parts)))
+        i += 1
+    return out
 
 
 def violations(path):
     found = []
-    quote = None
-    for n, line in enumerate(path.read_text().splitlines(), 1):
-        continued = line.rstrip().endswith("\\")
-        if quote is None:
-            m = YOSYS_P.search(line)
-            if not m:
-                continue
-            quote = quote_open_at_end(line[m.end():], None)
-        else:
-            quote = quote_open_at_end(line, quote)
-        if quote and continued:
-            found.append(n)
-        if not continued:
+    for first, logical in logical_lines(path.read_text()):
+        for m in YOSYS_P.finditer(logical):
             quote = None
-    return found
+            for at in range(m.end(), len(logical)):
+                ch = logical[at]
+                if quote is None:
+                    if ch in "'\"":
+                        quote = ch
+                elif ch == quote:
+                    break
+                elif ch == JOINED:
+                    found.append(first + logical.count(JOINED, 0, at))
+    return sorted(set(found))
 
 
 def main(argv):

@@ -8958,6 +8958,16 @@ probe "a backslash-newline inside a double-quoted yosys -p script is red" 1 \
   "Put the script on one line" \
   "cd '$d' && python3 test/yosys_script_oneline_test.py ."
 
+d=$(ysol_fixture $'x.json: a.v\n\t@yosys \\\n\t  -p \'read_verilog a.v; \\\n\t  synth\' > x.log')
+probe "a yosys whose -p and quoted script sit on a continuation line is red" 1 \
+  "Put the script on one line" \
+  "cd '$d' && python3 test/yosys_script_oneline_test.py ."
+
+d=$(ysol_fixture $'x.json: a.v\n\t@$(YOSYS) -p \'read_verilog a.v; \\\n\t  synth\' > x.log')
+probe "a backslash-newline inside a quoted \$(YOSYS) -p script is red" 1 \
+  "Put the script on one line" \
+  "cd '$d' && python3 test/yosys_script_oneline_test.py ."
+
 d=$(ysol_fixture $'x.json: a.v\n\t@yosys -p \'read_verilog a.v; synth\' \\\n\t  > x.log')
 probe "a backslash-newline after the closing quote, between recipe arguments, is green" 0 \
   "spans a backslash-newline" \

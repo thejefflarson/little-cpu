@@ -94,6 +94,7 @@ a VCO outside the range the part locks over is red
 a backslash-continued sed -i is still a raw edit
 a backslash-newline after the closing quote, between recipe arguments, is green
 a backslash-newline inside a double-quoted yosys -p script is red
+a backslash-newline inside a quoted $(YOSYS) -p script is red
 a backslash-newline inside a single-quoted yosys -p script is red
 a bare unpaired with no grader does not pass by silence
 a base that is not a 40-character SHA is refused as malformed, not graded stale
@@ -615,6 +616,7 @@ a wire that names a funct7 without a funct3 is rejected, not parsed
 a workflow that reinstalls a global credential helper is red
 a workflow-level write scope inherited by every job is red
 a wrong-rule mutant that still passes is not a control
+a yosys whose -p and quoted script sit on a continuation line is red
 an #insn-check naming a file that does not exist is refused
 an ABI alias outside x0-x15 (a7 = x17) is caught the same way
 an ECP5 placement read with ice40 names names the part, not a bad log
