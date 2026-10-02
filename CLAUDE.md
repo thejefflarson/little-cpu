@@ -914,7 +914,10 @@ make nano-liberty-setup # once: fetch the pinned sky130hd liberty nanocpu's area
 make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, never
                     # merged with the brief's own TT-flow/LibreLane number; ratchet
                     # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
-                    # nano/nano.v lands
+                    # nano/nano.v lands. The register file is a hard macro, `rf_top`,
+                    # black-boxed here and priced from its pinned LEF's SIZE line:
+                    # soft logic and the macro print apart, the ratchet grades both
+                    # (ADR-0225). `make nano-rf-macro-setup` fetches the pinned files
 make nano-timing    # area AND delay from one delay-oriented synthesis run, both
                     # register-file builds, typical corner only; no ratchet, a ranking
                     # instrument like `make cycles`. Prints its own limits and the

@@ -8268,6 +8268,69 @@ probe "a report that uses a cell the flow excludes is refused, not measured" 1 \
   "uses cell type(s) the Tiny Tapeout" \
   "$AR $d/stat.json --excluded $d/excluded.cells --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
+# A hard macro is a black box the synthesis script prices at zero; the reader adds its
+# footprint back from the pinned LEF and refuses every way of getting that wrong.
+ar_macro_case() {  # $1 = macro instances in the stat report
+  local d; d=$(ar_liberty)
+  cat > "$d/macro.lef" <<'LEF'
+MACRO FAKE_MACRO
+  CLASS BLOCK ;
+  SIZE 10.000 BY 20.000 ;
+END FAKE_MACRO
+LEF
+  cat > "$d/macro.json" <<JSON
+{"design": {"num_cells": 2, "area": 1.9152, "sequential_area": 0.0,
+ "num_cells_by_type": {"FAKE_INV": 1, "FAKE_MACRO": $1}}}
+JSON
+  printf '%s' "$d"
+}
+
+ar_macro_args() {  # $1 = case dir
+  printf -- '--excluded /dev/null --liberty %s/fake.lib --liberty-sha256 %s --macro FAKE_MACRO --macro-lef %s/macro.lef --macro-lef-sha256 %s' \
+    "$1" "$(ar_sha "$1/fake.lib")" "$1" "$(ar_sha "$1/macro.lef")"
+}
+
+d=$(ar_macro_case 1)
+probe "control: a macro is priced from its LEF and printed apart from the soft logic" 0 \
+  "macro FAKE_MACRO: 200.0000 um2" \
+  "$AR $d/macro.json $(ar_macro_args "$d") --max-um2 300"
+
+d=$(ar_macro_case 1)
+probe "the macro's footprint counts against the ratchet, not only the soft logic" 1 \
+  "is over the 100.0 um2 budget" \
+  "$AR $d/macro.json $(ar_macro_args "$d") --max-um2 100"
+
+d=$(ar_macro_case 1); ar_stat "$d"
+probe "a macro the report does not carry is refused, not priced at zero" 1 \
+  "instantiates macro FAKE_MACRO 0 times, not once" \
+  "$AR $d/stat.json $(ar_macro_args "$d") --max-um2 300"
+
+d=$(ar_macro_case 2)
+probe "a second instance of the macro is refused, not priced once" 1 \
+  "instantiates macro FAKE_MACRO 2 times, not once" \
+  "$AR $d/macro.json $(ar_macro_args "$d") --max-um2 300"
+
+d=$(ar_macro_case 1)
+probe "a macro in the report that the run did not name is refused, not dropped" 1 \
+  "not in" \
+  "$AR $d/macro.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $(ar_sha "$d/fake.lib") --max-um2 300"
+
+d=$(ar_macro_case 1)
+printf 'MACRO FAKE_MACRO\nEND FAKE_MACRO\n' > "$d/macro.lef"
+probe "a macro LEF with no SIZE line is refused, not priced at zero" 1 \
+  "has no \`MACRO FAKE_MACRO\` with a SIZE line" \
+  "$AR $d/macro.json $(ar_macro_args "$d") --max-um2 300"
+
+d=$(ar_macro_case 1)
+probe "a macro LEF that does not match its pinned digest is refused" 1 \
+  "does not match the pinned digest" \
+  "$AR $d/macro.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $(ar_sha "$d/fake.lib") --macro FAKE_MACRO --macro-lef $d/macro.lef --macro-lef-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 300"
+
+d=$(ar_macro_case 1)
+probe "naming a macro without its LEF is refused, not priced at zero" 1 \
+  "or the macro is priced at zero" \
+  "$AR $d/macro.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $(ar_sha "$d/fake.lib") --macro FAKE_MACRO --max-um2 300"
+
 begin_group "nano/timing_report.py"
 
 TR="python3 $REPO/nano/timing_report.py"
@@ -8764,7 +8827,7 @@ ntawt_fixture() {  # $1 = sed program applied to the workflow
 
 d=$(ntawt_fixture '')
 probe "control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally" 0 \
-  "resolves its mode once and saves its PDK cache unconditionally" \
+  "saves its PDK cache unconditionally and fetches the register-file macro" \
   "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
 
 d=$(ntawt_fixture 's|summary_line "stop after synthesis: \$stop_after_synthesis_report"|summary_line "stop after synthesis: ${{ inputs.stop_after_synthesis \|\| '"'"'true'"'"' }}"|')
@@ -8796,6 +8859,11 @@ PYEOF
 d=$(ntawt_no_always_fixture)
 probe "a PDK cache save step with no if: always() only saves on job success" 1 \
   "only saves the PDK when the rest of the job succeeded" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(ntawt_fixture 's|run: make nano-rf-macro-install|run: true|')
+probe "a workflow that never fetches the register-file macro is refused" 1 \
+  "no step runs \`make nano-rf-macro-install\`" \
   "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
 
 d=$(ntawt_fixture 's|uses: actions/cache/restore@|uses: actions/cache@|')

@@ -61,7 +61,6 @@ module riscv #(
   logic rs1_valid, rs2_valid;
   logic is_e_illegal;
   logic is_valid;
-  logic [31:0] regs[0:15];
 
   localparam logic [31:0] MISA_VALUE = 32'h4000_0014; // RV32, E, C
   localparam logic [11:0] CSR_MSTATUS    = 12'h300;
@@ -127,11 +126,12 @@ module riscv #(
   logic [31:0] pc_inc;
   logic [3:0] cpu_state;
 
-  // `rf_raddr` reads `regs[]`: rs1 once into `op_rs1`, then rs2 live while the instruction is held.
-  logic [31:0] op_rs1, rf_rdata;
-  logic [3:0] rf_raddr;
+  // Reads are registered: the pair presented in fetch_rs1 is on the data ports from execute_instr until the instruction ends. x0 is real storage in the macro, so it is masked here.
+  logic [31:0] rf_ra_data, rf_rb_data, op_rs1, op_rs2;
+  assign op_rs1 = |rs1[3:0] ? rf_ra_data : 32'b0;
+  assign op_rs2 = |rs2[3:0] ? rf_rb_data : 32'b0;
 `define RF_RS1 op_rs1
-`define RF_RS2 rf_rdata
+`define RF_RS2 op_rs2
 
   assign opcode = instr[6:2];
   assign quadrant = instr[1:0];
@@ -470,9 +470,6 @@ module riscv #(
                (is_cbeqz || is_cbnez) ? 5'b0 :
                instr[24:20];
 
-  assign rf_raddr = cpu_state == fetch_rs1 ? rs1[3:0] : rs2[3:0];
-  assign rf_rdata = |rf_raddr ? regs[rf_raddr] : 32'b0;
-
   assign take_interrupt = interrupt_pending && cpu_state == fetch_instr;
 
   assign mem_wdata = is_sh ? {2{`RF_RS2[15:0]}} :
@@ -513,7 +510,6 @@ module riscv #(
         end
 
         fetch_rs1: begin
-          op_rs1 <= rf_rdata;
           cpu_state <= execute_instr;
         end
 
@@ -664,9 +660,19 @@ module riscv #(
     cpu_state == execute_instr && !take_trap &&
     (is_lui || is_auipc || is_jal || is_jalr || is_math || is_math_immediate || is_csr));
 
-  always_ff @(posedge clk) begin
-    if (wb_en) regs[rd[3:0]] <= cpu_state == finish_load ? load_data : wb_data;
-  end
+  logic [31:0] rf_wdata;
+  assign rf_wdata = cpu_state == finish_load ? load_data : wb_data;
+
+  rf_top regfile (
+    .clk(clk),
+    .w_ena(wb_en),
+    .w_addr({1'b0, rd[3:0]}),
+    .w_data(rf_wdata),
+    .ra_addr({1'b0, rs1[3:0]}),
+    .rb_addr({1'b0, rs2[3:0]}),
+    .ra_data(rf_ra_data),
+    .rb_data(rf_rb_data)
+  );
 
   // !take_trap excludes an E-illegal CSR instruction, which is_valid alone does not.
   assign csr_wen = is_csr && csr_write_op && cpu_state == execute_instr && !take_trap;
@@ -753,8 +759,12 @@ module riscv #(
   assign is_fetch = cpu_state == fetch_instr;
   assign is_fetch_entry = is_fetch && prev_cpu_state != fetch_instr;
 
+  // The macro cannot be read back by name, so the last value written stands in for rd's register.
+  logic [31:0] rvfi_wb_data;
+  always_ff @(posedge clk) if (wb_en) rvfi_wb_data <= rf_wdata;
+
   // Held from execute_instr, not re-read live: a load/store whose rd aliases its rs1
-  // moves regs[rs1] (and so load_store_address/take_trap) before its own retirement.
+  // moves rs1's register (and so load_store_address/take_trap) before its own retirement.
   logic captured_take_trap, captured_is_opm, captured_load_fault, captured_store_fault;
   logic [3:0]  captured_store_wstrb;
   logic [31:0] captured_ls_addr;
@@ -856,7 +866,7 @@ module riscv #(
     // RVFI requires a trapping retirement to report no destination register.
     rvfi_rd_addr_q <= (is_fetch_entry && captured_take_trap) ? 5'b0 : rd;
     rvfi_rd_wdata_q <=
-      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd[3:0] ? regs[rd[3:0]] : 0);
+      (is_fetch_entry && captured_take_trap) ? 32'b0 : (|rd[3:0] ? rvfi_wb_data : 0);
     rvfi_trap_q <= (is_fetch_entry && captured_take_trap) || trap;
     rvfi_halt_q <= trap;
 `ifdef RISCV_FORMAL_MEM_FAULT
@@ -962,4 +972,28 @@ module riscv #(
     assert(!mem_addr[0]);
   end
 `endif
+endmodule
+
+// Behavioural model of the register-file macro: reads are registered and a held address keeps re-reading; a same-edge read of the word being written is unspecified, so it returns the old word inverted.
+module rf_top (
+`ifdef GL_TEST
+  inout  wire        VDPWR,
+  inout  wire        VGND,
+`endif
+  input  wire [31:0] w_data,
+  input  wire [4:0]  w_addr,
+  input  wire        w_ena,
+  input  wire [4:0]  ra_addr,
+  input  wire [4:0]  rb_addr,
+  output reg  [31:0] ra_data,
+  output reg  [31:0] rb_data,
+  input  wire        clk
+);
+  reg [31:0] storage [0:31];
+
+  always @(posedge clk) begin
+    if (w_ena) storage[w_addr] <= w_data;
+    ra_data <= storage[ra_addr] ^ {32{w_ena && ra_addr == w_addr}};
+    rb_data <= storage[rb_addr] ^ {32{w_ena && rb_addr == w_addr}};
+  end
 endmodule
