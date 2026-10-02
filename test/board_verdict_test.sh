@@ -1,13 +1,10 @@
 #!/bin/bash
-# Grades soc/board_verdict.sh: a verdict read off the UART is data, never code. Hostile
-# text must come back PARSE and run nothing; honest verdicts must still grade.
-# $1 overrides the library under test (probe_gates.sh passes a mutated copy).
+# Hostile UART verdicts must grade PARSE and run nothing; $1 overrides the library (probe_gates.sh's mutant).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 LIB=${1:-$HERE/../soc/board_verdict.sh}
 [ -f "$LIB" ] || { echo "error: no verdict library at $LIB" >&2; exit 1; }
-# shellcheck source=/dev/null
 . "$LIB"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/board_verdict.XXXXXX")
