@@ -111,6 +111,12 @@ soc/compare/run_dhrystone.sh (empty) 1
 # (any) rather than one string.
 soc/compare/product.json (any)
 
+# docs/comparison.md, generated from product.json by soc/compare/comparison.py, quotes
+# each of its four pairs' CFLAGS verbatim: COMPARE_DHRY_CFLAGS and COMPARE_COREMARK_CFLAGS
+# above, once per part. Counted rather than (any), so the ISA moves with those two
+# Makefile lines and a pairwise row's narrower string arriving here is still red.
+docs/comparison.md rv32im 4
+
 # Not a flag: the sed pattern that pulls the bare -march= value out of a CFLAGS
 # string for soc/compare/product_write.py's --isa. One, not two, since the comment
 # that carried the second copy was cut by the comment pass.
