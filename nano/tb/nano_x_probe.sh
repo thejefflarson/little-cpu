@@ -177,8 +177,8 @@ echo
 echo "shipping, store path, x1 never written:"
 echo "$store_x_out"
 if ! grep -q '^X reached a retiring instruction' <<< "$store_x_out"; then
-  red+=("storing x1 before this program ever writes it does not report an X. nano.v
-never resets regs[1]-regs[15], so this is a real X reaching mem_wdata; the
+  red+=("storing x1 before this program ever writes it does not report an X. the register
+file never resets words 1-15, so this is a real X reaching mem_wdata; the
 store-path (write-mask-masked mem_wdata) term of the check is not catching it.")
 fi
 
