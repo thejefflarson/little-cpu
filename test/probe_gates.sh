@@ -3945,6 +3945,19 @@ mutate "$d/test/bench/dhry_port.c" 's/#ifdef DHRY_UART/#ifdef DHRY_UART_NEVER_DE
 probe "DHRY_UART no longer gating any code in dhry_port.c is red" 1 \
   "dhry_port.o came out byte-identical" "$DP $d"
 
+begin_group "test/board_verdict_test.sh"
+
+BV="$HERE/board_verdict_test.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+probe "control: hostile UART verdicts are rejected and nothing executes" 0 \
+  "hostile verdicts rejected" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "s/''|\*\[!0-9\]\*) echo PARSE; return 0;;/NEVERMATCH) :;;/"
+probe "a verdict parser that stops validating the UART text is red" 1 \
+  "a hostile verdict executed a command" "$BV $d/board_verdict.sh"
+
 begin_group "test/adr_numbering_test.sh"
 
 AN="$HERE/adr_numbering_test.sh"
@@ -4218,6 +4231,7 @@ ma_fixture() {
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
   cp "$REPO/soc/compare/product.json" "$d/soc/compare/"
+  cp "$REPO/docs/comparison.md" "$d/docs/"
   cp "$REPO/soc/compare/run_product.sh" "$d/soc/compare/"
   cp "$REPO/soc/compare/product_write.py" "$d/soc/compare/"
   cp "$REPO/soc/compare/run_coremark_compare.sh" "$d/soc/compare/"
@@ -4298,6 +4312,19 @@ ma_edit "$d" Makefile \
 COMPARE_DHRY_CFLAGS := -march=rv32im/'
 probe "a second occurrence of a counted exception value is red" 1 \
   "the exception \`Makefile rv32im 2\` matched 3 time(s), not 2" "$MA $d"
+
+d=$(ma_fixture)
+printf 'CFLAGS `-march=rv32im -mabi=ilp32`\n' >> "$d/docs/comparison.md"
+git -C "$d" add -A
+probe "a fifth rv32im in the generated comparison is red, not exempted" 1 \
+  "the exception \`docs/comparison.md rv32im 4\` matched 5 time(s), not 4" "$MA $d"
+
+d=$(ma_fixture)
+cmp_line=$(( $(wc -l < "$d/docs/comparison.md") + 1 ))
+printf 'CFLAGS `-march=rv32imc -mabi=ilp32`\n' >> "$d/docs/comparison.md"
+git -C "$d" add -A
+probe "a different ISA in the generated comparison is red, and located" 1 \
+  "docs/comparison.md:${cmp_line}: -march=rv32imc" "$MA $d"
 
 d=$(ma_fixture)
 printf 'built at -march=rv32im_zicsr once.\n' > "$d/docs/adrenaline.md"
@@ -8254,6 +8281,69 @@ probe "a report that uses a cell the flow excludes is refused, not measured" 1 \
   "uses cell type(s) the Tiny Tapeout" \
   "$AR $d/stat.json --excluded $d/excluded.cells --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10"
 
+# A hard macro is a black box the synthesis script prices at zero; the reader adds its
+# footprint back from the pinned LEF and refuses every way of getting that wrong.
+ar_macro_case() {  # $1 = macro instances in the stat report
+  local d; d=$(ar_liberty)
+  cat > "$d/macro.lef" <<'LEF'
+MACRO FAKE_MACRO
+  CLASS BLOCK ;
+  SIZE 10.000 BY 20.000 ;
+END FAKE_MACRO
+LEF
+  cat > "$d/macro.json" <<JSON
+{"design": {"num_cells": 2, "area": 1.9152, "sequential_area": 0.0,
+ "num_cells_by_type": {"FAKE_INV": 1, "FAKE_MACRO": $1}}}
+JSON
+  printf '%s' "$d"
+}
+
+ar_macro_args() {  # $1 = case dir
+  printf -- '--excluded /dev/null --liberty %s/fake.lib --liberty-sha256 %s --macro FAKE_MACRO --macro-lef %s/macro.lef --macro-lef-sha256 %s' \
+    "$1" "$(ar_sha "$1/fake.lib")" "$1" "$(ar_sha "$1/macro.lef")"
+}
+
+d=$(ar_macro_case 1)
+probe "control: a macro is priced from its LEF and printed apart from the soft logic" 0 \
+  "macro FAKE_MACRO: 200.0000 um2" \
+  "$AR $d/macro.json $(ar_macro_args "$d") --max-um2 300"
+
+d=$(ar_macro_case 1)
+probe "the macro's footprint counts against the ratchet, not only the soft logic" 1 \
+  "is over the 100.0 um2 budget" \
+  "$AR $d/macro.json $(ar_macro_args "$d") --max-um2 100"
+
+d=$(ar_macro_case 1); ar_stat "$d"
+probe "a macro the report does not carry is refused, not priced at zero" 1 \
+  "instantiates macro FAKE_MACRO 0 times, not once" \
+  "$AR $d/stat.json $(ar_macro_args "$d") --max-um2 300"
+
+d=$(ar_macro_case 2)
+probe "a second instance of the macro is refused, not priced once" 1 \
+  "instantiates macro FAKE_MACRO 2 times, not once" \
+  "$AR $d/macro.json $(ar_macro_args "$d") --max-um2 300"
+
+d=$(ar_macro_case 1)
+probe "a macro in the report that the run did not name is refused, not dropped" 1 \
+  "not in" \
+  "$AR $d/macro.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $(ar_sha "$d/fake.lib") --max-um2 300"
+
+d=$(ar_macro_case 1)
+printf 'MACRO FAKE_MACRO\nEND FAKE_MACRO\n' > "$d/macro.lef"
+probe "a macro LEF with no SIZE line is refused, not priced at zero" 1 \
+  "has no \`MACRO FAKE_MACRO\` with a SIZE line" \
+  "$AR $d/macro.json $(ar_macro_args "$d") --max-um2 300"
+
+d=$(ar_macro_case 1)
+probe "a macro LEF that does not match its pinned digest is refused" 1 \
+  "does not match the pinned digest" \
+  "$AR $d/macro.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $(ar_sha "$d/fake.lib") --macro FAKE_MACRO --macro-lef $d/macro.lef --macro-lef-sha256 0000000000000000000000000000000000000000000000000000000000000000 --max-um2 300"
+
+d=$(ar_macro_case 1)
+probe "naming a macro without its LEF is refused, not priced at zero" 1 \
+  "or the macro is priced at zero" \
+  "$AR $d/macro.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $(ar_sha "$d/fake.lib") --macro FAKE_MACRO --max-um2 300"
+
 begin_group "nano/timing_report.py"
 
 TR="python3 $REPO/nano/timing_report.py"
@@ -8750,7 +8840,7 @@ ntawt_fixture() {  # $1 = sed program applied to the workflow
 
 d=$(ntawt_fixture '')
 probe "control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally" 0 \
-  "resolves its mode once and saves its PDK cache unconditionally" \
+  "saves its PDK cache unconditionally and fetches the register-file macro" \
   "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
 
 d=$(ntawt_fixture 's|summary_line "stop after synthesis: \$stop_after_synthesis_report"|summary_line "stop after synthesis: ${{ inputs.stop_after_synthesis \|\| '"'"'true'"'"' }}"|')
@@ -8782,6 +8872,11 @@ PYEOF
 d=$(ntawt_no_always_fixture)
 probe "a PDK cache save step with no if: always() only saves on job success" 1 \
   "only saves the PDK when the rest of the job succeeded" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(ntawt_fixture 's|run: make nano-rf-macro-install|run: true|')
+probe "a workflow that never fetches the register-file macro is refused" 1 \
+  "no step runs \`make nano-rf-macro-install\`" \
   "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
 
 d=$(ntawt_fixture 's|uses: actions/cache/restore@|uses: actions/cache@|')
@@ -9135,6 +9230,51 @@ probe "a tmp-path allow-list entry whose site lost its /tmp/ is red" 1 \
 d=$(new_case)
 probe "a tmp-path scan of a tree git cannot list is red, not green" 1 \
   "cannot enumerate any tracked files" "$TPT $d"
+
+begin_group "soc/compare/comparison.py"
+
+CMP="python3 $REPO/soc/compare/comparison.py"
+CMP_STAMP="$REPO/soc/compare/product.json"
+CMP_DOC="$REPO/docs/comparison.md"
+CMP_FLOOR="$REPO/soc/compare/CYCLE_FLOOR"
+
+probe "control: the committed document matches a fresh render of the committed stamp" 0 \
+  "matches the stamp" "$CMP check --stamp $CMP_STAMP --doc $CMP_DOC"
+
+d=$(new_case); sed 's/12\.78 \//12.79 \//' "$CMP_DOC" > "$d/doc.md"
+probe "a document with one number edited by hand is red" 1 \
+  "is not a render of" "$CMP check --stamp $CMP_STAMP --doc $d/doc.md"
+
+d=$(new_case); sed 's/"cycle_factor": 1.500258044383634/"cycle_factor": 1.6/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a stamp that moved under the committed document is red" 1 \
+  "is not a render of" "$CMP check --stamp $d/stamp.json --doc $CMP_DOC"
+
+d=$(new_case)
+probe "a missing document is red" 1 \
+  "does not exist" "$CMP check --stamp $CMP_STAMP --doc $d/none.md"
+
+probe "control: littlecpu's cycle columns match the committed floor" 0 \
+  "match CYCLE_FLOOR" "$CMP ratchet --stamp $CMP_STAMP --floor $CMP_FLOOR"
+
+d=$(new_case); sed 's/^dhrystone littlecpu rv32im 0\.99/dhrystone littlecpu rv32im 1.99/' "$CMP_FLOOR" > "$d/floor"
+probe "a cycle factor under its floor is a regression" 1 \
+  "REGRESSION" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+d=$(new_case); sed 's/^coremark littlecpu rv32im 2\.78/coremark littlecpu rv32im 1.78/' "$CMP_FLOOR" > "$d/floor"
+probe "a cycle factor over its floor owes a floor update" 1 \
+  "IMPROVEMENT" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+d=$(new_case); grep -v '^coremark' "$CMP_FLOOR" > "$d/floor"
+probe "a stamped benchmark with no floor line is red" 1 \
+  "has no coremark line" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+d=$(new_case); { cat "$CMP_FLOOR"; echo 'whetstone littlecpu rv32im 1.0'; } > "$d/floor"
+probe "a floor line matching no stamped pair is red" 1 \
+  "matches no stamped pair" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+d=$(new_case); sed 's/rv32im 0\.99/rv32imc 0.99/' "$CMP_FLOOR" > "$d/floor"
+probe "a floor stated for a different ISA is a new row, not a pass" 1 \
+  "a different row is a new floor" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
 
 begin_group "test/probes_header_test.py"
 

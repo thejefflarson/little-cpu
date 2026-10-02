@@ -570,7 +570,7 @@ stamp: the weekly workflow's `make compare-product` dispatched on `main` at 11cc
 2026-10-01, under xPack gcc 15.2.0, yosys 0.69+158, nextpnr 0.11.1-40, twelve seeds a part, with
 the cycle halves re-run locally the same day and digit-identical** (ADR-0232 holds the table, the
 tool stamp and the standing flags; the stamp itself is `soc/compare/product.json`, which a
-refresh PR carries). **A product is a measurement only when both factors were taken on one tree
+refresh PR carries; `docs/comparison.md` is rendered from it by `make compare-doc`, and `make test` fails on drift and on a littlecpu cycle factor moving off `soc/compare/CYCLE_FLOOR`, ADR-0244). **A product is a measurement only when both factors were taken on one tree
 AND one toolchain**, and **A COMPARISON IS ONLY AS GOOD AS ITS LEAST EXAMINED ASSUMPTION** — this
 harness has been wrong about the part (ADR-0086/ADR-0160), the opponent's configuration (ADR-0160
 as amended: `FormalSimple` had no `MulPlugin`, no `CsrPlugin` and no hazard forwarding, which
@@ -914,7 +914,10 @@ make nano-liberty-setup # once: fetch the pinned sky130hd liberty nanocpu's area
 make nano-area      # nanocpu's area, local `synth; dfflibmap; abc -liberty`, never
                     # merged with the brief's own TT-flow/LibreLane number; ratchet
                     # on NANO_MAX_UM2. Not on `make test`'s path; no-ops until
-                    # nano/nano.v lands
+                    # nano/nano.v lands. The register file is a hard macro, `rf_top`,
+                    # black-boxed here and priced from its pinned LEF's SIZE line:
+                    # soft logic and the macro print apart, the ratchet grades both
+                    # (ADR-0225). `make nano-rf-macro-setup` fetches the pinned files
 make nano-timing    # area AND delay from one delay-oriented synthesis run, both
                     # register-file builds, typical corner only; no ratchet, a ranking
                     # instrument like `make cycles`. Prints its own limits and the

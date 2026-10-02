@@ -1,8 +1,11 @@
 #!/bin/bash
-# Runs the .S suite on the FPGA, in batches, and grades the verdicts.
+# Runs the .S suite on the FPGA, in batches, and grades the verdicts. Runs as the user:
+# only iceprog and ftread need root, and ICEPROG_SUDO (the Makefile's) prefixes them.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+. "$ROOT/soc/board_verdict.sh"
+ICEPROG_SUDO=${ICEPROG_SUDO-}
 RISCV_GCC_CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu
 export PATH="$RISCV_GCC_CACHE/riscv-gcc/bin:$RISCV_GCC_CACHE/oss-cad-suite/bin:$PATH"
 
@@ -103,7 +106,7 @@ while read -r progs; do
   flashed=""
   for attempt in 1 2 3 4; do
     echo "   flashing (iceprog, attempt $attempt):"
-    if iceprog build/board.bin 2>&1 | tee "$OUT/flash.log" | sed 's/^/      | /' \
+    if $ICEPROG_SUDO "$(command -v iceprog)" build/board.bin 2>&1 | tee "$OUT/flash.log" | sed 's/^/      | /' \
        && grep -q 'VERIFY OK' "$OUT/flash.log"; then
       flashed=yes; break
     fi
@@ -118,7 +121,7 @@ while read -r progs; do
   t0=$SECONDS
   want=$(printf '%s' "$progs" | wc -w | tr -d ' ')
   for attempt in 1 2 3; do
-    raw=$("$FTREAD" 115200 "$READ_MS" 2>"$OUT/read.err")
+    raw=$($ICEPROG_SUDO "$FTREAD" 115200 "$READ_MS" 2>"$OUT/read.err")
     printf '%s' "$raw" > "$RAWDIR/batch$i.attempt$attempt.txt"
     nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n')
     block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
@@ -145,11 +148,18 @@ while read -r progs; do
     v=$(printf '%s' "$block" | awk -v k="$j" '$1==k{print $2; exit}')
     if [ -z "$v" ]; then
       printf '      %-18s NO REPORT\n' "$name"; missing=$((missing+1)); echo "$name MISSING" >> "$RESULTS"
-    elif [ "$v" = "1" ]; then
-      printf '      %-18s pass\n' "$name"; pass=$((pass+1)); echo "$name PASS" >> "$RESULTS"
     else
-      printf '      %-18s FAIL at test %d (verdict %s)\n' "$name" "$(( v >> 1 ))" "$v"
-      fail=$((fail+1)); echo "$name FAIL $(( v >> 1 ))" >> "$RESULTS"
+      g=$(grade_verdict "$v")
+      case $g in
+        PASS)
+          printf '      %-18s pass\n' "$name"; pass=$((pass+1)); echo "$name PASS" >> "$RESULTS";;
+        PARSE)
+          printf '      %-18s PARSE ERROR (verdict is not a number)\n' "$name"
+          missing=$((missing+1)); echo "$name PARSE-ERROR" >> "$RESULTS";;
+        *)
+          printf '      %-18s FAIL at test %d (verdict %s)\n' "$name" "${g#FAIL }" "$v"
+          fail=$((fail+1)); echo "$name $g" >> "$RESULTS";;
+      esac
     fi
     j=$((j+1))
   done

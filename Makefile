@@ -654,6 +654,15 @@ macro-register-test:
 # A `.gitignore` rule never applies to a file git already tracks, so a tracked file
 # matching one is always a mistake -- a dead rule, or a commit that should not have
 # happened.
+.PHONY: compare-doc
+compare-doc:
+	@python3 soc/compare/comparison.py write
+
+.PHONY: compare-doc-test
+compare-doc-test:
+	@python3 soc/compare/comparison.py check
+	@python3 soc/compare/comparison.py ratchet
+
 .PHONY: tracked-ignored-test
 tracked-ignored-test:
 	@./test/tracked_ignored_test.sh
@@ -691,6 +700,10 @@ lut4-site-test:
 .PHONY: dhry-board-parity-test
 dhry-board-parity-test:
 	@./test/dhry_board_parity_test.sh
+
+.PHONY: board-verdict-test
+board-verdict-test:
+	@./test/board_verdict_test.sh
 
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
@@ -752,12 +765,13 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test nano-test \
+      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test \
       nano-memmap-test nano-tt-test \
-      stall-sites-test pin-help-text-test formal-ci-coverage-test yosys-script-oneline-test
+      stall-sites-test pin-help-text-test formal-ci-coverage-test yosys-script-oneline-test \
+      compare-doc-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
 
 .PHONY: cycles
@@ -1197,10 +1211,10 @@ ftread: $(BUILD)/ftread
 
 .PHONY: suite-board
 suite-board: $(BUILD)/ftread
-	@echo 'Runs the .S suite on the part, in batches. Needs root for the same'
-	@echo 'reason `make prog` does. Roughly ten minutes.'
+	@echo 'Runs the .S suite on the part, in batches. The script runs as you; only'
+	@echo 'iceprog and ftread run under ICEPROG_SUDO, as `make prog` does. Roughly ten minutes.'
 	@echo
-	@sudo ./soc/run_suite_board.sh
+	@ICEPROG_SUDO='$(ICEPROG_SUDO)' FTREAD='$(abspath $(BUILD))/ftread' ./soc/run_suite_board.sh
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 

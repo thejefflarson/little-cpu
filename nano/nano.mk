@@ -68,8 +68,42 @@ nano-liberty-setup:
 	fi; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Re-derived when the instrument's flip-flop exclusions started taking effect: 75,082.0 um2 against 73,137.6 on the same RTL, with the prior step's 2,034.3 um2 of headroom. A ranking between RTL versions, never a fit, which only a flow run with gate-level simulation says.
-override NANO_MAX_UM2 := 77100
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Graded on soft logic plus the register-file macro's fixed 15,744.4 um2 footprint (the SIZE line of its pinned LEF): 69,643.6 um2 against 75,082.0 for the flip-flop register file on the same flow, with 2,056 um2 of headroom over the figure, against 2,018 before. A ranking between RTL versions, never a fit, which only a flow run with gate-level simulation says.
+override NANO_MAX_UM2 := 71700
+
+# The register-file macro `rf_top` (a 32x32 SRAM block, two registered read ports, one write port), fetched from a Tiny Tapeout project that ships it and pinned like the liberty above. The same three files sit at the same digests in MichaelBell/ttsky25b-femtorv-soc's macro/ directory.
+ifneq ($(filter command line environment,$(origin NANO_RF_MACRO_COMMIT)),)
+$(error NANO_RF_MACRO_COMMIT cannot be set from the command line or the environment: it \
+  pins bytes this repo executes. Change it in nano/nano.mk, together with the SHA-256 \
+  digests below it)
+endif
+override NANO_RF_MACRO_COMMIT := 58bb3d5cfd123a339afffb0126d4d094cf68d154
+
+ifeq ($(shell printf '%s' '$(NANO_RF_MACRO_COMMIT)' | grep -cE '^[0-9a-f]{40}$$'),0)
+$(error NANO_RF_MACRO_COMMIT must be a full 40-hex commit id, not a branch or tag: \
+  '$(NANO_RF_MACRO_COMMIT)')
+endif
+
+override NANO_RF_MACRO_LEF_SHA256 := b8d2dfd70500fc79bf921dba9e643da7ecb95ca1d1198f6581ab498571d11dcb
+override NANO_RF_MACRO_LIB_SHA256 := 4c85936bb8a29385b9953ab8797041570082bdd860f0a46a28644be7c8e8ccb8
+override NANO_RF_MACRO_GDS_SHA256 := 525fb010215ba3400689c0c40a4bf97415910f40498f6882d7cd027cad1d01e2
+override NANO_RF_MACRO_URL := https://raw.githubusercontent.com/TinyTapeout/ttsky25b-kianv-linux-soc-with-regfile/$(NANO_RF_MACRO_COMMIT)/regfile_macro
+
+NANO_RF_MACRO_DIR := $(TOOL_CACHE)/rf-macro
+NANO_RF_MACRO_LEF := $(NANO_RF_MACRO_DIR)/rf_top.lef
+
+NANO_RF_MACRO_INSTALL_DIR := nano/tt/macro
+
+.PHONY: nano-rf-macro-setup
+nano-rf-macro-setup:
+	@./nano/rf_macro_setup.sh '$(NANO_RF_MACRO_URL)' '$(NANO_RF_MACRO_DIR)' \
+	  '$(NANO_RF_MACRO_LEF_SHA256)' '$(NANO_RF_MACRO_LIB_SHA256)' '$(NANO_RF_MACRO_GDS_SHA256)'
+
+.PHONY: nano-rf-macro-install
+nano-rf-macro-install:
+	@./nano/rf_macro_setup.sh '$(NANO_RF_MACRO_URL)' '$(NANO_RF_MACRO_DIR)' \
+	  '$(NANO_RF_MACRO_LEF_SHA256)' '$(NANO_RF_MACRO_LIB_SHA256)' '$(NANO_RF_MACRO_GDS_SHA256)' \
+	  '$(NANO_RF_MACRO_INSTALL_DIR)'
 
 NANO_SRCS := nano/nano.v nano/qspi.v nano/uart.v nano/gpio.v nano/bus.v \
              nano/tt/src/tt_um_thejefflarson_nanocpu.v
@@ -79,12 +113,13 @@ nano-area:
 	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
 	if [ $$rc -eq 2 ]; then exit 0; fi; \
 	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
-	$(MAKE) --no-print-directory nano-liberty-setup; \
+	$(MAKE) --no-print-directory nano-liberty-setup nano-rf-macro-setup; \
 	yosys -p "$$(nano/synth_script.sh '$(NANO_LIBERTY)' '$(NANO_EXCLUDED_CELLS)' $(NANO_SRCS))" \
 	  > nano/area.synth.log 2>&1 || { tail -40 nano/area.synth.log; exit 1; }; \
 	python3 nano/area_report.py nano/area.json --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --max-um2 '$(NANO_MAX_UM2)' \
-	  --excluded '$(NANO_EXCLUDED_CELLS)'
+	  --excluded '$(NANO_EXCLUDED_CELLS)' \
+	  --macro rf_top --macro-lef '$(NANO_RF_MACRO_LEF)' --macro-lef-sha256 '$(NANO_RF_MACRO_LEF_SHA256)'
 
 # Area and delay both come out of one synthesis run; no ratchet, since this ranks RTL versions against each other rather than gating either figure.
 .PHONY: nano-timing
@@ -92,12 +127,13 @@ nano-timing:
 	@nano/srcs_guard.sh $(NANO_SRCS); rc=$$?; \
 	if [ $$rc -eq 2 ]; then exit 0; fi; \
 	if [ $$rc -ne 0 ]; then exit $$rc; fi; \
-	$(MAKE) --no-print-directory nano-liberty-setup; \
+	$(MAKE) --no-print-directory nano-liberty-setup nano-rf-macro-setup; \
 	yosys -p "$$(nano/timing_script.sh '$(NANO_LIBERTY)' '$(NANO_EXCLUDED_CELLS)' nano/timing.flops.json $(NANO_SRCS))" \
 	  > nano/timing.flops.log 2>&1 || { tail -40 nano/timing.flops.log; exit 1; }; \
 	python3 nano/timing_report.py --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --excluded '$(NANO_EXCLUDED_CELLS)' \
 	  --variant flops:nano/timing.flops.log:nano/timing.flops.json \
+	  --macro rf_top --macro-lef '$(NANO_RF_MACRO_LEF)' --macro-lef-sha256 '$(NANO_RF_MACRO_LEF_SHA256)' \
 	  --flow-correlation nano/timing_flow_correlation.json
 
 # The sky130_fd_sc_hd behavioral Verilog a gate-level simulation reads, pinned like the liberty above.
