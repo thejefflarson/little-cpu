@@ -29,8 +29,11 @@ summary() {
   [ -z "${GITHUB_STEP_SUMMARY:-}" ] || cat >> "$GITHUB_STEP_SUMMARY"
 }
 
-open_issues=$(gh issue list --state open --limit 200 --json number,title \
-  --jq ".[] | select(.title | startswith(\"$TITLE_PREFIX\")) | \"#\\(.number)\"")
+# gh reports a GitHub Actions author as {is_bot: true, login: "app/github-actions"}; older
+# releases and the search API spell the login "github-actions[bot]", so accept both.
+BOT_AUTHOR='.author.is_bot == true and (.author.login | test("^(app/)?github-actions(\\[bot\\])?$"))'
+open_issues=$(gh issue list --state open --limit 200 --json number,title,author \
+  --jq ".[] | select($BOT_AUTHOR and (.title | startswith(\"$TITLE_PREFIX\"))) | \"#\\(.number)\"")
 open_prs=$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
   --jq ".[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$BRANCH_PREFIX\"))) | \"#\\(.number)\"")
 if [ -n "$open_issues$open_prs" ]; then

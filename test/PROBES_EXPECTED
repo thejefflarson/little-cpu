@@ -683,6 +683,7 @@ an integrator that stopped stating it at all is red, not defaulted
 an issue body whose compare link does not open the pull request form is red
 an ls_access with an extra encoding proving is red
 an objcopy that refuses names the region it refused for
+an open issue from anyone but the bot suppressing a refresh is red
 an orphaned base recovers --require-news as news rather than refusing the run
 an rtl/ change since the stamp's base is STALE, and the file is named
 an svlint install inside the checkout is red on its own

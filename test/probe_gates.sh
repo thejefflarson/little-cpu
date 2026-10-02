@@ -8876,7 +8876,7 @@ cpsp_fixture() {  # $1 = sed program applied to the publish script
 
 d=$(cpsp_fixture '')
 probe "control: the shipping publish script pushes one branch and opens one issue" 0 \
-  "stood down when a refresh was already open" \
+  "stood down when the bot's own refresh was already open" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
 d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_publish_test.py" "$d/test/"
@@ -8925,7 +8925,12 @@ probe "publishing with a refresh issue or PR already open is red" 1 \
 
 d=$(cpsp_fixture 's|"\$open_issues\$open_prs" \]|"$open_prs" ]|')
 probe "an already-open refresh issue that the guard does not read is red" 1 \
-  "an open refresh issue: the script pushed a second refresh branch" \
+  "an open refresh issue from the bot (gh's app/ login): the script pushed a second refresh branch" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|^BOT_AUTHOR=.*|BOT_AUTHOR=true|')
+probe "an open issue from anyone but the bot suppressing a refresh is red" 1 \
+  "did not push exactly one refresh branch" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
 begin_group "test/yosys_script_oneline_test.py"
