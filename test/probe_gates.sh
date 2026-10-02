@@ -9106,6 +9106,51 @@ d=$(new_case)
 probe "a tmp-path scan of a tree git cannot list is red, not green" 1 \
   "cannot enumerate any tracked files" "$TPT $d"
 
+begin_group "soc/compare/comparison.py"
+
+CMP="python3 $REPO/soc/compare/comparison.py"
+CMP_STAMP="$REPO/soc/compare/product.json"
+CMP_DOC="$REPO/docs/comparison.md"
+CMP_FLOOR="$REPO/soc/compare/CYCLE_FLOOR"
+
+probe "control: the committed document matches a fresh render of the committed stamp" 0 \
+  "matches the stamp" "$CMP check --stamp $CMP_STAMP --doc $CMP_DOC"
+
+d=$(new_case); sed 's/12\.78 \//12.79 \//' "$CMP_DOC" > "$d/doc.md"
+probe "a document with one number edited by hand is red" 1 \
+  "is not a render of" "$CMP check --stamp $CMP_STAMP --doc $d/doc.md"
+
+d=$(new_case); sed 's/"cycle_factor": 1.500258044383634/"cycle_factor": 1.6/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a stamp that moved under the committed document is red" 1 \
+  "is not a render of" "$CMP check --stamp $d/stamp.json --doc $CMP_DOC"
+
+d=$(new_case)
+probe "a missing document is red" 1 \
+  "does not exist" "$CMP check --stamp $CMP_STAMP --doc $d/none.md"
+
+probe "control: littlecpu's cycle columns match the committed floor" 0 \
+  "match CYCLE_FLOOR" "$CMP ratchet --stamp $CMP_STAMP --floor $CMP_FLOOR"
+
+d=$(new_case); sed 's/^dhrystone littlecpu rv32im 0\.99/dhrystone littlecpu rv32im 1.99/' "$CMP_FLOOR" > "$d/floor"
+probe "a cycle factor under its floor is a regression" 1 \
+  "REGRESSION" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+d=$(new_case); sed 's/^coremark littlecpu rv32im 2\.78/coremark littlecpu rv32im 1.78/' "$CMP_FLOOR" > "$d/floor"
+probe "a cycle factor over its floor owes a floor update" 1 \
+  "IMPROVEMENT" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+d=$(new_case); grep -v '^coremark' "$CMP_FLOOR" > "$d/floor"
+probe "a stamped benchmark with no floor line is red" 1 \
+  "has no coremark line" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+d=$(new_case); { cat "$CMP_FLOOR"; echo 'whetstone littlecpu rv32im 1.0'; } > "$d/floor"
+probe "a floor line matching no stamped pair is red" 1 \
+  "matches no stamped pair" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+d=$(new_case); sed 's/rv32im 0\.99/rv32imc 0.99/' "$CMP_FLOOR" > "$d/floor"
+probe "a floor stated for a different ISA is a new row, not a pass" 1 \
+  "a different row is a new floor" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
 begin_group "test/probes_header_test.py"
 
 PH="python3 $REPO/test/probes_header_test.py"

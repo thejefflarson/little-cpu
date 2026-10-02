@@ -177,6 +177,8 @@ a cover red for some other goal says nothing about the lock
 a cover run that left no log is exit 2
 a cover the shipping arbiter cannot reach is red before any mutation
 a cover the shipping arbiter cannot reach is red before any mutation
+a cycle factor over its floor owes a floor update
+a cycle factor under its floor is a regression
 a dated ADR stating an old band figure is NOT red
 a dead generate-if(0) decoy does not hide the same leak (finding 2)
 a dead net still in the file is a difference, not a forgiveness
@@ -199,6 +201,7 @@ a different riscv-none-elf-gcc earlier on PATH is red, not silently used
 a differing value is a divergence, located by change index
 a directory the glob stopped matching is red, not a suite of size zero
 a dirty tree names no base, so its sweep is not subtracted either
+a document with one number edited by hand is red
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
 a dual directory that is not there is the failure this exists to see
@@ -222,9 +225,11 @@ a file with two rows in the index is named
 a fixed /tmp/ scratch name in a script is red, and located
 a fixed /tmp/ scratch name in the Makefile is red, and located
 a fixture that opens its body on the head line is still inspected
+a floor line matching no stamped pair is red
 a floor line that is neither a number nor EXCLUDED is named
 a floor line this loop cannot parse is a floor that is not enforced
 a floor longer than 10 digits is malformed, not a giant integer
+a floor stated for a different ISA is a new row, not a pass
 a floor too long for the shell's integers is named, not compared
 a formal harness that stops wiring rvfi at all is red
 a fourth core's ROM_WORDS with no Makefile entry to reach it is red
@@ -310,6 +315,7 @@ a missing btorsim is refused by name before nano's own sweep runs
 a missing checks.cfg is refused rather than read as not-live
 a missing correlation record is refused, not silently skipped
 a missing depth line in the .sby stops rather than comparing nothing
+a missing document is red
 a missing excluded-cell list is refused by the timing run too
 a missing excluded-cell list is refused, not read as none
 a missing liberty file is refused before any variant is read
@@ -372,9 +378,9 @@ a non-numeric floor is named rather than compared arithmetically
 a non-numeric retire count is NO-COUNTS, not a silent PASS
 a non-numeric retire count is graded NO-COUNTS, not compared as an integer
 a non-numeric spec-checked count is NO-COUNTS too
-a one-entry hit rate above the unbounded stack's is red
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
+a one-entry hit rate above the unbounded stack's is red
 a one-field baseline line is rejected before the suite runs
 a pad frequency that is not whole hertz cannot be compared exactly
 a pair measured for the first time is news on its own, with no --current at all
@@ -422,10 +428,10 @@ a reached line whose wording hides its step stops rather than switching the tie 
 a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
-a redirect counter that stopped being printed is named too
 a reason dropped from the decoder's own composition is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a red that is not a structural difference is not the red this probe wants
+a redirect counter that stopped being printed is named too
 a ref that names no commit here is refused before any placement
 a ref that names no commit is refused, not compared
 a reference model that produced no trace is fatal
@@ -542,7 +548,9 @@ a stall reason with no driving cell stops the run
 a stall-sites repo root that does not exist is red before anything is scanned
 a stalled-bus mutant red for only some goals is not full evidence
 a stamp measured on a dirty tree is STALE even if nothing has moved since
+a stamp that moved under the committed document is red
 a stamp with no table under it is a failed measurement
+a stamped benchmark with no floor line is red
 a standalone synthesis of zero cells is named, not divided by
 a stat.json missing area/num_cells/by_type is refused, not read as what is left
 a status sby cannot produce is rejected at format time
@@ -819,6 +827,7 @@ control: fixture_anchor finds its literal in the real file
 control: formal/Makefile also puts the cached suite first
 control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
+control: littlecpu's cycle columns match the committed floor
 control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's shipping core passes the gate and the leak fails it
@@ -844,13 +853,14 @@ control: the arm proves for the shipping core and fails on both values
 control: the block RAM is named at the end of the path it sits at
 control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
+control: the committed document matches a fresh render of the committed stamp
 control: the correlation prints its factor and both halves' provenance
 control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
 control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone
-control: the jalr share and the return guess are reported under the table
 control: the formal flow's lower-case rv32imc is a different thing
 control: the insn checks move to pono and the others do not
+control: the jalr share and the return guess are reported under the table
 control: the load and store paths both report an X exactly when one is there
 control: the locality counters are reported under the table
 control: the measured CoreMark image reports the shortfall it has
@@ -908,9 +918,6 @@ excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
 half of a macro-guarded group is red, where none of it is not
-opening a pull request with the workflow's own token instead of an issue is red
-publishing with a refresh issue or PR already open is red
-the pre-fix commit line -- '-m' and '-F' together -- is red for the reason it used to fail
 hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
@@ -918,12 +925,12 @@ ill_e asked of littlecpu's harness is refused, not run
 ill_e catches a wrong RV32E rule, and the shipping core still passes
 insn_excluded must be a plain disjunction, not an expression
 layer 1: the trap comparison moved INTO the span is refused, not gated
-more cycles saved than the jalr redirects cost is red
-more returns than jalr is red
 layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 margin above the step is reported as unspendable, not as speed
 more accesses near an edge than there were accesses is red
+more cycles saved than the jalr redirects cost is red
+more returns than jalr is red
 more than seven arguments is a usage error too
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
@@ -971,10 +978,12 @@ one recipe name with two bodies is red, naming both lines
 one red tool leaves no partial stamp on stdout
 one side alone is not a cross-core figure
 one source present and a second missing is refused, not read as nothing landed
+opening a pull request with the workflow's own token instead of an issue is red
 output this script does not recognize is exit 3, not guessed at
 over budget names the count and the budget
 perl -pi is a raw edit like sed -i
 product_write.py refuses a --base that is not a 40-character commit SHA
+publishing with a refresh issue or PR already open is red
 reg_rs1 laundered through out.rd_data's own register is still red
 renaming the upstream-code step out of reach stops rather than passing
 retires that stopped being spec-checked is its own status
@@ -1071,6 +1080,7 @@ the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything
 the override prints the mismatch it was passed to get past
+the pre-fix commit line -- '-m' and '-F' together -- is red for the reason it used to fail
 the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's
 the proof going red somewhere else is not evidence
