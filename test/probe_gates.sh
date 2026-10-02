@@ -8924,9 +8924,34 @@ probe "the publish step with no GH_TOKEN at all is red" 1 \
   "has no GH_TOKEN" \
   "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
-d=$(cpst_fixture '/gh auth setup-git/d')
-probe "the publish step pushing with no gh auth setup-git is red" 1 \
-  "no credential once persist-credentials is false" \
+d=$(cpst_fixture 's|cp "\$OUT_DIR/product.json"|gh auth setup-git; \&|')
+probe "a workflow that reinstalls a global credential helper is red" 1 \
+  "leaves a global credential helper" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|^      - name: Fetch the measured stamp|      - run: make x\n&|')
+probe "a publish job that runs make beside the write token is red" 1 \
+  "also runs measurement tools" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|^      contents: read$|      contents: write|')
+probe "a measure job holding a write scope is red" 1 \
+  "the measure job holds a write-scoped token" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|runs-on: ubuntu-latest|runs-on: little-cpu-runners|')
+probe "a publish job on the self-hosted pool is red" 1 \
+  "does not run on ubuntu-latest" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|needs.measure.outputs.moved == .true.|true|')
+probe "a publish job that ignores the measure job's moved output is red" 1 \
+  "not conditional on the measure job" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|^  contents: read$|  contents: write|')
+probe "a workflow-level write scope inherited by every job is red" 1 \
+  "workflow-level permissions grant a write scope" \
   "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
 d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_token_test.py" "$REPO/test/workflow_steps.py" "$d/test/"
@@ -8960,6 +8985,11 @@ probe "the pre-fix commit line -- '-m' and '-F' together -- is red for the reaso
 
 d=$(cpsp_fixture 's|origin "\$BRANCH"$|origin "$BRANCH:main"|')
 probe "a push aimed at main instead of the refresh branch is red" 1 \
+  "did not push exactly one refresh branch" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|-c .credential.helper=!gh auth git-credential. push|push|')
+probe "a push carrying no per-command credential helper is red" 1 \
   "did not push exactly one refresh branch" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 

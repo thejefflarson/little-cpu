@@ -21,6 +21,10 @@ BRANCH_PREFIX="compare-product/refresh-"
 BRANCH="$BRANCH_PREFIX$(date -u +%Y%m%d)-${GITHUB_RUN_ID:-local}"
 TITLE="$TITLE_PREFIX ($(date -u +%Y-%m-%d))"
 
+git_push() {
+  git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push --quiet "$@"
+}
+
 summary() {
   [ -z "${GITHUB_STEP_SUMMARY:-}" ] || cat >> "$GITHUB_STEP_SUMMARY"
 }
@@ -51,7 +55,7 @@ git add soc/compare/product.json
   cat "$DIFF"
 } > "$OUT_DIR/commit-message.md"
 git commit --quiet -F "$OUT_DIR/commit-message.md"
-git push --quiet origin "$BRANCH"
+git_push origin "$BRANCH"
 
 {
   echo "The refreshed stamp is committed on \`$BRANCH\`. **Open a pull request from"
@@ -75,7 +79,7 @@ git push --quiet origin "$BRANCH"
 # A pushed branch with no issue would be invisible to everyone.
 if ! gh issue create --title "$TITLE" --body-file "$OUT_DIR/issue-body.md"; then
   echo "could not open the issue; removing $BRANCH so a later run retries" >&2
-  git push --quiet --delete origin "$BRANCH" || true
+  git_push --delete origin "$BRANCH" || true
   exit 1
 fi
 

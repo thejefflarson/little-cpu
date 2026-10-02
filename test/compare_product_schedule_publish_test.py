@@ -24,9 +24,12 @@ import tempfile
 
 SCRIPT = ".github/scripts/publish-product-refresh.sh"
 DIFF_LINE = "dhrystone: 1 -> 2 cycles/dhry"
+PUSH_HELPER = "-c credential.helper= -c credential.helper=!gh auth git-credential"
 
 GIT_STUB = """#!/bin/bash
-case "$1" in
+args=("$@")
+while [ "${args[0]:-}" = -c ]; do args=("${args[@]:2}"); done
+case "${args[0]:-}" in
   push) printf '%s\\n' "$*" >> "$GIT_PUSH_LOG"; exit 0 ;;
 esac
 exec "$REAL_GIT" "$@"
@@ -132,7 +135,7 @@ def check_publish(case):
     if result.returncode != 0:
         return [f"the script exited {result.returncode}: {result.stderr.strip()}"]
     pushes = read(logs["push-log"]).splitlines()
-    m = re.fullmatch(r"push --quiet origin (compare-product/refresh-\d{8}-4242)",
+    m = re.fullmatch(re.escape(PUSH_HELPER) + r" push --quiet origin (compare-product/refresh-\d{8}-4242)",
                      pushes[0]) if len(pushes) == 1 else None
     if not m:
         return [f"the script did not push exactly one refresh branch to origin: {pushes!r}"]

@@ -308,6 +308,7 @@ a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
 a matrix proof dropped from the workflow is red
+a measure job holding a write scope is red
 a memcheck with no cover sibling has an untied depth, and is red
 a mid-word # does not hide a real sed -i after it
 a missing PLL file is refused rather than read as agreement
@@ -424,7 +425,11 @@ a program that stopped assembling is ASSEMBLE-ERROR
 a program that went quiet is BELOW-FLOOR on retires
 a proof going red somewhere else is not evidence about the mtval arm
 a prose copy of a band figure goes red where it is written
+a publish job on the self-hosted pool is red
+a publish job that ignores the measure job's moved output is red
+a publish job that runs make beside the write token is red
 a push aimed at main instead of the refresh branch is red
+a push carrying no per-command credential helper is red
 a push landing only one word instead of two is red across every occupancy
 a push surviving a flush lets the overtaken request's reply land
 a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ
@@ -616,6 +621,8 @@ a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
 a workflow that never fetches the register-file macro is refused
+a workflow that reinstalls a global credential helper is red
+a workflow-level write scope inherited by every job is red
 a wrong-rule mutant that still passes is not a control
 an #insn-check naming a file that does not exist is refused
 an ABI alias outside x0-x15 (a7 = x17) is caught the same way
@@ -1098,7 +1105,6 @@ the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's
 the proof going red somewhere else is not evidence
 the proof's copy of the RAM base drifting from the RAM is red
-the publish step pushing with no gh auth setup-git is red
 the publish step with no GH_TOKEN at all is red
 the quiet one: objcopy exits 0 having written no bytes
 the reference model hitting its budget is INCONCLUSIVE, not a finding

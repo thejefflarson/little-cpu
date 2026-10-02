@@ -3,6 +3,7 @@ name: Cross-core product re-take
 # Weekly, re-measures every cross-core throughput pair soc/compare/ knows, on both up5k and
 # ECP5, and publishes only when the OLD stamp would have called itself stale. It opens an
 # ISSUE linking a pushed branch: a PR opened with the workflow's own token gets no CI.
+# `measure` runs the tools with a read-only token; only `publish` holds write scopes.
 on:
   schedule:
     - cron: "23 5 * * 1" # weekly, Monday
@@ -13,16 +14,18 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write # git push, for the branch carrying the refreshed stamp
-  issues: write # gh issue create
-  pull-requests: read # gh pr list, for the already-open guard
+  contents: read
 
 jobs:
-  re-take:
-    name: re-take
-    # workflow_dispatch can target any ref; this job pushes a branch and opens an issue,
-    # so it only ever measures and publishes from main.
+  measure:
+    name: measure
+    # workflow_dispatch can target any ref; the publish job pushes a branch and opens an
+    # issue, so both jobs only ever run from main.
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    outputs:
+      moved: ${{ steps.diff.outputs.moved }}
     runs-on: little-cpu-runners
     # 72 placements plus both benchmarks: ~60 min on a machine that runs `make ecp5-timing`
     # 2.3x faster than this pool, so ~140 here. Never yet timed on the pool itself.
@@ -145,7 +148,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: compare-product-stamp
-          path: ${{ env.OUT_DIR }}
+          path: |
+            ${{ env.OUT_DIR }}/product.json
+            ${{ env.OUT_DIR }}/product-diff.md
           if-no-files-found: warn
           retention-days: 14
 
@@ -161,19 +166,41 @@ jobs:
             cat "$OUT_DIR/product-diff.md"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Publish the refreshed stamp
-        if: steps.diff.outputs.moved == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh auth setup-git
-          .github/scripts/publish-product-refresh.sh "$OUT_DIR"
-
       - name: Report job wall time
         if: always()
         run: |
           elapsed=$(( $(date +%s) - JOB_START ))
           {
-            echo "### re-take"
+            echo "### measure"
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: publish
+    needs: measure
+    if: github.ref == 'refs/heads/main' && needs.measure.outputs.moved == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # git push, for the branch carrying the refreshed stamp
+      issues: write # gh issue create
+      pull-requests: read # gh pr list, for the already-open guard
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Fetch the measured stamp
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: compare-product-stamp
+          path: ${{ runner.temp }}/compare-product
+
+      - name: Publish the refreshed stamp
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUT_DIR: ${{ runner.temp }}/compare-product
+        run: |
+          cp "$OUT_DIR/product.json" soc/compare/product.json
+          .github/scripts/publish-product-refresh.sh "$OUT_DIR"
