@@ -192,7 +192,7 @@ if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
        "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 region=0" \
-       "hzA=4 hzB=3 hzC=3 hzCcsr=0" \
+       "hzA=6 hzB=4" \
        "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1" \
        "commits=10 jalr=1 jalrret=1 jalrredir=1 otherredir=1 jalrwin=2 otherwin=2" \
        "rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0"
@@ -3305,16 +3305,15 @@ sr_fixture() {
     'REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus"]'
   fixture_anchor "$REPO/test/stall_report.py" \
     'REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +'
-  fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_SPLIT = ["hzA", "hzB", "hzC"]'
-  fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_CSR = "hzCcsr"'
+  fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_SPLIT = ["hzA", "hzB"]'
   fixture_anchor "$REPO/test/stall_report.py" 'LS_ISSUES = "lsissue"'
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsedge": "with rs1 within 2 KB of a mapped-region edge",'
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 commits=10 jalr=2 jalrret=1 jalrredir=2 otherredir=1 jalrwin=8 otherwin=3 rashit1=1 rassave1=4 rashitdeep=1 rassavedeep=4 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 commits=10 jalr=0 jalrret=0 jalrredir=0 otherredir=0 jalrwin=0 otherwin=0 rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=14 hzB=6 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 commits=10 jalr=2 jalrret=1 jalrredir=2 otherredir=1 jalrwin=8 otherwin=3 rashit1=1 rassave1=4 rashitdeep=1 rassavedeep=4 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=3 hzB=2 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 commits=10 jalr=0 jalrret=0 jalrredir=0 otherredir=0 jalrwin=0 otherwin=0 rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -3339,13 +3338,13 @@ d=$(sr_fixture); mutate "$d/counts" 's/ fetch=10//'
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
   "is missing fetch" "$SR $d/counts"
 
-# A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its `else if (eligible)` arm
+# A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its `else if (ex)` arm
 # and leaving the cycle uncounted is enough -- moves a cycle out of hzB without moving it
-# anywhere else, so the three no longer sum to the hazard column they split even though
+# anywhere else, so the two no longer sum to the hazard column they split even though
 # the outer columns still add up.
-d=$(sr_fixture); mutate "$d/counts" 's/hzB=5/hzB=4/'
+d=$(sr_fixture); mutate "$d/counts" 's/hzB=6/hzB=5/'
 probe "hazard's three causes losing a cycle between them is red" 1 \
-  "hzA+hzB+hzC is 19, hazard is 20" "$SR $d/counts"
+  "hzA+hzB is 19, hazard is 20" "$SR $d/counts"
 
 # The locality counters are not cycles and add up to nothing, so the arithmetic above
 # cannot see them at all.
@@ -3355,6 +3354,15 @@ probe "control: the locality counters are reported under the table" 0 \
 
 probe "control: each subset is printed as a share of that number" 0 \
   "4 (40.0%) with rs1 within 2 KB of a mapped-region edge" "$SR $d/counts"
+
+# A run that never stalled has no stalled cycles to take a share of; the report says so
+# rather than dividing by them.
+d=$(sr_fixture)
+cat > "$d/flat" <<'FLAT'
+flat.S cycles=10 issue=10 divider=0 atomic=0 hazard=0 serialize=0 fetch=0 bus=0 hzA=0 hzB=0 unattributed=0 lsissue=0 lsedge=0 lsbypass=0 commits=10 jalr=0 jalrret=0 jalrredir=0 otherredir=0 jalrwin=0 otherwin=0 rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0 retires=10
+FLAT
+probe "a run with no stalled cycles gets a report, not a ZeroDivisionError" 0 \
+  "0 of those cycles (0.0%) issued nothing" "$SR $d/flat"
 
 d=$(sr_fixture); mutate "$d/counts" 's/lsedge=3/lsedge=7/'
 probe "more accesses near an edge than there were accesses is red" 1 \

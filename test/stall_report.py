@@ -35,25 +35,19 @@ counted; what is checked here is that neither subset exceeds the set it is a
 subset of, which is the one way a runner and this script can disagree about
 which cycles were counted and still print a plausible rate.
 
-HAZARD ITSELF HAS THREE CAUSES, checked against the same kind of identity as
-the columns above -- but B2 gave forwarding to the two that could take it, so
-only one of the three still stalls a real program. hzA is a `dx_match` (the
-producer is still in `out`, about to be read by X this very cycle) whose
-producer will NOT publish a ready result in `executor_out` next cycle: a
-load, an AMO, `lr.w`, `sc.w`, a div/rem just starting, or a CSR access's own
-excluded rs1, which never reads the forwarded value even when `out` would
-otherwise qualify. hzB is an `ex_match` (the producer is two instructions
-back, already in `executor_out`) whose own result is not yet unpacked --
-again a load, an AMO, `lr.w` or `sc.w`. hzC is what B1 called a ready
-`ex_match` decode had no path to: B2 gives it none, because it needs none --
-the regfile's own write-through bypass (commitment 6) reaches that producer
-exactly when the later instruction's own X cycle needs it, so this class
-never asserts `hazard` at all and reads zero. `rs1_fwd_eligible` (D's
-`fwd_rs1`/`fwd_rs2`) never covers a CSR access's own rs1, so the one case
-`test/asm/csr.S` exercises (`csrrw a1, mscratch, a0` right after `a0` is
-computed, a `dx_match`) now lands in hzA rather than hzC; hzCcsr accordingly
-reads zero too, kept in the format rather than deleted so a regression that
-reopens this path shows up as a nonzero the identity below did not expect.
+HAZARD ITSELF HAS TWO CAUSES, checked against the same kind of identity as
+the columns above. hzA is a `dx_match` (the producer is still in `out`, about
+to be read by X this very cycle) whose producer will NOT publish a ready result
+in `executor_out` next cycle: a load, an AMO, `lr.w`, `sc.w`, a div/rem just
+starting, or a CSR access's own excluded rs1, which never reads the forwarded
+value even when `out` would otherwise qualify. hzB is an `ex_match` (the
+producer is two instructions back, already in `executor_out`) whose own result
+is not yet unpacked -- again a load, an AMO, `lr.w` or `sc.w`. A ready
+`ex_match` never asserts `hazard` at all, because the regfile's own
+write-through bypass reaches that producer exactly when the later
+instruction's own X cycle needs it. The runner charges a hazard-stalled cycle
+to hzA or hzB and to nothing else, so a hazard cycle that is neither leaves
+hzA+hzB short of the hazard column and the identity below fails on it.
 """
 
 import argparse
@@ -88,14 +82,13 @@ LS_SUBSETS = {
     "lsedge": "with rs1 within 2 KB of a mapped-region edge",
     "lsbypass": "issuing on a write-through to rs1",
 }
-# HAZARD's three causes, rs1 before rs2 and then A before B before C in the runner that
-# charges them (test/cxxrtl.cc).
-HAZARD_SPLIT = ["hzA", "hzB", "hzC"]
-HAZARD_CSR = "hzCcsr"
+# HAZARD's two causes, dx_match before ex_match in the runner that charges them
+# (test/cxxrtl.cc).
+HAZARD_SPLIT = ["hzA", "hzB"]
 REDIRECT_KEYS = ["commits", "jalr", "jalrret", "jalrredir", "otherredir", "jalrwin",
                  "otherwin", "rashit1", "rassave1", "rashitdeep", "rassavedeep"]
 REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +
-            [LS_ISSUES] + list(LS_SUBSETS) + HAZARD_SPLIT + [HAZARD_CSR] + REDIRECT_KEYS)
+            [LS_ISSUES] + list(LS_SUBSETS) + HAZARD_SPLIT + REDIRECT_KEYS)
 
 def parse(path):
     """`<program> key=value ...` per line. Returns a list of (name, counts)."""
@@ -159,12 +152,12 @@ def main():
         if parts != counts["cycles"]:
             broken.append(f"  {name}: columns sum to {parts}, cycles is {counts['cycles']}")
 
-    # The same identity one level down: hazard's three causes must sum to hazard, per program.
+    # The same identity one level down: hazard's two causes must sum to hazard, per program.
     hazard_broken = [
-        f"  {name}: hzA+hzB+hzC is {counts['hzA'] + counts['hzB'] + counts['hzC']}"
+        f"  {name}: hzA+hzB is {counts['hzA'] + counts['hzB']}"
         f", hazard is {counts['hazard']}"
         for name, counts in rows
-        if counts["hzA"] + counts["hzB"] + counts["hzC"] != counts["hazard"]
+        if counts["hzA"] + counts["hzB"] != counts["hazard"]
     ]
 
     # Per program for the same reason, and the same way round: a subset counted over a
@@ -187,116 +180,6 @@ def main():
         for sub, sup in redirect_chain
         if counts[sub] > counts[sup]
     ]
-
-    width = max(len(name) for name, _ in rows)
-    header = f"{'PROGRAM':<{width}} {'CYCLES':>8} {'RETIRED':>8} {'CPI':>6} {'ISSUE':>8}"
-    header += "".join(f"{HEADINGS[r]:>9}" for r in REASONS)
-    header += f"{'UNATTR':>8}"
-
-    print()
-    print("== cycle accounting: where the cycles go ==")
-    print()
-    print(header)
-    for name, counts in rows:
-        line = (
-            f"{name:<{width}} {counts['cycles']:>8} {counts['retires']:>8} "
-            f"{cpi(counts['cycles'], counts['retires']):>6} {counts['issue']:>8}"
-        )
-        line += "".join(f"{counts[r]:>9}" for r in REASONS)
-        line += f"{counts['unattributed']:>8}"
-        print(line)
-
-    suite = (
-        f"{'SUITE':<{width}} {total['cycles']:>8} {total['retires']:>8} "
-        f"{cpi(total['cycles'], total['retires']):>6} {total['issue']:>8}"
-    )
-    suite += "".join(f"{total[r]:>9}" for r in REASONS)
-    suite += f"{total['unattributed']:>8}"
-    print(suite)
-
-    def share(n):
-        return f"{100 * n / total['cycles']:.1f}%"
-
-    pct = f"{'% of cycles':<{width}} {'':>8} {'':>8} {'':>6} {share(total['issue']):>8}"
-    pct += "".join(f"{share(total[r]):>9}" for r in REASONS)
-    pct += f"{share(total['unattributed']):>8}"
-    print(pct)
-
-    stalled = sum(total[r] for r in REASONS) + total["unattributed"]
-    biggest = max(REASONS, key=lambda r: total[r])
-    print()
-    print(
-        f"{len(rows)} programs, {total['cycles']} cycles, {total['retires']} "
-        f"instructions retired, CPI {cpi(total['cycles'], total['retires'])}."
-    )
-    print(f"{stalled} of those cycles ({share(stalled)}) issued nothing.")
-    print(
-        f"The largest single reason is {biggest}: {total[biggest]} cycles, "
-        f"{share(total[biggest])} of all cycles and "
-        f"{100 * total[biggest] / stalled:.1f}% of the stalled ones."
-    )
-    print()
-    print(
-        f"HAZARD ({total['hazard']} cycles) breaks down into hzA={total['hzA']} "
-        f"(a dx_match producer that will not be ready next cycle), "
-        f"hzB={total['hzB']} (an ex_match producer not yet unpacked) and "
-        f"hzC={total['hzC']} (a ready ex_match forwarding has no path to -- B2's "
-        f"forwarding needs none there, so this reads zero)."
-    )
-    print(
-        f"  {total[HAZARD_CSR]} of hzC belongs to a CSR register-form read, "
-        f"where forwarding is never eligible (now counted in hzA instead)."
-    )
-    issues = total[LS_ISSUES]
-    print()
-    print(f"{issues} of those instructions were loads or stores. Of them:")
-    for key, what in LS_SUBSETS.items():
-        of_issues = f"{100 * total[key] / issues:.1f}%" if issues else "-"
-        print(f"  {total[key]} ({of_issues}) {what}.")
-    print(
-        "Both are properties of where this workload keeps its data, not of the\n"
-        "core: the region test resolves every access in one cycle regardless, so\n"
-        "neither costs a cycle any more -- they are reported as workload locality\n"
-        "measurements, not as stall causes."
-    )
-    def of(n, d):
-        return f"{100 * n / d:.2f}%" if d else "-"
-
-    t = total
-    print()
-    print("== jalr and the return-address guess ==")
-    print()
-    print(
-        f"{t['jalr']} of {t['commits']} committed instructions are jalr "
-        f"({of(t['jalr'], t['commits'])}); {t['jalrret']} of them ({of(t['jalrret'], t['jalr'])}) "
-        f"are returns (rd = x0, rs1 = x1 or x5)."
-    )
-    print(
-        f"{t['jalrredir']} jalr redirected, costing {t['jalrwin']} idle cycles in X "
-        f"({of(t['jalrwin'], t['cycles'])} of all cycles); the {t['otherredir']} other redirects "
-        f"(branch and jal misses, traps, mret) cost {t['otherwin']} ({of(t['otherwin'], t['cycles'])})."
-    )
-    print(
-        f"A one-entry return register would hit {t['rashit1']} of {t['jalrret']} returns "
-        f"({of(t['rashit1'], t['jalrret'])}) and save {t['rassave1']} cycles "
-        f"({of(t['rassave1'], t['cycles'])})."
-    )
-    print(
-        f"A 64-entry stack, the nesting-free bound, would hit {t['rashitdeep']} "
-        f"({of(t['rashitdeep'], t['jalrret'])}) and save {t['rassavedeep']} cycles "
-        f"({of(t['rassavedeep'], t['cycles'])})."
-    )
-    print()
-    print(args.workload)
-    print()
-    print(
-        "A COLUMN IS CYCLES CHARGED, NOT CYCLES THE SIGNAL WAS HIGH. Several\n"
-        "reasons are true on the same cycle often, and each cycle goes to the\n"
-        "first one the decoder itself would try, so the columns add up. Measured\n"
-        "on the three writable-text programs: fetch_stall is high on 26 cycles\n"
-        "and is charged 8, because on the other 18 something else was already\n"
-        "holding the same instruction."
-    )
 
     if broken:
         sys.exit(
@@ -338,12 +221,115 @@ def main():
 
     if hazard_broken:
         sys.exit(
-            "\n*** hazard's three causes do not add up to the hazard column:\n"
+            "\n*** hazard's two causes do not add up to the hazard column:\n"
             + "\n".join(hazard_broken)
             + "\n*** test/cxxrtl.cc charges every hazard-stalled cycle to exactly\n"
-            "*** one of hzA/hzB/hzC, so this is a mis-charged sub-bucket there,\n"
+            "*** one of hzA/hzB, so this is a mis-charged sub-bucket there,\n"
             "*** not a slower core."
         )
+
+    def of(n, d, places=2):
+        return f"{100 * n / d:.{places}f}%" if d else "-"
+
+    width = max(len(name) for name, _ in rows)
+    header = f"{'PROGRAM':<{width}} {'CYCLES':>8} {'RETIRED':>8} {'CPI':>6} {'ISSUE':>8}"
+    header += "".join(f"{HEADINGS[r]:>9}" for r in REASONS)
+    header += f"{'UNATTR':>8}"
+
+    print()
+    print("== cycle accounting: where the cycles go ==")
+    print()
+    print(header)
+    for name, counts in rows:
+        line = (
+            f"{name:<{width}} {counts['cycles']:>8} {counts['retires']:>8} "
+            f"{cpi(counts['cycles'], counts['retires']):>6} {counts['issue']:>8}"
+        )
+        line += "".join(f"{counts[r]:>9}" for r in REASONS)
+        line += f"{counts['unattributed']:>8}"
+        print(line)
+
+    suite = (
+        f"{'SUITE':<{width}} {total['cycles']:>8} {total['retires']:>8} "
+        f"{cpi(total['cycles'], total['retires']):>6} {total['issue']:>8}"
+    )
+    suite += "".join(f"{total[r]:>9}" for r in REASONS)
+    suite += f"{total['unattributed']:>8}"
+    print(suite)
+
+    def share(n):
+        return of(n, total["cycles"], 1)
+
+    pct = f"{'% of cycles':<{width}} {'':>8} {'':>8} {'':>6} {share(total['issue']):>8}"
+    pct += "".join(f"{share(total[r]):>9}" for r in REASONS)
+    pct += f"{share(total['unattributed']):>8}"
+    print(pct)
+
+    stalled = sum(total[r] for r in REASONS) + total["unattributed"]
+    biggest = max(REASONS, key=lambda r: total[r])
+    print()
+    print(
+        f"{len(rows)} programs, {total['cycles']} cycles, {total['retires']} "
+        f"instructions retired, CPI {cpi(total['cycles'], total['retires'])}."
+    )
+    print(f"{stalled} of those cycles ({share(stalled)}) issued nothing.")
+    print(
+        f"The largest single reason is {biggest}: {total[biggest]} cycles, "
+        f"{share(total[biggest])} of all cycles and "
+        f"{of(total[biggest], stalled, 1)} of the stalled ones."
+    )
+    print()
+    print(
+        f"HAZARD ({total['hazard']} cycles) breaks down into hzA={total['hzA']} "
+        f"(a dx_match producer that will not be ready next cycle), "
+        f"hzB={total['hzB']} (an ex_match producer not yet unpacked)."
+    )
+    issues = total[LS_ISSUES]
+    print()
+    print(f"{issues} of those instructions were loads or stores. Of them:")
+    for key, what in LS_SUBSETS.items():
+        print(f"  {total[key]} ({of(total[key], issues, 1)}) {what}.")
+    print(
+        "Both are properties of where this workload keeps its data, not of the\n"
+        "core: the region test resolves every access in one cycle regardless, so\n"
+        "neither costs a cycle any more -- they are reported as workload locality\n"
+        "measurements, not as stall causes."
+    )
+    t = total
+    print()
+    print("== jalr and the return-address guess ==")
+    print()
+    print(
+        f"{t['jalr']} of {t['commits']} committed instructions are jalr "
+        f"({of(t['jalr'], t['commits'])}); {t['jalrret']} of them ({of(t['jalrret'], t['jalr'])}) "
+        f"are returns (rd = x0, rs1 = x1 or x5)."
+    )
+    print(
+        f"{t['jalrredir']} jalr redirected, costing {t['jalrwin']} idle cycles in X "
+        f"({of(t['jalrwin'], t['cycles'])} of all cycles); the {t['otherredir']} other redirects "
+        f"(branch and jal misses, traps, mret) cost {t['otherwin']} ({of(t['otherwin'], t['cycles'])})."
+    )
+    print(
+        f"A one-entry return register would hit {t['rashit1']} of {t['jalrret']} returns "
+        f"({of(t['rashit1'], t['jalrret'])}) and save {t['rassave1']} cycles "
+        f"({of(t['rassave1'], t['cycles'])})."
+    )
+    print(
+        f"A 64-entry stack, the nesting-free bound, would hit {t['rashitdeep']} "
+        f"({of(t['rashitdeep'], t['jalrret'])}) and save {t['rassavedeep']} cycles "
+        f"({of(t['rassavedeep'], t['cycles'])})."
+    )
+    print()
+    print(args.workload)
+    print()
+    print(
+        "A COLUMN IS CYCLES CHARGED, NOT CYCLES THE SIGNAL WAS HIGH. Several\n"
+        "reasons are true on the same cycle often, and each cycle goes to the\n"
+        "first one the decoder itself would try, so the columns add up. Measured\n"
+        "on the three writable-text programs: fetch_stall is high on 26 cycles\n"
+        "and is charged 8, because on the other 18 something else was already\n"
+        "holding the same instruction."
+    )
 
 if __name__ == "__main__":
     main()

@@ -511,6 +511,7 @@ a row's number duplicated onto a different, real file is named
 a run reporting no retire count at all is graded NO-COUNTS
 a run that never made the cross-core check is red
 a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
+a run with no stalled cycles gets a report, not a ZeroDivisionError
 a runner that passes but prints no per-program line leaves nothing to compare
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
