@@ -1204,7 +1204,7 @@ suite-board: $(BUILD)/ftread
 	@echo 'Runs the .S suite on the part, in batches. The script runs as you; only'
 	@echo 'iceprog and ftread run under ICEPROG_SUDO, as `make prog` does. Roughly ten minutes.'
 	@echo
-	@ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/run_suite_board.sh
+	@ICEPROG_SUDO='$(ICEPROG_SUDO)' FTREAD='$(abspath $(BUILD))/ftread' ./soc/run_suite_board.sh
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 

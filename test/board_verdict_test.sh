@@ -9,11 +9,12 @@ LIB=${1:-$HERE/../soc/board_verdict.sh}
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/board_verdict.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
+cd "$WORK"
 fail=0
 
 expect() {
   local v=$1 want=$2 got
-  got=$(grade_verdict "$v")
+  got=$(grade_verdict "$v" 2>/dev/null) || got="shell error $?"
   if [ "$got" != "$want" ]; then
     echo "FAIL: verdict '$v' graded '$got', expected '$want'" >&2
     fail=1
@@ -29,12 +30,13 @@ expect abc PARSE
 expect -3 PARSE
 expect 1234567890 PARSE
 
-hostile=("x[\$(touch $WORK/pwned)]" "x[\`touch $WORK/pwned\`]" "a[\$(touch $WORK/pwned)]+1")
+# 'v[$(:>p)]' fits the length cap and names a set local, so only the character-class arm stops it.
+hostile=("x[\$(touch $WORK/pwned)]" "x[\`touch $WORK/pwned\`]" "a[\$(touch $WORK/pwned)]+1" 'v[$(:>p)]')
 for v in "${hostile[@]}"; do
   expect "$v" PARSE
 done
 
-if [ -e "$WORK/pwned" ]; then
+if [ -e "$WORK/pwned" ] || [ -e "$WORK/p" ]; then
   echo "FAIL: a hostile verdict executed a command" >&2
   fail=1
 fi

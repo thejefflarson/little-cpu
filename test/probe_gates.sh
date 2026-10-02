@@ -3956,7 +3956,7 @@ probe "control: hostile UART verdicts are rejected and nothing executes" 0 \
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" "s/''|\*\[!0-9\]\*) echo PARSE; return 0;;/NEVERMATCH) :;;/"
 probe "a verdict parser that stops validating the UART text is red" 1 \
-  "graded" "$BV $d/board_verdict.sh"
+  "a hostile verdict executed a command" "$BV $d/board_verdict.sh"
 
 begin_group "test/adr_numbering_test.sh"
 
