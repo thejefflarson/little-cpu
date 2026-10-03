@@ -53,7 +53,7 @@ TOOLS_ON_PATH stops nano/formal/Makefile shadowing a fixture's stubs too
 TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
 a --field naming a key the schema already reserves is refused
 a --measured call with no --isa is refused the same way as a missing --cflags
-a --measured call with no --tool is refused rather than stamping an unknown toolchain
+a --measured call with no --tools-block is refused rather than stamping an unknown toolchain
 a .sby stating depth twice is refused, since sby searches to the last
 a <retires> argument that is not 1 or 2 is refused
 a C floor copied out of the measured table is rejected, not honoured
@@ -144,6 +144,7 @@ a checks directory that was never generated is named, not treated as empty
 a checks.cfg with no #derive G is refused by name, not a traceback
 a class-wide predicate over an opcode the pin partly models is rejected
 a classification naming a port the netlist has never seen is red
+a clock factor and a cycle factor measured with different tools are not a product
 a clock for a core nobody graded is named rather than ignored
 a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
@@ -202,6 +203,7 @@ a design whose Makefile is gone is exit-nonzero, not skipped
 a different ISA in the generated comparison is red, and located
 a different riscv-none-elf-gcc earlier on PATH is red, not silently used
 a differing value is a divergence, located by change index
+a digest-bearing stamp is STALE when rtl/ changes, naming the file
 a directory the glob stopped matching is red, not a suite of size zero
 a dirty tree names no base, so its sweep is not subtracted either
 a document with one number edited by hand is red
@@ -229,6 +231,7 @@ a file with two rows in the index is named
 a fixed /tmp/ scratch name in a script is red, and located
 a fixed /tmp/ scratch name in the Makefile is red, and located
 a fixture that opens its body on the head line is still inspected
+a floating tool is recorded and never graded, so a new yosys is not STALE
 a floor line matching no stamped pair is red
 a floor line that is neither a number nor EXCLUDED is named
 a floor line this loop cannot parse is a floor that is not enforced
@@ -251,6 +254,7 @@ a generated .sby whose reset window drifted from what the core's sweep asked for
 a generated check that was never scheduled resolves to NO-STATUS
 a generation that produced no checks at all is refused
 a generator whose checker path no longer matches is refused, not read as a redirected set
+a glob seed word stays a literal and is refused, not expanded to file names
 a goal first reached at complete's own depth is red
 a goal reached at or beyond complete's own depth is red
 a graded target quietly depending on netlist-digest is red, and named
@@ -274,6 +278,7 @@ a help text that says a mismatch fails the build is red
 a hop class nothing classifies would move the split silently
 a hop sum that does not reconcile blames the script, not the design
 a job with no main-only guard is red, since workflow_dispatch can target any ref
+a legacy stamp's rtl/ change since its base is STALE, and the file is named
 a liberty download whose bytes are not the pin is refused before it is kept
 a liberty file that does not match the pinned digest is refused
 a liberty file that does not match the pinned digest is refused
@@ -322,7 +327,9 @@ a missing bitwuzla is refused by name before sby ever runs
 a missing btorsim is refused by name before formal's own sweep runs
 a missing btorsim is refused by name before nano's own sweep runs
 a missing checks.cfg is refused rather than read as not-live
+a missing content digest is refused
 a missing correlation record is refused, not silently skipped
+a missing cycle tools block is refused, not defaulted to the clock side's
 a missing depth line in the .sby stops rather than comparing nothing
 a missing document is red
 a missing excluded-cell list is refused by the timing run too
@@ -410,6 +417,7 @@ a peripheral inside the timer's reserved span is red
 a pin file that does not exist is refused, not read as absent-is-fine
 a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
+a pinned compiler version the stamp did not measure is STALE
 a placement at zero MHz is not a placement
 a placer that wrote no bitstream placed nothing, which is not a pass
 a plain directory git cannot list is a scan of nothing, not green
@@ -456,6 +464,7 @@ a reg_rs1 bit routed into x_busy is red, at x_busy's own site
 a reintroduced fallback search in a live consumer is red, and located
 a relative install directory is red before it is compared
 a renamed cell is named by path
+a renamed compiler is itself a reason, keyed by name
 a renamed or deleted netlist-digest target stops the check rather than passing it
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
@@ -529,6 +538,7 @@ a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is r
 a second instance of the macro is refused, not priced once
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
+a seed word carrying shell syntax is refused before it is expanded
 a semicolon in the liberty path stays inside its own quoted token
 a semicolon in the liberty path stays inside its own quoted token
 a semicolon in the stat-json path stays inside its own quoted token
@@ -567,7 +577,9 @@ a stall-sites repo root that does not exist is red before anything is scanned
 a stalled-bus mutant red for only some goals is not full evidence
 a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp that moved under the committed document is red
+a stamp whose base commit no longer resolves is still graded fresh by its digest
 a stamp with no table under it is a failed measurement
+a stamp with no tools block is STALE, not read as having nothing to compare
 a stamped benchmark with no floor line is red
 a standalone synthesis of zero cells is named, not divided by
 a stat.json missing area/num_cells/by_type is refused, not read as what is left
@@ -584,12 +596,14 @@ a sweep of the part with no icetime is refused, not walked
 a sweep that names no part says which instrument is missing
 a sweep whose lowest value already passes is refused a flip point, not reported one
 a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out
+a sweep with fewer samples than seeds is refused
 a synthesis that failed is not a passed control either
 a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
 a target added to littlecpu's all with no CI step is red
 a target added to nano's all with no CI step is red
 a term with no allow-list behind it stops rather than grading nothing
+a test/bench source is a measured input
 a testbench simulating a different map than the image is linked for is red
 a tie-off at every harness that no baseline declares is red
 a timer base aligned only for one hart is red
@@ -600,7 +614,10 @@ a token handed to the step that executes upstream code is red
 a tool that exits nonzero while printing is refused on its status
 a tool that is not installed names itself rather than the list
 a tool that prints nothing is refused, not stamped blank
+a tool version string handed back to eval is red
 a toolchain that moved is a different digest, and is named first
+a tools block naming one tool twice is refused rather than the later line winning
+a tools block that is not '# NAME: VALUE' lines is refused as unreadable
 a top module with no cells in it is a failed synthesis
 a torn atomic going red at the wait bound is not evidence either
 a torn atomic going red at the wait bound is not evidence either
@@ -620,6 +637,7 @@ a trip prints the trend too, since that is the run that needs it
 a truncated netlist is refused, which is what a full disk leaves
 a truncated report blames the run rather than parsing what is left
 a truncated stat.json is refused, not read as an empty report
+a variable spliced into python3 -c text is red
 a verdict parser that stops validating the UART text is red
 a verdict under twelve seeds is refused with the count named
 a wait bound that admits a starved hart is red
@@ -687,12 +705,15 @@ an exclusion with no reason written under it is rejected
 an exemption naming no program is red, not a program quietly excused
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
+an ignored opponent clone gaining an uncommitted change refuses to stamp
+an ignored opponent clone moving to another commit refuses to stamp
 an ill_e cover that cannot go red is not a control
 an ill_e shipping harness that cannot reach its own cover goal is red
 an image objcopy wrote nothing into is red, not empty and accepted
 an image whose RAM outgrows the part's SPRAM does not fit either
 an indented line equal to a plain heredoc's token does not close it early
 an injection site that moved stops the control, loudly
+an input edited during the run refuses to stamp
 an input held constant that no baseline declares is red
 an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
@@ -701,9 +722,10 @@ an issue body whose compare link does not open the pull request form is red
 an ls_access with an extra encoding proving is red
 an objcopy that refuses names the region it refused for
 an open issue from anyone but the bot suppressing a refresh is red
-an orphaned base recovers --require-news as news rather than refusing the run
-an rtl/ change since the stamp's base is STALE, and the file is named
+an orphaned base on a digest-bearing stamp is not news, the digest still matching
+an orphaned base on a legacy stamp recovers --require-news as news rather than refusing the run
 an svlint install inside the checkout is red on its own
+an uncommitted Makefile, which the base diff never watched, makes the digest STALE
 an unconditional port connected only inside an ifdef is red
 an underived part says so rather than borrowing another part's band
 an unexpected PASS is red for nano's suite too
@@ -786,6 +808,7 @@ control: a full-pass check set against an empty baseline is green
 control: a good CoreMark run reports all three cores' figures
 control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
+control: a legacy stamp with no digest is still graded, by its base commit, and fresh
 control: a macro is priced from its LEF and printed apart from the soft logic
 control: a matching pin names its own seed and MHz
 control: a measurement within budget is green
@@ -807,6 +830,7 @@ control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's
 control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
 control: a rule from this developer's core.excludesFile is not this repository's to grade
 control: a rule from this developer's init.templateDir is not this repository's to grade
+control: a seed list of 'default' and digits reaches the next refusal
 control: a shard runs its slice and writes a status for every check in it
 control: a single rtl/*.v mention is prose, not a list
 control: a stamped sweep summarises
@@ -858,6 +882,7 @@ control: littlecpu's cycle columns match the committed floor
 control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's shipping core passes the gate and the leak fails it
+control: matching tool stamps, a digest and a sample per seed write a pair
 control: mutate on a real match rewrites the file and returns 0
 control: mutate_remove deletes a file that is there
 control: nano's declared fork redirects every generated insn_* check
@@ -870,9 +895,11 @@ control: nano's real divider defect is a baselined green, not a hidden one
 control: nano's shipping core passes the gate and the leak fails it
 control: nano's startup check is graded the same way, and it is green
 control: nano/formal/Makefile also puts the cached suite first
+control: nothing changing during the run is unmoved
 control: one register-file build reports its area and delay
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
+control: run_product.sh evals no tool string and splices no variable into python3 -c
 control: the ECP5 arm reads its own fabric's two cell names
 control: the MUL constant-latency assertion fails at its own line
 control: the Zkt-isolation assertion fails at its own line
@@ -922,6 +949,7 @@ control: the shipping tree names one ISA at every site
 control: the shipping tree names the seven stall signals and the six CPI reasons consistently
 control: the shipping tree states every band figure in one place
 control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
+control: the stamped compiler name and pinned version agree
 control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
 control: two identical snapshots print a null delta and no news
@@ -944,6 +972,7 @@ excluding --require-news's artifact does not blind it to a real soc/compare/ cha
 excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
+formal/pin.mk is a measured input
 half of a macro-guarded group is red, where none of it is not
 hazard's three causes losing a cycle between them is red
 icetime that cannot resolve its chip database is refused before a version is stamped
@@ -1062,6 +1091,7 @@ the UART moving in the proof's copy alone is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
 the artifact moving does not make its own stamp stale
+the artifact the run itself rewrites does not count as the tree moving
 the attribute nextpnr places against disagreeing with CORE_HZ is red
 the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
@@ -1084,6 +1114,7 @@ the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence
 the exemption does not extend to a write of the WRONG register
+the files the stamp itself feeds are excluded, so it never goes stale on its own output
 the free harness with no line in the baseline is red
 the free trap harness tied low would grade no interrupt entry, and is red
 the generated check set's isa line swept along with the flags is red
