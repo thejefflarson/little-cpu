@@ -566,7 +566,7 @@ top, ECP5 only.
   `make dhrystone-board` before ADR-0130.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
-Hazard3's iCE40 build (`soc/compare/hazard3_pin.mk`, ADR-0139). **Every figure below is one
+Hazard3 in two builds (`soc/compare/hazard3_pin.mk`, ADR-0139, ADR-0246). **Every figure below is one
 stamp: the weekly workflow's `make compare-product` dispatched on `main` at 11cc506 on
 2026-10-01, under xPack gcc 15.2.0, yosys 0.69+158, nextpnr 0.11.1-40, twelve seeds a part, with
 the cycle halves re-run locally the same day and digit-identical** (ADR-0232 holds the table, the
@@ -575,8 +575,23 @@ refresh PR carries; `docs/comparison.md` is rendered from it by `make compare-do
 AND one toolchain**, and **A COMPARISON IS ONLY AS GOOD AS ITS LEAST EXAMINED ASSUMPTION** — this
 harness has been wrong about the part (ADR-0086/ADR-0160), the opponent's configuration (ADR-0160
 as amended: `FormalSimple` had no `MulPlugin`, no `CsrPlugin` and no hazard forwarding, which
-flattered VexRiscv on period and this core on cycles at once), and the shared ISA — each
-corrected once found, never all at once.
+flattered VexRiscv on period and this core on cycles at once), the shared ISA, and Hazard3's
+configuration (its iCE40 area build had been the only one run) — each corrected once found, never
+all at once.
+**One standard for every opponent's configuration, and every ratio names the build** (ADR-0246).
+An opponent runs the configuration its authors ship for a part with room to spare. VexRiscv's only
+build is its performance one (`GenLittleCpuCompare.scala`). Hazard3's is the one its two ECP5
+examples agree on (`fpga_ulx3s.v`, `fpga_orangecrab_25f.v`): `MUL_FAST`, `BRANCH_PREDICTOR`,
+`CSR_COUNTER` and `EXTENSION_ZIFENCEI` on. A core that also ships a small-FPGA build keeps it as
+its own column, so `hazard3` is the iCE40 example's area build and `hazard3_perf` the performance
+build, and neither replaces the other. The ISA (C, A, M, Zb*) belongs to the harness row and is
+never an opponent's tuning, which is why `EXTENSION_C` is 0 in both. `soc/compare/hazard3_builds.txt`
+states both builds' parameters; `soc/compare/hazard3_config_test.py` grades the bench against it
+and it against the pinned clone's examples (`make hazard3-config-test` offline on `make test`,
+`hazard3-config-clone-test` before every Hazard3 simulation); `soc/compare/comparison.py` labels
+every row with its build and refuses a core in the stamp that has no label. A new opponent joins by
+adding its authors' build or builds to that list, not by a tuning chosen here. Unqualified
+"Hazard3" figures in this section are the area build's.
 **It places on exactly the two parts this design ships to, and hx8k is gone** (ADR-0171).
 `COMPARE_PART` selects `up5k` (the default) or `ecp5` and anything else is a hard error; there is
 no third row to add without measuring one. The two arms answer different questions and are never
@@ -590,11 +605,12 @@ since `soc/bands.py` has no band for that part and up5k's own was derived on `li
 on this bench. The ECP5 arm carries the same gates the SoC's own ECP5 flow does — `DP16KD`,
 `TRELLIS_DPR16X4` and `MULT18X18D` censuses plus `soc/bram_reset_check.py` — and
 `placed_vs_synth.py` reads `TRELLIS_COMB` against `LUT4` there rather than the ice40 pair.
-**Hazard3's multiplier maps to soft logic on ECP5 and the other two cores' do not**
-(`COMPARE_ECP5_EXPECT_DSP_hazard3` is 0 against 4), which is declared rather than rediscovered.
-**RV32IM, not RV32I or RV32IMA, is the widest ISA all three cores share**: Hazard3's iCE40 build has
+**Hazard3's area-build multiplier maps to soft logic on ECP5 and the other cores' do not**
+(`COMPARE_ECP5_EXPECT_DSP_hazard3` is 0 against 4; `hazard3_perf`'s `MUL_FAST` maps 3), which is declared
+rather than rediscovered.
+**RV32IM, not RV32I or RV32IMA, is the widest ISA all the cores share**: both Hazard3 builds have
 no C, and the generated VexRiscv has no `AtomicPlugin`, so `COMPARE_DHRY_CFLAGS` and
-`COMPARE_COREMARK_CFLAGS` both build at `rv32im`, and CoreMark runs all three cores in one
+`COMPARE_COREMARK_CFLAGS` both build at `rv32im`, and CoreMark runs every core in one
 simulation, `soc/compare/coremark_tb.v` reusing `soc/compare/dhry_monitor.v` for its third DUT
 (ADR-0146 as amended). Both benchmarks are `-O2` under the pinned compiler (the flags
 `make compare-dhrystone` prints), with `soc/compare/dhry_port.c`'s own byte loops for the string
@@ -651,8 +667,8 @@ resolve a PR-branch commit once merged; the workflow pushes the branch that carr
 opens an issue linking it, and a person opens the PR (ADR-0233). Two graded checks stand in front of every number:
 `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of the core's own
 synthesis — an all-NOP image once placed a quarter of this core with a plausible critical path
-beside it (ADR-0086) — and `make compare-smoke` requires all three cores to publish the same
-values, which caught Hazard3's first bus adapter publishing all-X words (ADR-0139). The harness
+beside it (ADR-0086) — and `make compare-smoke` requires every core, both Hazard3 builds included, to
+publish the same values, which caught Hazard3's first bus adapter publishing all-X words (ADR-0139). The harness
 gives VexRiscv no data path to its ROM, so keep read-only data out of ROM there.
 **A pairwise row at the ISA that ONE pair actually shares beyond RV32IM is a fourth, fifth, sixth
 and seventh row, printed alongside the three-way one rather than replacing it** (ADR-0160 as
@@ -775,7 +791,7 @@ make riscv-gcc-setup # fetch the pinned xPack riscv-none-elf-gcc release into th
                     # cache; make test's riscv-gcc-pin-test grades that PATH resolves it
 make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches + probe-gates
                     # + every repo-scanning `*-test` target (memmap, march, band-source,
-                    # retired-term, adr-numbering, port-connect, compare-geometry,
+                    # retired-term, adr-numbering, port-connect, compare-geometry, hazard3-config,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity, macro-register,
@@ -856,7 +872,7 @@ make netlist-digest # the mapped netlist's digest; `make netlist-diff BASE=<ref>
                     # spend the sweep. netlist-determinism is a prerequisite, and its
                     # comment-class case now exercises a large representative file rather
                     # than the small one that could never have caught this
-make compare-timing # this core, VexRiscv and Hazard3 in ONE harness, on the two parts
+make compare-timing # this core, VexRiscv and Hazard3 (COMPARE_CORE=hazard3 or hazard3_perf) in ONE harness, on the two parts
                     # this design ships to. COMPARE_PART picks one -- up5k (default),
                     # where the 12 MHz step GATES pass/fail and the comparison is
                     # cycles alone, or ecp5, where Fmax is a factor and PUBLISHES with

@@ -58,7 +58,6 @@ CAVEATS = [
     "**Hazard3's ECP5 clock** carries a standing flag: the same RTL read 33.26 MHz in one "
     "session and 48.50 in a later one, and the unpinned nextpnr-ecp5 is the likely, "
     "unconfirmed cause. Read it as measured and inherit the flag.",
-    "**Hazard3 has no Dhrystone row** in the stamp; only CoreMark carries its columns.",
     "**One standard for every opponent** (docs/adr/0246): each core runs the configuration "
     "its authors ship for a part with room, and a core that ships a small-part build as well "
     "gets that build as its own named column. No ratio here is against an unnamed build, "
@@ -175,6 +174,11 @@ def render(stamp):
     out += ["## Caveats that travel with the numbers", ""]
     out += [f"- **{core}**: {note}." for core, note in CORE_NOTES.items()]
     out += [f"- {caveat}" for caveat in CAVEATS]
+    unstamped = [title for bench, title in BENCHMARKS
+                 if not any("hazard3" in (pairs.get(bench + sfx) or {}).get("cores", {})
+                            for sfx, _ in PARTS)]
+    if unstamped:
+        out.append(f"- **Hazard3 has no {' or '.join(unstamped)} row** in this stamp.")
     out += ["", "## Stamp provenance", ""]
     measured = {n: p for n, p in sorted(pairs.items()) if p["status"] == "measured"}
     for name, pair in measured.items():

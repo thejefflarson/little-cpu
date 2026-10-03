@@ -117,7 +117,7 @@ sweep_clock() {  # $1 = part, $2 = core; prints comma-separated ns on stdout
 # One sweep per (core, part) serves both benchmark pairs below.
 for part in $PARTS; do
   echo "== compare-product: clock sweep on $part ($SEEDS) =="
-  for core in littlecpu vexriscv hazard3; do
+  for core in littlecpu vexriscv hazard3 hazard3_perf; do
     echo "-- $core --"
     ns=$(sweep_clock "$part" "$core")
     echo "$ns"
@@ -126,7 +126,7 @@ for part in $PARTS; do
   echo
 done
 
-echo "== compare-product: Dhrystone cycles (littlecpu against VexRiscv) =="
+echo "== compare-product: Dhrystone cycles (littlecpu against VexRiscv and both Hazard3 builds) =="
 if ! DHRY_OUT=$(make compare-dhrystone 2>&1); then
   echo "*** run_product.sh: make compare-dhrystone failed." >&2
   printf '%s\n' "$DHRY_OUT" >&2
@@ -137,8 +137,11 @@ printf '%s\n' "$DHRY_OUT"
 # FIRST match: the three-way row, not the ISA-cost/pairwise rows also printed.
 LC_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=littlecpu' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
 VEX_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=vexriscv' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
-if [ -z "$LC_CYCLES" ] || [ -z "$VEX_CYCLES" ]; then
-  echo "*** run_product.sh: could not find both cores' 'DHRY core=... cycles='" >&2
+# `core=hazard3 marks=` and not `core=hazard3`, which is also the prefix of hazard3_perf.
+HZ_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=hazard3 marks=' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1)
+HZP_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=hazard3_perf marks=' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1)
+if [ -z "$LC_CYCLES" ] || [ -z "$VEX_CYCLES" ] || [ -z "$HZ_CYCLES" ] || [ -z "$HZP_CYCLES" ]; then
+  echo "*** run_product.sh: could not find all four cores' 'DHRY core=... cycles='" >&2
   echo "*** lines in make compare-dhrystone's output." >&2
   exit 1
 fi
@@ -150,7 +153,8 @@ DHRY_VAX_RATE=$(python3 -c "import sys; sys.path.insert(0, 'soc/compare'); \
   from dhry_dmips import VAX_DHRYSTONES_PER_SEC; print(VAX_DHRYSTONES_PER_SEC)")
 
 for pair in "DHRY_RUNS=$DHRY_RUNS" "LC_CYCLES=$LC_CYCLES" \
-            "VEX_CYCLES=$VEX_CYCLES" "DHRY_VAX_RATE=$DHRY_VAX_RATE"; do
+            "VEX_CYCLES=$VEX_CYCLES" "HZ_CYCLES=$HZ_CYCLES" "HZP_CYCLES=$HZP_CYCLES" \
+            "DHRY_VAX_RATE=$DHRY_VAX_RATE"; do
   name=${pair%%=*}; value=${pair#*=}
   case "$value" in
     ''|*[!0-9.]*)
@@ -164,10 +168,14 @@ done
 
 LC_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $LC_CYCLES / $DHRY_VAX_RATE)")
 VEX_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $VEX_CYCLES / $DHRY_VAX_RATE)")
+HZ_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $HZ_CYCLES / $DHRY_VAX_RATE)")
+HZP_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $HZP_CYCLES / $DHRY_VAX_RATE)")
 
 for part in $PARTS; do
   eval "lc_ns=\$NS_${part}_littlecpu"
   eval "vex_ns=\$NS_${part}_vexriscv"
+  eval "hz_ns=\$NS_${part}_hazard3"
+  eval "hzp_ns=\$NS_${part}_hazard3_perf"
   eval "set -- $TOOL_ARGS"
   case $part in
     up5k) set -- "$@" --step-mhz "$STEP_MHZ" ;;
@@ -179,22 +187,26 @@ for part in $PARTS; do
     --seeds "$SEEDS" --cflags "$DHRY_CFLAGS" --isa "$DHRY_ISA" \
     --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'DMIPS/MHz' "$@" \
     --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv=$vex_ns" \
-    --cycle-factor "littlecpu=$LC_DHRY_FACTOR" --cycle-factor "vexriscv=$VEX_DHRY_FACTOR"
+    --clock-ns "hazard3=$hz_ns" --clock-ns "hazard3_perf=$hzp_ns" \
+    --cycle-factor "littlecpu=$LC_DHRY_FACTOR" --cycle-factor "vexriscv=$VEX_DHRY_FACTOR" \
+    --cycle-factor "hazard3=$HZ_DHRY_FACTOR" --cycle-factor "hazard3_perf=$HZP_DHRY_FACTOR"
 done
 
 measure_coremark() {
   if CM_OUT=$(make compare-coremark 2>&1) \
      && LC_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=littlecpu' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
      && VEX_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=vexriscv' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
-     && HZ_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
+     && HZ_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3 marks=' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
+     && HZP_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3_perf marks=' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
      && CM_ITERATIONS=$(make -s print-COMPARE_COREMARK_ITERATIONS) \
      && CM_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS) \
-     && [ -n "$LC_CM_CYCLES" ] && [ -n "$VEX_CM_CYCLES" ] && [ -n "$HZ_CM_CYCLES" ] \
+     && [ -n "$LC_CM_CYCLES" ] && [ -n "$VEX_CM_CYCLES" ] && [ -n "$HZ_CM_CYCLES" ] && [ -n "$HZP_CM_CYCLES" ] \
      && [ -n "$CM_ITERATIONS" ] && [ -n "$CM_CFLAGS" ]; then
     printf '%s\n' "$CM_OUT"
     LC_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $LC_CM_CYCLES)")
     VEX_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $VEX_CM_CYCLES)")
     HZ_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $HZ_CM_CYCLES)")
+    HZP_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $HZP_CM_CYCLES)")
     CM_ISA=$(isa_from_cflags "$CM_CFLAGS")
     # `|| return 1`: `set -e` is suspended in this whole function, since it is
     # the left side of `measure_coremark && COREMARK_OK=1` at the call site.
@@ -202,6 +214,7 @@ measure_coremark() {
       eval "lc_ns=\$NS_${part}_littlecpu"
       eval "vex_ns=\$NS_${part}_vexriscv"
       eval "hz_ns=\$NS_${part}_hazard3"
+      eval "hzp_ns=\$NS_${part}_hazard3_perf"
       eval "set -- $TOOL_ARGS"
       case $part in
         up5k) set -- "$@" --step-mhz "$STEP_MHZ" ;;
@@ -213,8 +226,10 @@ measure_coremark() {
         --seeds "$SEEDS" --cflags "$CM_CFLAGS" --isa "$CM_ISA" \
         --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'CoreMark/MHz' "$@" \
         --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv=$vex_ns" --clock-ns "hazard3=$hz_ns" \
+        --clock-ns "hazard3_perf=$hzp_ns" \
         --cycle-factor "littlecpu=$LC_CM_FACTOR" --cycle-factor "vexriscv=$VEX_CM_FACTOR" \
-        --cycle-factor "hazard3=$HZ_CM_FACTOR" || return 1
+        --cycle-factor "hazard3=$HZ_CM_FACTOR" --cycle-factor "hazard3_perf=$HZP_CM_FACTOR" \
+        || return 1
     done
     return 0
   fi
@@ -227,7 +242,7 @@ measure_coremark() {
 }
 
 echo
-echo "== compare-product: CoreMark (littlecpu against VexRiscv and Hazard3) =="
+echo "== compare-product: CoreMark (littlecpu against VexRiscv and both Hazard3 builds) =="
 COREMARK_CAPABLE=0
 if grep -q '^compare-coremark:' Makefile && [ -f soc/compare/coremark_dmips.py ]; then
   COREMARK_CAPABLE=1
@@ -249,7 +264,7 @@ if [ "$COREMARK_OK" -eq 0 ]; then
   REASON="make compare-coremark is not on this tree yet; run_product.sh will measure it once that lands"
   for part in $PARTS; do
     python3 soc/compare/product_write.py "$OUT" "$(pair_name coremark "$part")" \
-      --not-yet-measured --target-core littlecpu --core hazard3 --core vexriscv \
+      --not-yet-measured --target-core littlecpu --core hazard3 --core hazard3_perf --core vexriscv \
       --reason "$REASON"
   done
 fi

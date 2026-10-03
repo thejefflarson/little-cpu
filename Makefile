@@ -614,10 +614,7 @@ ill-e-wiring-test:
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
 
-# Hazard3 runs in two builds, each the one its authors ship; this grades the bench against
-# soc/compare/hazard3_builds.txt, offline. The clone-backed form also re-reads the file
-# against the pinned clone's examples and is a prerequisite of every recipe that runs
-# Hazard3.
+# Hazard3's two builds against the authors' examples; the clone form precedes every Hazard3 simulation.
 .PHONY: hazard3-config-test hazard3-config-clone-test
 hazard3-config-test:
 	@python3 ./soc/compare/hazard3_config_test.py
@@ -1587,9 +1584,7 @@ else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf),)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
-# hazard3_perf is the same bench with PERF set, and its standalone synthesis takes the
-# same four parameters the bench changes, so the placed-vs-synthesised floor compares a
-# core with itself.
+# hazard3_perf is the bench with PERF set; its standalone synthesis takes the same four parameters.
 ifeq ($(COMPARE_CORE),hazard3_perf)
 COMPARE_BENCH_CHPARAM := -set PERF 1
 HAZARD3_PERF_CHPARAM := -set EXTENSION_ZIFENCEI 1 -set CSR_COUNTER 1 -set MUL_FAST 1 \
@@ -1836,8 +1831,7 @@ compare-coremark: hazard3-config-clone-test $(BUILD)/compare.coremark.vvp $(BUIL
 	  hazard3_perf=$(BUILD)/compare.hazard3_perf.core.log
 
 .PHONY: compare-timing
-# The memories are shared; the DSP count is the core's own. Hazard3 in its area build has
-# soft-logic multiplies; in its performance build MUL_FAST maps three hard multipliers.
+# The memories are shared; the DSP count is the core's own, and Hazard3's depends on its build.
 COMPARE_ECP5_EXPECT_DP16KD := 34
 COMPARE_ECP5_EXPECT_LUTRAM := 32
 COMPARE_ECP5_EXPECT_DSP_littlecpu := 4

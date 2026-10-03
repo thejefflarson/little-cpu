@@ -65,13 +65,13 @@ Cycle factor: ratcheted for `littlecpu` only (`soc/compare/CYCLE_FLOOR`); the ot
 - **hazard3**: Hazard3's two-port build from its iCE40 example (`fpga_icebreaker.v`): bit-serial multiply, no branch predictor, no counters, no fence.i; its disclosed bus wait is counted in its cycles.
 - **hazard3_perf**: Hazard3's two-port build from its two ECP5 examples (`fpga_ulx3s.v`, `fpga_orangecrab_25f.v`): single-cycle multiply, branch predictor, counters, fence.i; the same bus adapter and wait.
 - **Hazard3's ECP5 clock** carries a standing flag: the same RTL read 33.26 MHz in one session and 48.50 in a later one, and the unpinned nextpnr-ecp5 is the likely, unconfirmed cause. Read it as measured and inherit the flag.
-- **Hazard3 has no Dhrystone row** in the stamp; only CoreMark carries its columns.
 - **One standard for every opponent** (docs/adr/0246): each core runs the configuration its authors ship for a part with room, and a core that ships a small-part build as well gets that build as its own named column. No ratio here is against an unnamed build, and an ISA choice (C, A, M) is the harness row's, never an opponent's tuning.
 - **CoreMark's cycles are simulated at a larger map than the clock is placed at**: its text does not fit the up5k's placed ROM, so the cycle half and the clock half come from different geometries. Dhrystone fits, and nothing in its rows is distorted by memory size. Each row's simulated geometry is on its provenance line.
 - **A product is a measurement only when both halves came off one tree and one toolchain.** Every row here shares one stamp commit and one tool list.
 - **Parts are never blended.** The up5k and ECP5 sections answer different questions and are not averaged or ranked against each other.
 - **The comparison is RV32IM**, the widest ISA all the cores share; no pairwise wider-ISA row is stamped, so none is rendered.
 - **nanocpu is not in this comparison** and is never quoted beside littlecpu.
+- **Hazard3 has no Dhrystone 2.1 row** in this stamp.
 
 ## Stamp provenance
 

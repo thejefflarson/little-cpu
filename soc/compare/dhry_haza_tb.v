@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Dhrystone on littlecpu and Hazard3 alone, both at RV32IMA -- the widest ISA this pair
-// shares, since Hazard3's iCE40 build sets EXTENSION_A=1 but EXTENSION_C=0. Held against
+// Dhrystone on littlecpu and Hazard3 (both builds) alone, at RV32IMA -- the widest ISA this pair
+// shares, since both Hazard3 builds set EXTENSION_A=1 and EXTENSION_C=0. Held against
 // soc/compare/dhry.lds by soc/compare/run_dhrystone.sh, the same way soc/compare/dhry_tb.v
 // is.
 module dhry_haza_tb;

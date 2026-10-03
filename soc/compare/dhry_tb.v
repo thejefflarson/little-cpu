@@ -1,6 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Runs Dhrystone on all three cores of this directory's harness, in one simulation, off
+// Runs Dhrystone on every core of this directory's harness, Hazard3 in both builds, in one simulation, off
 // one image, and counts each core's cycles on its own data bus.
 module dhry_tb;
   // Held against soc/compare/dhry.lds by soc/compare/run_dhrystone.sh, which reads both

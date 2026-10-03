@@ -1,7 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 // CoreMark on littlecpu and Hazard3 alone, both at RV32IMA -- the widest ISA this pair
-// shares, since Hazard3's iCE40 build sets EXTENSION_A=1 but EXTENSION_C=0. Same geometry
+// shares, since both Hazard3 builds set EXTENSION_A=1 and EXTENSION_C=0. Same geometry
 // as soc/compare/coremark_tb.v, so soc/compare/dhry_monitor.v watches this unmodified the
 // same way that file explains.
 module coremark_haza_tb;
