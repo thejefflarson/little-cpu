@@ -1572,11 +1572,20 @@ COMPARE_CORE_READ := read_verilog $(VEXRISCV_V); \
 COMPARE_CORE_TOP  := VexRiscv
 COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V) vexriscv-pin-check
 COMPARE_CORE_DEPS := $(VEXRISCV_V) vexriscv-pin-check
-else ifeq ($(COMPARE_CORE),hazard3)
+else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf),)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
+# hazard3_perf is the same bench with PERF set, and its standalone synthesis takes the
+# same four parameters the bench changes, so the placed-vs-synthesised floor compares a
+# core with itself.
+ifeq ($(COMPARE_CORE),hazard3_perf)
+COMPARE_BENCH_CHPARAM := -set PERF 1
+HAZARD3_PERF_CHPARAM := -set EXTENSION_ZIFENCEI 1 -set CSR_COUNTER 1 -set MUL_FAST 1 \
+                        -set BRANCH_PREDICTOR 1
+endif
 COMPARE_CORE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(HAZARD3_SRCS); \
+                     $(if $(HAZARD3_PERF_CHPARAM),chparam $(HAZARD3_PERF_CHPARAM) hazard3_cpu_2port; )\
                      hierarchy -top hazard3_cpu_2port
 COMPARE_CORE_TOP  := hazard3_cpu_2port
 COMPARE_DEPS      := $(COMPARE_SRCS) | $(HAZARD3_DIR)
@@ -1626,7 +1635,7 @@ $(BUILD)/compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for up5k (log: $(BUILD)/compare.$(COMPARE_CORE).synth.log)'
 	@# chparam BEFORE hierarchy, so the harness's geometry has one source -- the
 	@# variables above -- rather than a second copy in each .v file's defaults.
-	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); hierarchy -top $(COMPARE_TOP); synth_ice40 -device u -dsp -spram -top $(COMPARE_TOP) -json $@; stat' \
+	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_BENCH_CHPARAM) $(COMPARE_TOP); hierarchy -top $(COMPARE_TOP); synth_ice40 -device u -dsp -spram -top $(COMPARE_TOP) -json $@; stat' \
 	  > $(BUILD)/compare.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 $(BUILD)/compare.$(COMPARE_CORE).synth.log; exit 1; }
 
@@ -1706,11 +1715,14 @@ compare-dhrystone: $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BU
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv $(BUILD)/compare.vexriscv.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 $(BUILD)/compare.hazard3.core.log
-	@echo '== the three-way row: littlecpu, VexRiscv and Hazard3, all at RV32IM =='
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_perf $(BUILD)/compare.hazard3_perf.core.log
+	@echo '== the four-column row: littlecpu, VexRiscv, Hazard3 (area build) and Hazard3 (performance build), all at RV32IM =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
-	  '$(COMPARE_DHRY_CFLAGS)' hardware $(BUILD)/compare.dhry.vvp littlecpu,vexriscv,hazard3 \
+	  '$(COMPARE_DHRY_CFLAGS)' hardware $(BUILD)/compare.dhry.vvp \
+	  littlecpu,vexriscv,hazard3,hazard3_perf \
 	  littlecpu=$(BUILD)/compare.littlecpu.core.log vexriscv=$(BUILD)/compare.vexriscv.core.log \
-	  hazard3=$(BUILD)/compare.hazard3.core.log
+	  hazard3=$(BUILD)/compare.hazard3.core.log \
+	  hazard3_perf=$(BUILD)/compare.hazard3_perf.core.log
 	@echo
 	@echo '== the ISA-cost row: littlecpu alone, at its native ISA =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
@@ -1722,10 +1734,12 @@ compare-dhrystone: $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BU
 	  '$(COMPARE_DHRY_VEXC_CFLAGS)' hardware $(BUILD)/compare.dhry.vexc.vvp littlecpu,vexriscv \
 	  littlecpu=$(BUILD)/compare.littlecpu.core.log vexriscv=$(BUILD)/compare.vexriscv.core.log
 	@echo
-	@echo '== the pairwise-A row: littlecpu and Hazard3 alone, both at RV32IMA =='
+	@echo '== the pairwise-A row: littlecpu and Hazard3, area and performance builds, all at RV32IMA =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
-	  '$(COMPARE_DHRY_HAZA_CFLAGS)' hardware $(BUILD)/compare.dhry.haza.vvp littlecpu,hazard3 \
-	  littlecpu=$(BUILD)/compare.littlecpu.core.log hazard3=$(BUILD)/compare.hazard3.core.log
+	  '$(COMPARE_DHRY_HAZA_CFLAGS)' hardware $(BUILD)/compare.dhry.haza.vvp \
+	  littlecpu,hazard3,hazard3_perf \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log hazard3=$(BUILD)/compare.hazard3.core.log \
+	  hazard3_perf=$(BUILD)/compare.hazard3_perf.core.log
 	@if [ -f soc/compare/product.json ]; then \
 	  echo '== the stamped cross-core product, if the stamp still matches this tree =='; \
 	  python3 soc/compare/product_check.py soc/compare/product.json dhrystone \
@@ -1786,10 +1800,11 @@ compare-coremark: $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.v
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv $(BUILD)/compare.vexriscv.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3 $(BUILD)/compare.hazard3.core.log
-	@echo '== the three-way row: littlecpu, VexRiscv and Hazard3, all at RV32IM =='
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_perf $(BUILD)/compare.hazard3_perf.core.log
+	@echo '== the four-column row: littlecpu, VexRiscv, Hazard3 (area build) and Hazard3 (performance build), all at RV32IM =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_CFLAGS)' $(BUILD)/compare.coremark.vvp \
-	  littlecpu,vexriscv,hazard3
+	  littlecpu,vexriscv,hazard3,hazard3_perf
 	@echo
 	@echo '== the ISA-cost row: littlecpu alone, at its native ISA =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
@@ -1802,19 +1817,22 @@ compare-coremark: $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.v
 	  $(BUILD)/compare.coremark.vexc.vvp littlecpu,vexriscv \
 	  littlecpu=$(BUILD)/compare.littlecpu.core.log vexriscv=$(BUILD)/compare.vexriscv.core.log
 	@echo
-	@echo '== the pairwise-A row: littlecpu and Hazard3 alone, both at RV32IMA =='
+	@echo '== the pairwise-A row: littlecpu and Hazard3, area and performance builds, all at RV32IMA =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_HAZA_CFLAGS)' \
-	  $(BUILD)/compare.coremark.haza.vvp littlecpu,hazard3 \
-	  littlecpu=$(BUILD)/compare.littlecpu.core.log hazard3=$(BUILD)/compare.hazard3.core.log
+	  $(BUILD)/compare.coremark.haza.vvp littlecpu,hazard3,hazard3_perf \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log hazard3=$(BUILD)/compare.hazard3.core.log \
+	  hazard3_perf=$(BUILD)/compare.hazard3_perf.core.log
 
 .PHONY: compare-timing
-# The memories are shared; the DSP count is the core's own, and Hazard3's is soft logic.
+# The memories are shared; the DSP count is the core's own. Hazard3 in its area build has
+# soft-logic multiplies; in its performance build MUL_FAST maps three hard multipliers.
 COMPARE_ECP5_EXPECT_DP16KD := 34
 COMPARE_ECP5_EXPECT_LUTRAM := 32
 COMPARE_ECP5_EXPECT_DSP_littlecpu := 4
 COMPARE_ECP5_EXPECT_DSP_vexriscv  := 4
 COMPARE_ECP5_EXPECT_DSP_hazard3   := 0
+COMPARE_ECP5_EXPECT_DSP_hazard3_perf := 3
 COMPARE_ECP5_EXPECT_DSP := $(COMPARE_ECP5_EXPECT_DSP_$(COMPARE_CORE))
 
 $(BUILD)/compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
@@ -1826,7 +1844,7 @@ $(BUILD)/compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
 $(BUILD)/compare_ecp5.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 	@mkdir -p $(@D)
 	@echo 'yosys: synthesising $(COMPARE_TOP) for ECP5 (log: $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log)'
-	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_TOP); synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
+	@yosys -p '$(COMPARE_READ); chparam -set ROM_WORDS $(COMPARE_ROM_WORDS) -set RAM_WORDS $(COMPARE_RAM_WORDS) $(COMPARE_BENCH_CHPARAM) $(COMPARE_TOP); synth_ecp5 -top $(COMPARE_TOP) -json $@; stat' \
 	  > $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log 2>&1 \
 	  || { tail -40 $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log; exit 1; }
 	@python3 soc/cell_census.py $(BUILD)/compare_ecp5.$(COMPARE_CORE).synth.log DP16KD \

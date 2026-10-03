@@ -154,7 +154,7 @@ def main():
     parser.add_argument("--runs", type=int, required=True)
     parser.add_argument(
         "--cores",
-        default="littlecpu,vexriscv,hazard3",
+        default="littlecpu,vexriscv,hazard3,hazard3_perf",
         help="the cores a complete run reports, comma separated; the first is "
         "the reference the rest are RAM-compared against",
     )
@@ -227,8 +227,11 @@ def main():
             "in this flow has the block RAM to hold Dhrystone. It is a projection.\n"
             "None of these are shipped designs: this core is RV32IMAC + Zicsr with\n"
             "traps, VexRiscv here is RV32IC with a branch predictor, no CSR file and\n"
-            "no traps, Hazard3's iCE40 build is RV32IMA with no CSR counters and no\n"
-            "interrupt, and the image is whichever ISA the caller compiled it at."
+            "no traps, Hazard3's area build (hazard3) is RV32IMA with no CSR counters,\n"
+            "no fence.i, a bit-serial multiply and no branch predictor, its performance\n"
+            "build (hazard3_perf) adds counters, fence.i, a single-cycle multiply and a\n"
+            "branch predictor, neither has an interrupt, and the image is whichever ISA\n"
+            "the caller compiled it at."
         )
     return 0
 

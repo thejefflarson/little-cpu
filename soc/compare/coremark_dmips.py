@@ -153,7 +153,7 @@ def main():
     parser.add_argument("--iterations", type=int, required=True)
     parser.add_argument(
         "--cores",
-        default="littlecpu,vexriscv,hazard3",
+        default="littlecpu,vexriscv,hazard3,hazard3_perf",
         help="the cores a complete run reports, comma separated; the first is "
         "the reference the rest are RAM-compared against",
     )
@@ -222,9 +222,10 @@ def main():
             "\nTHE COREMARK COLUMN MULTIPLIES A CLOCK MEASURED AT THE PLACED 4 KB/2 "
             "KB\nGEOMETRY BY CYCLES MEASURED AT A LARGER SIMULATED ONE, because no "
             "ice40\nin this flow has the block RAM to hold CoreMark. It is a "
-            "projection.\nThe image is RV32IM, the ISA all three cores here share -- "
+            "projection.\nThe image is RV32IM, the ISA all the cores here share -- "
             "neither\nlittlecpu's C extension nor Hazard3's and littlecpu's A "
-            "extension is\nexercised here."
+            "extension is\nexercised here. hazard3 is Hazard3's area build and "
+            "hazard3_perf its\nperformance build; every ratio names which."
         )
     return 0
 

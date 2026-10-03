@@ -3,7 +3,15 @@
 // Hazard3 in the same harness as soc/compare/bench_littlecpu.v and
 // soc/compare/bench_vexriscv.v: same ROM depth, the same rtl/memory.v at the same base,
 // the same three pads, the same program image, the same part and the same seeds.
+//
+// PERF picks which of the authors' own two example builds the core is: 0 is
+// fpga_icebreaker.v's (the iCE40 area build), 1 is fpga_ulx3s.v's and
+// fpga_orangecrab_25f.v's (the two ECP5 builds, which agree). The four parameters below
+// that differ between those files are the ones written as `PERF ? perf : area`; every
+// other parameter is the same in all three. test/hazard3_config_test.sh diffs each
+// against the pinned clone.
 module bench_hazard3 #(
+  parameter bit PERF = 1'b0,
   parameter integer ROM_WORDS = 1024,
   parameter integer RAM_WORDS = 16384,
   parameter INIT_ROM = "soc/compare/rom_flat.hex"
@@ -58,22 +66,22 @@ module bench_hazard3 #(
     .EXTENSION_ZBC        (0),
     .EXTENSION_ZBS        (0),
     .EXTENSION_ZBKB       (0),
-    .EXTENSION_ZIFENCEI   (0),
+    .EXTENSION_ZIFENCEI   (PERF ? 1 : 0),
     .EXTENSION_XH3BEXTM   (0),
     .EXTENSION_XH3PMPM    (0),
     .EXTENSION_XH3POWER   (0),
-    .CSR_COUNTER          (0),
+    .CSR_COUNTER          (PERF ? 1 : 0),
     .U_MODE               (0),
     .PMP_REGIONS          (0),
     .BREAKPOINT_TRIGGERS  (0),
     .IRQ_PRIORITY_BITS    (0),
     .REDUCED_BYPASS       (0),
     .MULDIV_UNROLL        (1),
-    .MUL_FAST             (0),
+    .MUL_FAST             (PERF ? 1 : 0),
     .MUL_FASTER           (0),
     .MULH_FAST            (0),
     .FAST_BRANCHCMP       (1),
-    .BRANCH_PREDICTOR     (0)
+    .BRANCH_PREDICTOR     (PERF ? 1 : 0)
   ) core (
     .clk           (clk),
     .clk_always_on (clk),
