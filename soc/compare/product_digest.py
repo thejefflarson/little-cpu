@@ -23,8 +23,6 @@ import sys
 
 REFUSED = 2
 
-# Everything a measurement reads: the cores, the harness, the benchmark sources,
-# the build rules and the riscv-formal pin that supplies VexRiscv.
 INPUT_PATHS = ("rtl", "soc/compare", "test/bench", "Makefile", "formal/pin.mk")
 
 # Files under INPUT_PATHS that the stamp itself feeds. Digesting them makes the
