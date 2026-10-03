@@ -1,0 +1,12 @@
+diff --git a/rtl/executor.v b/rtl/executor.v
+--- a/rtl/executor.v
++++ b/rtl/executor.v
+@@ -176,7 +176,7 @@
+   // `seed` is destructive, so Zkr makes a read-only access illegal.
+   assign seed_readonly = in_is_csr_access && csr_addr == 12'h015 && !csr_write_op;
+   assign instr_illegal = in_valid && !take_interrupt &&
+-    (!instr_valid || csr_readonly_write || seed_readonly);
++    (!instr_valid || csr_readonly_write);
+ 
+   localparam logic [31:0] CAUSE_INSTRUCTION_FAULT   = 32'd1;
+   localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;

@@ -38,7 +38,6 @@ module littlecpu #(
   // it against its grant and answers on `bus_wait`.
   output logic        bus_request,
   input  logic        irq_timer,
-  // The platform's slow oscillator behind the `seed` CSR.
   input  logic        entropy_raw,
   output logic trap
   `ifdef RISCV_FORMAL

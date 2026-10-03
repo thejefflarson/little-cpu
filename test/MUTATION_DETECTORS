@@ -32,6 +32,9 @@ text-port-drops-load        asm   selfmod.S FAIL 2
 text-port-drops-load        asm   spioverlay.S FAIL 2
 text-port-drops-load        asm   textload.S FAIL 3
 
+seed-read-only-legal        bench executor_tb
+seed-read-only-legal        asm   seedaccess.S FAIL 3
+
 misa-drops-the-a-bit        bench csr_tb
 misa-drops-the-a-bit        asm   csr.S FAIL 5
 

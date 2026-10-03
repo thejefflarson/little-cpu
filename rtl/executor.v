@@ -173,7 +173,6 @@ module executor #(
     in_is_wfi || in_is_fence || in_is_fencei ||
     instr_atomic || (in_is_csr_access && csr_implemented);
   assign csr_readonly_write = in_is_csr_access && csr_write_op && csr_addr[11:10] == 2'b11;
-  // `seed` is destructive, so Zkr makes a read-only access illegal.
   assign seed_readonly = in_is_csr_access && csr_addr == 12'h015 && !csr_write_op;
   assign instr_illegal = in_valid && !take_interrupt &&
     (!instr_valid || csr_readonly_write || seed_readonly);

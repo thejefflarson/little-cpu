@@ -124,12 +124,12 @@ module csrs #(
       MCAUSE:    rdata = mcause;
       MTVAL:     rdata = mtval;
       MIP:       rdata = mip_value;
+      SEED:      rdata = seed_value;
       MCYCLE:    rdata = mcycle_lo;
       MCYCLEH:   rdata = mcycle_hi;
       MINSTRET:  rdata = minstret_lo;
       MINSTRETH: rdata = minstret_hi;
       MHARTID:   rdata = HART_ID;
-      SEED:      rdata = seed_value;
       MVENDORID, MARCHID, MIMPID, MCONFIGPTR: rdata = 32'b0;
       default: begin
         rdata = 32'b0;

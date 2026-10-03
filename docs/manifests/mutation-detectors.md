@@ -37,7 +37,7 @@ that goes red a different way is red here too — the same rule
 
 BOTH LEGS RUN FOR EVERY MUTATION, so a mutation with no `asm` line is the
 claim that the whole `test/asm` suite stays green under it. That is a real
-result and four of the eleven below are it. Do not add an `asm` line to make
+result and four of the twelve below are it. Do not add an `asm` line to make
 one look better covered: the grading is a set equality, and a line that does
 not fire is red.
 
@@ -125,6 +125,12 @@ adds no ratchet.
   reads a patch template out of `.text` with `lw` before it ever touches the
   flash, and that plain read is what the mutation breaks — `FAIL 2` is that
   same first template, read wrong before anything is patched.
+- **`seed-read-only-legal`** — the executor's `seed` term deleted, so a
+  `csrrs`/`csrrc` with a zero source reads the destructive CSR without
+  writing it. `seedaccess.S` FAILs at its first read-only access, which no
+  longer traps, and `executor_tb` reads the cause and the CSR file's read
+  enable on the same vector. `components_traps` is a third grader and is not
+  a leg here, since this script runs no formal job.
 - **`misa-drops-the-a-bit`** — `misa` gives bit 0 back, so the core executes
   the eleven atomics without claiming them. A self-description register has
   no other consequence — the eleven still decode, still retire and still

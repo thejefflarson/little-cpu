@@ -260,6 +260,56 @@ module executor_tb;
     check_bit("writing a read-only CSR is illegal", instret, 1'b0);
     check_hex("...cause 2", trap_cause, 32'd2);
 
+    // `seed` is destructive, so only an access that writes may read it. The suppression
+    // rule decides "writes": csrrs/csrrc with a zero source field, in either form, does not.
+    clear_in();
+    in.is_csr_access = 1'b1;
+    in.is_csrrs = 1'b1;
+    in.instr = 32'h01502573;   // csrrs a0, seed, x0
+    #1;
+    check_bit("a read-only access to seed is illegal", instret, 1'b0);
+    check_hex("...cause 2", trap_cause, 32'd2);
+    check_hex("...reporting the instruction word", trap_tval, in.instr);
+    check_bit("...and it never reaches the CSR file as a read", csr_ren, 1'b0);
+
+    clear_in();
+    in.is_csr_access = 1'b1;
+    in.is_csrrc = 1'b1;
+    in.is_csr_imm = 1'b1;
+    in.instr = 32'h01507573;   // csrrci a0, seed, 0
+    #1;
+    check_hex("csrrci with a zero immediate is read-only too", trap_cause, 32'd2);
+
+    clear_in();
+    in.is_csr_access = 1'b1;
+    in.is_csrrs = 1'b1;
+    in.instr = 32'h0157a573;   // csrrs a0, seed, a5
+    #1;
+    check_bit("csrrs with a nonzero source writes, so seed is legal", trap_entry, 1'b0);
+    check_bit("...and the read reaches the CSR file", csr_ren, 1'b1);
+
+    clear_in();
+    in.is_csr_access = 1'b1;
+    in.is_csrrs = 1'b1;
+    in.is_csr_imm = 1'b1;
+    in.instr = 32'h0150e573;   // csrrsi a0, seed, 1
+    #1;
+    check_bit("csrrsi with a nonzero immediate is legal", trap_entry, 1'b0);
+
+    clear_in();
+    in.is_csr_access = 1'b1;
+    in.is_csrrw = 1'b1;
+    in.instr = 32'h01501573;   // csrrw a0, seed, x0
+    #1;
+    check_bit("csrrw always writes, whatever the source", trap_entry, 1'b0);
+
+    clear_in();
+    in.is_csr_access = 1'b1;
+    in.is_csrrs = 1'b1;
+    in.instr = 32'h01602573;   // csrrs a0, 0x016, x0 -- the neighbouring address
+    #1;
+    check_bit("the term is seed's address alone", trap_entry, 1'b0);
+
     clear_in();
     in.is_ebreak = 1'b1;
     #1;

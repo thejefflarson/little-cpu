@@ -70,9 +70,6 @@ module testbench(
   logic reset = 1;
   always #5 clk = ~clk;
  `endif
-  // A deterministic stand-in for the board's slow oscillator: each half period lasts one to
-  // four cycles, drawn from an LFSR, so a run is reproducible and ES16 arrives inside the
-  // runner's cycle budget.
   logic        entropy_raw = 1'b0;
   logic [1:0]  osc_wait = 2'b0;
   logic [15:0] osc_lfsr = 16'hACE1;

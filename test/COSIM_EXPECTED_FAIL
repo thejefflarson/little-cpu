@@ -4,6 +4,7 @@ datainit.c     DISAGREE LENGTH
 lrsclock.S     INCONCLUSIVE SAIL-LIMIT
 mtimer.S       INCONCLUSIVE SAIL-LIMIT
 mtimermask.S   INCONCLUSIVE SAIL-LIMIT
+seed.S         DISAGREE AT 3
 spiflash.S     DISAGREE AT 9
 spioverlay.S   DISAGREE AT 22
 uart.S         DISAGREE AT 7

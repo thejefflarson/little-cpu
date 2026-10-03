@@ -13,6 +13,7 @@ rtl/regfile.v   unpaired  regfile_tb
 rtl/regsel.v    unpaired  decoder_tb
 rtl/spiflash.v  unpaired  spiflash_tb
 rtl/structs.v   unpaired  decoder_tb
+rtl/trng.v      unpaired  trng_tb
 rtl/uart.v      unpaired  uart_tb
 
 rtl/busarbiter.v  unpaired  components_busarbiter

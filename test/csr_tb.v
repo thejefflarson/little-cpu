@@ -21,7 +21,18 @@ module csr_tb;
   logic [31:0] mtvec_value, mepc_value;
   // The platform's timer line, and the one bit rtl/decoder.v reads back.
   logic        irq_timer;
-  logic        entropy_raw;
+  logic        entropy_raw = 1'b0;
+  logic [1:0]  osc_wait = 2'b0;
+  logic [15:0] osc_lfsr = 16'hACE1;
+  always_ff @(posedge clk) begin
+    osc_lfsr <= {osc_lfsr[14:0], osc_lfsr[15] ^ osc_lfsr[13] ^ osc_lfsr[12] ^ osc_lfsr[10]};
+    if (osc_wait == 2'b0) begin
+      entropy_raw <= !entropy_raw;
+      osc_wait    <= osc_lfsr[1:0];
+    end else begin
+      osc_wait    <= osc_wait - 2'd1;
+    end
+  end
   logic        interrupt_pending;
  `ifdef RISCV_FORMAL
   rvfi_csr64 rvfi_mcycle, rvfi_minstret;
@@ -197,6 +208,9 @@ module csr_tb;
     check_read("mstatus resets to MPP=M", 12'h300, 32'h0000_1800);
 
     check_read("misa", 12'h301, 32'h4000_1105);
+    check_read("seed is implemented and reads BIST with no entropy", 12'h015, 32'h0);
+    poke(12'h015, 32'hffff_ffff);
+    check_read("a write to seed is ignored", 12'h015, 32'h0);
     check_read("mie resets to 0", 12'h304, 32'h0);
     check_read("mip reads 0 with no source asserting", 12'h344, 32'h0);
     check_read("mtval resets to 0", 12'h343, 32'h0);

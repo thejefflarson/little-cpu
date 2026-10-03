@@ -194,6 +194,20 @@ rejects a region that does not end on a 4K page, so the 40 bytes the timer and
 the UART really occupy are a whole page there. Those two programs carry the
 boundary they can test and name where the rest of it is graded.
 
+## `seed.S`: the model's entropy source is ready from the first read
+
+`rtl/trng.v` reads BIST until its first word is conditioned, then WAIT or ES16; the
+model's source answers ES16 on every read. Both are within the Zkr contract, since the
+status field is the platform's to report. `seed.S` asserts the status sequence BIST,
+WAIT-free ES16, then WAIT after the consuming read, so the two runs take different paths
+at the first status test (`DISAGREE AT 3`) and no value exemption can help. Question 1
+was asked first: `test/sail/rv32imac_zicsr.json` now claims Zkr, because that moved the
+model from rejecting every `seed` access to implementing the legality rule. Question 2
+was applied to the other half: `seedaccess.S` branches on nothing a read returns, `seed`'s
+value is in `test/cosim.py`'s `NONCOMPARABLE_CSRS`, and the program AGREEs, so the one
+rule this repo's executor decides (a read-only access traps) has the independent oracle.
+`test/trng_tb.v` and `components_traps` grade the status machine itself.
+
 ## `uart.S`: the model has no device there at all
 
 The fourth entry, and the only one that is a divergence rather than a budget.

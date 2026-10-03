@@ -5315,6 +5315,9 @@ case $(basename "$PWD") in
   wrong-cause)
     line=$(grep -n 'assert(csr_rdata == prev3_cause);' src/traps.sv | cut -d: -f1)
     status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
+  seed-readonly)
+    line=$(grep -n 'assert(trap_entry);' src/traps.sv | cut -d: -f1)
+    status=${STUB_SBY_SEED:-FAIL}; line=${STUB_SBY_SEED_LINE:-$line} ;;
 esac
 : > probe/logfile.txt
 if [ "$status" = FAIL ]; then
@@ -5339,8 +5342,8 @@ tr_fixture() {
 trs() { printf "%s --repo %s --workdir %s/work --sby %s" "$TR" "$1" "$1" "$tmp/sby-stub"; }
 
 d=$(tr_fixture)
-probe "control: both arms fail, each at its own line" 0 \
-  "Both load/store region arms fail for their own reason" "$(trs "$d")"
+probe "control: all three arms fail, each at its own line" 0 \
+  "Both load/store region arms and the seed arm fail for their own reason" "$(trs "$d")"
 
 d=$(tr_fixture)
 probe "an arm that admits a fault the core never commits is red" 1 \
@@ -5349,6 +5352,19 @@ probe "an arm that admits a fault the core never commits is red" 1 \
 d=$(tr_fixture)
 probe "an arm that admits the wrong cause is red" 1 \
   "the wrong-cause core proves" "STUB_SBY_WRONG=PASS $(trs "$d")"
+
+d=$(tr_fixture)
+probe "an arm that admits a read-only seed access that never traps is red" 1 \
+  "the seed-readonly core proves" "STUB_SBY_SEED=PASS $(trs "$d")"
+
+d=$(tr_fixture)
+probe "a seed proof going red somewhere else is not evidence" 1 \
+  "which does not include line" "STUB_SBY_SEED_LINE=9 $(trs "$d")"
+
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
+  's/(!instr_valid || csr_readonly_write || seed_readonly)/(!instr_valid||csr_readonly_write||seed_readonly)/'
+probe "a respelled illegal term stops: a core that still traps proves nothing" 2 \
+  "no longer spells what the seed-readonly mutation replaces" "$(trs "$d")"
 
 d=$(tr_fixture)
 probe "a must-trap proof going red somewhere else is not evidence" 1 \

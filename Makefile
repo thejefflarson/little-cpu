@@ -457,7 +457,7 @@ lint-setup:
 
 UNIT_BENCHES := exec_tb executor_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb \
                 monitor_tb timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb \
-                fetchqueue_tb fetcher_tb
+                fetchqueue_tb fetcher_tb trng_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_executor_tb := rtl/structs.v rtl/executor.v
@@ -475,6 +475,7 @@ UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
 UNIT_BENCH_SRC_miso_share_enable_tb := soc/miso_share_enable.v
 UNIT_BENCH_SRC_fetchqueue_tb := rtl/fetchqueue.v
 UNIT_BENCH_SRC_fetcher_tb := rtl/structs.v rtl/fetcher.v
+UNIT_BENCH_SRC_trng_tb := rtl/trng.v
 
 # `present` reads the directory in the recipe, not via $(wildcard) -- make caches that
 # and a stale listing could miss a bench that is really there.

@@ -11,7 +11,7 @@ and an arm in that position is worth nothing until it has been shown to fail --
 which is what `make probe-gates` demands of every other graded comparison in this
 tree and what this file does for the two that need a solver.
 
-Two cores are built, each one or three lines of rtl/executor.v away from the
+Three cores are built, each one or three lines of rtl/executor.v away from the
 shipping one (the address/region test moved there with the D/X split, and B3
 made it combinational rather than deferred), and each faults an aligned `lw`
 whose address has bit 31 set -- an address outside all four windows of any
@@ -30,6 +30,10 @@ components_traps` red at a named assertion:
                that computes a cause and does not commit it breaks executor.v's
                own `!trap_taken => trap_cause == 0` at its own line -- in
                executor.v, which is not this arm and not even this file.
+  seed-readonly  drops the executor's read-only `seed` term, so a `csrrs` with a zero
+               source reads the destructive CSR without trapping, and the proof must go
+               FAIL at the same `assert(trap_entry)`: the model derives that trap from
+               the instruction word alone.
   wrong-cause  swaps the two causes -- cause 7 for a load and 5 for a store --
                and the proof must go FAIL at the mcause comparison. A core that
                faults the right access with the wrong cause is what that arm
@@ -43,7 +47,7 @@ written down: a probe that only checked the status would be satisfied by a proof
 that went red for an unrelated reason, which is the failure mode this whole
 mechanism is about.
 
-NOT HERMETIC -- it runs sby twice, about six seconds. So it is a prerequisite of
+NOT HERMETIC -- it runs sby three times, about ten seconds. So it is a prerequisite of
 `make -C formal components_traps` rather than of `make test`, for the reason
 pcloop_cover is one: a control that can be run separately from the thing it
 controls eventually is not run at all. test/probe_gates.sh covers this file's own
@@ -64,6 +68,7 @@ from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 ASSERTS = {
     "no-trap": "assert(trap_entry);",
     "wrong-cause": "assert(csr_rdata == prev3_cause);",
+    "seed-readonly": "assert(trap_entry);",
 }
 
 # The lines of rtl/executor.v each mutation replaces, matched in full so a respelling
@@ -73,6 +78,12 @@ MUTATIONS = {
         """  assign ls_fault = ls_access && !ls_supported && !load_misaligned && !store_misaligned;
 """,
         """  assign ls_fault = 1'b0;
+""",
+    ),
+    "seed-readonly": (
+        """    (!instr_valid || csr_readonly_write || seed_readonly);
+""",
+        """    (!instr_valid || csr_readonly_write);
 """,
     ),
     "wrong-cause": (
@@ -178,7 +189,7 @@ def main():
     traps_sv = (repo / "formal" / "traps.sv").read_text()
     red = []
 
-    for case in ("no-trap", "wrong-cause"):
+    for case in ("no-trap", "wrong-cause", "seed-readonly"):
         line = assert_line(traps_sv, case)
         print(f"formal/traps.sv states {case}'s assertion on line {line}.")
         status, failed = run_case(repo, workdir, args.sby, config, case)
@@ -201,7 +212,7 @@ def main():
             print("*** " + why.replace("\n", "\n*** "), file=sys.stderr)
         sys.exit(1)
 
-    print("Both load/store region arms fail for their own reason.")
+    print("Both load/store region arms and the seed arm fail for their own reason.")
 
 if __name__ == "__main__":
     main()
