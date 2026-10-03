@@ -199,6 +199,7 @@ a depth one below the floor is red, naming F and G
 a design entry missing area/num_cells/by_type is refused, not read as what is left
 a design that MET the target has measured the target
 a design whose Makefile is gone is exit-nonzero, not skipped
+a different ISA in the generated comparison is red, and located
 a different riscv-none-elf-gcc earlier on PATH is red, not silently used
 a differing value is a divergence, located by change index
 a directory the glob stopped matching is red, not a suite of size zero
@@ -216,6 +217,7 @@ a fault bit that never reaches its own stored word is red
 a feedback path the divider formula does not describe is red
 a field the runner stopped printing is named, not counted as zero
 a field with no value is a malformed line
+a fifth rv32im in the generated comparison is red, not exempted
 a file named twice is red rather than averaging into one pass
 a file pushed over the comment-density budget is named and red
 a file that moved away takes the check with it, loudly
@@ -298,6 +300,10 @@ a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lookalike sibling is not covered by the directory entry above it
 a lost [depth] line trips the shape check AND the verdict check
+a macro LEF that does not match its pinned digest is refused
+a macro LEF with no SIZE line is refused, not priced at zero
+a macro in the report that the run did not name is refused, not dropped
+a macro the report does not carry is refused, not priced at zero
 a make that fails only under TOOLS_ON_PATH is red, not read as respected
 a malformed baseline line is named rather than skipped
 a malformed baseline line is named rather than skipped
@@ -520,6 +526,7 @@ a runner that passes but prints no per-program line leaves nothing to compare
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused
+a second instance of the macro is refused, not priced once
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
 a semicolon in the liberty path stays inside its own quoted token
@@ -613,11 +620,13 @@ a trip prints the trend too, since that is the run that needs it
 a truncated netlist is refused, which is what a full disk leaves
 a truncated report blames the run rather than parsing what is left
 a truncated stat.json is refused, not read as an empty report
+a verdict parser that stops validating the UART text is red
 a verdict under twelve seeds is refused with the count named
 a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
+a workflow that never fetches the register-file macro is refused
 a workflow that reinstalls a global credential helper is red
 a workflow-level write scope inherited by every job is red
 a wrong-rule mutant that still passes is not a control
@@ -777,6 +786,7 @@ control: a full-pass check set against an empty baseline is green
 control: a good CoreMark run reports all three cores' figures
 control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
+control: a macro is priced from its LEF and printed apart from the soft logic
 control: a matching pin names its own seed and MHz
 control: a measurement within budget is green
 control: a measurement within budget is green
@@ -841,6 +851,7 @@ control: every site names every port of littlecpu
 control: every target in both designs' all lists is run by ci.yml
 control: fixture_anchor finds its literal in the real file
 control: formal/Makefile also puts the cached suite first
+control: hostile UART verdicts are rejected and nothing executes
 control: icetime whose chip database resolves is stamped like any tool
 control: identical register traces and verdicts AGREE
 control: littlecpu's cycle columns match the committed floor
@@ -951,6 +962,7 @@ more than seven arguments is a usage error too
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
+naming a macro without its LEF is refused, not priced at zero
 nano's baseline is checked for a one-field line too
 nano's check-solver guard also runs past a stray file of its name
 nano's check-solver guard runs on a clean tree, not only when a file forces it
@@ -1085,6 +1097,7 @@ the hold branch holding on something other than x_busy is red, and named
 the isa list is what wires a model in, not the insns/ directory alone
 the iverilog leg failing its own baseline is red before any comparison
 the linker script's RAM origin drifting from the RTL's base is red
+the macro's footprint counts against the ratchet, not only the soft logic
 the manifest is checked here too, and before the setup probe
 the model moving away takes the probe with it, loudly
 the model moving away takes this probe with it too

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Grades two shapes of the nano-tt-area-selfhosted workflow that a hand edit can break
+"""Grades three shapes of the nano-tt-area-selfhosted workflow that a hand edit can break
 silently -- each one still runs and still prints a summary, just the wrong one.
 
 The stop-after-synthesis mode is resolved once into $NANO_TT_STOP_AFTER_SYNTHESIS so every
 step reads the same value; a step that instead re-derives it from `inputs.` directly is
 one GitHub Actions expression away from `false || 'true'`, which is `'true'` -- `||`
 treats the string "false" as present and the boolean `false` as absent alike.
+
+The register-file macro's files are fetched by a step of their own: config.json points at
+nano/tt/macro, which is gitignored, so a run without that step fails at the first macro read.
 
 The sky130 PDK cache must be a restore step and a save step, not one combined
 `actions/cache` step: a combined step only saves when the whole job succeeds, and this
@@ -84,12 +87,18 @@ def main(argv):
             " success, which is what split it into restore + save in the first place"
         )
 
+    if not any("make nano-rf-macro-install" in s for s in found):
+        failures.append(
+            "no step runs `make nano-rf-macro-install`, so config.json's MACROS entry"
+            " names three files the checkout does not hold"
+        )
+
     if failures:
         for f in failures:
             print(f"*** {f}", file=sys.stderr)
         return 1
 
-    print(f"nano-tt-area-workflow: {WORKFLOW} resolves its mode once and saves its PDK cache unconditionally.")
+    print(f"nano-tt-area-workflow: {WORKFLOW} resolves its mode once, saves its PDK cache unconditionally and fetches the register-file macro.")
     return 0
 
 
