@@ -591,7 +591,11 @@ and it against the pinned clone's examples (`make hazard3-config-test` offline o
 `hazard3-config-clone-test` before every Hazard3 simulation); `soc/compare/comparison.py` labels
 every row with its build and refuses a core in the stamp that has no label. A new opponent joins by
 adding its authors' build or builds to that list, not by a tuning chosen here. Unqualified
-"Hazard3" figures in this section are the area build's.
+"Hazard3" figures in this section are the area build's. **The performance build reverses the
+CoreMark finding**: 348,144 cycles against littlecpu's 359,507 (littlecpu takes 1.033× its cycles;
+the area build's 666,552 was the old 1.854×), 231,626 against 228,825 on Dhrystone, and clocks
+12.23 / 12.82 MHz on up5k and 45.64 / 49.29 on ECP5 (worst / median of twelve). Those are ADR-0246's
+own measurements and join the stamp at its next re-take.
 **It places on exactly the two parts this design ships to, and hx8k is gone** (ADR-0171).
 `COMPARE_PART` selects `up5k` (the default) or `ecp5` and anything else is a hard error; there is
 no third row to add without measuring one. The two arms answer different questions and are never
@@ -625,8 +629,8 @@ runs, CoreMark one iteration): Dhrystone littlecpu **228,825 (0.995 DMIPS/MHz)**
 **359,507 (2.782 CoreMark/MHz)**, VexRiscv 426,430 (2.345; 1.186×), Hazard3 666,552 (1.500; 1.854×).
 Before the fetch refactor this core read 313,627 and 446,995 against the same two opponents'
 cycles, which are unchanged to the digit (ADR-0190, ADR-0220): the refactor moved littlecpu from
-behind VexRiscv on both benchmarks and behind Hazard3 on Dhrystone to ahead of every opponent on
-both, with the opponents' own unchanged cycle counts as the control. **Hazard3's disclosed adapter wait is still counted**: `wait_cycles=28805` of Dhrystone's
+behind VexRiscv on both benchmarks and behind Hazard3 on Dhrystone to ahead of VexRiscv and Hazard3's area
+build on both, with the opponents' own unchanged cycle counts as the control. **Hazard3's disclosed adapter wait is still counted**: `wait_cycles=28805` of Dhrystone's
 252,026 (11.43%) and `wait_cycles=14176` of CoreMark's 666,552 (2.13%). Bounding Hazard3 at its own
 account, 252,026 − 28,805 = 223,221 Dhrystone cycles, reads **0.975× littlecpu's**, so removing the
 disclosed wait would put it level with, and not clearly ahead of, this core.
@@ -636,7 +640,7 @@ through 11; nothing is read at one placement). Up5k: littlecpu 12.55 / 12.78 MHz
 product is the cycle ratio at one shared clock: Dhrystone littlecpu **11.94** DMIPS, VexRiscv 10.39
 (0.871× littlecpu), Hazard3 10.84 (0.908×, derived from the cycle row above rather than stamped);
 CoreMark littlecpu **33.38**, VexRiscv 28.14 (0.843×), Hazard3 18.00 (0.539×). **On up5k this
-core is now ahead of both opponents on both benchmarks; before the refactor it was behind both on
+core is now ahead of VexRiscv and Hazard3's area build on both benchmarks; before the refactor it was behind both on
 Dhrystone and close to VexRiscv on CoreMark.** ECP5 has no quantisation step, so its own
 product uses each core's own clock: littlecpu 37.38 / 38.93 MHz (9.59% spread), VexRiscv 53.16 /
 55.34 (9.11%), Hazard3 50.35 / 51.89 (8.35%). Dhrystone at each core's worst placement:
