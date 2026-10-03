@@ -36,10 +36,13 @@ runs:
         release=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
           https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
         tag=$(jq -r .tag_name <<<"$release")
+        # Later steps splice the tag into a URL and a filename; refuse anything but a date.
+        [[ "$tag" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "unexpected release tag: $tag" >&2; exit 1; }
         # The asset name carries the date without dashes: 2026-06-29 -> ...-20260629.tgz
         asset="oss-cad-suite-linux-x64-${tag//-/}.tgz"
         digest=$(jq -r --arg a "$asset" '.assets[] | select(.name == $a) | .digest' <<<"$release" | cut -d: -f2)
-        test -n "$digest"
+        # Written to GITHUB_OUTPUT and a cache key; a newline in it would inject a second output.
+        [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "unexpected digest: $digest" >&2; exit 1; }
         echo "tag=$tag" >> "$GITHUB_OUTPUT"
         echo "asset=$asset" >> "$GITHUB_OUTPUT"
         echo "digest=$digest" >> "$GITHUB_OUTPUT"
@@ -56,11 +59,15 @@ runs:
     - name: Download OSS CAD Suite (cache miss)
       if: steps.image.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
       shell: bash
+      env:
+        RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        RELEASE_ASSET: ${{ steps.release.outputs.asset }}
+        RELEASE_DIGEST: ${{ steps.release.outputs.digest }}
       run: |
         set -euo pipefail
         curl -fsSL -o oss-cad-suite.tgz \
-          "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${{ steps.release.outputs.tag }}/${{ steps.release.outputs.asset }}"
-        echo "${{ steps.release.outputs.digest }}  oss-cad-suite.tgz" | sha256sum -c -
+          "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$RELEASE_TAG/$RELEASE_ASSET"
+        echo "$RELEASE_DIGEST  oss-cad-suite.tgz" | sha256sum -c -
         tar -xzf oss-cad-suite.tgz
         rm oss-cad-suite.tgz
 
@@ -68,9 +75,10 @@ runs:
       shell: bash
       env:
         RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        IMAGE_FOUND: ${{ steps.image.outputs.found }}
       run: |
         set -euo pipefail
-        if [ "${{ steps.image.outputs.found }}" = "true" ]; then
+        if [ "$IMAGE_FOUND" = "true" ]; then
           root=/opt/oss-cad-suite
           # Whatever the runner image was built with: a de facto pin nothing in
           # this repo declares or moves, and it does move -- the self-hosted pool

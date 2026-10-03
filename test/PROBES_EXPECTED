@@ -94,6 +94,7 @@ a VCO outside the range the part locks over is red
 a backslash-continued sed -i is still a raw edit
 a backslash-newline after the closing quote, between recipe arguments, is green
 a backslash-newline inside a double-quoted yosys -p script is red
+a backslash-newline inside a quoted $(YOSYS) -p script is red
 a backslash-newline inside a single-quoted yosys -p script is red
 a bare unpaired with no grader does not pass by silence
 a base that is not a 40-character SHA is refused as malformed, not graded stale
@@ -149,6 +150,7 @@ a clock turns the per-MHz figure into an absolute one
 a combined actions/cache step in place of restore is refused
 a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
 a commented-out CI step does not count as run
+a commit that leaves the regenerated comparison document behind is red
 a commit that stages more than the stamp is red
 a commit under the age floor stops the bump, naming its age
 a configuration for another corner is refused, not reported
@@ -427,6 +429,9 @@ a proof going red somewhere else is not evidence about the mtval arm
 a prose copy of a band figure goes red where it is written
 a publish job on the self-hosted pool is red
 a publish job that ignores the measure job's moved output is red
+a publish job that never regenerates the comparison document is red
+a publish job that rides a second target on make compare-doc is red
+a publish job that runs any make target but compare-doc is red
 a publish job that runs make beside the write token is red
 a push aimed at main instead of the refresh branch is red
 a push carrying no per-command credential helper is red
@@ -516,6 +521,7 @@ a row's number duplicated onto a different, real file is named
 a run reporting no retire count at all is graded NO-COUNTS
 a run that never made the cross-core check is red
 a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
+a run with no stalled cycles gets a report, not a ZeroDivisionError
 a runner that passes but prints no per-program line leaves nothing to compare
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
@@ -624,6 +630,7 @@ a workflow that never fetches the register-file macro is refused
 a workflow that reinstalls a global credential helper is red
 a workflow-level write scope inherited by every job is red
 a wrong-rule mutant that still passes is not a control
+a yosys whose -p and quoted script sit on a continuation line is red
 an #insn-check naming a file that does not exist is refused
 an ABI alias outside x0-x15 (a7 = x17) is caught the same way
 an ECP5 placement read with ice40 names names the part, not a bad log
@@ -689,9 +696,11 @@ an injection site that moved stops the control, loudly
 an input held constant that no baseline declares is red
 an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
+an issue body that stops naming the hand-updated cycle floor is red
 an issue body whose compare link does not open the pull request form is red
 an ls_access with an extra encoding proving is red
 an objcopy that refuses names the region it refused for
+an open issue from anyone but the bot suppressing a refresh is red
 an orphaned base recovers --require-news as news rather than refusing the run
 an rtl/ change since the stamp's base is STALE, and the file is named
 an svlint install inside the checkout is red on its own

@@ -20,6 +20,9 @@ WORKFLOW = ".github/workflows/compare-product-schedule.yml"
 PUBLISH_STEP_NAME = "Publish the refreshed stamp"
 MAIN_GUARD = re.compile(r"^\s*if:.*github\.ref == 'refs/heads/main'", re.M)
 WRITE_SCOPE = re.compile(r"^\s+[a-z-]+:\s*write\b", re.M)
+# The one make invocation the publish job may carry: it renders the committed comparison
+# document from the stamp with python3 alone, and nothing else may ride beside the token.
+ALLOWED_MAKE = re.compile(r"^\s*make compare-doc[ \t]*$", re.M)
 MEASUREMENT_TOOLS = re.compile(r"\bmake\b|\./\.github/actions/|setup-riscv-gcc|setup-oss-cad-suite")
 
 
@@ -60,7 +63,7 @@ def main(argv):
         if writes and name != "publish":
             failures.append(f"the {name} job holds a write-scoped token "
                             f"({writes.group(0).strip()}); only the publish job may.")
-        if writes and MEASUREMENT_TOOLS.search(code_lines(body)):
+        if writes and MEASUREMENT_TOOLS.search(ALLOWED_MAKE.sub("", code_lines(body))):
             failures.append(f"the {name} job holds a write-scoped token and also runs "
                             "measurement tools (make, a toolchain setup action); a tool "
                             "could rewrite the publish script before it runs with the token.")
@@ -90,6 +93,10 @@ def main(argv):
     if not re.search(r"^\s+runs-on:\s*ubuntu-latest\s*$", publish, re.M):
         failures.append("the publish job does not run on ubuntu-latest, so the one job "
                         "holding write scopes shares the self-hosted pool with the tools.")
+    if not ALLOWED_MAKE.search(code_lines(publish)):
+        failures.append("the publish job never runs `make compare-doc`, so the refresh "
+                        "branch would carry a stamp its committed comparison document "
+                        "disagrees with.")
     if not [s for s in steps(publish) if "actions/download-artifact" in s]:
         failures.append("the publish job downloads no artifact, so it has no stamp to publish.")
 

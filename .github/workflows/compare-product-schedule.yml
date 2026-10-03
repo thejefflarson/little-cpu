@@ -197,10 +197,16 @@ jobs:
           name: compare-product-stamp
           path: ${{ runner.temp }}/compare-product
 
+      # The one make target the publish job may run; it needs only python3.
+      - name: Stage the stamp and regenerate the comparison document
+        env:
+          OUT_DIR: ${{ runner.temp }}/compare-product
+        run: |
+          cp "$OUT_DIR/product.json" soc/compare/product.json
+          make compare-doc
+
       - name: Publish the refreshed stamp
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OUT_DIR: ${{ runner.temp }}/compare-product
-        run: |
-          cp "$OUT_DIR/product.json" soc/compare/product.json
-          .github/scripts/publish-product-refresh.sh "$OUT_DIR"
+        run: .github/scripts/publish-product-refresh.sh "$OUT_DIR"

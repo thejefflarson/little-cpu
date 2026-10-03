@@ -121,8 +121,9 @@ references still resolve.
   its consumer reaches X the result has moved on to `writeback`, and the regfile's own
   write-through bypass (commitment 6) already delivers it on the issuing cycle. Only a
   load-use dependency still stalls, two cycles (no ready result to forward, then the result
-  not yet unpacked); `hazard`'s split (`test/stall_report.py`'s hzA/hzB/hzC) reads hzC=0 on
-  the suite by construction, since B2 gives that class no path because it needs none. RVFI's
+  not yet unpacked); `hazard`'s split (`test/stall_report.py`'s hzA/hzB) must sum to the hazard column, so a
+  hazard cycle that is neither a `dx_match` nor an unready `ex_match` fails the report; a ready
+  `ex_match` has no counter because B2 gives it no stall. RVFI's
   `rs1_rdata`/`rs2_rdata` report the forwarded value, not the regfile's own answer, so the
   monitor's `rd_wdata` check is self-consistent only against exactly those two fields.
   Measured on B2's own tree (ADR-0222): against B1, the suite's cycles fall 44,620 → 30,893

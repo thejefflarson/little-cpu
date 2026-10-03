@@ -192,7 +192,7 @@ if [ -n "$stalls" ] && [ -z "${STUB_SIM_NOSTALLS:-}" ]; then
   unattr=${STUB_SIM_UNATTR:-0}
   echo "STALLS cycles=$((20 + unattr + ${STUB_SIM_SKEW:-0})) issue=10 divider=0" \
        "atomic=0 hazard=10 serialize=0 operand=0 fetch=0 bus=0 region=0" \
-       "hzA=4 hzB=3 hzC=3 hzCcsr=0" \
+       "hzA=6 hzB=4" \
        "unattributed=$unattr lsissue=4 lsedge=2 lsbypass=1" \
        "commits=10 jalr=1 jalrret=1 jalrredir=1 otherredir=1 jalrwin=2 otherwin=2" \
        "rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0"
@@ -3305,16 +3305,15 @@ sr_fixture() {
     'REASONS = ["divider", "atomic", "hazard", "serialize", "fetch", "bus"]'
   fixture_anchor "$REPO/test/stall_report.py" \
     'REQUIRED = (["cycles", "issue", "retires", "unattributed"] + REASONS +'
-  fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_SPLIT = ["hzA", "hzB", "hzC"]'
-  fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_CSR = "hzCcsr"'
+  fixture_anchor "$REPO/test/stall_report.py" 'HAZARD_SPLIT = ["hzA", "hzB"]'
   fixture_anchor "$REPO/test/stall_report.py" 'LS_ISSUES = "lsissue"'
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsedge": "with rs1 within 2 KB of a mapped-region edge",'
   fixture_anchor "$REPO/test/stall_report.py" \
     '"lsbypass": "issuing on a write-through to rs1",'
   cat > "$d/counts" <<'COUNTS'
-add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=10 hzB=5 hzC=5 hzCcsr=0 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 commits=10 jalr=2 jalrret=1 jalrredir=2 otherredir=1 jalrwin=8 otherwin=3 rashit1=1 rassave1=4 rashitdeep=1 rassavedeep=4 retires=10
-lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=2 hzB=1 hzC=2 hzCcsr=0 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 commits=10 jalr=0 jalrret=0 jalrredir=0 otherredir=0 jalrwin=0 otherwin=0 rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0 retires=10
+add.S cycles=40 issue=10 divider=0 atomic=0 hazard=20 serialize=0 fetch=10 bus=0 hzA=14 hzB=6 unattributed=0 lsissue=4 lsedge=1 lsbypass=0 commits=10 jalr=2 jalrret=1 jalrredir=2 otherredir=1 jalrwin=8 otherwin=3 rashit1=1 rassave1=4 rashitdeep=1 rassavedeep=4 retires=10
+lw.S cycles=40 issue=10 divider=0 atomic=0 hazard=5 serialize=0 fetch=25 bus=0 hzA=3 hzB=2 unattributed=0 lsissue=6 lsedge=3 lsbypass=2 commits=10 jalr=0 jalrret=0 jalrredir=0 otherredir=0 jalrwin=0 otherwin=0 rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0 retires=10
 COUNTS
   printf '%s' "$d"
 }
@@ -3339,13 +3338,13 @@ d=$(sr_fixture); mutate "$d/counts" 's/ fetch=10//'
 probe "a field the runner stopped printing is named, not counted as zero" 1 \
   "is missing fetch" "$SR $d/counts"
 
-# A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its `else if (eligible)` arm
+# A mis-charged hazard sub-bucket -- test/cxxrtl.cc dropping its `else if (ex)` arm
 # and leaving the cycle uncounted is enough -- moves a cycle out of hzB without moving it
-# anywhere else, so the three no longer sum to the hazard column they split even though
+# anywhere else, so the two no longer sum to the hazard column they split even though
 # the outer columns still add up.
-d=$(sr_fixture); mutate "$d/counts" 's/hzB=5/hzB=4/'
+d=$(sr_fixture); mutate "$d/counts" 's/hzB=6/hzB=5/'
 probe "hazard's three causes losing a cycle between them is red" 1 \
-  "hzA+hzB+hzC is 19, hazard is 20" "$SR $d/counts"
+  "hzA+hzB is 19, hazard is 20" "$SR $d/counts"
 
 # The locality counters are not cycles and add up to nothing, so the arithmetic above
 # cannot see them at all.
@@ -3355,6 +3354,15 @@ probe "control: the locality counters are reported under the table" 0 \
 
 probe "control: each subset is printed as a share of that number" 0 \
   "4 (40.0%) with rs1 within 2 KB of a mapped-region edge" "$SR $d/counts"
+
+# A run that never stalled has no stalled cycles to take a share of; the report says so
+# rather than dividing by them.
+d=$(sr_fixture)
+cat > "$d/flat" <<'FLAT'
+flat.S cycles=10 issue=10 divider=0 atomic=0 hazard=0 serialize=0 fetch=0 bus=0 hzA=0 hzB=0 unattributed=0 lsissue=0 lsedge=0 lsbypass=0 commits=10 jalr=0 jalrret=0 jalrredir=0 otherredir=0 jalrwin=0 otherwin=0 rashit1=0 rassave1=0 rashitdeep=0 rassavedeep=0 retires=10
+FLAT
+probe "a run with no stalled cycles gets a report, not a ZeroDivisionError" 0 \
+  "0 of those cycles (0.0%) issued nothing" "$SR $d/flat"
 
 d=$(sr_fixture); mutate "$d/counts" 's/lsedge=3/lsedge=7/'
 probe "more accesses near an edge than there were accesses is red" 1 \
@@ -8934,6 +8942,21 @@ probe "a publish job that runs make beside the write token is red" 1 \
   "also runs measurement tools" \
   "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
+d=$(cpst_fixture 's|^          make compare-doc$|          make compare-doc-test|')
+probe "a publish job that runs any make target but compare-doc is red" 1 \
+  "also runs measurement tools" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|^          make compare-doc$|          make compare-doc fit|')
+probe "a publish job that rides a second target on make compare-doc is red" 1 \
+  "also runs measurement tools" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture 's|^          make compare-doc$|          true|')
+probe "a publish job that never regenerates the comparison document is red" 1 \
+  "never runs \`make compare-doc\`" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
 d=$(cpst_fixture 's|^      contents: read$|      contents: write|')
 probe "a measure job holding a write scope is red" 1 \
   "the measure job holds a write-scoped token" \
@@ -8971,7 +8994,7 @@ cpsp_fixture() {  # $1 = sed program applied to the publish script
 
 d=$(cpsp_fixture '')
 probe "control: the shipping publish script pushes one branch and opens one issue" 0 \
-  "stood down when a refresh was already open" \
+  "stood down when the bot's own refresh was already open" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
 d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_publish_test.py" "$d/test/"
@@ -8998,6 +9021,16 @@ probe "a commit that stages more than the stamp is red" 1 \
   "files other than soc/compare/product.json" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
+d=$(cpsp_fixture 's|add soc/compare/product.json docs/comparison.md|add soc/compare/product.json|')
+probe "a commit that leaves the regenerated comparison document behind is red" 1 \
+  "files other than soc/compare/product.json and docs/comparison.md" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|CYCLE_FLOOR|CYCLE_FLR|')
+probe "an issue body that stops naming the hand-updated cycle floor is red" 1 \
+  "CYCLE_FLOOR is updated by hand" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
 d=$(cpsp_fixture 's|-\${GITHUB_RUN_ID:-local}"|"|')
 probe "a refresh branch without the run id is red" 1 \
   "did not push exactly one refresh branch" \
@@ -9020,7 +9053,12 @@ probe "publishing with a refresh issue or PR already open is red" 1 \
 
 d=$(cpsp_fixture 's|"\$open_issues\$open_prs" \]|"$open_prs" ]|')
 probe "an already-open refresh issue that the guard does not read is red" 1 \
-  "an open refresh issue: the script pushed a second refresh branch" \
+  "an open refresh issue from the bot (gh's app/ login): the script pushed a second refresh branch" \
+  "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
+
+d=$(cpsp_fixture 's|^BOT_AUTHOR=.*|BOT_AUTHOR=true|')
+probe "an open issue from anyone but the bot suppressing a refresh is red" 1 \
+  "did not push exactly one refresh branch" \
   "cd '$d' && python3 test/compare_product_schedule_publish_test.py ."
 
 begin_group "test/yosys_script_oneline_test.py"
@@ -9045,6 +9083,16 @@ probe "a backslash-newline inside a single-quoted yosys -p script is red" 1 \
 
 d=$(ysol_fixture $'x.json: a.v\n\t@yosys -p "read_verilog -sv a.v; \\\n\t   synth_ice40" > x.log')
 probe "a backslash-newline inside a double-quoted yosys -p script is red" 1 \
+  "Put the script on one line" \
+  "cd '$d' && python3 test/yosys_script_oneline_test.py ."
+
+d=$(ysol_fixture $'x.json: a.v\n\t@yosys \\\n\t  -p \'read_verilog a.v; \\\n\t  synth\' > x.log')
+probe "a yosys whose -p and quoted script sit on a continuation line is red" 1 \
+  "Put the script on one line" \
+  "cd '$d' && python3 test/yosys_script_oneline_test.py ."
+
+d=$(ysol_fixture $'x.json: a.v\n\t@$(YOSYS) -p \'read_verilog a.v; \\\n\t  synth\' > x.log')
+probe "a backslash-newline inside a quoted \$(YOSYS) -p script is red" 1 \
   "Put the script on one line" \
   "cd '$d' && python3 test/yosys_script_oneline_test.py ."
 

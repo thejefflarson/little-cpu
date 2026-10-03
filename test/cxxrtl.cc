@@ -416,7 +416,7 @@ int main(int argc, char **argv) {
   uint64_t issue_cycles = 0;
   uint64_t unattributed_cycles = 0;
   uint64_t stall_cycles[kStallBuckets] = {};
-  uint64_t hazard_a = 0, hazard_b = 0, hazard_c = 0, hazard_c_csr = 0;
+  uint64_t hazard_a = 0, hazard_b = 0;
 
   auto report_counts = [&]() {
     if (args.console)
@@ -431,9 +431,8 @@ int main(int argc, char **argv) {
     for (int b = 0; b < kStallBuckets; ++b)
       std::printf(" %s=%llu", kStallLabels[b],
                    (unsigned long long)stall_cycles[b]);
-    std::printf(" hzA=%llu hzB=%llu hzC=%llu hzCcsr=%llu",
-                 (unsigned long long)hazard_a, (unsigned long long)hazard_b,
-                 (unsigned long long)hazard_c, (unsigned long long)hazard_c_csr);
+    std::printf(" hzA=%llu hzB=%llu", (unsigned long long)hazard_a,
+                 (unsigned long long)hazard_b);
     std::printf(" unattributed=%llu lsissue=%u lsedge=%u lsbypass=%u"
                  " guesses=%u guesshits=%u guessmisses=%u",
                  (unsigned long long)unattributed_cycles, ls_issues->curr[0],

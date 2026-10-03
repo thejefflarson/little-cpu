@@ -14,6 +14,7 @@ neither).
 Usage: compare_product_schedule_publish_test.py [repo-root]
 """
 
+import json
 import os
 import pathlib
 import re
@@ -23,6 +24,7 @@ import sys
 import tempfile
 
 SCRIPT = ".github/scripts/publish-product-refresh.sh"
+TITLE = "Refresh the cross-core product stamp (2026-09-28)"
 DIFF_LINE = "dhrystone: 1 -> 2 cycles/dhry"
 PUSH_HELPER = "-c credential.helper= -c credential.helper=!gh auth git-credential"
 
@@ -38,7 +40,15 @@ exec "$REAL_GIT" "$@"
 GH_STUB = """#!/bin/bash
 printf '%s\\n' "$*" >> "$GH_LOG"
 case "$1 $2" in
-  "issue list") printf '%s' "${STUB_OPEN_ISSUES:-}"; exit 0 ;;
+  "issue list")
+    jq=""
+    prev=""
+    for a in "$@"; do
+      [ "$prev" = --jq ] && jq=$a
+      prev=$a
+    done
+    printf '%s' "${STUB_ISSUES_JSON:-[]}" | jq -r "$jq"
+    exit $? ;;
   "pr list") printf '%s' "${STUB_OPEN_PRS:-}"; exit 0 ;;
   "issue create")
     title="" body="" prev=""
@@ -60,7 +70,12 @@ esac
 """
 
 
-def run_case(root, real_git, tmp, name, open_issues="", open_prs="", args=None):
+def issue(number, login, is_bot, title=TITLE):
+    return {"number": number, "title": title,
+            "author": {"is_bot": is_bot, "login": login}}
+
+
+def run_case(root, real_git, tmp, name, issues=(), open_prs="", args=None):
     """One run of the script in a fresh repository; returns the observations."""
     case = tmp / name
     bindir = case / "bin"
@@ -72,6 +87,7 @@ def run_case(root, real_git, tmp, name, open_issues="", open_prs="", args=None):
 
     repo = case / "repo"
     (repo / "soc" / "compare").mkdir(parents=True)
+    (repo / "docs").mkdir()
     (repo / ".github" / "scripts").mkdir(parents=True)
     shutil.copy(root / SCRIPT, repo / SCRIPT)
 
@@ -101,7 +117,7 @@ def run_case(root, real_git, tmp, name, open_issues="", open_prs="", args=None):
         "GITHUB_STEP_SUMMARY": str(logs["summary"]),
         "GITHUB_RUN_ID": "4242",
         "GITHUB_REPOSITORY": "o/r",
-        "STUB_OPEN_ISSUES": open_issues,
+        "STUB_ISSUES_JSON": json.dumps(list(issues)),
         "STUB_OPEN_PRS": open_prs,
     })
 
@@ -113,10 +129,12 @@ def run_case(root, real_git, tmp, name, open_issues="", open_prs="", args=None):
     real("config", "user.email", "committer@example.com")
     real("config", "user.name", "Committer")
     (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 1}}\n')
+    (repo / "docs" / "comparison.md").write_text("old render\n")
     (repo / "README.md").write_text("tracked\n")
     real("add", "-A")
     real("commit", "-q", "-m", "initial")
     (repo / "soc" / "compare" / "product.json").write_text('{"pairs": {"dhrystone": 2}}\n')
+    (repo / "docs" / "comparison.md").write_text("new render\n")
     (repo / "README.md").write_text("a stray edit the script must not commit\n")
 
     result = subprocess.run(
@@ -149,6 +167,8 @@ def check_publish(case):
     body = read(logs["issue-body"])
     if DIFF_LINE not in body:
         failures.append("the issue body does not carry the measured diff")
+    if "soc/compare/CYCLE_FLOOR" not in body:
+        failures.append("the issue body does not say CYCLE_FLOOR is updated by hand")
     if f"https://github.com/o/r/compare/main...{branch}?expand=1" not in body:
         failures.append("the issue body does not link the compare page for the pushed branch")
     if read(logs["summary"]).strip() == "":
@@ -157,8 +177,9 @@ def check_publish(case):
     if subject != "Refresh the cross-core product stamp":
         failures.append(f"the commit's subject line is {subject!r}")
     committed = real("show", "--name-only", "--format=", "HEAD").split()
-    if committed != ["soc/compare/product.json"]:
-        failures.append(f"the commit touches files other than soc/compare/product.json: {committed!r}")
+    if sorted(committed) != ["docs/comparison.md", "soc/compare/product.json"]:
+        failures.append("the commit touches files other than soc/compare/product.json and "
+                        f"docs/comparison.md: {committed!r}")
     if DIFF_LINE not in real("log", "-1", "--pretty=%b"):
         failures.append("the commit message does not carry the measured diff")
     if real("config", "user.name").strip() != "github-actions[bot]":
@@ -198,9 +219,22 @@ def main(argv):
     with tempfile.TemporaryDirectory(prefix="compare-product-publish-test.") as raw:
         tmp = pathlib.Path(raw)
         failures += check_publish(run_case(root, real_git, tmp, "fresh"))
-        failures += check_skip(
-            run_case(root, real_git, tmp, "open-issue",
-                     open_issues="#7\n"), "an open refresh issue")
+        for label, login in (("gh's app/ login", "app/github-actions"),
+                             ("the [bot] login", "github-actions[bot]")):
+            failures += check_skip(
+                run_case(root, real_git, tmp, f"open-issue-{login[0]}",
+                         issues=[issue(7, login, True)]),
+                f"an open refresh issue from the bot ({label})")
+        failures += check_publish(
+            run_case(root, real_git, tmp, "human-issue",
+                     issues=[issue(7, "mallory", False)]))
+        failures += check_publish(
+            run_case(root, real_git, tmp, "human-lookalike-bot",
+                     issues=[issue(7, "app/mallory-github-actions", True),
+                             issue(8, "github-actions-evil", False)]))
+        failures += check_publish(
+            run_case(root, real_git, tmp, "bot-other-title",
+                     issues=[issue(7, "app/github-actions", True, "Unrelated")]))
         failures += check_skip(
             run_case(root, real_git, tmp, "open-pr", open_prs="#8\n"),
             "an open refresh pull request")
@@ -213,7 +247,8 @@ def main(argv):
             print(f"*** {f}", file=sys.stderr)
         return 1
     print("compare-product-schedule-publish: the script pushed one refresh branch, opened one "
-          "issue with the compare link, and stood down when a refresh was already open.")
+          "issue with the compare link, stood down when the bot's own refresh was already open, and "
+          "ignored an open issue with the same title from anyone else.")
     return 0
 
 

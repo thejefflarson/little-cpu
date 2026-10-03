@@ -29,8 +29,10 @@ summary() {
   [ -z "${GITHUB_STEP_SUMMARY:-}" ] || cat >> "$GITHUB_STEP_SUMMARY"
 }
 
-open_issues=$(gh issue list --state open --limit 200 --json number,title \
-  --jq ".[] | select(.title | startswith(\"$TITLE_PREFIX\")) | \"#\\(.number)\"")
+# gh lists the bot as app/github-actions; the search API spells it github-actions[bot].
+BOT_AUTHOR='.author.is_bot == true and (.author.login | test("^(app/)?github-actions(\\[bot\\])?$"))'
+open_issues=$(gh issue list --state open --limit 200 --json number,title,author \
+  --jq ".[] | select($BOT_AUTHOR and (.title | startswith(\"$TITLE_PREFIX\"))) | \"#\\(.number)\"")
 open_prs=$(gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
   --jq ".[] | select((.isCrossRepository | not) and (.headRefName | startswith(\"$BRANCH_PREFIX\"))) | \"#\\(.number)\"")
 if [ -n "$open_issues$open_prs" ]; then
@@ -48,7 +50,7 @@ fi
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git checkout -b "$BRANCH"
-git add soc/compare/product.json
+git add soc/compare/product.json docs/comparison.md
 {
   echo "$TITLE_PREFIX"
   echo
@@ -71,9 +73,11 @@ git_push origin "$BRANCH"
   cat "$DIFF"
   echo
   echo "Machine-refreshed by \`.github/workflows/compare-product-schedule.yml\`."
-  echo "The branch only updates \`soc/compare/product.json\`. CLAUDE.md's cross-core"
-  echo "paragraph and any ADR that quotes this pair's numbers still need a person to"
-  echo "read this diff and decide whether the prose needs updating."
+  echo "The branch updates \`soc/compare/product.json\` and the \`docs/comparison.md\`"
+  echo "rendered from it. If littlecpu's cycle factors moved, \`soc/compare/CYCLE_FLOOR\`"
+  echo "must be updated by hand on the branch or \`make compare-doc-test\` fails."
+  echo "CLAUDE.md's cross-core paragraph and any ADR that quotes this pair's numbers"
+  echo "still need a person to read this diff and decide whether the prose needs updating."
 } > "$OUT_DIR/issue-body.md"
 
 # A pushed branch with no issue would be invisible to everyone.
