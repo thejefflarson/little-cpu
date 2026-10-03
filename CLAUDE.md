@@ -291,6 +291,29 @@ multiplies resolve in the `init` state with no counter and `components_executor`
 `formal/executor-zkt-probe.py` as the red direction and prerequisite; its header says why the
 mutation is narrowed to `rs2 != 0` and why only the basecase leg is read.
 
+**`seed` (0x015) is implemented and Zkr is not claimed** (ADR-0245). A read returns the status in
+bits 31:30 (BIST 00, WAIT 01, ES16 10, DEAD 11), zero in 29:16, and 16 bits of entropy in 15:0 only
+under ES16; a read consumes the word, and a read that never reads (`csrrw` with `rd = x0`) consumes
+nothing. The access must write: `csrrs`/`csrrc` with a zero source field, register or immediate
+form, is illegal instruction, decided in `rtl/executor.v` from `csr_addr` and `!csr_write_op` (the
+ADR-0240 spelling that held 12 MHz where a flag out of `rtl/csrs.v` did not). `seed` never stalls,
+so no value-dependent timing exists and `test/zkt_isolation_test.py` stays green. The source is
+`rtl/trng.v`, inside `rtl/csrs.v`: a slow oscillator reaches the core on the `entropy_raw` input,
+and the module measures the interval between its rising edges in `clk` cycles, takes the low two
+bits, runs a von Neumann corrector and an 8-to-1 XOR fold, and buffers 16 bits. Two hardware health
+tests report DEAD, sticky and never alongside entropy: 32 identical interval samples in a row, and
+no edge for 4,096 cycles. `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
+(~10 kHz, a hard macro costing no cell); an `entropy_raw` held low, as the iCESugar-Pro board file
+and every formal harness hold it, reads DEAD, which is spec-honest. **Zkr stays out of the ISA
+string until a board measurement of the raw intervals settles the sample bits and the fold depth**;
+the same claim also owes `mseccfg` (0x747), the adaptive-proportion test in firmware (which needs
+a raw tap this change does not build) and a statement of what the conditioner promises. Simulation
+drives `entropy_raw` from a seeded LFSR in `test/testbench.v`, so every run reproduces.
+`test/asm/seedaccess.S` agrees with Sail (which claims Zkr in `test/sail/rv32imac_zicsr.json`,
+`seed`'s value exempt in `test/cosim.py`); `test/asm/seed.S` and `test/trng_tb.v` grade the
+status machine, and `seed.S` is a baselined disagreement because the model's source is ready at
+the first read.
+
 **One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` are read-only zero,
 which the spec allows for an interrupt that can never become pending. `mtime`/`mtimecmp` are four

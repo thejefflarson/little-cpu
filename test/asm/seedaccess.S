@@ -1,7 +1,6 @@
 # See LICENSE for license details.
 
-// The Zkr `seed` CSR (0x015): which access forms trap. Nothing here branches on what a
-// read returns, so the reference model, whose source is always ready, runs the same path.
+// The Zkr `seed` CSR: which access forms trap; nothing branches on a read value.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -14,7 +13,6 @@ RVTEST_CODE_BEGIN
   .option push
   .option norvc
 
-  // Read-only accesses are illegal: csrrs/csrrc with rs1 = x0, in register and immediate form.
   TEST_CASE(  2, a4, 0, la a3, trap_count; lw a4, 0(a3); )
   csrrs a0, 0x015, x0
   TEST_CASE(  3, a4, 1, la a3, trap_count; lw a4, 0(a3); )
@@ -26,7 +24,6 @@ RVTEST_CODE_BEGIN
   TEST_CASE(  6, a4, 4, la a3, trap_count; lw a4, 0(a3); )
   TEST_CASE(  7, a4, 2, la a3, trap_cause; lw a4, 0(a3); )
 
-  // Every access that writes is legal, whether or not it reads.
   li    a5, 0xffffffff
   csrrw a0, 0x015, x0
   csrrw a0, 0x015, a5

@@ -658,6 +658,12 @@ module decoder #(
   always_comb if (clocked && out_valid)
     assert(out_is_ecall == (out_instr == 32'h0000_0073));
 
+  // X's read-only test for `seed` reads funct3 only through these two flags.
+  always_comb if (clocked && out_valid && out_uncompressed && out_instr[6:2] == 5'b11100) begin
+    assert(out_is_csrrs == (out_instr[13:12] == 2'b10));
+    assert(out_is_csrrc == (out_instr[13:12] == 2'b11));
+  end
+
   // Gated on out_uncompressed: is_lw/is_sw also cover a compressed form the quadrant bits rule out here.
   always_comb if (clocked && out_valid && out_uncompressed) begin
     assert(out_is_lb == (out_instr[6:2] == 5'b00000 && out_instr[14:12] == 3'b000));
