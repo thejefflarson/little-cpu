@@ -8,25 +8,23 @@ inside a day (ADR-0098's amendment) and once by the maintainer re-deriving it
 by hand a second time -- because nothing was checking. This is the check.
 
 soc/compare/product.json (soc/compare/product_write.py's output) stamps every
-measured pair with the commit it was taken at, whether the tree was dirty, and
-every value that can move a factor without moving a tracked file (CFLAGS, the
-ROM/RAM geometry) -- the same fields soc/baseline_sweep.sh/soc/baseline_summary.py
-already stamp a timing sweep with, for the same reason. A pair is STALE when
-any of three things is true:
+measured pair with a content digest of the files the measurement read
+(soc/compare/product_digest.py), whether the tree was dirty, and every value
+that can move a factor without moving a tracked file (CFLAGS, the ROM/RAM
+geometry, the compiler). A pair is STALE when any of these is true:
 
-  - the tree has moved under it: `rtl/` or `soc/compare/` differ between the
-    stamped base and now, checked with a real `git diff` rather than trusted.
+  - the digest differs from the tree's now. A legacy stamp with no digest is
+    graded as before: `rtl/` or `soc/compare/` differ from its `base` commit.
   - a value the caller hands in as --current FIELD=VALUE disagrees with the
     same-named field in the stamp -- `cflags`, `rom_words`, `ram_words`,
     whichever fields the caller can currently ask the build for. Generic
-    rather than one hardcoded `--current-cflags` flag: CFLAGS was the first
-    value found to live outside both watched path prefixes, and it will not be
-    the last, so the check takes any field name rather than growing a new flag
-    per future one.
-  - it was measured DIRTY. `dirty: yes` means the base commit does not fully
-    describe what was measured -- there were uncommitted changes in the tree
-    at measurement time -- so a base that still "matches" the tree today is not
-    good enough; the stamp never named a reproducible tree to begin with.
+    rather than one flag per field, because the next value found to live
+    outside the digest will not be the last.
+  - `--current compiler=NAME --current compiler_version=VERSION` disagree with
+    the stamp's `tools` block: no entry named NAME, or one whose version string
+    lacks VERSION. Only the compiler is graded; the OSS CAD Suite tools float by
+    design and equality over them would mark every weekly run stale.
+  - it was measured DIRTY, so its base commit never named a reproducible tree.
 
 NOT ON `make test`'s PATH. `make compare-dhrystone` and (once it exists)
 `make compare-coremark` call this after their own measurement, so a stale
@@ -53,6 +51,9 @@ import re
 import subprocess
 import sys
 import traceback
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from product_digest import EXCLUDED, INPUT_PATHS, content_digest  # noqa: E402
 
 # THREE exit statuses, and the third one is why this is not `sys.exit(message)`.
 REFUSED = 2
@@ -94,13 +95,13 @@ def base_resolvable(repo, base):
 # stamping dhrystone and then writing coremark made dhrystone stale against its own file.
 # Excluded by the path the caller actually gave, not by a prefix -- a prefix would stop
 # this noticing a real soc/compare/ change.
-def moved_paths(repo, base, artifact=None):
+def moved_paths(repo, base, artifact=None, paths=("rtl/", "soc/compare/"), excluded=()):
     """Every path under rtl/ or soc/compare/ that differs between `base` and the
     working tree (committed or not -- a stamp is stale the moment either
     factor's inputs move, whether or not the move has been committed yet).
     """
     try:
-        pathspec = ["rtl/", "soc/compare/"]
+        pathspec = list(paths) + [":(exclude)" + path for path in excluded]
         if artifact is not None:
             rel = os.path.relpath(os.path.abspath(artifact), os.path.abspath(repo))
             if not rel.startswith(os.pardir):
@@ -120,6 +121,29 @@ def moved_paths(repo, base, artifact=None):
                "grade, which is the same as a stale one -- it names no tree "
                "this check can confirm is still current.")
     return [line for line in out.stdout.splitlines() if line]
+
+# --current fields graded against the stamp's `tools` block, not against a same-named field.
+TOOL_FIELDS = ("compiler", "compiler_version")
+
+def tool_reasons(pair, current):
+    """The compiler is graded, keyed by name, so renaming it is itself a reason.
+    The other tools are recorded and never graded: the OSS CAD Suite floats by
+    design, so equality over the whole block would mark every weekly run stale.
+    """
+    reasons = []
+    tools = pair.get("tools")
+    if not isinstance(tools, dict) or not tools:
+        return ["the stamp records no readable tools block"]
+    name = current.get("compiler")
+    if name is not None and name not in tools:
+        reasons.append(f"the compiler is now {name}, but the stamp's tools block "
+                       f"records {', '.join(sorted(tools))} and no {name}")
+    elif name is not None and "compiler_version" in current:
+        version = current["compiler_version"].split("-")[0]
+        if version not in tools[name].split():
+            reasons.append(f"{name} {current['compiler_version']} is pinned, but "
+                           f"the stamp measured '{tools[name]}'")
+    return reasons
 
 def stale_reasons(pair, repo, current, artifact=None):
     """Every reason a MEASURED `pair` is stale, or [] if it is fresh.
@@ -156,13 +180,26 @@ def stale_reasons(pair, repo, current, artifact=None):
         reasons.append("it was measured on a tree with uncommitted changes, so "
                        "its base commit does not fully describe what was "
                        "measured")
-    paths = moved_paths(repo, pair["base"], artifact)
-    if paths:
-        reasons.append("rtl/ or soc/compare/ changed since "
-                       f"{pair['base'][:12]}: {', '.join(paths)}")
+    digest = pair.get("digest")
+    if digest is None:
+        # Legacy stamp: keyed on a commit, so graded by diffing against it.
+        paths = moved_paths(repo, pair["base"], artifact)
+        if paths:
+            reasons.append("rtl/ or soc/compare/ changed since "
+                           f"{pair['base'][:12]}: {', '.join(paths)}")
+    else:
+        now = content_digest(repo)
+        if now != digest:
+            reasons.append(f"the measured inputs changed: stamped {digest[:19]}, "
+                           f"now {now[:19]}")
+            named = (moved_paths(repo, pair["base"], artifact, INPUT_PATHS, EXCLUDED)
+                     if base_resolvable(repo, pair["base"]) else [])
+            if named:
+                reasons.append(f"differing from {pair['base'][:12]}: {', '.join(named)}")
+    reasons += tool_reasons(pair, current)
     for field, value in current.items():
         stamped = pair.get(field)
-        if stamped is not None and str(value) != str(stamped):
+        if field not in TOOL_FIELDS and stamped is not None and str(value) != str(stamped):
             reasons.append(f"{field} changed: stamped '{stamped}', now '{value}'")
     return reasons
 

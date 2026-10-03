@@ -11,7 +11,9 @@ record. Never invoked by hand against invented numbers -- there is nothing here
 that would catch that.
 
 Modelled on soc/baseline_sweep.sh's provenance block: every measured pair
-carries the commit it was taken against, whether the tree was dirty, the seeds,
+carries a content digest of the files it read (the key a later check compares; `base`
+is informational, since a squash merge deletes the commit it names), whether
+the tree was dirty, the seeds,
 the CFLAGS and ISA the shared image was built with, and the resolved toolchain
 -- the same fields soc/compare/product_check.py later checks a stamp against
 before letting anything print a product from it.
@@ -38,7 +40,8 @@ Usage:
   product_write.py OUT.json dhrystone --target-core littlecpu \\
     --base <sha> --dirty no --date <iso8601> --seeds 'default 1 2 ...' \\
     --cflags '...' --isa rv32ic --rom-words 1024 --ram-words 512 \\
-    --unit DMIPS/MHz --tool yosys='Yosys 0.68 [/opt/bin/yosys]' [--tool ...] \\
+    --unit DMIPS/MHz --digest sha256:<hex> \\
+    --tools-block "$(soc/print_toolchain.sh yosys ...)" --cycle-tools-block "..." \\
     --clock-ns littlecpu=32.36,31.25,... --clock-ns vexriscv=20.73,20.18,... \\
     --cycle-factor littlecpu=0.748 --cycle-factor vexriscv=0.557
 
@@ -57,6 +60,8 @@ from datetime import datetime, timezone
 SCHEMA = "compare-product v2"
 NOTE = "written by soc/compare/run_product.sh (make compare-product); do not hand-edit"
 BASE_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+TOOL_LINE_RE = re.compile(r"^# ([^\s:]+): (.+)$")
 
 def kv(spec, what):
     if "=" not in spec:
@@ -75,6 +80,23 @@ def floats(spec, what):
     if not values:
         sys.exit(f"error: {what} '{spec}' names no placements")
     return name, values
+
+def tools_from(block, what):
+    """Split print_toolchain.sh's `# name: value` lines into {name: value}."""
+    if not block or not block.strip():
+        sys.exit(f"error: --measured wants {what}; a number with no recorded "
+                 "toolchain cannot be told apart from one a moved toolchain produced")
+    tools = {}
+    for line in block.splitlines():
+        if not line.strip():
+            continue
+        match = TOOL_LINE_RE.fullmatch(line)
+        if match is None or match.group(1) in tools:
+            sys.exit(f"error: {what} line '{line}' is not a unique '# NAME: VALUE' entry")
+        tools[match.group(1)] = match.group(2)
+    if not tools:
+        sys.exit(f"error: {what} names no tools")
+    return tools
 
 def clock_stats(ns_values):
     worst = max(ns_values)
@@ -167,14 +189,14 @@ def measured_pair(args):
             },
         }
 
-    tools = {}
-    for spec in args.tool:
-        name, value = kv(spec, "--tool")
-        tools[name] = value
-    if not tools:
-        sys.exit("error: --measured wants at least one --tool; a number with no "
-                 "recorded toolchain cannot be told apart from one a moved "
-                 "toolchain produced")
+    tools = tools_from(args.tools_block, "--tools-block")
+    cycle_tools = tools_from(args.cycle_tools_block, "--cycle-tools-block")
+    if tools != cycle_tools:
+        moved = sorted(name for name in set(tools) | set(cycle_tools)
+                       if tools.get(name) != cycle_tools.get(name))
+        sys.exit("error: the clock factor and the cycle factor were measured with "
+                 f"different tools ({', '.join(moved)}); a product of two factors "
+                 "from different toolchains is not a measurement")
 
     for field, value in (("base", args.base), ("dirty", args.dirty),
                          ("seeds", args.seeds), ("cflags", args.cflags),
@@ -183,6 +205,15 @@ def measured_pair(args):
             sys.exit(f"error: --measured wants --{field.replace('_', '-')}")
     if args.rom_words is None or args.ram_words is None:
         sys.exit("error: --measured wants --rom-words and --ram-words")
+    if not DIGEST_RE.fullmatch(args.digest or ""):
+        sys.exit("error: --measured wants --digest sha256:<64 hex digits>, "
+                 "soc/compare/product_digest.py's output")
+    seed_count = len(args.seeds.split())
+    short = sorted(core for core, stats in clocks.items() if stats["n"] != seed_count)
+    if short:
+        sys.exit(f"error: --seeds names {seed_count} placements but {', '.join(short)} "
+                 "has a different number of --clock-ns samples; a sweep that lost a "
+                 "seed is not the sweep the stamp says it is")
     if not BASE_RE.fullmatch(args.base):
         sys.exit(f"error: --base '{args.base}' is not a 40-character commit SHA")
 
@@ -192,6 +223,7 @@ def measured_pair(args):
         "unit": args.unit,
         "isa": args.isa,
         "base": args.base,
+        "digest": args.digest,
         "dirty": args.dirty,
         "date": args.date or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "seeds": args.seeds,
@@ -259,7 +291,12 @@ def main():
                         "ecp5_target_mhz=...), checked later the same generic "
                         "way --current checks cflags/rom_words/ram_words; "
                         "repeatable")
-    parser.add_argument("--tool", action="append", default=[], metavar="NAME=VALUE")
+    parser.add_argument("--digest", help="soc/compare/product_digest.py's output "
+                        "over the tree the measurement read")
+    parser.add_argument("--tools-block", help="soc/print_toolchain.sh's output, "
+                        "taken before the clock sweeps")
+    parser.add_argument("--cycle-tools-block", help="the same, taken after the "
+                        "cycle simulations; must equal --tools-block")
     parser.add_argument("--clock-ns", action="append", default=[],
                         metavar="CORE=ns1,ns2,...")
     parser.add_argument("--cycle-factor", action="append", default=[],
