@@ -69,25 +69,25 @@ Cycle factor: ratcheted for `littlecpu` only (`soc/compare/CYCLE_FLOOR`); the ot
 
 ## Stamp provenance
 
-- `coremark`: commit `11cc506e3183f4b1f125f0cf8246536aa49cbf1e`, taken 2026-10-01T03:33:38Z, dirty: no, seeds: default 1 2 3 4 5 6 7 8 9 10 11
+- `coremark`: commit `4a83e4820f81c49cce6c2d20ddc9b74ba23aa20c`, taken 2026-10-03T16:37:24Z, dirty: no, seeds: default 1 2 3 4 5 6 7 8 9 10 11
   - ISA `rv32im`, simulated ROM 1024 words, RAM 16384 words
   - CFLAGS `-march=rv32im -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror`
-- `coremark_ecp5`: commit `11cc506e3183f4b1f125f0cf8246536aa49cbf1e`, taken 2026-10-01T03:33:38Z, dirty: no, seeds: default 1 2 3 4 5 6 7 8 9 10 11
+- `coremark_ecp5`: commit `4a83e4820f81c49cce6c2d20ddc9b74ba23aa20c`, taken 2026-10-03T16:37:24Z, dirty: no, seeds: default 1 2 3 4 5 6 7 8 9 10 11
   - ISA `rv32im`, simulated ROM 1024 words, RAM 16384 words
   - CFLAGS `-march=rv32im -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror`
-- `dhrystone`: commit `11cc506e3183f4b1f125f0cf8246536aa49cbf1e`, taken 2026-10-01T03:33:38Z, dirty: no, seeds: default 1 2 3 4 5 6 7 8 9 10 11
+- `dhrystone`: commit `4a83e4820f81c49cce6c2d20ddc9b74ba23aa20c`, taken 2026-10-03T16:37:24Z, dirty: no, seeds: default 1 2 3 4 5 6 7 8 9 10 11
   - ISA `rv32im`, simulated ROM 1024 words, RAM 16384 words
   - CFLAGS `-march=rv32im -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror`
-- `dhrystone_ecp5`: commit `11cc506e3183f4b1f125f0cf8246536aa49cbf1e`, taken 2026-10-01T03:33:38Z, dirty: no, seeds: default 1 2 3 4 5 6 7 8 9 10 11
+- `dhrystone_ecp5`: commit `4a83e4820f81c49cce6c2d20ddc9b74ba23aa20c`, taken 2026-10-03T16:37:24Z, dirty: no, seeds: default 1 2 3 4 5 6 7 8 9 10 11
   - ISA `rv32im`, simulated ROM 1024 words, RAM 16384 words
   - CFLAGS `-march=rv32im -mabi=ilp32 -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror`
 
 Tools, identical across every pair:
 
-- icetime: oss-cad-suite 20260930 sha256:b9e3938a864a9d9b
-- iverilog: Icarus Verilog version 14.0 (devel) (s20260301-500-g2e81fcccb-dirty)
-- nextpnr-ecp5: "nextpnr-ecp5" -- Next Generation Place and Route (Version nextpnr-0.11.1-40-geb4f15c3)
-- nextpnr-ice40: "nextpnr-ice40" -- Next Generation Place and Route (Version nextpnr-0.11.1-40-geb4f15c3)
+- icetime: oss-cad-suite 20261003 sha256:b9e3938a864a9d9b
+- iverilog: Icarus Verilog version 14.0 (devel) (s20260301-508-g2f296d88a-dirty)
+- nextpnr-ecp5: "nextpnr-ecp5" -- Next Generation Place and Route (Version nextpnr-0.11.1-47-ge2fe86b3)
+- nextpnr-ice40: "nextpnr-ice40" -- Next Generation Place and Route (Version nextpnr-0.11.1-47-ge2fe86b3)
 - riscv-none-elf-gcc: riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0
 - trellis-db: devices.json sha256:5a3869c1b6fe7ea1
-- yosys: Yosys 0.69+158 (git sha1 a1a0ad7d4-dirty, Release, Clang /usr/bin/clang++ 21.1.8)
+- yosys: Yosys 0.69+187 (git sha1 2f08661dd, Release, Clang /usr/bin/clang++ 21.1.8)
