@@ -154,7 +154,7 @@ def main():
     parser.add_argument("--runs", type=int, required=True)
     parser.add_argument(
         "--cores",
-        default="littlecpu,vexriscv,hazard3,hazard3_perf",
+        default="littlecpu,vexriscv,hazard3",
         help="the cores a complete run reports, comma separated; the first is "
         "the reference the rest are RAM-compared against",
     )
