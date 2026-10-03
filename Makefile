@@ -614,6 +614,17 @@ ill-e-wiring-test:
 compare-geometry-test:
 	@./soc/compare/geometry_test.sh
 
+# Hazard3 runs in two builds, each the one its authors ship; this grades the bench against
+# soc/compare/hazard3_builds.txt, offline. The clone-backed form also re-reads the file
+# against the pinned clone's examples and is a prerequisite of every recipe that runs
+# Hazard3.
+.PHONY: hazard3-config-test hazard3-config-clone-test
+hazard3-config-test:
+	@python3 ./soc/compare/hazard3_config_test.py
+
+hazard3-config-clone-test: | $(HAZARD3_DIR)
+	@python3 ./soc/compare/hazard3_config_test.py --require-clone
+
 # The two IVERILOG comparison recipes must read VexRiscv through $(VEXRISCV_V) and never
 # through the riscv-formal clone -- see soc/compare/vexriscv_pin.mk for why the two
 # builds are not peers.
@@ -760,7 +771,7 @@ dual-build:
 test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test \
       riscv-gcc-pin-test memmap-test \
-      adr-numbering-test compare-geometry-test vexriscv-path-test retired-term-test port-connect-test march-test \
+      adr-numbering-test compare-geometry-test hazard3-config-test vexriscv-path-test retired-term-test port-connect-test march-test \
       riscv-gcc-search-test tmp-path-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
@@ -1663,7 +1674,7 @@ $(BUILD)/compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-p
 	  $(COMPARE_SMOKE_SRCS)
 
 .PHONY: compare-smoke
-compare-smoke: $(BUILD)/compare.vvp
+compare-smoke: hazard3-config-clone-test $(BUILD)/compare.vvp
 	@vvp $<
 
 COMPARE_DHRY_RUNS   ?= 400
@@ -1710,7 +1721,7 @@ $(BUILD)/compare.dhry.haza.vvp: $(COMPARE_DHRY_HAZA_SRCS) | $(HAZARD3_DIR) $(BUI
 	  $(HAZARD3_SRCS) $(COMPARE_DHRY_HAZA_SRCS)
 
 .PHONY: compare-dhrystone
-compare-dhrystone: $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp \
+compare-dhrystone: hazard3-config-clone-test $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp \
                    $(BUILD)/compare.dhry.haza.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv $(BUILD)/compare.vexriscv.core.log
@@ -1795,7 +1806,7 @@ $(BUILD)/compare.coremark.haza.vvp: $(COMPARE_COREMARK_HAZA_SRCS) | $(HAZARD3_DI
 	  $(HAZARD3_SRCS) $(COMPARE_COREMARK_HAZA_SRCS)
 
 .PHONY: compare-coremark
-compare-coremark: $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp \
+compare-coremark: hazard3-config-clone-test $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp \
                   $(BUILD)/compare.coremark.vexc.vvp $(BUILD)/compare.coremark.haza.vvp
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv $(BUILD)/compare.vexriscv.core.log

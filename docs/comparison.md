@@ -13,7 +13,7 @@ Cycles alone: every core quantises to the 12.00 MHz step, so the product is the 
 | core | DMIPS/MHz | placed clock MHz worst / median / best | DMIPS at 12.00 MHz | vs littlecpu |
 |---|---:|---|---:|---:|
 | littlecpu | 0.9949 | 12.55 / 12.78 / 13.08 (4.2%, n=12) | 11.94 | 1.000x |
-| vexriscv | 0.8662 | 21.93 / 22.69 / 23.26 (6.0%, n=12) | 10.39 | 0.871x |
+| vexriscv (performance build) | 0.8662 | 21.93 / 22.69 / 23.26 (6.0%, n=12) | 10.39 | 0.871x |
 
 Cycle factor: ratcheted for `littlecpu` only (`soc/compare/CYCLE_FLOOR`); the other cores' factors are reported. Clock: not ratcheted, because the placer's spread is wider than any difference a gate could grade.
 
@@ -24,8 +24,10 @@ Cycles alone: every core quantises to the 12.00 MHz step, so the product is the 
 | core | CoreMark/MHz | placed clock MHz worst / median / best | CoreMark at 12.00 MHz | vs littlecpu |
 |---|---:|---|---:|---:|
 | littlecpu | 2.7816 | 12.55 / 12.78 / 13.08 (4.2%, n=12) | 33.38 | 1.000x |
-| vexriscv | 2.3451 | 21.93 / 22.69 / 23.26 (6.0%, n=12) | 28.14 | 0.843x |
-| hazard3 | 1.5003 | 13.85 / 14.26 / 14.94 (7.9%, n=12) | 18.00 | 0.539x |
+| vexriscv (performance build) | 2.3451 | 21.93 / 22.69 / 23.26 (6.0%, n=12) | 28.14 | 0.843x |
+| hazard3 (area build) | 1.5003 | 13.85 / 14.26 / 14.94 (7.9%, n=12) | 18.00 | 0.539x |
+
+Not stamped: `hazard3_perf` is absent from this pair, so `hazard3` above is that core's small-part build alone; the next `make compare-product` run adds the other.
 
 Cycle factor: ratcheted for `littlecpu` only (`soc/compare/CYCLE_FLOOR`); the other cores' factors are reported. Clock: not ratcheted, because the placer's spread is wider than any difference a gate could grade.
 
@@ -38,7 +40,7 @@ The clock is a real factor on this part, read at the worst and the median of the
 | core | DMIPS/MHz | placed clock MHz worst / median / best | DMIPS worst | DMIPS median | vs littlecpu (worst / median) |
 |---|---:|---|---:|---:|---|
 | littlecpu | 0.9949 | 37.38 / 38.93 / 40.97 (9.6%, n=12) | 37.19 | 38.73 | 1.000x / 1.000x |
-| vexriscv | 0.8662 | 53.16 / 55.34 / 58.00 (9.1%, n=12) | 46.05 | 47.94 | 1.238x / 1.238x |
+| vexriscv (performance build) | 0.8662 | 53.16 / 55.34 / 58.00 (9.1%, n=12) | 46.05 | 47.94 | 1.238x / 1.238x |
 
 Cycle factor: ratcheted for `littlecpu` only (`soc/compare/CYCLE_FLOOR`); the other cores' factors are reported. Clock: not ratcheted, because the placer's spread is wider than any difference a gate could grade.
 
@@ -49,22 +51,26 @@ The clock is a real factor on this part, read at the worst and the median of the
 | core | CoreMark/MHz | placed clock MHz worst / median / best | CoreMark worst | CoreMark median | vs littlecpu (worst / median) |
 |---|---:|---|---:|---:|---|
 | littlecpu | 2.7816 | 37.38 / 38.93 / 40.97 (9.6%, n=12) | 103.98 | 108.28 | 1.000x / 1.000x |
-| vexriscv | 2.3451 | 53.16 / 55.34 / 58.00 (9.1%, n=12) | 124.67 | 129.78 | 1.199x / 1.199x |
-| hazard3 | 1.5003 | 50.35 / 51.89 / 54.56 (8.3%, n=12) | 75.54 | 77.85 | 0.726x / 0.719x |
+| vexriscv (performance build) | 2.3451 | 53.16 / 55.34 / 58.00 (9.1%, n=12) | 124.67 | 129.78 | 1.199x / 1.199x |
+| hazard3 (area build) | 1.5003 | 50.35 / 51.89 / 54.56 (8.3%, n=12) | 75.54 | 77.85 | 0.726x / 0.719x |
+
+Not stamped: `hazard3_perf` is absent from this pair, so `hazard3` above is that core's small-part build alone; the next `make compare-product` run adds the other.
 
 Cycle factor: ratcheted for `littlecpu` only (`soc/compare/CYCLE_FLOOR`); the other cores' factors are reported. Clock: not ratcheted, because the placer's spread is wider than any difference a gate could grade.
 
 ## Caveats that travel with the numbers
 
 - **littlecpu**: this core, built at the shared RV32IM subset.
-- **vexriscv**: the generated VexRiscv in the pinned riscv-formal clone: M, no A, no C.
-- **hazard3**: Hazard3's two-port iCE40 build; its disclosed bus wait is counted in its cycles.
+- **vexriscv**: the generated VexRiscv in the pinned riscv-formal clone, its authors' performance configuration (it ships no other): M, no A, no C.
+- **hazard3**: Hazard3's two-port build from its iCE40 example (`fpga_icebreaker.v`): bit-serial multiply, no branch predictor, no counters, no fence.i; its disclosed bus wait is counted in its cycles.
+- **hazard3_perf**: Hazard3's two-port build from its two ECP5 examples (`fpga_ulx3s.v`, `fpga_orangecrab_25f.v`): single-cycle multiply, branch predictor, counters, fence.i; the same bus adapter and wait.
 - **Hazard3's ECP5 clock** carries a standing flag: the same RTL read 33.26 MHz in one session and 48.50 in a later one, and the unpinned nextpnr-ecp5 is the likely, unconfirmed cause. Read it as measured and inherit the flag.
-- **Hazard3 has no Dhrystone row** in the stamp; only CoreMark carries all three cores.
+- **Hazard3 has no Dhrystone row** in the stamp; only CoreMark carries its columns.
+- **One standard for every opponent** (docs/adr/0246): each core runs the configuration its authors ship for a part with room, and a core that ships a small-part build as well gets that build as its own named column. No ratio here is against an unnamed build, and an ISA choice (C, A, M) is the harness row's, never an opponent's tuning.
 - **CoreMark's cycles are simulated at a larger map than the clock is placed at**: its text does not fit the up5k's placed ROM, so the cycle half and the clock half come from different geometries. Dhrystone fits, and nothing in its rows is distorted by memory size. Each row's simulated geometry is on its provenance line.
 - **A product is a measurement only when both halves came off one tree and one toolchain.** Every row here shares one stamp commit and one tool list.
 - **Parts are never blended.** The up5k and ECP5 sections answer different questions and are not averaged or ranked against each other.
-- **The comparison is RV32IM**, the widest ISA all three cores share; no pairwise wider-ISA row is stamped, so none is rendered.
+- **The comparison is RV32IM**, the widest ISA all the cores share; no pairwise wider-ISA row is stamped, so none is rendered.
 - **nanocpu is not in this comparison** and is never quoted beside littlecpu.
 
 ## Stamp provenance
