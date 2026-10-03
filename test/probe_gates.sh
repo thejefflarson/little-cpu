@@ -5331,7 +5331,7 @@ tr_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/formal"
   cp "$REPO"/rtl/structs.v "$REPO"/rtl/fetcher.v "$REPO"/rtl/decoder.v \
-     "$REPO"/rtl/executor.v "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$d/rtl/"
+     "$REPO"/rtl/executor.v "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$REPO"/rtl/trng.v "$d/rtl/"
   cp "$REPO"/formal/traps.sv "$REPO"/formal/components.sby "$d/formal/"
   printf '%s' "$d"
 }
@@ -6721,7 +6721,7 @@ mcp_fixture() {  # $1 = formal|nano/formal  $2 = imemcheck|dmemcheck
     # The exact list memcheck-cover-probe.py's own LITTLECPU_RTL names, not every
     # rtl/*.v file: the stub never reads any of them, but build_case() still copies
     # each one out of $d, so the fixture has to stock exactly what it will ask for.
-    for f in structs.v fetcher.v regfile.v csrs.v decoder.v regsel.v executor.v \
+    for f in structs.v fetcher.v regfile.v csrs.v trng.v decoder.v regsel.v executor.v \
              accessor.v writeback.v littlecpu.v; do
       cp "$REPO/rtl/$f" "$d/rtl/"
     done
@@ -6903,7 +6903,7 @@ np_fixture() {  # $1 = littlecpu|nano
     cp "$REPO/nano/nano.v" "$d/nano/"
   else
     mkdir -p "$d/rtl"
-    for f in structs.v fetcher.v regfile.v csrs.v decoder.v regsel.v executor.v \
+    for f in structs.v fetcher.v regfile.v csrs.v trng.v decoder.v regsel.v executor.v \
              accessor.v writeback.v littlecpu.v; do
       cp "$REPO/rtl/$f" "$d/rtl/"
     done

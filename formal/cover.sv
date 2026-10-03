@@ -56,6 +56,7 @@ module testbench (
     .mem_lock(mem_lock),
     .bus_request(bus_request),
     .irq_timer(1'b0),
+    .entropy_raw(1'b0),
     .trap(trap),
     `RVFI_CONN
   );

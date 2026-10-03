@@ -9,6 +9,8 @@ module littlesoc #(
 ) (
   input  logic clk,
   input  logic btn_n,
+  // A slow free-running oscillator, asynchronous to `clk`; low reads as DEAD.
+  input  logic entropy_raw,
   output logic ledr_n,
   output logic ledg_n,
   output logic uart_tx,
@@ -66,6 +68,7 @@ module littlesoc #(
     .mem_lock(mem_lock),
     .bus_request(bus_request),
     .irq_timer(irq_timer),
+    .entropy_raw(entropy_raw),
     .trap(trap)
   );
 

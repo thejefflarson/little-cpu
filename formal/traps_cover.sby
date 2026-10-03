@@ -9,7 +9,7 @@ depth 20
 smtbmc bitwuzla
 
 [script]
-read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v
+read -sv -formal -noassume structs.v fetcher.v decoder.v executor.v regsel.v csrs.v trng.v
 read -sv -formal structs.v traps.sv
 prep -top traps
 
@@ -19,5 +19,6 @@ prep -top traps
 ../rtl/executor.v
 ../rtl/regsel.v
 ../rtl/csrs.v
+../rtl/trng.v
 ../rtl/structs.v
 traps.sv

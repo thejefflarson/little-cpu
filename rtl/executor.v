@@ -163,7 +163,7 @@ module executor #(
   assign store_access_fault = (atomic_fault && instr_atomic_write) ||
                               (ls_fault && instr_ls_store);
 
-  logic instr_valid, csr_readonly_write, instr_illegal;
+  logic instr_valid, csr_readonly_write, seed_readonly, instr_illegal;
   assign instr_valid = in_is_auipc || in_is_jal || in_is_jalr || in_is_beq || in_is_bne ||
     in_is_blt || in_is_bltu || in_is_bge || in_is_bgeu || in_is_add || in_is_sub || in_is_xor ||
     in_is_or || in_is_and || in_is_mul || in_is_mulh || in_is_mulhu || in_is_mulhsu ||
@@ -173,7 +173,10 @@ module executor #(
     in_is_wfi || in_is_fence || in_is_fencei ||
     instr_atomic || (in_is_csr_access && csr_implemented);
   assign csr_readonly_write = in_is_csr_access && csr_write_op && csr_addr[11:10] == 2'b11;
-  assign instr_illegal = in_valid && !take_interrupt && (!instr_valid || csr_readonly_write);
+  // `seed` is destructive, so Zkr makes a read-only access illegal.
+  assign seed_readonly = in_is_csr_access && csr_addr == 12'h015 && !csr_write_op;
+  assign instr_illegal = in_valid && !take_interrupt &&
+    (!instr_valid || csr_readonly_write || seed_readonly);
 
   localparam logic [31:0] CAUSE_INSTRUCTION_FAULT   = 32'd1;
   localparam logic [31:0] CAUSE_ILLEGAL_INSTRUCTION = 32'd2;

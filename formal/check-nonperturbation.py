@@ -102,7 +102,7 @@ DESIGNS = {
     "littlecpu": {
         "top": "littlecpu",
         "sources": [os.path.join(ROOT, "rtl", f) for f in (
-            "structs.v", "fetcher.v", "regfile.v", "csrs.v", "decoder.v", "regsel.v",
+            "structs.v", "fetcher.v", "regfile.v", "csrs.v", "trng.v", "decoder.v", "regsel.v",
             "executor.v", "accessor.v", "writeback.v", "littlecpu.v")],
         "defines": "-D RISCV_FORMAL ",
         "header": None,

@@ -52,7 +52,7 @@ genchecks-check: $(RISCV_FORMAL_DIR)/checks/genchecks.py genchecks-local.py | $(
 	python3 check-genchecks.py $^
 
 RTL_SOURCES := ../rtl/structs.v ../rtl/fetcher.v ../rtl/regfile.v \
-               ../rtl/csrs.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/executor.v \
+               ../rtl/csrs.v ../rtl/trng.v ../rtl/decoder.v ../rtl/regsel.v ../rtl/executor.v \
                ../rtl/accessor.v ../rtl/writeback.v ../rtl/littlecpu.v
 
 .PHONY: remeasure-fg
@@ -86,7 +86,7 @@ pcloop_cover: pcloop_cover.sby pcloop.sv ../rtl/fetcher.v ../rtl/decoder.v ../rt
               ../rtl/regsel.v ../rtl/structs.v
 
 traps_cover: traps_cover.sby traps.sv ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
-             ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v
+             ../rtl/regsel.v ../rtl/csrs.v ../rtl/trng.v ../rtl/structs.v
 
 busarbiter_cover: busarbiter_cover.sby busarbiter.sv ../rtl/busarbiter.v
 
@@ -154,7 +154,7 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
 components_traps: components.sby traps_cover traps-region-probe traps-tval-probe \
                   traps-arith-excluded check-solver-bitwuzla \
                   ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v ../rtl/regsel.v \
-                  ../rtl/csrs.v ../rtl/structs.v traps.sv
+                  ../rtl/csrs.v ../rtl/trng.v ../rtl/structs.v traps.sv
 	rm -rf $@
 	sby -f $< traps
 
@@ -173,7 +173,7 @@ components_traps_pc components_traps_cause components_traps_status \
 components_traps_quiescence: components_traps_%: components.sby traps-groups \
                               traps-arith-excluded check-solver-bitwuzla \
                               ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v \
-                              ../rtl/regsel.v ../rtl/csrs.v ../rtl/structs.v traps.sv
+                              ../rtl/regsel.v ../rtl/csrs.v ../rtl/trng.v ../rtl/structs.v traps.sv
 	rm -rf $@
 	sby -f $< traps_$*
 

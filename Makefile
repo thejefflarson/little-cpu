@@ -13,7 +13,7 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 $(BUILD):
 	mkdir -p $@
 
-SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
+SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/trng.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
                 rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
 
@@ -465,7 +465,7 @@ UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
 UNIT_BENCH_SRC_imem_tb     := rtl/imemory.v
 UNIT_BENCH_SRC_decoder_tb  := rtl/structs.v rtl/decoder.v rtl/regsel.v
 UNIT_BENCH_SRC_regfile_tb  := rtl/regfile.v
-UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v
+UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v rtl/trng.v
 UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
 UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 UNIT_BENCH_SRC_timer_tb    := rtl/timer.v
@@ -864,7 +864,7 @@ coremark: sim
 
 # Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
 # magnitude and in sign on the same netlist.
-FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
+FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/trng.v rtl/decoder.v rtl/executor.v \
             rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
 $(BUILD)/fit.json: $(FIT_SRCS) | $(BUILD)
@@ -902,7 +902,7 @@ SOC_ROM_CHPARAM := $(if $(filter command line,$(origin SOC_ROM_WORDS)),chparam -
 SOC_EXPECT_SPRAM := 2
 SOC_EXPECT_EBR   := 20
 
-SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
+SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/trng.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
                  rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v

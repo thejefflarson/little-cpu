@@ -45,7 +45,7 @@ LITTLECPU_PORT = ".fetch_stall(fetch_stall)"
 LITTLECPU_TIED = ".fetch_stall(1'b1)"
 
 LITTLECPU_RTL = (
-    "structs.v", "fetcher.v", "regfile.v", "csrs.v", "decoder.v",
+    "structs.v", "fetcher.v", "regfile.v", "csrs.v", "trng.v", "decoder.v",
     "regsel.v", "executor.v", "accessor.v", "writeback.v", "littlecpu.v",
 )
 

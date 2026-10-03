@@ -21,6 +21,7 @@ module csr_tb;
   logic [31:0] mtvec_value, mepc_value;
   // The platform's timer line, and the one bit rtl/decoder.v reads back.
   logic        irq_timer;
+  logic        entropy_raw;
   logic        interrupt_pending;
  `ifdef RISCV_FORMAL
   rvfi_csr64 rvfi_mcycle, rvfi_minstret;
@@ -43,6 +44,7 @@ module csr_tb;
     .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .irq_timer(irq_timer),
+    .entropy_raw(entropy_raw),
     .mtvec_value(mtvec_value),
     .mepc_value(mepc_value),
     .interrupt_pending(interrupt_pending)
@@ -73,6 +75,7 @@ module csr_tb;
     .trap_epc(trap_epc),
     .mret_entry(mret_entry),
     .irq_timer(irq_timer),
+    .entropy_raw(entropy_raw),
     .mtvec_value(),
     .mepc_value(),
     .interrupt_pending()

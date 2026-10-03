@@ -23,6 +23,7 @@ module icesugar_pro_top (
   littlesoc #(.CLOCK_HZ(CORE_HZ)) soc (
     .clk(clk_core),
     .btn_n(pll_locked),
+    .entropy_raw(1'b0),
     .ledr_n(led_r_n),
     .ledg_n(led_g_n),
     .uart_tx(uart_tx),

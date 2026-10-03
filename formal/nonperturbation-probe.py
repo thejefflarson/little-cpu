@@ -29,7 +29,7 @@ import sys
 DESIGNS = {
     "littlecpu": {
         "sources": [f"rtl/{f}" for f in (
-            "structs.v", "fetcher.v", "regfile.v", "csrs.v", "decoder.v", "regsel.v",
+            "structs.v", "fetcher.v", "regfile.v", "csrs.v", "trng.v", "decoder.v", "regsel.v",
             "executor.v", "accessor.v", "writeback.v", "littlecpu.v")],
         "mutated": "rtl/littlecpu.v",
         "old": "  assign trap = decoder_trap_entry;\n",

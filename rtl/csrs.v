@@ -27,6 +27,7 @@ module csrs #(
   // MUST ARRIVE REGISTERED. `interrupt_pending` is one AND away from `next_pc`, so an
   // unregistered 64-bit compare here would land in the fetch loop.
   input  logic        irq_timer,
+  input  logic        entropy_raw,
   output logic [31:0] mtvec_value,
   output logic [31:0] mepc_value,
   output logic        interrupt_pending
@@ -44,6 +45,7 @@ module csrs #(
   localparam logic [11:0] MISA      = 12'h301;
   localparam logic [11:0] MSTATUSH  = 12'h310;
   localparam logic [11:0] MCONFIGPTR = 12'hF15;
+  localparam logic [11:0] SEED      = 12'h015;
   localparam logic [11:0] MIE       = 12'h304;
   localparam logic [11:0] MTVEC     = 12'h305;
   localparam logic [11:0] MSCRATCH  = 12'h340;
@@ -96,6 +98,15 @@ module csrs #(
   assign hpm_event   = addr[11:5] == MHPMEVENT_WINDOW;
   assign hpm_zero    = hpm_number && (hpm_counter || hpm_event);
 
+  logic [31:0] seed_value;
+  trng entropy (
+    .clk(clk),
+    .reset(reset),
+    .raw(entropy_raw),
+    .pop(ren && addr == SEED),
+    .seed(seed_value)
+  );
+
   assign mtvec_value = mtvec;
   assign mepc_value  = mepc;
 
@@ -118,6 +129,7 @@ module csrs #(
       MINSTRET:  rdata = minstret_lo;
       MINSTRETH: rdata = minstret_hi;
       MHARTID:   rdata = HART_ID;
+      SEED:      rdata = seed_value;
       MVENDORID, MARCHID, MIMPID, MCONFIGPTR: rdata = 32'b0;
       default: begin
         rdata = 32'b0;
