@@ -1100,10 +1100,9 @@ that it advances by exactly the non-trapping issues; `test/asm/minstret.S`, `tes
 `make -C formal check` as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is necessary,
 not sufficient.
 
-On the fetch-refactor tree `make fit` reads 4,347 packed cells locally and 4,332 in the `fit` job, against `FIT_MAX_LC` 4,441 and `make
-soc-timing` places at 5,084 of 5,280 `ICESTORM_LC`, with eight seeds at 12.57–13.24 MHz and
-`soc/pin.json` holding seed 20382078 at 13.24 MHz (ADR-0220 derives the budget and records the
-sweep; the ECP5 and dual figures are not re-taken there).
+With the `seed` CSR and its entropy source, `make fit` reads 4,492 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
+soc-timing` places at 5,205 of 5,280 `ICESTORM_LC` (98.6%), with sixteen paired seeds at 12.72–13.48 MHz and
+`soc/pin.json` holding seed 67306537 at 13.62 MHz (ADR-0245 records the sweep and that a respelling at this occupancy moved the count 51 cells; the ECP5 and dual figures are not re-taken there beyond `make ecp5-timing`'s gates).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
