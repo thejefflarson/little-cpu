@@ -4531,7 +4531,7 @@ mt_fixture() {
   {
     printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS cover.sv\n'
     printf 'HARNESS dmemcheck.sv\nHARNESS imemcheck.sv\n'
-    printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\n"
+    printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\nPORT entropy_raw 1'b0\n"
     printf 'ELSEWHERE irq_timer INTERRUPT_TIE_OFF\n'
   } > "$d/BASELINE"
   printf '%s' "$d"
@@ -5256,7 +5256,7 @@ probe "half of a macro-guarded group is red, where none of it is not" 1 \
   "connects littlecpu under RISCV_FORMAL but not .rvfi_mem_rmask" "$PC $d"
 
 d=$(pc_fixture); mutate "$d/test/testbench.v" \
-  's/^    \.irq_timer(irq_timer),$/    .irq_timer(irq_timer)/' \
+  's/^    \.entropy_raw(entropy_raw),$/    .entropy_raw(entropy_raw)/' \
   's/^    \.trap(trap)$//' \
   's/^    , \.rvfi_valid/    , .trap(trap), .rvfi_valid/'
 probe "an unconditional port connected only inside an ifdef is red" 1 \
@@ -7497,14 +7497,14 @@ mcov_fixture() {
 
 d=$(mcov_fixture)
 probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
-  "20 rtl/*.v files, each ruled on" "$MCOV $d"
+  "21 rtl/*.v files, each ruled on" "$MCOV $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"
 
-d=$(mcov_fixture); touch "$d/rtl/trng.v"
+d=$(mcov_fixture); touch "$d/rtl/newfile.v"
 probe "a new rtl file with no line is red, naming the file" 1 \
-  "rtl/trng.v" "$MCOV $d"
+  "rtl/newfile.v" "$MCOV $d"
 
 d=$(mcov_fixture); rm "$d/rtl/spiflash.v"
 probe "deleting an rtl file and leaving its line is red" 1 \
