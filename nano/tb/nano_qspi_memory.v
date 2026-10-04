@@ -128,14 +128,19 @@ module nano_qspi_memory #(
   logic loop_hit_full;
   assign loop_hit_full = loop_hit_lookup && !fifo_serves;
 
-  // An independent record of when each parcel entered the loop buffer, stamped at production under the current tag (tagged block) or at delivery (CAM); hit_fault reads it, never tag_window_bits or cam_valid.
+  // An independent record of when each parcel entered the loop buffer: stamped at production inside the tagged block under the current tag, or by delivery sequence number for the CAM, which keeps the last LOOP_WINDOW. hit_fault reads it, never tag_window_bits, cam_valid or cam_idx.
   int unsigned parcel_stamp [0:2*WORDS-1];
   int unsigned tag_gen;
-  int unsigned hit_stamp;
-  assign hit_stamp = LOOP_KIND == 1 ? tag_gen : 1;
+  logic [31:SLOTBITS] tag_block;
+  int unsigned delivery_seq;
   int unsigned hit_stamp_lo, hit_stamp_hi;
   assign hit_stamp_lo = parcel_stamp[target_index];
   assign hit_stamp_hi = parcel_stamp[target_index_p1];
+  logic stamp_ok_lo, stamp_ok_hi;
+  assign stamp_ok_lo = LOOP_KIND == 1 ? (tag_gen != 0 && hit_stamp_lo == tag_gen)
+    : (hit_stamp_lo != 0 && delivery_seq - hit_stamp_lo < LOOP_WINDOW);
+  assign stamp_ok_hi = LOOP_KIND == 1 ? (tag_gen != 0 && hit_stamp_hi == tag_gen)
+    : (hit_stamp_hi != 0 && delivery_seq - hit_stamp_hi < LOOP_WINDOW);
 
   logic xfer_active;
   logic xfer_aimed;
@@ -176,7 +181,7 @@ module nano_qspi_memory #(
     arrived_valid && arrived_index >= target_index + QUEUE_SPAN;
   assign in_preamble = preamble_pending;
   assign hit_fault = mem_valid && mem_instr && loop_hit_now &&
-    !(hit_stamp != 0 && hit_stamp_lo == hit_stamp && (target_len == 1 || hit_stamp_hi == hit_stamp));
+    !(stamp_ok_lo && (target_len == 1 || stamp_ok_hi));
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -193,6 +198,8 @@ module nano_qspi_memory #(
       tag_window_tag <= 0;
       tag_window_bits <= '0;
       tag_gen <= 0;
+      tag_block <= 0;
+      delivery_seq <= 0;
       cam_valid <= '0;
       xfer_active <= 1'b0;
       xfer_aimed <= 1'b0;
@@ -217,7 +224,8 @@ module nano_qspi_memory #(
           arrived_valid <= 1'b1;
           arrived_index <= next_to_produce;
           parcel_timer <= PARCEL_CYCLES - 1;
-          if (LOOP_KIND == 1) parcel_stamp[next_to_produce] <= tag_gen;
+          if (LOOP_KIND == 1 && next_to_produce[31:SLOTBITS] == tag_block)
+            parcel_stamp[next_to_produce] <= tag_gen;
           if (LOOP_KIND == 1 && tag_window_valid &&
               next_to_produce[31:SLOTBITS] == tag_window_tag) begin
             tag_window_bits[next_to_produce[SLOTBITS-1:0]] <= 1'b1;
@@ -249,6 +257,7 @@ module nano_qspi_memory #(
             tag_window_tag <= target_index[31:SLOTBITS];
             tag_window_bits <= '0;
             tag_gen <= tag_gen + 1;
+            tag_block <= target_index[31:SLOTBITS];
           end
         end
       end else if (mem_valid && xfer_active) begin
@@ -263,8 +272,11 @@ module nano_qspi_memory #(
           expect_index <= target_index + target_len;
           if (target_index == fifo_head) fifo_head <= target_index + target_len;
           if (LOOP_KIND == 2) begin
-            parcel_stamp[target_index] <= 1;
-            if (target_len == 2) parcel_stamp[target_index_p1] <= 1;
+            if (target_len == 1 || SLOTS > 1) begin
+              delivery_seq <= delivery_seq + target_len;
+              parcel_stamp[target_index] <= delivery_seq + target_len;
+              if (target_len == 2) parcel_stamp[target_index_p1] <= delivery_seq + 1;
+            end
             if (target_len == 1) begin
               for (int i = SLOTS - 1; i > 0; i--) begin
                 cam_idx[i] <= cam_idx[i - 1];

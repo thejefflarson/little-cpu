@@ -322,9 +322,16 @@ target past the run's start (`target_index >= preamble_target` for `fifo_head ==
 passes the old check on `qspi_loop_micro.S`'s new `KIND=3`, a fourteen-parcel loop across the
 16-byte block's edge, and fails `queue_fault`. `hit_fault` fires on a loop-buffer hit for a parcel
 that never entered the buffer, which `stream_fault` is gated off for: it reads a per-parcel stamp
-(the tag generation at production for the tagged block, delivery for the CAM) and never
-`tag_window_bits` or `cam_valid`. Dropping the second parcel's valid bit from `tag_ready1` alone
-fails it on `KIND=4`, a loop of two 32-bit instructions. `in_preamble` lets the harness refuse
+and never `tag_window_bits`, `cam_valid` or `cam_idx`. The tagged block stamps a parcel at
+production only inside the block latched at re-tag, under that tag's generation. The CAM stamps
+each delivery with a running sequence number and accepts a hit only within `LOOP_WINDOW`
+deliveries of it, so a parcel evicted from the window cannot hit. Dropping the second parcel's
+valid bit from `tag_ready1` alone fails it on `KIND=4`, a loop of two 32-bit instructions;
+dropping the CAM lookup's `cam_valid` term fails it on the first fetch; dropping the tagged
+block's tag compare fails it where a loop crosses a block edge. Single-line mutations that
+corrupt the CAM's shift are caught by the marginal-cost check instead, because they lose hits
+rather than invent them; no one-line mutation inflates the CAM past its capacity, so the window
+bound is exercised by construction and not by a forced-red case. `in_preamble` lets the harness refuse
 a fetch cycle charged to parcel wait while the flash is still in its address phase.
 
 **One cycle per load or store moved from parcel wait to redirect preamble.** On a transaction's

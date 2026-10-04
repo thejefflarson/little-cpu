@@ -70,6 +70,12 @@ run_mutation "aim-ignores-queue-head" \
 run_mutation "tagged-hit-skips-second-parcel-valid-bit" \
   "s/tag_window_bits\[target_index_p1\[SLOTBITS-1:0\]\];/1'b1;/" \
   "never entered the buffer" || status=1
+run_mutation "cam-lookup-ignores-valid-bit" \
+  "s/cam_valid\[i\] \&\& cam_idx\[i\] == target_index) cam_has0/cam_idx[i] == target_index) cam_has0/;s/cam_valid\[i\] \&\& cam_idx\[i\] == target_index + 1) cam_has1/cam_idx[i] == target_index + 1) cam_has1/" \
+  "never entered the buffer" || status=1
+run_mutation "tag-compare-dropped" \
+  "s/target_index\[31:SLOTBITS\] == tag_window_tag \&\&//;s/target_index_p1\[31:SLOTBITS\] == tag_window_tag \&\&//" \
+  "never entered the buffer" || status=1
 run_mutation "resync-first-cycle-charged-to-parcel-wait" \
   "s/(preamble_pending || (redirect_now \&\& !loop_hit_full))/(redirect_now \&\& !loop_hit_full)/" \
   "still in its address phase" || status=1
