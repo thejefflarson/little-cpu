@@ -10,7 +10,14 @@ SUITE=${2:-$HERE/../soc/run_suite_board.sh}
 INSTALL=${3:-$HERE/../soc/install_board_tools.sh}
 . "$LIB"
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/board_verdict.XXXXXX")
+# The accept cases need scratch whose every ancestor passes the walk; Linux's /tmp is world-writable, so it never does.
+base=""
+for cand in "${TMPDIR:-/tmp}" "$HERE/../build" "$HOME"; do
+  mkdir -p "$cand" 2>/dev/null || continue
+  if (. "$HERE/../soc/board_verdict.sh"; check_path_chain "$cand" "$(id -u)") >/dev/null 2>&1; then base=$cand; break; fi
+done
+[ -n "$base" ] || { echo "error: no scratch candidate has an ancestry the root-binary walk accepts" >&2; exit 1; }
+WORK=$(mktemp -d "$base/board_verdict.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 fail=0
