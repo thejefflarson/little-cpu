@@ -2,6 +2,8 @@
 # Runs both factors of the cross-core throughput product, on every part this design
 # ships to, and writes the result into soc/compare/product.json.
 set -eu
+# SEEDS and PARTS are expanded unquoted below; a glob in either must stay a literal.
+set -f
 
 cd "$(dirname "$0")/../.."
 
@@ -11,6 +13,15 @@ if [ -z "$SEEDS" ]; then
   echo "*** placed. Name the seeds, or unset it for the default twelve." >&2
   exit 2
 fi
+for seed in $SEEDS; do
+  case $seed in
+    default) ;;
+    *[!0-9]*)
+      echo "*** run_product.sh: COMPARE_PRODUCT_SEEDS has the word '$seed'; each" >&2
+      echo "*** word must be 'default' or digits." >&2
+      exit 2 ;;
+  esac
+done
 PARTS=${COMPARE_PRODUCT_PARTS:-"up5k ecp5"}
 if [ -z "$PARTS" ]; then
   echo "*** run_product.sh: COMPARE_PRODUCT_PARTS is empty, so nothing would be" >&2
@@ -27,8 +38,48 @@ for part in $PARTS; do
 done
 OUT=${COMPARE_PRODUCT_OUT:-soc/compare/product.json}
 
+# The artifact is rewritten mid-run, so it cannot count as the tree moving.
+OUT_EXCLUDE=""
+case $OUT in
+  /*) rel=${OUT#"$PWD"/}; [ "$rel" != "$OUT" ] && OUT_EXCLUDE=$rel ;;
+  *)  OUT_EXCLUDE=$OUT ;;
+esac
+
+# The opponents are gitignored clones the repo's own status cannot see.
+tree_status() {
+  if [ -n "$OUT_EXCLUDE" ]; then
+    git status --porcelain --untracked-files=all -- . ":(exclude,literal)$OUT_EXCLUDE"
+  else
+    git status --porcelain --untracked-files=all
+  fi
+  for clone in soc/compare/hazard3 formal/riscv-formal; do
+    [ -e "$clone/.git" ] || continue
+    git -C "$clone" status --porcelain --untracked-files=all | sed "s|^|$clone: |"
+  done
+}
+
+tree_state() {
+  git rev-parse HEAD
+  tree_status
+  for clone in soc/compare/hazard3 formal/riscv-formal; do
+    [ -e "$clone/.git" ] && echo "$clone $(git -C "$clone" rev-parse HEAD)"
+  done
+  python3 soc/compare/product_digest.py
+}
+
+# A measurement over a tree that moved mid-run describes neither tree.
+assert_tree_unmoved() {
+  if [ "$(tree_state)" != "$START_STATE" ]; then
+    echo "*** run_product.sh: the tree or an opponent clone changed during the run," >&2
+    echo "*** so the stamp would describe neither state. Re-run it." >&2
+    exit 1
+  fi
+}
+
 BASE=$(git rev-parse HEAD)
-if git diff --quiet HEAD --; then DIRTY=no; else DIRTY=yes; fi
+START_STATE=$(tree_state)
+DIGEST=$(python3 soc/compare/product_digest.py)
+if [ -z "$(tree_status)" ]; then DIRTY=no; else DIRTY=yes; fi
 DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 ROM_WORDS=$(make -s print-COMPARE_ROM_WORDS)
 RAM_WORDS=$(make -s print-COMPARE_RAM_WORDS)
@@ -45,22 +96,14 @@ if [ -z "$CC" ]; then
 fi
 
 # nextpnr-ecp5/its Trellis database: only asked for when ECP5 is actually placed.
-set -- yosys nextpnr-ice40 icetime iverilog "$CC"
-case " $PARTS " in
-  *" ecp5 "*) set -- "$@" nextpnr-ecp5 trellis-db ;;
-esac
-TOOLS_BLOCK=$(soc/print_toolchain.sh "$@")
-TOOL_ARGS=""
-while IFS= read -r line; do
-  [ -z "$line" ] && continue
-  name=${line#\# }; name=${name%%:*}
-  value=${line#*: }
-  # `set --` below re-splits on whitespace, so a version string's own spaces travel quoted.
-  TOOL_ARGS="$TOOL_ARGS --tool"
-  TOOL_ARGS="$TOOL_ARGS '$name=$value'"
-done <<TOOLS
-$TOOLS_BLOCK
-TOOLS
+toolchain_block() {
+  set -- yosys nextpnr-ice40 icetime iverilog "$CC"
+  case " $PARTS " in
+    *" ecp5 "*) set -- "$@" nextpnr-ecp5 trellis-db ;;
+  esac
+  soc/print_toolchain.sh "$@"
+}
+TOOLS_BLOCK=$(toolchain_block)
 
 isa_from_cflags() {  # $1 = CFLAGS string
   printf '%s\n' "$1" | sed -n 's/.*-march=\([A-Za-z0-9_]*\).*/\1/p'
@@ -117,7 +160,7 @@ sweep_clock() {  # $1 = part, $2 = core; prints comma-separated ns on stdout
 # One sweep per (core, part) serves both benchmark pairs below.
 for part in $PARTS; do
   echo "== compare-product: clock sweep on $part ($SEEDS) =="
-  for core in littlecpu vexriscv hazard3; do
+  for core in littlecpu vexriscv hazard3 hazard3_perf; do
     echo "-- $core --"
     ns=$(sweep_clock "$part" "$core")
     echo "$ns"
@@ -126,7 +169,7 @@ for part in $PARTS; do
   echo
 done
 
-echo "== compare-product: Dhrystone cycles (littlecpu against VexRiscv) =="
+echo "== compare-product: Dhrystone cycles (littlecpu against VexRiscv and both Hazard3 builds) =="
 if ! DHRY_OUT=$(make compare-dhrystone 2>&1); then
   echo "*** run_product.sh: make compare-dhrystone failed." >&2
   printf '%s\n' "$DHRY_OUT" >&2
@@ -137,8 +180,11 @@ printf '%s\n' "$DHRY_OUT"
 # FIRST match: the three-way row, not the ISA-cost/pairwise rows also printed.
 LC_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=littlecpu' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
 VEX_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=vexriscv' | sed -n 's/.*cycles=\([0-9]*\).*/\1/p' | head -1)
-if [ -z "$LC_CYCLES" ] || [ -z "$VEX_CYCLES" ]; then
-  echo "*** run_product.sh: could not find both cores' 'DHRY core=... cycles='" >&2
+# `core=hazard3 marks=` and not `core=hazard3`, which is also the prefix of hazard3_perf.
+HZ_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=hazard3 marks=' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1)
+HZP_CYCLES=$(printf '%s\n' "$DHRY_OUT" | grep '^DHRY core=hazard3_perf marks=' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1)
+if [ -z "$LC_CYCLES" ] || [ -z "$VEX_CYCLES" ] || [ -z "$HZ_CYCLES" ] || [ -z "$HZP_CYCLES" ]; then
+  echo "*** run_product.sh: could not find all four cores' 'DHRY core=... cycles='" >&2
   echo "*** lines in make compare-dhrystone's output." >&2
   exit 1
 fi
@@ -150,25 +196,35 @@ DHRY_VAX_RATE=$(python3 -c "import sys; sys.path.insert(0, 'soc/compare'); \
   from dhry_dmips import VAX_DHRYSTONES_PER_SEC; print(VAX_DHRYSTONES_PER_SEC)")
 
 for pair in "DHRY_RUNS=$DHRY_RUNS" "LC_CYCLES=$LC_CYCLES" \
-            "VEX_CYCLES=$VEX_CYCLES" "DHRY_VAX_RATE=$DHRY_VAX_RATE"; do
+            "VEX_CYCLES=$VEX_CYCLES" "HZ_CYCLES=$HZ_CYCLES" "HZP_CYCLES=$HZP_CYCLES" \
+            "DHRY_VAX_RATE=$DHRY_VAX_RATE"; do
   name=${pair%%=*}; value=${pair#*=}
   case "$value" in
     ''|*[!0-9.]*)
       echo "*** run_product.sh: $name is '$value', which is not a number." >&2
-      echo "*** It is interpolated into a python3 -c expression below, so a" >&2
-      echo "*** blank or multi-line value there dies as a SyntaxError instead" >&2
-      echo "*** of naming itself. Fix what produced it." >&2
+      echo "*** Fix what produced it." >&2
       exit 1 ;;
   esac
 done
 
-LC_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $LC_CYCLES / $DHRY_VAX_RATE)")
-VEX_DHRY_FACTOR=$(python3 -c "print($DHRY_RUNS * 1e6 / $VEX_CYCLES / $DHRY_VAX_RATE)")
+# Values travel as arguments, never spliced into the program text.
+cycle_factor() {  # $1 = runs, $2 = cycles, $3 = divisor (default 1)
+  python3 -c 'import sys; a = [float(v) for v in sys.argv[1:]]; print(a[0] * 1e6 / a[1] / a[2])' \
+    "$1" "$2" "${3:-1}"
+}
+LC_DHRY_FACTOR=$(cycle_factor "$DHRY_RUNS" "$LC_CYCLES" "$DHRY_VAX_RATE")
+VEX_DHRY_FACTOR=$(cycle_factor "$DHRY_RUNS" "$VEX_CYCLES" "$DHRY_VAX_RATE")
+HZ_DHRY_FACTOR=$(cycle_factor "$DHRY_RUNS" "$HZ_CYCLES" "$DHRY_VAX_RATE")
+HZP_DHRY_FACTOR=$(cycle_factor "$DHRY_RUNS" "$HZP_CYCLES" "$DHRY_VAX_RATE")
+CYCLE_TOOLS_BLOCK=$(toolchain_block)
+assert_tree_unmoved
 
 for part in $PARTS; do
   eval "lc_ns=\$NS_${part}_littlecpu"
   eval "vex_ns=\$NS_${part}_vexriscv"
-  eval "set -- $TOOL_ARGS"
+  eval "hz_ns=\$NS_${part}_hazard3"
+  eval "hzp_ns=\$NS_${part}_hazard3_perf"
+  set --
   case $part in
     up5k) set -- "$@" --step-mhz "$STEP_MHZ" ;;
     ecp5) set -- "$@" --field "ecp5_part=$ECP5_PART" \
@@ -177,24 +233,39 @@ for part in $PARTS; do
   python3 soc/compare/product_write.py "$OUT" "$(pair_name dhrystone "$part")" --measured \
     --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
     --seeds "$SEEDS" --cflags "$DHRY_CFLAGS" --isa "$DHRY_ISA" \
-    --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'DMIPS/MHz' "$@" \
+    --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'DMIPS/MHz' \
+    --digest "$DIGEST" --tools-block "$TOOLS_BLOCK" --cycle-tools-block "$CYCLE_TOOLS_BLOCK" "$@" \
     --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv=$vex_ns" \
-    --cycle-factor "littlecpu=$LC_DHRY_FACTOR" --cycle-factor "vexriscv=$VEX_DHRY_FACTOR"
+    --clock-ns "hazard3=$hz_ns" --clock-ns "hazard3_perf=$hzp_ns" \
+    --cycle-factor "littlecpu=$LC_DHRY_FACTOR" --cycle-factor "vexriscv=$VEX_DHRY_FACTOR" \
+    --cycle-factor "hazard3=$HZ_DHRY_FACTOR" --cycle-factor "hazard3_perf=$HZP_DHRY_FACTOR"
 done
 
 measure_coremark() {
   if CM_OUT=$(make compare-coremark 2>&1) \
      && LC_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=littlecpu' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
      && VEX_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=vexriscv' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
-     && HZ_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
+     && HZ_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3 marks=' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
+     && HZP_CM_CYCLES=$(printf '%s\n' "$CM_OUT" | grep '^COREMARK core=hazard3_perf marks=' | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1) \
      && CM_ITERATIONS=$(make -s print-COMPARE_COREMARK_ITERATIONS) \
      && CM_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS) \
-     && [ -n "$LC_CM_CYCLES" ] && [ -n "$VEX_CM_CYCLES" ] && [ -n "$HZ_CM_CYCLES" ] \
+     && [ -n "$LC_CM_CYCLES" ] && [ -n "$VEX_CM_CYCLES" ] && [ -n "$HZ_CM_CYCLES" ] && [ -n "$HZP_CM_CYCLES" ] \
      && [ -n "$CM_ITERATIONS" ] && [ -n "$CM_CFLAGS" ]; then
     printf '%s\n' "$CM_OUT"
-    LC_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $LC_CM_CYCLES)")
-    VEX_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $VEX_CM_CYCLES)")
-    HZ_CM_FACTOR=$(python3 -c "print($CM_ITERATIONS * 1e6 / $HZ_CM_CYCLES)")
+    for value in "$CM_ITERATIONS" "$LC_CM_CYCLES" "$VEX_CM_CYCLES" "$HZ_CM_CYCLES" "$HZP_CM_CYCLES"; do
+      case $value in
+        ''|*[!0-9]*)
+          echo "*** run_product.sh: CoreMark iterations or cycles read '$value'," >&2
+          echo "*** which is not a count." >&2
+          return 1 ;;
+      esac
+    done
+    LC_CM_FACTOR=$(cycle_factor "$CM_ITERATIONS" "$LC_CM_CYCLES")
+    VEX_CM_FACTOR=$(cycle_factor "$CM_ITERATIONS" "$VEX_CM_CYCLES")
+    HZ_CM_FACTOR=$(cycle_factor "$CM_ITERATIONS" "$HZ_CM_CYCLES")
+    HZP_CM_FACTOR=$(cycle_factor "$CM_ITERATIONS" "$HZP_CM_CYCLES")
+    CYCLE_TOOLS_BLOCK=$(toolchain_block)
+    assert_tree_unmoved
     CM_ISA=$(isa_from_cflags "$CM_CFLAGS")
     # `|| return 1`: `set -e` is suspended in this whole function, since it is
     # the left side of `measure_coremark && COREMARK_OK=1` at the call site.
@@ -202,7 +273,8 @@ measure_coremark() {
       eval "lc_ns=\$NS_${part}_littlecpu"
       eval "vex_ns=\$NS_${part}_vexriscv"
       eval "hz_ns=\$NS_${part}_hazard3"
-      eval "set -- $TOOL_ARGS"
+      eval "hzp_ns=\$NS_${part}_hazard3_perf"
+      set --
       case $part in
         up5k) set -- "$@" --step-mhz "$STEP_MHZ" ;;
         ecp5) set -- "$@" --field "ecp5_part=$ECP5_PART" \
@@ -211,10 +283,13 @@ measure_coremark() {
       python3 soc/compare/product_write.py "$OUT" "$(pair_name coremark "$part")" --measured \
         --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
         --seeds "$SEEDS" --cflags "$CM_CFLAGS" --isa "$CM_ISA" \
-        --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'CoreMark/MHz' "$@" \
+        --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit 'CoreMark/MHz' \
+        --digest "$DIGEST" --tools-block "$TOOLS_BLOCK" --cycle-tools-block "$CYCLE_TOOLS_BLOCK" "$@" \
         --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv=$vex_ns" --clock-ns "hazard3=$hz_ns" \
+        --clock-ns "hazard3_perf=$hzp_ns" \
         --cycle-factor "littlecpu=$LC_CM_FACTOR" --cycle-factor "vexriscv=$VEX_CM_FACTOR" \
-        --cycle-factor "hazard3=$HZ_CM_FACTOR" || return 1
+        --cycle-factor "hazard3=$HZ_CM_FACTOR" --cycle-factor "hazard3_perf=$HZP_CM_FACTOR" \
+        || return 1
     done
     return 0
   fi
@@ -227,7 +302,7 @@ measure_coremark() {
 }
 
 echo
-echo "== compare-product: CoreMark (littlecpu against VexRiscv and Hazard3) =="
+echo "== compare-product: CoreMark (littlecpu against VexRiscv and both Hazard3 builds) =="
 COREMARK_CAPABLE=0
 if grep -q '^compare-coremark:' Makefile && [ -f soc/compare/coremark_dmips.py ]; then
   COREMARK_CAPABLE=1
@@ -249,22 +324,23 @@ if [ "$COREMARK_OK" -eq 0 ]; then
   REASON="make compare-coremark is not on this tree yet; run_product.sh will measure it once that lands"
   for part in $PARTS; do
     python3 soc/compare/product_write.py "$OUT" "$(pair_name coremark "$part")" \
-      --not-yet-measured --target-core littlecpu --core hazard3 --core vexriscv \
+      --not-yet-measured --target-core littlecpu --core hazard3 --core hazard3_perf --core vexriscv \
       --reason "$REASON"
   done
 fi
 
 echo
 echo "== $OUT =="
+set -- --current "compiler=$CC" --current "compiler_version=$(make -s print-RISCV_GCC_VERSION)"
 for part in $PARTS; do
   python3 soc/compare/product_check.py "$OUT" "$(pair_name dhrystone "$part")" --repo . \
     --current "cflags=$DHRY_CFLAGS" --current "rom_words=$ROM_WORDS" \
-    --current "ram_words=$RAM_WORDS"
+    --current "ram_words=$RAM_WORDS" "$@"
   if [ "$COREMARK_OK" -eq 1 ]; then
     python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark "$part")" --repo . \
       --current "cflags=$CM_CFLAGS" --current "rom_words=$ROM_WORDS" \
-      --current "ram_words=$RAM_WORDS"
+      --current "ram_words=$RAM_WORDS" "$@"
   else
-    python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark "$part")" --repo .
+    python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark "$part")" --repo . "$@"
   fi
 done

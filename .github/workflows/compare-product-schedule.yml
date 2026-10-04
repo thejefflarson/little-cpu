@@ -80,6 +80,7 @@ jobs:
           ROM_WORDS=$(make -s print-COMPARE_ROM_WORDS)
           RAM_WORDS=$(make -s print-COMPARE_RAM_WORDS)
           COREMARK_CFLAGS=$(make -s print-COMPARE_COREMARK_CFLAGS)
+          GCC_VERSION=$(make -s print-RISCV_GCC_VERSION)
           if [ -n "$COREMARK_CFLAGS" ]; then
             echo "COMPARE_COREMARK_CFLAGS is defined; checking CoreMark's cflags for staleness."
           else
@@ -107,10 +108,14 @@ jobs:
               dhrystone|dhrystone_*)
                 current_args+=(--current "$pair:cflags=$DHRY_CFLAGS" \
                                --current "$pair:rom_words=$ROM_WORDS" \
-                               --current "$pair:ram_words=$RAM_WORDS") ;;
+                               --current "$pair:ram_words=$RAM_WORDS" \
+                               --current "$pair:compiler=riscv-none-elf-gcc" \
+                               --current "$pair:compiler_version=$GCC_VERSION") ;;
               coremark|coremark_*)
                 [ -n "$COREMARK_CFLAGS" ] &&
-                  current_args+=(--current "$pair:cflags=$COREMARK_CFLAGS") ;;
+                  current_args+=(--current "$pair:cflags=$COREMARK_CFLAGS" \
+                                 --current "$pair:compiler=riscv-none-elf-gcc" \
+                                 --current "$pair:compiler_version=$GCC_VERSION") ;;
               *)
                 echo "*** soc/compare/product.json names a pair '$pair' this" >&2
                 echo "*** step does not recognise; refusing rather than" >&2
