@@ -424,6 +424,7 @@ a part with no cell-name row is refused rather than defaulted
 a part with no icetime walk reads NA rather than a fabricated zero
 a partial pin missing required fields is not a pin
 a path that does not reconcile blames the script, not the design
+a path walk that trusts a symlinked ancestor unresolved is red
 a path with no LUT level at all reports zero rather than dividing by it
 a peripheral inside the timer's reserved span is red
 a pin file that does not exist is refused, not read as absent-is-fine
@@ -541,6 +542,9 @@ a room check that forgets the response landing this cycle is red
 a root-binary check that ignores group and world write is red
 a root-binary check that ignores the owner is red
 a root-binary check that runs a #! script is red
+a root-binary check that skips the libraries it loads is red
+a root-binary check that stops at the first library hop is red
+a root-binary check that walks only the file and its parent is red
 a row naming a file that does not exist is named
 a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed
@@ -618,6 +622,7 @@ a sweep whose lowest value already passes is refused a flip point, not reported 
 a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out
 a sweep with fewer samples than seeds is refused
 a synthesis that failed is not a passed control either
+a system-library prefix that can be climbed out of with .. is red
 a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
 a target added to littlecpu's all with no CI step is red

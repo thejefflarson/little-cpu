@@ -4027,7 +4027,7 @@ probe "a root-binary check that ignores group and world write is red" 1 \
   "writable file: got accept" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
-mutate "$d/board_verdict.sh" 's/"\$uid" != "\$owner"/"x" != "x"/'
+mutate "$d/board_verdict.sh" 's/\[ "\$uid" = "\$owner" \] ||/[ "x" = "x" ] ||/'
 probe "a root-binary check that ignores the owner is red" 1 \
   "file owned by someone else: got accept" "$BV $d/board_verdict.sh"
 
@@ -4035,6 +4035,31 @@ d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/    \*) echo "error: \$bin is not a Mach-O or ELF executable/    NEVERMATCH) echo "/'
 probe "a root-binary check that runs a #! script is red" 1 \
   "a #! script was accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^  check_deps "\$bin" "\$owner"$/  :/'
+probe "a root-binary check that skips the libraries it loads is red" 1 \
+  "world-writable library dependency: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/      queue+=("\$real")/      :/'
+probe "a root-binary check that stops at the first library hop is red" 1 \
+  "library two hops down: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/case \$dep in \*\.\.\*)/case $dep in NEVERMATCH)/'
+probe "a system-library prefix that can be climbed out of with .. is red" 1 \
+  "system prefix climbed out of with ..: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's|^    \[ -L "\$cur" \] \&\& |    [ "$cur" = "$real" ] \|\| [ "$cur" = "$(dirname "$real")" ] \|\| continue; [ -L "$cur" ] \&\& |'
+probe "a root-binary check that walks only the file and its parent is red" 1 \
+  "world-writable ancestor above the parent: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's|  dir=\$(cd -P "\$(dirname "\$p")" 2>/dev/null \&\& pwd -P)|  dir=$(cd "$(dirname "$p")" 2>/dev/null \&\& pwd)|'
+probe "a path walk that trusts a symlinked ancestor unresolved is red" 1 \
+  "symlinked ancestor resolves before the walk: got refuse" "$BV $d/board_verdict.sh"
 
 begin_group "test/adr_numbering_test.sh"
 

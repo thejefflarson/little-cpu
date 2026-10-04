@@ -57,6 +57,17 @@ if [ -n "$unfiltered" ]; then
   fail=1
 fi
 
+mkdir "$WORK/stubs"
+cat > "$WORK/stubs/otool" <<'STUB'
+#!/bin/bash
+echo "$2:"
+[ -f "$STUB_DEPS/$(basename "$2").deps" ] && sed 's/^/	/; s/$/ (compatibility version 1.0.0)/' "$STUB_DEPS/$(basename "$2").deps"
+exit 0
+STUB
+chmod 755 "$WORK/stubs/otool"
+export STUB_DEPS=$WORK/deps; mkdir "$STUB_DEPS"
+PATH=$WORK/stubs:$PATH
+
 bin=$WORK/tool; mkdir "$WORK/d"; printf '\177ELF' > "$bin"
 me=$(id -u)
 chmod 755 "$bin"; chmod 755 "$WORK"
@@ -79,6 +90,43 @@ printf '#!/usr/bin/env bash\nexec true\n' > "$WORK/script"; chmod 755 "$WORK/scr
 if check_root_binary "$WORK/script" "$me" 2>/dev/null; then echo "FAIL: a #! script was accepted" >&2; fail=1; fi
 : > "$WORK/empty"; chmod 755 "$WORK/empty"
 if check_root_binary "$WORK/empty" "$me" 2>/dev/null; then echo "FAIL: an empty file was accepted" >&2; fail=1; fi
+
+chmod 755 "$WORK" "$bin"
+mkdir -p "$WORK/a/b" "$WORK/lib"; chmod 755 "$WORK/a" "$WORK/a/b" "$WORK/lib"
+cp "$bin" "$WORK/a/b/tool"; chmod 755 "$WORK/a/b/tool"
+expect_at() {
+  local want=$1 desc=$2 path=$3
+  if check_root_binary "$path" "$me" 2>/dev/null; then got=accept; else got=refuse; fi
+  if [ "$got" != "$want" ]; then echo "FAIL: $desc: got $got, expected $want" >&2; fail=1; fi
+}
+expect_at accept "nested binary in owner-only-writable directories" "$WORK/a/b/tool"
+chmod 777 "$WORK/a"; expect_at refuse "world-writable ancestor above the parent" "$WORK/a/b/tool"
+chmod 775 "$WORK/a"; expect_at refuse "group-writable ancestor above the parent" "$WORK/a/b/tool"
+chmod 755 "$WORK/a"
+ln -s "$WORK/a" "$WORK/alias"
+expect_at accept "a symlinked ancestor resolves before the walk" "$WORK/alias/b/tool"
+chmod 777 "$WORK/a"; expect_at refuse "a symlinked ancestor that is writable once resolved" "$WORK/alias/b/tool"
+chmod 755 "$WORK/a"
+
+printf '\177ELF' > "$WORK/lib/libx.dylib"; printf '\177ELF' > "$WORK/lib/liby.dylib"
+chmod 755 "$WORK/lib/libx.dylib" "$WORK/lib/liby.dylib"
+printf '/usr/lib/libSystem.B.dylib\n/System/Library/Frameworks/IOKit.framework/IOKit\n%s\n' "$WORK/lib/libx.dylib" > "$STUB_DEPS/tool.deps"
+expect_bin accept "system libraries and a root-owned library"
+chmod 777 "$WORK/lib/libx.dylib"; expect_bin refuse "world-writable library dependency"
+chmod 755 "$WORK/lib/libx.dylib"
+chmod 775 "$WORK/lib"; expect_bin refuse "library in a group-writable directory"
+chmod 755 "$WORK/lib"
+printf '%s\n' "$WORK/lib/liby.dylib" > "$STUB_DEPS/libx.dylib.deps"
+expect_bin accept "transitive library, all clean"
+chmod 666 "$WORK/lib/liby.dylib"; expect_bin refuse "world-writable library two hops down"
+chmod 755 "$WORK/lib/liby.dylib"; rm "$STUB_DEPS/libx.dylib.deps"
+printf '%s/lib/gone.dylib\n' "$WORK" > "$STUB_DEPS/tool.deps"; expect_bin refuse "library that does not exist"
+printf '@rpath/libx.dylib\n' > "$STUB_DEPS/tool.deps"; expect_bin refuse "@rpath dependency"
+printf '/usr/lib/../../%s/lib/libx.dylib\n' "${WORK#/}" > "$STUB_DEPS/tool.deps"; expect_bin refuse "system prefix climbed out of with .."
+printf '@executable_path/lib/libx.dylib\n' > "$STUB_DEPS/tool.deps"; expect_bin accept "@executable_path library beside the binary"
+chmod 777 "$WORK/lib"; expect_bin refuse "@executable_path library in a world-writable directory"
+chmod 755 "$WORK/lib"
+rm -f "$STUB_DEPS/tool.deps"
 
 [ "$fail" -eq 0 ] || exit 1
 echo "board verdict parse OK: hostile verdicts rejected, nothing executed, display filtered, root binaries checked"
