@@ -75,6 +75,11 @@ fi
 IMAGES="nano/tb/nano_rtl.cc nano-sim nano/tb/nano_icarus.vvp nano/tb/nano_qspi_pins_rtl.cc
 nano-qspi-pins-sim nano/tb/nano_icarus_qspi_pins.vvp nano/tb/nano_qspi_resume.vvp nano/tb/nano_qspi_latency.vvp"
 
+# A here-string, not a pipe: grep -q's early exit gives a printf SIGPIPE under pipefail.
+has_nano_sim_rule() {
+  grep -q '^nano-sim:' <<<"$1"
+}
+
 # $1 = the tb.mk to read. Prints each image whose prerequisites name no .stamp.
 unstamped() {
   local img rule db
@@ -84,18 +89,32 @@ unstamped() {
   cp "$1" "$tmp/scan/nano/tb.mk" || exit 1
   printf 'BUILD := build\nall:\ninclude nano/tb.mk\n' > "$tmp/scan/Makefile"
   db=$(make -C "$tmp/scan" -qp 2>/dev/null || true)
-  if ! grep -q '^nano-sim:' <<< "$db"; then
+  if ! has_nano_sim_rule "$db"; then
     echo "error: make -qp read no nano-sim rule from $1" >&2
     exit 1
   fi
   for img in $IMAGES; do
-    rule=$(printf '%s\n' "$db" | grep -F "$img:" | head -1 || true)
+    rule=$(grep -F "$img:" <<<"$db" | head -1 || true)
     case "$rule" in
       *.stamp*) ;;
       *) echo "$img" ;;
     esac
   done
 }
+
+big=$( { echo 'nano-sim: x'; head -c 300000 /dev/zero | tr '\0' 'a'; echo; } ) || exit 1
+if has_nano_sim_rule "$big"; then
+  echo "ok: the rule scan reads a large database without a broken pipe"
+else
+  echo "FAIL: the rule scan failed on a large database whose first line matches" >&2
+  failed=1
+fi
+if { printf '%s\n' "$big" | grep -q '^nano-sim:'; } 2>/dev/null; then
+  echo "FAIL: the pipe shape no longer fails a large database, so the scan above cannot fail" >&2
+  failed=1
+else
+  echo "ok: the pipe shape fails the large database, so the scan above can fail"
+fi
 
 bare=$(unstamped "$REPO/nano/tb.mk")
 if [ -n "$bare" ]; then
