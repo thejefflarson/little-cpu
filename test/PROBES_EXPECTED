@@ -21,6 +21,7 @@
 --step-mhz replaces each core's own placed clock with one fixed step in its product
 ...and a margin under the floor writes no pin file at all
 ...and a second flush one settling cycle later fails the same way
+...and leaves no partial tree for the next run to reuse
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
 ...and the .asc it refuses is deleted rather than left to be read
@@ -219,12 +220,14 @@ a differing value is a divergence, located by change index
 a digest-bearing stamp is STALE when rtl/ changes, naming the file
 a directory the glob stopped matching is red, not a suite of size zero
 a dirty tree names no base, so its sweep is not subtracted either
+a dirty tree never resumes, since its base names no placed content
 a display filter that lets an escape sequence through is red
 a document with one number edited by hand is red
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
 a dual directory that is not there is the failure this exists to see
 a duplicated manifest line would make comm non-symmetric
+a failed extraction of the base ref stops the sweep
 a failing assembler is ASSEMBLE-ERROR
 a failing assembler is fatal, not a divergence
 a failing objcopy names the region that failed
@@ -409,7 +412,6 @@ a non-numeric floor is named rather than compared arithmetically
 a non-numeric retire count is NO-COUNTS, not a silent PASS
 a non-numeric retire count is graded NO-COUNTS, not compared as an integer
 a non-numeric spec-checked count is NO-COUNTS too
-a nonzero exit with no timing verdict behind it is fatal
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-entry hit rate above the unbounded stack's is red
@@ -577,6 +579,7 @@ a shipping core that fails ill_e is red before any mutant runs
 a shipping harness that cannot reach its own cover goal is red
 a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
+a signal is fatal even when the log already holds a timing verdict
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
 a single, fully-excluded manifest is red: a run that tests nothing is not a pass
@@ -623,6 +626,7 @@ a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything
 a sweep file that is not there reads as missing, not as empty
 a sweep of the part with no icetime is refused, not walked
+a sweep placed by another toolchain is started afresh, not resumed
 a sweep that names no part says which instrument is missing
 a sweep whose lowest value already passes is refused a flip point, not reported one
 a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out
@@ -735,6 +739,7 @@ an exception whose site stopped naming that ISA is red
 an excluded program that assembles and passes anyway is red, not silently trusted
 an exclusion with no reason written under it is rejected
 an exemption naming no program is red, not a program quietly excused
+an exit of 1 with no timing verdict behind it is fatal
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
 an ignored opponent clone gaining an uncommitted change refuses to stamp
@@ -830,6 +835,7 @@ control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
 control: a clean nextpnr run is accepted
+control: a clean sweep on the same toolchain resumes and skips a placed seed
 control: a complete --measured call writes a valid pair
 control: a core over the step passes and is compared on cycles
 control: a count matching the declaration is green

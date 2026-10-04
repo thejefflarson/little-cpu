@@ -26,6 +26,9 @@ done
 other=$(grep '^ERROR' "$log" | grep -v 'Max frequency for clock' || true)
 [ -z "$other" ] || fail "logged an ERROR" "$@"
 
-if [ "$status" != 0 ] && ! grep -q '^ERROR: Max frequency for clock' "$log"; then
-  fail "exited $status with no timing verdict behind it" "$@"
-fi
+case $status in
+  0) ;;
+  1) grep -q '^ERROR: Max frequency for clock' "$log" ||
+       fail "exited 1 with no timing verdict behind it" "$@" ;;
+  *) fail "exited $status, which no missed clock explains" "$@" ;;
+esac
