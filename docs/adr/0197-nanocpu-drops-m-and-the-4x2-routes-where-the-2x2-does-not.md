@@ -192,3 +192,6 @@ the same file; neither is estimated.
   site" is corrected in place: that exception-list entry is graded both ways by
   `test/march_test.sh`, which is on `make test`'s required path, so it is not a
   nano-local, unenforced detail.
+- ADR-0248 amends the timing paragraph above: on the register-file macro tree the slow-corner setup
+  misses are decode depth in front of the global trap enable plus the resizer's choice of delay
+  cells as fanout buffers, and the reset path has 5.6 ns to spare.

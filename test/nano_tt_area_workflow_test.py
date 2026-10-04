@@ -14,6 +14,11 @@ The sky130 PDK cache must be a restore step and a save step, not one combined
 `actions/cache` step: a combined step only saves when the whole job succeeds, and this
 workflow's job usually does not.
 
+The run's artifact must carry the post-route STA's per-corner reports: LibreLane writes
+them one directory per corner under `*-openroad-stapostpnr`, outside any directory named
+`reports`, so a collector that only walks `reports` drops the one stage that holds the
+slow-corner paths and violator lists, and the run still uploads a green artifact.
+
 Usage: nano_tt_area_workflow_test.py [repo-root]
 """
 
@@ -93,12 +98,18 @@ def main(argv):
             " names three files the checkout does not hold"
         )
 
+    if not any("-openroad-stapostpnr/*" in s and "*.rpt" in s for s in found):
+        failures.append(
+            "no step collects the post-route STA's *.rpt files under *-openroad-stapostpnr,"
+            " so the artifact carries no slow-corner path or violator report"
+        )
+
     if failures:
         for f in failures:
             print(f"*** {f}", file=sys.stderr)
         return 1
 
-    print(f"nano-tt-area-workflow: {WORKFLOW} resolves its mode once, saves its PDK cache unconditionally and fetches the register-file macro.")
+    print(f"nano-tt-area-workflow: {WORKFLOW} resolves its mode once, saves its PDK cache unconditionally, fetches the register-file macro and collects the post-route STA.")
     return 0
 
 
