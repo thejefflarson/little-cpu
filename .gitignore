@@ -81,6 +81,7 @@ nano/formal/traps_latch
 nano/formal/region-probe-latch/
 nano/formal/tval-probe-latch/
 nano/tb/nano-x-probe/
+nano/tb/nano-vcd-probe/
 nano/tb/nano-meip-floor-probe/
 __pycache__/
 test/rtl.cc

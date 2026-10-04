@@ -19,6 +19,7 @@
 --require-news's own artifact does not make itself the news
 --step-mhz refuses a core whose worst placement is under the step
 --step-mhz replaces each core's own placed clock with one fixed step in its product
+--vcd <path> reaches vvp as +VCD=<path>
 ...and a margin under the floor writes no pin file at all
 ...and a second flush one settling cycle later fails the same way
 ...and leaves no partial tree for the next run to reuse
@@ -593,6 +594,7 @@ a run reporting no retire count at all is graded NO-COUNTS
 a run that never made the cross-core check is red
 a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a run with no stalled cycles gets a report, not a ZeroDivisionError
+a run without --vcd passes vvp no +VCD
 a runner that passes but prints no per-program line leaves nothing to compare
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
@@ -731,6 +733,8 @@ a word count that is a string is refused
 a workflow that never fetches the register-file macro is refused
 a workflow that reinstalls a global credential helper is red
 a workflow-level write scope inherited by every job is red
+a wrapper that dumps with no --vcd is red
+a wrapper that ignores --vcd is red
 a wrong-rule mutant that still passes is not a control
 a yosys whose -p and quoted script sit on a continuation line is red
 an #insn-check naming a file that does not exist is refused
@@ -942,6 +946,7 @@ control: a suite that agrees against an empty baseline is green
 control: a tool that answers is stamped with its version and its path
 control: a tracked file with no matching ignore rule is clean
 control: a well-formed report publishes the frequency
+control: a wrapper that dumps only when named is green
 control: agreeing paths outside the checkout are green
 control: all five shipping scripts link at the inset layout
 control: all three arms fail, each at its own line

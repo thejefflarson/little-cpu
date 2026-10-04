@@ -1170,6 +1170,50 @@ probe "output this script does not recognize is exit 3, not guessed at" 3 \
   "unrecognized nano_icarus.vvp output" \
   "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-unrecognized.out $(nsi "$d")"
 
+make_nsi_args_stub() {  # $1 = bin dir; a vvp that reports its own arguments
+  mkdir -p "$1"
+  cat > "$1/vvp" <<'STUB'
+#!/bin/sh
+echo "vvp args: $*"
+printf 'PASS\nRETIRES 7\n'
+STUB
+  chmod +x "$1/vvp"
+}
+make_nsi_args_stub "$tmp/bin-nsi-args"
+
+d=$(nsi_fixture)
+probe "--vcd <path> reaches vvp as +VCD=<path>" 0 "+VCD=waves.vcd" \
+  "PATH='$tmp/bin-nsi-args:$tmp/bin-none:/usr/bin:/bin' $d/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100 --vcd waves.vcd"
+
+d=$(nsi_fixture)
+probe "a run without --vcd passes vvp no +VCD" 0 "no +VCD passed" \
+  "out=\$(PATH='$tmp/bin-nsi-args:$tmp/bin-none:/usr/bin:/bin' $d/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100) || exit 1; case \"\$out\" in *VCD*) echo \"\$out\"; exit 1 ;; *) echo 'no +VCD passed' ;; esac"
+
+begin_group "nano/tb/nano_vcd_probe.sh"
+
+nvp_fixture() {  # $1 = body of a stand-in wrapper
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/tb"
+  cp "$REPO/nano/tb/nano_vcd_probe.sh" "$d/nano/tb/"
+  printf '#!/bin/bash\n%s\n' "$1" > "$d/nano/tb/wrapper.sh"
+  chmod +x "$d/nano/tb/wrapper.sh"
+  printf '%s' "$d"
+}
+
+NVP_NAMED='while [ "$#" -gt 0 ]; do if [ "$1" = --vcd ]; then echo dump > "$2"; fi; shift; done'
+
+d=$(nvp_fixture "$NVP_NAMED")
+probe "control: a wrapper that dumps only when named is green" 0 \
+  "no --vcd writes no waveform" "$d/nano/tb/nano_vcd_probe.sh $d/nano/tb/wrapper.sh"
+
+d=$(nvp_fixture "$NVP_NAMED; echo dump > stray.vcd")
+probe "a wrapper that dumps with no --vcd is red" 1 \
+  "a run without --vcd wrote a waveform" "$d/nano/tb/nano_vcd_probe.sh $d/nano/tb/wrapper.sh"
+
+d=$(nvp_fixture "true")
+probe "a wrapper that ignores --vcd is red" 1 \
+  "did not write that file" "$d/nano/tb/nano_vcd_probe.sh $d/nano/tb/wrapper.sh"
+
 begin_group "nano/bench/qspi_timing_report.py"
 
 qtr_fixture() {

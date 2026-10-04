@@ -26,6 +26,10 @@ nano/tb/nano_icarus.vvp: $(NANO_SIM_IN) $(NANO_SIM_STAMP)
 nano-x-probe: rvfi_macros.vh test/monitor.sim.v
 	@./nano/tb/nano_x_probe.sh '$(NANO_CFLAGS)' '$(NANO_SIM_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
 
+.PHONY: nano-vcd-probe
+nano-vcd-probe: nano/tb/nano_icarus.vvp
+	@./nano/tb/nano_vcd_probe.sh ./nano/tb/nano_sim_icarus.sh
+
 .PHONY: nano-rf-model-test
 nano-rf-model-test:
 	@./nano/tb/nano_rf_model_probe.sh
@@ -40,7 +44,7 @@ nano-meip-floor-probe: nano-sim
 
 .PHONY: nano-test
 nano-test: nano-sim nano/tb/nano_icarus.vvp nano-x-probe nano-meip-floor-probe \
-          nano-rf-timing-probe nano-rf-model-test
+          nano-vcd-probe nano-rf-timing-probe nano-rf-model-test
 	@./nano/tb/nano_dual_leg_test.sh ./nano-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
 	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
 

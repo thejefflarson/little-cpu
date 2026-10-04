@@ -9,12 +9,13 @@ VVP_IMAGE="${NANO_VVP_IMAGE:-$HERE/nano_icarus.vvp}"
 rom=""
 ram=""
 cycles=""
+vcd=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --rom) rom=$2; shift 2 ;;
     --ram) ram=$2; shift 2 ;;
     --cycles) cycles=$2; shift 2 ;;
-    --vcd) shift 2 ;;
+    --vcd) vcd=${2:?--vcd needs a path}; shift 2 ;;
     --bench) echo "error: --bench is not wired up on the iverilog leg yet" >&2; exit 3 ;;
     *) echo "error: unrecognized argument '$1'" >&2; exit 3 ;;
   esac
@@ -29,7 +30,9 @@ if [ ! -f "$VVP_IMAGE" ]; then
 fi
 
 set +e
-out=$(vvp "$VVP_IMAGE" "+ROM=$rom" "+RAM=$ram" "+CYCLES=$cycles" 2>&1)
+vcd_arg=()
+if [ -n "$vcd" ]; then vcd_arg=("+VCD=$vcd"); fi
+out=$(vvp "$VVP_IMAGE" "+ROM=$rom" "+RAM=$ram" "+CYCLES=$cycles" ${vcd_arg[@]+"${vcd_arg[@]}"} 2>&1)
 set -e
 printf '%s\n' "$out"
 
