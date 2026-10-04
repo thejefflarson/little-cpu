@@ -15,7 +15,7 @@ while [ "$#" -gt 0 ]; do
     --rom) rom=$2; shift 2 ;;
     --ram) ram=$2; shift 2 ;;
     --cycles) cycles=$2; shift 2 ;;
-    --vcd) vcd=${2:?--vcd needs a path}; shift 2 ;;
+    --vcd) [ "$#" -ge 2 ] || { echo "error: --vcd needs a path" >&2; exit 3; }; vcd=$2; shift 2 ;;
     --bench) echo "error: --bench is not wired up on the iverilog leg yet" >&2; exit 3 ;;
     *) echo "error: unrecognized argument '$1'" >&2; exit 3 ;;
   esac

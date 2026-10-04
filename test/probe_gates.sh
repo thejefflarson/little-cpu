@@ -1189,6 +1189,10 @@ d=$(nsi_fixture)
 probe "a run without --vcd passes vvp no +VCD" 0 "no +VCD passed" \
   "out=\$(PATH='$tmp/bin-nsi-args:$tmp/bin-none:/usr/bin:/bin' $d/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100) || exit 1; case \"\$out\" in *VCD*) echo \"\$out\"; exit 1 ;; *) echo 'no +VCD passed' ;; esac"
 
+d=$(nsi_fixture)
+probe "--vcd with no path is a usage error, exit 3, not a program FAIL" 3 "--vcd needs a path" \
+  "$d/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100 --vcd"
+
 begin_group "nano/tb/nano_vcd_probe.sh"
 
 nvp_fixture() {  # $1 = body of a stand-in wrapper

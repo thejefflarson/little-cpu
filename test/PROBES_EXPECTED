@@ -20,6 +20,7 @@
 --step-mhz refuses a core whose worst placement is under the step
 --step-mhz replaces each core's own placed clock with one fixed step in its product
 --vcd <path> reaches vvp as +VCD=<path>
+--vcd with no path is a usage error, exit 3, not a program FAIL
 ...and a margin under the floor writes no pin file at all
 ...and a second flush one settling cycle later fails the same way
 ...and leaves no partial tree for the next run to reuse
