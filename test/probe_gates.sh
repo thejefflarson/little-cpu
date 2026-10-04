@@ -3315,7 +3315,7 @@ probe "no repetition count on the corrected bits lets an alternating source thro
 
 d=$(tg_fixture "s/if (apt_count == APT_LAST) dead <= 1'b1;//")
 probe "no adaptive proportion test lets a biased source through" 1 \
-  "a source 94% biased reads DEAD" "tg_run $d"
+  "a biased source never read as ES16" "tg_run $d"
 
 d=$(tg_fixture "s/if (!emit \&\& starve == STARVE_LAST) dead <= 1'b1;//")
 probe "no starvation timeout lets a beat pattern through" 1 \

@@ -17,7 +17,7 @@ module trng_tb;
   // 0: jittered, healthy. 1: stuck low. 2: stuck high. 3: constant period, so every
   // interval sample is the same bit. 4: healthy, then stops. 5: samples alternate 0,1.
   // 6: samples 1,1,1,1,1,1,1,0 repeating. 7: ten 0s then ten 1s, a slow beat. 8: samples
-  // 94% ones at random. 9: samples 62% ones at random, which must still reach ES16.
+  // 87% ones at random. 9: samples 62% ones at random, which must still reach ES16.
   logic [N-1:0]  raw = '0;
   logic [N-1:0]  pop = '0;
   logic [31:0]   seed [N];
@@ -54,7 +54,7 @@ module trng_tb;
       5:       sample_of = k % 2 == 1;
       6:       sample_of = k % 8 != 7;
       7:       sample_of = k % 20 >= 10;
-      8:       sample_of = r[3:0] != 4'b0;
+      8:       sample_of = r[3:0] < 4'd14;
       default: sample_of = r[2:0] < 3'd5;
     endcase
   endfunction
@@ -212,7 +212,7 @@ module trng_tb;
     wait_status(7, DEAD, 200000);
     check("a beat pattern reads DEAD", {30'b0, seed[7][31:30]}, {30'b0, DEAD});
     wait_status(8, DEAD, 200000);
-    check("a source 94% biased reads DEAD", {30'b0, seed[8][31:30]}, {30'b0, DEAD});
+    check("a source 87% biased reads DEAD", {30'b0, seed[8][31:30]}, {30'b0, DEAD});
     wait_status(9, ES16, 200000);
     check("a mildly biased source still reaches ES16", {30'b0, seed[9][31:30]}, {30'b0, ES16});
 

@@ -98,8 +98,7 @@ module csrs #(
   assign hpm_event   = addr[11:5] == MHPMEVENT_WINDOW;
   assign hpm_zero    = hpm_number && (hpm_counter || hpm_event);
 
-  // mseccfg and mseccfgh (0x747, 0x757): SSEED and USEED are read-only zero because there is
-  // no S or U mode to grant `seed` to, and no other field is implemented.
+  // mseccfg and mseccfgh: SSEED and USEED read zero, as no S or U mode exists to grant `seed`.
   logic mseccfg_zero;
   assign mseccfg_zero = addr[11:5] == 7'h3A && addr[3:0] == 4'h7;
 

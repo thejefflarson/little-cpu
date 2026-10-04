@@ -42,6 +42,7 @@ lrsclock.S     EXCLUDED A extension, machine timer
 lui.S           29
 lw.S           231
 minstret.S     EXCLUDED CSR
+mseccfg.S      EXCLUDED CSR (mseccfg), trap handler
 mtimer.S       EXCLUDED machine timer, CSR
 mtimermask.S   EXCLUDED machine timer, CSR
 mul.S          EXCLUDED M extension

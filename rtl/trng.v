@@ -1,25 +1,19 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Turns a slow free-running oscillator into the 16-bit words the `seed` CSR returns. The
-// raw bit is the low interval bits between the oscillator's rising edges, in `clk` cycles.
-// Three health tests each set the sticky `dead`: a repetition count on the corrected output
-// bits, an adaptive proportion on the raw bits, and a timeout on edges and on corrected bits.
-// No word reaches the
-// buffer until 1,024 raw samples have passed all of them.
+// Turns a slow free-running oscillator into the 16-bit words `seed` returns; four health
+// tests set the sticky `dead`, and no word is buffered until 1,024 samples pass. A beat that
+// yields no corrected bit is caught by the 64-sample starvation count.
 module trng (
   input  logic        clk,
   input  logic        reset,
   input  logic        raw,
-  // A committed read of `seed`; the word is consumed only when the status says ES16.
   input  logic        pop,
   output logic [31:0] seed
 );
   localparam logic [1:0] BIST = 2'b00, WAIT = 2'b01, ES16 = 2'b10, DEAD = 2'b11;
   localparam logic [4:0] RUN_LIMIT = 5'd31;
-  // Adaptive proportion over 512-sample windows: dead when one value fills 410 of them, the
-  // cutoff for a claimed 0.5 bit of min-entropy per sample at a 2^-20 false-positive rate.
+  // Dead when one value fills 410 of a 512-sample window: 0.5 bit per sample at 2^-20.
   localparam logic [8:0] APT_LAST = 9'd409;
-  // Dead when 64 raw samples in a row produce no corrected bit, as a slow beat does.
   localparam logic [5:0] STARVE_LAST = 6'd63;
   localparam logic [2:0] FOLD_LAST = 3'd7;
 

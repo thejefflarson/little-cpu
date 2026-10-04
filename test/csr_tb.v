@@ -240,8 +240,7 @@ module csr_tb;
     // only the read side is this module's half.
     check_read("mconfigptr reads 0 after an attempted write", 12'hF15, 32'h0);
 
-    // Zkr adds SSEED and USEED to mseccfg; with no S or U mode they are read-only zero, which
-    // the Zkr text allows. A write is a legal no-op.
+    // Zkr adds SSEED and USEED to mseccfg; with no S or U mode they are legally read-only zero.
     check_read("mseccfg reads 0", 12'h747, 32'h0);
     check_read("mseccfgh reads 0", 12'h757, 32'h0);
     poke(12'h747, 32'hFFFF_FFFF);
