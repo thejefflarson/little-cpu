@@ -3309,15 +3309,15 @@ d=$(tg_fixture "")
 probe "control: the shipping trng passes its own bench" 0 \
   "PASSED: trng" "tg_run $d"
 
-d=$(tg_fixture "s/if (run == RUN_LIMIT) dead <= 1'b1;//")
+d=$(tg_fixture "s/if (run_next\[5\]) dead <= 1'b1;//")
 probe "no repetition count on the corrected bits lets an alternating source through" 1 \
   "samples alternating 0,1 read DEAD" "tg_run $d"
 
-d=$(tg_fixture "s/if (apt_count == APT_LAST) dead <= 1'b1;//")
+d=$(tg_fixture "s/if (apt_count == 9'd511) dead <= 1'b1;//")
 probe "no adaptive proportion test lets a biased source through" 1 \
   "a biased source never read as ES16" "tg_run $d"
 
-d=$(tg_fixture "s/if (!emit \&\& starve == STARVE_LAST) dead <= 1'b1;//")
+d=$(tg_fixture "s/if (!block_emit \&\& !emit) dead <= 1'b1;//")
 probe "no starvation timeout lets a beat pattern through" 1 \
   "a beat pattern reads DEAD" "tg_run $d"
 

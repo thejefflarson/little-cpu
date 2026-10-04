@@ -11,10 +11,8 @@ module trng (
   output logic [31:0] seed
 );
   localparam logic [1:0] BIST = 2'b00, WAIT = 2'b01, ES16 = 2'b10, DEAD = 2'b11;
-  localparam logic [4:0] RUN_LIMIT = 5'd31;
-  // Dead when one value fills 410 of a 512-sample window: 0.5 bit per sample at 2^-20.
-  localparam logic [8:0] APT_LAST = 9'd409;
-  localparam logic [5:0] STARVE_LAST = 6'd63;
+  localparam int APT_WINDOW = 512, APT_CUTOFF = 410;
+  localparam logic [8:0] APT_FIRST = 9'(APT_WINDOW - APT_CUTOFF + 1);
   localparam logic [2:0] FOLD_LAST = 3'd7;
 
   logic [2:0] sync;
@@ -35,7 +33,9 @@ module trng (
   logic [9:0]  samples;
   logic        apt_ref;
   logic [8:0]  apt_count;
-  logic [5:0]  starve;
+  logic [5:0]  run_next;
+  assign run_next = {1'b0, run} + 6'd1;
+  logic        block_emit;
   logic        have, held;
   logic [2:0]  fold_count;
   logic        fold_acc;
@@ -59,7 +59,7 @@ module trng (
       samples    <= 10'b0;
       apt_ref    <= 1'b0;
       apt_count  <= 9'b0;
-      starve     <= 6'b0;
+      block_emit <= 1'b0;
       have       <= 1'b0;
       held       <= 1'b0;
       fold_count <= 3'b0;
@@ -72,15 +72,19 @@ module trng (
       if (edge_seen) begin
         samples <= samples + 10'd1;
         if (&samples) warm <= 1'b1;
+        if (samples[5:0] == 6'd63) begin
+          block_emit <= 1'b0;
+          if (!block_emit && !emit) dead <= 1'b1;
+        end else if (emit) begin
+          block_emit <= 1'b1;
+        end
         if (samples[8:0] == 9'b0) begin
           apt_ref   <= sample;
-          apt_count <= 9'd1;
+          apt_count <= APT_FIRST;
         end else if (sample == apt_ref) begin
           apt_count <= apt_count + 9'd1;
-          if (apt_count == APT_LAST) dead <= 1'b1;
+          if (apt_count == 9'd511) dead <= 1'b1;
         end
-        starve <= emit ? 6'b0 : starve + 6'd1;
-        if (!emit && starve == STARVE_LAST) dead <= 1'b1;
         have <= !have;
         held <= sample;
       end
@@ -94,8 +98,8 @@ module trng (
       if (word_done) begin
         run_last <= word_bit;
         if (word_bit == run_last) begin
-          run <= run + 5'd1;
-          if (run == RUN_LIMIT) dead <= 1'b1;
+          run <= run_next[4:0];
+          if (run_next[5]) dead <= 1'b1;
         end else begin
           run <= 5'b0;
         end
