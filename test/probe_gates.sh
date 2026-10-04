@@ -1180,26 +1180,39 @@ qtr_fixture() {
     'std::printf("MODEL depth=%u loop_kind=%u loop_window=%u preamble=%u parcel=%u "'
   fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" \
     'std::printf("BUCKETS execute=%llu parcel_wait=%llu redirect_preamble=%llu loop_hit=%llu "'
-  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" '"handshake=%llu psram_wait=%llu window_cycles=%llu\n",'
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" '"handshake=%llu psram_wait=%llu window_cycles=%llu window_retires=%llu\n",'
   cat > "$d/good.log" <<'EOF'
 BENCH marks=2 cycles=100 verdict=1 writes=5
 MODEL depth=2 loop_kind=0 loop_window=0 preamble=24 parcel=8 psram_load=44 psram_store=33
-BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=10 window_cycles=100
+BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=10 window_cycles=100 window_retires=10
 EOF
   cat > "$d/bad.log" <<'EOF'
 BENCH marks=2 cycles=100 verdict=1 writes=5
 MODEL depth=2 loop_kind=0 loop_window=0 preamble=24 parcel=8 psram_load=44 psram_store=33
-BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=5 window_cycles=100
+BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=5 window_cycles=100 window_retires=10
 EOF
+  sed 's/window_retires=10/window_retires=11/' "$d/good.log" > "$d/extra_retire.log"
   printf '%s' "$d"
 }
 d=$(qtr_fixture)
 
-probe "control: a QSPI timing log whose buckets sum to its cycle count reports a row" 0 \
-  "DMIPS/MHz=" "python3 '$REPO/nano/bench/qspi_timing_report.py' '$d/good.log' --config c --kind dhrystone --runs 10"
+QTR="python3 '$REPO/nano/bench/qspi_timing_report.py'"
+QTR_ROW="--config c --kind dhrystone --runs 10 --depth 2 --loop-kind 0 --loop-window 0 --preamble 24"
 
-probe "the QSPI timing accounting identity is graded and can fail" 1 \
-  "ACCOUNTING MISMATCH" "python3 '$REPO/nano/bench/qspi_timing_report.py' '$d/bad.log' --config c --kind dhrystone --runs 10"
+probe "control: a QSPI timing log whose buckets sum to its cycle count reports a row" 0 \
+  "DMIPS/MHz=" "$QTR '$d/good.log' $QTR_ROW"
+
+probe "a QSPI timing log whose buckets do not sum to its window is refused as malformed" 1 \
+  "LOG FORMAT" "$QTR '$d/bad.log' $QTR_ROW"
+
+probe "a QSPI timing row labelled with another build's loop kind is refused" 1 \
+  "MODEL MISMATCH" "$QTR '$d/good.log' --config c --kind dhrystone --runs 10 --depth 2 --loop-kind 1 --loop-window 0 --preamble 24"
+
+probe "a QSPI timing row labelled with another build's preamble is refused" 1 \
+  "MODEL MISMATCH" "$QTR '$d/good.log' --config c --kind dhrystone --runs 10 --depth 2 --loop-kind 0 --loop-window 0 --preamble 20"
+
+probe "a QSPI timing log whose served fetches differ from its retires is refused" 1 \
+  "FETCH/RETIRE MISMATCH" "$QTR '$d/extra_retire.log' $QTR_ROW"
 
 begin_group "nano_qspi_memory.v's own accounting identity (real build)"
 
@@ -1212,7 +1225,7 @@ if [ -z "$NANO_QSPI_ACCOUNTING_CC" ]; then
   echo "cannot be forced red. Run \`make riscv-gcc-setup\`." >&2
   exit 1
 fi
-accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's reason_* lines, or "" for the control
+accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's reason_* lines, or "" for the control; $2 = an optional second one
     local d; d=$(new_case)
     mkdir -p "$d/nano/tb" "$d/nano/asm" "$d/nano/bench" "$d/soc/compare" "$d/test/asm"
     cp "$REPO/nano/nano.v" "$d/nano/"
@@ -1223,7 +1236,11 @@ accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's re
     cp "$REPO/test/monitor.sim.v" "$d/test/"
     cp "$REPO/nano/asm/alu.S" "$REPO/nano/asm/nano.lds" "$d/nano/asm/"
     cp "$REPO/test/asm/riscv_test.h" "$REPO/test/asm/test_macros.h" "$d/test/asm/"
-    if [ -n "$1" ]; then mutate "$d/nano/tb/nano_qspi_memory.v" "$1"; fi
+    if [ -n "$1" ] && [ -n "${2:-}" ]; then
+      mutate "$d/nano/tb/nano_qspi_memory.v" "$1" "$2"
+    elif [ -n "$1" ]; then
+      mutate "$d/nano/tb/nano_qspi_memory.v" "$1"
+    fi
     printf '%s' "$d"
   }
 
@@ -1252,11 +1269,15 @@ accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's re
 
   d=$(accounting_fixture 's/assign reason_parcel_wait = .*/assign reason_parcel_wait = 1'"'"'b0;/')
   probe "one reason tied permanently low is a real build's own accounting mismatch" 7 \
-    "QSPI TIMING" "accounting_build_and_run '$d'"
+    "not exactly one" "accounting_build_and_run '$d'"
 
   d=$(accounting_fixture 's/assign reason_parcel_wait = .*/assign reason_parcel_wait = mem_valid \&\& mem_instr \&\& !loop_hit_now \&\& !preamble_active_now;/')
   probe "two reasons overlapping is a real build's own accounting mismatch too" 7 \
-    "QSPI TIMING" "accounting_build_and_run '$d'"
+    "not exactly one" "accounting_build_and_run '$d'"
+
+  d=$(accounting_fixture 's/assign reason_handshake = \(.*\) \&\& mem_ready;/assign reason_handshake = \1 \&\& mem_ready \&\& mem_addr[3];/' 's/assign reason_parcel_wait = \(.*\) \&\& !mem_ready;/assign reason_parcel_wait = \1 \&\& !(mem_ready \&\& mem_addr[3]);/')
+  probe "a served fetch moved to parcel wait keeps one reason a cycle and fails the retire count" 7 \
+    "FETCH/RETIRE MISMATCH" "accounting_build_and_run '$d'"
 
 begin_group "test/run_cosim.sh"
 
@@ -2357,6 +2378,33 @@ d=$(bs_fixture)
 probe "--allow-mismatch does not cover the seed-count refusal either" 1 \
   "does NOT cover this" "$BS $d/before.csv $d/after.csv --min-seeds 12 --allow-mismatch"
 
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' 's/^# dirty: no/# dirty: yes/'
+probe "--paired: a base ref against a dirty working tree produces a verdict" 0 \
+  "delta, second sweep against first" "$BS $d/before.csv $d/after.csv --paired --min-seeds 2"
+
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' 's/^# yosys: Yosys 0.68/# yosys: Yosys 0.55/'
+probe "--paired still refuses a toolchain mismatch" 1 \
+  "yosys:" "$BS $d/before.csv $d/after.csv --paired --min-seeds 2"
+
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' 's/^# nextpnr-ice40: nextpnr-0.11/# nextpnr-ice40: nextpnr-0.12/'
+probe "--paired still refuses a placer mismatch" 1 \
+  "nextpnr-ice40:" "$BS $d/before.csv $d/after.csv --paired --min-seeds 2"
+
+d=$(bs_fixture); mutate "$d/before.csv" 's/^# dirty: no/# dirty: yes/'
+probe "--paired excuses only the candidate's dirty tree, not the base's" 1 \
+  "uncommitted changes" "$BS $d/before.csv $d/after.csv --paired --min-seeds 2"
+
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/'
+probe "without --paired the same differing bases still refuse" 1 \
+  "not measured the same way" "$BS $d/before.csv $d/after.csv --min-seeds 2"
+
+d=$(new_case); cp "$REPO/soc/paired_sweep.sh" "$d/paired_sweep.sh"
+probe "control: paired_sweep.sh hands the summary --paired" 0 "--paired" \
+  "grep -e '--paired' $d/paired_sweep.sh"
+mutate "$d/paired_sweep.sh" 's/ --paired//'
+probe "a paired_sweep.sh that drops --paired is caught" 1 "" \
+  "grep -e '--paired' $d/paired_sweep.sh"
+
 begin_group "soc/baseline_sweep.sh"
 
 probe "a part this repo does not place stops the sweep before any placement" 2 \
@@ -2368,6 +2416,48 @@ probe "a part this repo does not place stops the sweep before any placement" 2 \
 # silently place the default sixteen seeds for someone who asked for none.
 probe "an empty seed list stops the sweep instead of placing the default" 2 \
   "SOC_SEEDS is empty" "SOC_SEEDS= sh $REPO/soc/baseline_sweep.sh"
+
+# Resume, against a stub make: a CSV with seed 1 already placed, and a place target that
+# writes nothing, so a resumed sweep exits 0 and a fresh one stops on the missing artifacts.
+bsw_fixture() {  # <csv's yosys line> <csv's dirty flag>
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/baseline_sweep.sh" 'echo "# baseline-sweep v1"'
+  fixture_anchor "$REPO/soc/baseline_sweep.sh" 'tools=$(make -s "$toolchain_target" "$@")'
+  fixture_anchor "$REPO/soc/baseline_sweep.sh" 'echo "# prog: $prog"'
+  mkdir -p "$d/bin" "$d/build" "$d/out"
+  cat > "$d/bin/make" <<'STUB'
+#!/bin/sh
+[ "$1" = -s ] && shift
+case $1 in
+  soc-timing-toolchain) echo "# yosys: Yosys 0.68" ;;
+  print-BUILD) echo "$BSW_BUILD" ;;
+  print-SOC_PROG) echo x.S ;;
+  print-SOC_ROM_WORDS) echo 2048 ;;
+  *) exit 1 ;;
+esac
+STUB
+  chmod +x "$d/bin/make"
+  printf '# baseline-sweep v1\n# base: aaaa\n# dirty: %s\n# part: up5k\n# yosys: %s\n# prog: x.S\n# end-provenance\nname,part,seed\nb,up5k,1\n' \
+    "$2" "$1" > "$d/out/b.csv"
+  echo placed > "$d/out/b.1.timing.rpt"
+  printf '%s' "$d"
+}
+bsw_run() {  # <fixture> <this run's dirty flag>
+  printf 'PATH=%s/bin:$PATH BSW_BUILD=%s/build BASELINE_OUT=%s/out BASELINE_NAME=b BASELINE_BASE_OVERRIDE=aaaa BASELINE_DIRTY_OVERRIDE=%s SOC_SEEDS=1 sh %s/soc/baseline_sweep.sh' \
+    "$1" "$1" "$1" "$2" "$REPO"
+}
+
+d=$(bsw_fixture "Yosys 0.68" no)
+probe "control: a clean sweep on the same toolchain resumes and skips a placed seed" 0 \
+  "already placed, skipping" "$(bsw_run "$d" no)"
+
+d=$(bsw_fixture "Yosys 0.55" no)
+probe "a sweep placed by another toolchain is started afresh, not resumed" 1 \
+  "placed by a different toolchain" "$(bsw_run "$d" no)"
+
+d=$(bsw_fixture "Yosys 0.68" yes)
+probe "a dirty tree never resumes, since its base names no placed content" 1 \
+  "left no artifacts behind" "$(bsw_run "$d" yes)"
 
 begin_group "soc/paired_sweep.sh"
 
@@ -2393,6 +2483,87 @@ probe "up5k names fewer than twelve seeds and is refused before any placement" 1
 probe "ecp5 names fewer than twelve seeds and is refused before any placement" 1 \
   "ecp5 names 4 seeds" \
   "PAIRED_SEEDS_ECP5='default 1 2 3' $PS HEAD ecp5"
+
+d=$(new_case); mkdir -p "$d/bin" "$d/cache"
+printf '#!/bin/sh\nexit 1\n' > "$d/bin/tar"; chmod +x "$d/bin/tar"
+probe "a failed extraction of the base ref stops the sweep" 1 "" \
+  "PATH=$d/bin:\$PATH XDG_CACHE_HOME=$d/cache $PS HEAD up5k"
+probe "...and leaves no partial tree for the next run to reuse" 0 "NO PARTIAL TREE" \
+  "test -z \"\$(ls -A $d/cache/little-cpu/paired-sweep)\" && echo NO PARTIAL TREE"
+
+begin_group "soc/pnr_check.sh"
+
+PC="sh $REPO/soc/pnr_check.sh t"
+
+pc_fixture() {  # <log text> -- an .asc already on disk, as a stale one would be
+  local d; d=$(new_case)
+  printf '%s\n' "$1" > "$d/pnr.log"
+  echo stale > "$d/x.asc"
+  printf '%s' "$d"
+}
+
+d=$(pc_fixture "Info: Device utilisation:")
+probe "control: a clean nextpnr run is accepted" 0 "" "$PC 0 $d/pnr.log $d/x.asc"
+
+d=$(pc_fixture "ERROR: Max frequency for clock 'clk': 11.00 MHz (FAIL at 12.00 MHz)")
+probe "control: a design that only missed its clock is still a placement" 0 "" \
+  "$PC 1 $d/pnr.log $d/x.asc"
+
+d=$(pc_fixture "ERROR: Failed to expand region")
+probe "a placement failure is fatal even with an .asc left on disk" 1 \
+  "logged an ERROR" "$PC 1 $d/pnr.log $d/x.asc"
+
+probe "...and the .asc it refuses is deleted rather than left to be read" 0 \
+  "ASC REMOVED" "test ! -e $d/x.asc && echo ASC REMOVED"
+
+d=$(pc_fixture "Info: Device utilisation:")
+probe "an exit of 1 with no timing verdict behind it is fatal" 1 \
+  "exited 1 with no timing verdict" "$PC 1 $d/pnr.log $d/x.asc"
+
+d=$(pc_fixture "ERROR: Max frequency for clock 'clk': 11.00 MHz (FAIL at 12.00 MHz)")
+probe "a signal is fatal even when the log already holds a timing verdict" 1 \
+  "exited 143" "$PC 143 $d/pnr.log $d/x.asc"
+
+d=$(pc_fixture "Info: Device utilisation:"); : > "$d/x.asc"
+probe "an empty .asc is no placement" 1 "wrote no" "$PC 0 $d/pnr.log $d/x.asc"
+
+# The recipe itself, with a stub nextpnr: soc.json is held up to date (-o) so no
+# synthesis runs, and an explicit SOC_SEED bypasses the pin.
+soc_asc_fixture() {  # stdin = the stub nextpnr's body; leaves a stale asc and report
+  local d; d=$(new_case)
+  mkdir -p "$d/build"
+  echo '{}' > "$d/build/soc.json"
+  echo stale > "$d/build/soc.asc"
+  touch -t 200001010000 "$d/build/soc.asc"
+  echo "79.25 ns" > "$d/build/soc.timing.rpt"
+  { echo '#!/bin/sh'; cat; } > "$d/nextpnr"
+  chmod +x "$d/nextpnr"
+  printf '%s' "$d"
+}
+soc_asc_make() {  # <fixture>
+  printf 'make -C %s -o %s/build/soc.json BUILD=%s/build SOC_SEED=1 SOC_PNR=%s/nextpnr %s/build/soc.asc' \
+    "$REPO" "$1" "$1" "$1" "$1"
+}
+
+d=$(soc_asc_fixture <<'STUB'
+echo "ERROR: Failed to expand region"
+exit 1
+STUB
+)
+probe "a nextpnr that cannot place fails the recipe, stale .asc beside it" 2 \
+  "NOTHING was measured" "$(soc_asc_make "$d")"
+probe "...and the stale report and .asc are gone, so no sweep can read them" 0 \
+  "STALE GONE" "test ! -e $d/build/soc.timing.rpt && test ! -e $d/build/soc.asc && echo STALE GONE"
+
+d=$(soc_asc_fixture <<'STUB'
+while [ "$#" -gt 0 ]; do [ "$1" = --asc ] && echo fresh > "$2"; shift; done
+printf 'Info: Device utilisation:\nInfo:            ICESTORM_LC:  4000/ 5280    75%%\n'
+echo "ERROR: Max frequency for clock 'clk': 11.00 MHz (FAIL at 12.00 MHz)"
+exit 1
+STUB
+)
+probe "control: a placed design that missed its clock still builds the .asc" 0 \
+  "" "$(soc_asc_make "$d")"
 
 begin_group "soc/print_toolchain.sh"
 
@@ -5056,6 +5227,28 @@ mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_orangecrab_25f.v" \
   's/\.CSR_COUNTER (1)/.CSR_COUNTER (0)/'
 probe "the authors' two performance examples disagreeing is red" 1 \
   "the pinned clone's two performance examples disagree on CSR_COUNTER" "$HC $d"
+
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_ulx3s.v" 's/\.MUL_FAST (1)/.MUL_FAST (1'"'"'b1)/'
+probe "an example spelling a build parameter as a sized literal is red, not read as the core default" 1 \
+  "MUL_FAST is '1'b1', which this check cannot read as a decimal number" "$HC $d"
+
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_icebreaker.v" \
+  's/^\(.*\.BRANCH_PREDICTOR (0)\)/\/\/ \1/'
+probe "an example whose setting is commented out does not set it" 1 \
+  "does not set BRANCH_PREDICTOR and the core has no default for it" "$HC $d"
+
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_ulx3s.v" \
+  's/^\(.*\.MUL_FAST (1)\)/\/* .MUL_FAST (0), *\/ \1/'
+probe "a commented-out setting beside the live one does not override it" 0 \
+  "and the pinned clone's examples" "$HC $d --require-clone"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.PMP_REGIONS          (0),/.PMP_REGIONS          (0), \/\/ .PMP_GRAIN (0),/'
+probe "a commented-out bench parameter is not read as set" 0 \
+  "26 parameters agree" "$HC $d"
 
 d=$(hc_fixture)
 probe "--require-clone with no clone present is red, not a skipped leg" 1 \
@@ -8004,6 +8197,111 @@ probe "a floating tool is recorded and never graded, so a new yosys is not STALE
   "dhrystone: fresh, stamped" \
   "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=15.2.0-1')"
 
+d=$(product_check_fixture)
+probe "a --current field the stamp does not record is STALE, not a pass" 1 \
+  "records no nosuchfield" "$(pc_cmd "$d" '--current nosuchfield=1')"
+
+d=$(product_check_fixture)
+probe "a compiler_version with no compiler is STALE, not skipped" 1 \
+  "without --current compiler" "$(pc_cmd "$d" '--current compiler_version=15.2.0-1')"
+
+d=$(product_check_fixture)
+mutate "$d/repo/product.json" 's/15\.2\.0 \[/15.2.0-1 [/'
+probe "control: a stamp recording the release suffix agrees with the same release" 0 \
+  "dhrystone: fresh, stamped" \
+  "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=15.2.0-1')"
+
+d=$(product_check_fixture)
+mutate "$d/repo/product.json" 's/15\.2\.0 \[/15.2.0-1 [/'
+probe "a different release of the same compiler version is STALE when the stamp records the release" 1 \
+  "is pinned, but the stamp measured" \
+  "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=15.2.0-2')"
+
+d=$(product_check_fixture)
+probe "base_resolvable refuses a ref name that is not a full SHA" 0 \
+  "False" \
+  "python3 -c \"import sys; sys.path.insert(0, '$REPO/soc/compare'); from product_check import base_resolvable; print(base_resolvable('$d/repo', 'HEAD'))\""
+
+begin_group "soc/compare/product_digest.py"
+
+PDG="python3 $REPO/soc/compare/product_digest.py"
+
+pdg_repo() {
+  local d; d=$(new_case)
+  mkdir -p "$d/repo/rtl" "$d/repo/build"
+  echo 'module a(); endmodule' > "$d/repo/rtl/a.v"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  printf '%s' "$d"
+}
+
+d=$(pdg_repo)
+probe "control: a plain tree digests" 0 "sha256:" "$PDG --repo $d/repo"
+
+d=$(pdg_repo)
+echo outside > "$d/outside.v"
+ln -s ../../outside.v "$d/repo/rtl/link.v"
+probe "a symlink leaving the repo is refused" 2 "leaving the repo" "$PDG --repo $d/repo"
+
+d=$(pdg_repo)
+echo one > "$d/repo/build/t.v"
+ln -s ../build/t.v "$d/repo/rtl/link.v"
+d2=$(pdg_repo)
+echo two > "$d2/repo/build/t.v"
+ln -s ../build/t.v "$d2/repo/rtl/link.v"
+probe "a symlink is digested by its target's bytes, not its path" 0 "DIFFERENT" \
+  "[ \"\$($PDG --repo $d/repo)\" != \"\$($PDG --repo $d2/repo)\" ] && echo DIFFERENT"
+
+d=$(pdg_repo)
+d2=$(pdg_repo)
+printf 'x' > "$d/repo/rtl/b"
+printf 'x' > "$d/repo/rtl/c"
+mkdir -p "$d2/repo/rtl/$(printf 'b\n2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  rtl')"
+printf 'x' > "$d2/repo/rtl/$(printf 'b\n2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  rtl')/c"
+probe "records are NUL-separated, so a file name cannot imitate a record boundary" 0 "DIFFERENT" \
+  "[ \"\$($PDG --repo $d/repo)\" != \"\$($PDG --repo $d2/repo)\" ] && echo DIFFERENT"
+
+begin_group "soc/compare/product_verify.py"
+
+PV="python3 $REPO/soc/compare/product_verify.py"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+probe "control: a stamp taken at this commit over this tree verifies" 0 \
+  "was taken at" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+echo '/* touched */' >> "$d/repo/rtl/decoder.v"
+probe "a stamp whose digest is not this tree's is refused" 1 \
+  "digest is" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
+d=$(product_check_fixture)
+probe "a stamp whose base is not the checked-out commit is refused" 1 \
+  "not the checked-out" \
+  "$PV $d/repo/product.json --sha cccccccccccccccccccccccccccccccccccccccc --repo $d/repo"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+mutate "$d/repo/product.json" '/"digest":/d'
+probe "a measured pair with no digest is refused" 1 \
+  "digest is None" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+echo '{"pairs": {}}' > "$d/empty.json"
+probe "a stamp with no measured pair is refused rather than vacuously verified" 1 \
+  "no measured pair" "$PV $d/empty.json --sha $pv_sha --repo $d/repo"
+
+d=$(product_check_fixture)
+probe "a --sha that is not a full commit SHA is refused" 2 \
+  "40-character" "$PV $d/repo/product.json --sha main --repo $d/repo"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+mutate "$d/repo/product.json" 's/"target_core": "littlecpu"/"target_core": "littlecpu [x](http:\/\/x)"/'
+probe "a stamp whose strings the issue would print unvalidated is refused before publishing" 1 \
+  ".target_core is 'littlecpu [x](http://x)'" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
 begin_group "soc/compare/product_write.py"
 
 PW_BASE="python3 $REPO/soc/compare/product_write.py"
@@ -8046,6 +8344,23 @@ d=$(new_case)
 probe "a missing content digest is refused" 1 \
   "wants --digest" \
   "$PW_BASE $d/p.json $(pw_args '' '# yosys: Y 1' '# yosys: Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+echo '{"pairs": {"coremark": {"status": "measured"}}}' > "$d/p.json"
+probe "merging drops a digest-less measured pair instead of relabelling it" 0 \
+  "dropping coremark" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1' '# yosys: Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+echo '{"pairs": {"whetstone": {"status": "measured", "digest": "x"}}}' > "$d/p.json"
+probe "merging drops a pair run_product.sh no longer measures" 0 \
+  "dropping whetstone" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1' '# yosys: Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+probe "a pair name run_product.sh does not measure is refused" 1 \
+  "is not a pair name" \
+  "$PW_BASE $d/p.json whetstone --not-yet-measured --reason x"
 
 d=$(new_case)
 probe "a sweep with fewer samples than seeds is refused" 1 \
@@ -9424,6 +9739,16 @@ probe "control: the shipping schedule workflow confines its credential to the pu
   "confines its credential" \
   "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
+d=$(cpst_fixture 's|ref: ${{ github.sha }}|ref: main|')
+probe "a publish job that checks out main instead of the measured commit is red" 1 \
+  "does not check out" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/product_verify.py/d')
+probe "a publish job that never verifies the stamp is red" 1 \
+  "never runs product_verify.py" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
 d=$(cpst_fixture '/if: github.ref ==/d')
 probe "a job with no main-only guard is red, since workflow_dispatch can target any ref" 1 \
   "workflow_dispatch against any ref" \
@@ -9869,6 +10194,73 @@ probe "a pair carrying both Hazard3 builds still renders the area build under it
 d=$(new_case); cmp_stamp_with hazard9 "$d/stamp.json"
 probe "a core in the stamp with no configuration label is refused, not skipped" 1 \
   "hazard9 in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/-fno-tree-loop-distribute-patterns/`x`/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a stamp string that would break out of its code span is refused" 1 \
+  "which is not a value this document publishes verbatim" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"isa": "rv32im"/"isa": "rv32im](http:\/\/x)"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a stamp string carrying markup is refused" 1 \
+  ".isa is 'rv32im](http://x)'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"base": "11cc506e3183f4b1f125f0cf8246536aa49cbf1e"/"base": "not-a-sha"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a stamp whose base is not a full SHA is refused" 1 \
+  ".base is 'not-a-sha'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/oss-cad-suite 20260930/oss-cad-suite <b>20260930/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a tool version carrying HTML is refused" 1 \
+  "tools.icetime" "$CMP render --stamp $d/stamp.json"
+
+# cmp_stamp_edit <python statement over `stamp`> <out>: the committed stamp, edited.
+cmp_stamp_edit() {
+  python3 - "$CMP_STAMP" "$2" "$1" <<'PY'
+import json, sys
+src, dst, edit = sys.argv[1:4]
+stamp = json.load(open(src))
+exec(edit)
+json.dump(stamp, open(dst, "w"))
+PY
+}
+
+d=$(new_case); sed 's/"target_core": "littlecpu"/"target_core": "littlecpu @owner"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a target core carrying a mention is refused" 1 \
+  ".target_core is 'littlecpu @owner'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"target_core": "littlecpu"/"target_core": "hazard3_perf"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a target core that is not one of its pair's cores is refused" 1 \
+  "target_core, absent from its cores" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["products"]["hazard9"] = stamp["pairs"]["dhrystone"]["products"]["vexriscv"]' "$d/stamp.json"
+probe "a product named for a core with no configuration label is refused" 1 \
+  "hazard9 in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"rom_words": 1024/"rom_words": "1024 [x](http:\/\/x)"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a word count that is a string is refused" 1 \
+  ".rom_words is '1024 [x](http://x)'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"rom_words": 1024/"rom_words": true/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a word count that is a boolean is refused" 1 \
+  ".rom_words is True" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"n": 12/"n": 11/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a clock sample count that is not one per seed is refused" 1 \
+  "clock_mhz.n, against 12 seeds" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["cores"]["vexriscv"]["clock_mhz"]["worst_mhz"] = "12 <b>"' "$d/stamp.json"
+probe "a clock figure that is not a number is refused" 1 \
+  "clock_mhz.worst_mhz is '12 <b>'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"median": 0.8706297298222785/"median": 0.9/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a ratio that is not its two products' quotient is refused" 1 \
+  "products.vexriscv.ratio.median, against" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["whetstone"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+probe "a pair name product_write.py would never write is refused" 1 \
+  "pair name is 'whetstone'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["coremark"] = "measured"' "$d/stamp.json"
+probe "a pair that is not an object is refused, not skipped" 1 \
+  "pair coremark is 'measured'" "$CMP render --stamp $d/stamp.json"
 
 begin_group "test/probes_header_test.py"
 
