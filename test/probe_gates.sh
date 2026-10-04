@@ -124,11 +124,15 @@ fixture_anchor() {
 # by every fixture that actually invokes `make` against a copy, so a new pin file needs
 # no second fixture taught to remember it.
 copy_makefile_includes() {  # $1 = destination dir
-  local d=$1 mk
+  local d=$1 mk nested
   cp "$REPO/Makefile" "$d/Makefile"
   for mk in $(sed -nE 's/^-?include[[:space:]]+(.+\.mk)[[:space:]]*$/\1/p' "$REPO/Makefile"); do
     mkdir -p "$d/$(dirname "$mk")"
     cp "$REPO/$mk" "$d/$mk"
+    for nested in $(sed -nE 's/^-?include[[:space:]]+(.+\.mk)[[:space:]]*$/\1/p' "$REPO/$mk"); do
+      mkdir -p "$d/$(dirname "$nested")"
+      cp "$REPO/$nested" "$d/$nested"
+    done
   done
 }
 
@@ -4259,7 +4263,7 @@ ma_fixture() {
   cp "$REPO/CLAUDE.md" "$REPO/Makefile" "$d/"
   cp "$REPO/test/run_tests.sh" "$REPO/test/cosim.py" "$REPO/test/march_test.sh" \
      "$REPO/test/dual_build.sh" "$REPO/test/probe_gates.sh" "$d/test/"
-  cp "$REPO/nano/tb.mk" "$d/nano/"
+  cp "$REPO/nano/tb.mk" "$REPO/nano/stamp.mk" "$d/nano/"
   cp "$REPO/test/sail/reservation_probe.sh" "$d/test/sail/"
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"

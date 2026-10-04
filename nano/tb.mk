@@ -5,18 +5,22 @@ NANO_RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_AL
                             RISCV_FORMAL_MEM_FAULT RISCV_FORMAL_NRET=1 RISCV_FORMAL_XLEN=32 \
                             RISCV_FORMAL_ILEN=32
 
+include nano/stamp.mk
+
 NANO_SIM_RTL_SRCS := nano/nano.v nano/tb/nano_memory.v soc/compare/dhry_monitor.v
 NANO_SIM_TB_SRCS  := nano/tb/nano_testbench.v
+NANO_SIM_IN       := rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+$(eval $(call nano_stamp,NANO_SIM_STAMP,$(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) nano/tb/nano_cxxrtl.cc,$(NANO_RISCV_FORMAL_MACROS)))
 
-nano/tb/nano_rtl.cc: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
-	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) $^; hierarchy -top nano_testbench; write_cxxrtl $@'
+nano/tb/nano_rtl.cc: $(NANO_SIM_IN) $(NANO_SIM_STAMP)
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) $(NANO_SIM_IN); hierarchy -top nano_testbench; write_cxxrtl $@'
 
-nano-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_rtl.cc
+nano-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_rtl.cc $(NANO_SIM_STAMP)
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" $< -o $@
 
-nano/tb/nano_icarus.vvp: rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
-	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
+nano/tb/nano_icarus.vvp: $(NANO_SIM_IN) $(NANO_SIM_STAMP)
+	iverilog -I./rtl/ -DICARUS $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $(NANO_SIM_IN)
 
 .PHONY: nano-x-probe
 nano-x-probe: rvfi_macros.vh test/monitor.sim.v
@@ -105,15 +109,22 @@ nano-qspi-loop-test: nano-qspi-loop-probe
 NANO_QSPI_PINS_RTL_SRCS := nano/nano.v nano/qspi.v nano/tb/nano_qspi_flash_model.v \
                            nano/tb/nano_qspi_psram_model.v soc/compare/dhry_monitor.v
 
-nano/tb/nano_qspi_pins_rtl.cc: rvfi_macros.vh $(NANO_QSPI_PINS_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
-	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_QSPI_PINS $^; hierarchy -top nano_testbench; write_cxxrtl $@'
+NANO_QSPI_PINS_IN    := rvfi_macros.vh $(NANO_QSPI_PINS_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
+$(eval $(call nano_stamp,NANO_QSPI_PINS_STAMP,$(NANO_QSPI_PINS_RTL_SRCS) $(NANO_SIM_TB_SRCS) nano/tb/nano_cxxrtl.cc,$(NANO_RISCV_FORMAL_MACROS) NANO_QSPI_PINS))
 
-nano-qspi-pins-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_qspi_pins_rtl.cc
+nano/tb/nano_qspi_pins_rtl.cc: $(NANO_QSPI_PINS_IN) $(NANO_QSPI_PINS_STAMP)
+	yosys -p 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) -D NANO_QSPI_PINS $(NANO_QSPI_PINS_IN); hierarchy -top nano_testbench; write_cxxrtl $@'
+
+nano-qspi-pins-sim: nano/tb/nano_cxxrtl.cc nano/tb/nano_qspi_pins_rtl.cc $(NANO_QSPI_PINS_STAMP)
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_qspi_pins_rtl.cc"' \
 	  -isystem "$$(yosys-config --datdir)/include/backends/cxxrtl/runtime" -I nano/tb $< -o $@
 
-nano/tb/nano_icarus_qspi_pins.vvp: rvfi_macros.vh $(NANO_QSPI_PINS_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
-	iverilog -I./rtl/ -DICARUS -DNANO_QSPI_PINS $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $^
+nano/tb/nano_icarus_qspi_pins.vvp: $(NANO_QSPI_PINS_IN) $(NANO_QSPI_PINS_STAMP)
+	iverilog -I./rtl/ -DICARUS -DNANO_QSPI_PINS $(addprefix -D,$(NANO_RISCV_FORMAL_MACROS)) -g2012 -o $@ $(NANO_QSPI_PINS_IN)
+
+.PHONY: nano-stale-build-test
+nano-stale-build-test:
+	@./nano/tb/nano_stale_build_probe.sh
 
 .PHONY: nano-qspi-pins-probe
 nano-qspi-pins-probe: rvfi_macros.vh test/monitor.sim.v
@@ -145,7 +156,9 @@ nano-qspi-pins-coremark: nano-qspi-pins-sim
 NANO_QSPI_RESUME_SRCS := nano/qspi.v nano/tb/nano_qspi_flash_model.v \
                           nano/tb/nano_qspi_psram_model.v nano/tb/nano_qspi_resume_tb.v
 
-nano/tb/nano_qspi_resume.vvp: $(NANO_QSPI_RESUME_SRCS)
+$(eval $(call nano_stamp,NANO_QSPI_RESUME_STAMP,$(NANO_QSPI_RESUME_SRCS),))
+
+nano/tb/nano_qspi_resume.vvp: $(NANO_QSPI_RESUME_SRCS) $(NANO_QSPI_RESUME_STAMP)
 	iverilog -g2012 -o $@ $(NANO_QSPI_RESUME_SRCS)
 
 .PHONY: nano-qspi-resume-probe
@@ -182,7 +195,9 @@ nano-gl-test: nano-sky130-verilog-setup nano-gl-gate-probe nano-gl-census-probe
 	@./nano/tb/run_nano_gl_test.sh '$(NANO_CFLAGS)' '$(NETLIST)' '$(NANO_SKY130_VERILOG_DIR)'
 
 # nano-qspi-resume-test's reproduction, plus one clk of injected round-trip latency. On `make test`'s path.
-nano/tb/nano_qspi_latency.vvp: $(NANO_QSPI_RESUME_SRCS)
+$(eval $(call nano_stamp,NANO_QSPI_LATENCY_STAMP,$(NANO_QSPI_RESUME_SRCS),QSPI_RESUME_TB_DELAY_CYCLES=1))
+
+nano/tb/nano_qspi_latency.vvp: $(NANO_QSPI_RESUME_SRCS) $(NANO_QSPI_LATENCY_STAMP)
 	iverilog -g2012 -DQSPI_RESUME_TB_DELAY_CYCLES=1 -o $@ $(NANO_QSPI_RESUME_SRCS)
 
 .PHONY: nano-qspi-latency-probe
