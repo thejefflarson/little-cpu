@@ -1,6 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Runs both harnesses on the same image and requires the two cores to write the SAME
+// Runs every harness on the same image and requires the cores to write the SAME
 // sequence of values to the same address.
 module bench_tb;
   localparam int      CYCLES  = 120000;
@@ -10,7 +10,7 @@ module bench_tb;
   logic clk = 1'b0;
   always #5 clk = ~clk;
 
-  logic ours_led0_n, ours_led1_n, vex_led0_n, vex_led1_n, haz_led0_n, haz_led1_n;
+  logic ours_led0_n, ours_led1_n, vex_led0_n, vex_led1_n, haz_led0_n, haz_led1_n, hzp_led0_n, hzp_led1_n;
 
   bench_littlecpu dut_ours (
     .clk(clk), .led0_n(ours_led0_n), .led1_n(ours_led1_n)
@@ -21,11 +21,15 @@ module bench_tb;
   bench_hazard3 dut_haz (
     .clk(clk), .led0_n(haz_led0_n), .led1_n(haz_led1_n)
   );
+  bench_hazard3 #(.PERF(1'b1)) dut_hzp (
+    .clk(clk), .led0_n(hzp_led0_n), .led1_n(hzp_led1_n)
+  );
 
   logic [31:0] ours_seen[0:63];
   logic [31:0] vex_seen[0:63];
   logic [31:0] haz_seen[0:63];
-  int          ours_n = 0, vex_n = 0, haz_n = 0;
+  logic [31:0] hzp_seen[0:63];
+  int          ours_n = 0, vex_n = 0, haz_n = 0, hzp_n = 0;
 
   always_ff @(posedge clk) begin
     if (dut_ours.mem_wstrb == 4'b1111 && dut_ours.mem_addr == PUBLISH
@@ -42,6 +46,11 @@ module bench_tb;
         && haz_n < 64) begin
       haz_seen[haz_n] <= dut_haz.d_hwdata;
       haz_n           <= haz_n + 1;
+    end
+    if (dut_hzp.dmem_wstrb_mux == 4'b1111 && dut_hzp.dmem_addr_mux == PUBLISH
+        && hzp_n < 64) begin
+      hzp_seen[hzp_n] <= dut_hzp.d_hwdata;
+      hzp_n           <= hzp_n + 1;
     end
   end
 
@@ -71,6 +80,14 @@ module bench_tb;
       errors = errors + 1;
     end
 
+    if (hzp_n < WANT) begin
+      $display("FAIL: Hazard3 (performance build) published %0d values in %0d cycles, wanted %0d.",
+               hzp_n, CYCLES, WANT);
+      $display("      The bus adapter in soc/compare/bench_hazard3.v is wrong,");
+      $display("      or the core is stuck.");
+      errors = errors + 1;
+    end
+
     for (i = 0; i < WANT; i = i + 1) begin
       if (i < ours_n && i < vex_n && ours_seen[i] !== vex_seen[i]) begin
         $display("FAIL: publication %0d differs: littlecpu %08x, VexRiscv %08x.",
@@ -81,6 +98,12 @@ module bench_tb;
       if (i < ours_n && i < haz_n && ours_seen[i] !== haz_seen[i]) begin
         $display("FAIL: publication %0d differs: littlecpu %08x, Hazard3 %08x.",
                  i, ours_seen[i], haz_seen[i]);
+        $display("      One harness is not presenting the same machine to its core.");
+        errors = errors + 1;
+      end
+      if (i < ours_n && i < hzp_n && ours_seen[i] !== hzp_seen[i]) begin
+        $display("FAIL: publication %0d differs: littlecpu %08x, Hazard3 (performance build) %08x.",
+                 i, ours_seen[i], hzp_seen[i]);
         $display("      One harness is not presenting the same machine to its core.");
         errors = errors + 1;
       end
@@ -96,7 +119,7 @@ module bench_tb;
     end
 
     if (errors == 0) begin
-      $display("bench_tb: %0d published values, littlecpu, VexRiscv and Hazard3 agree; first %08x, last matched %08x",
+      $display("bench_tb: %0d published values, littlecpu, VexRiscv and both Hazard3 builds agree; first %08x, last matched %08x",
                WANT, ours_seen[0], ours_seen[WANT-1]);
       $display("PASS");
     end else begin

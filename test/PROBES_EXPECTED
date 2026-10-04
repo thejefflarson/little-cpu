@@ -7,6 +7,7 @@
 --cores naming no core at all is red before anything is parsed
 --field stamps an extra provenance field verbatim
 --list answers for every part, derived or not
+--require-clone with no clone present is red, not a skipped leg
 --require-news against an unchanged repo and matching --current is quiet
 --require-news is news the moment --current disagrees with the older stamp
 --require-news is news the moment rtl/ moved under the older stamp too
@@ -34,6 +35,7 @@ FAIL carries the test number and exits 1
 JSON that is not a netlist is refused
 NO-STATUS is a broken harness and is not baselineable either
 PASS in a failure set is a comparison whose only branch is failure
+PERF moving a parameter the authors' builds agree on is red
 RISCV_FORMAL_E live with a real-core ill_e.sv and a wrong-rule probe label present is not red
 RISCV_FORMAL_E live with a real-core ill_e.sv and no wrong-rule probe label is red
 RISCV_FORMAL_E live with an ill_e.sv that does not instantiate the real core is red
@@ -116,6 +118,8 @@ a block with no end is truncated, and a truncated one is not read
 a bmc .sby stating depth twice is exit 2 here too
 a branch already on this repository stops the bump
 a build artifact missing is exit 2, not a probe against nothing
+a build file pinned to a different Hazard3 than the Makefile is red
+a build-file line this cannot read stops rather than being skipped
 a caller that needs the figures rather than the prose is refused
 a canonical form that stopped forgiving the class is red
 a capitalised spelling is the same word and is caught too
@@ -164,6 +168,7 @@ a constraint file that describes a different oscillator is red
 a constraint that is not the declared one is a different measurement
 a copy wrapped across lines is caught, not read as two harmless ones
 a core folded away on ECP5 is red against the same floor
+a core in the stamp with no configuration label is refused, not skipped
 a core sweep whose lowest value already passes is refused a flip point, not reported one
 a core that cannot hold the CoreMark image is named, not left to the reader
 a core that cannot hold the image is named, not left to the reader
@@ -399,9 +404,13 @@ a one-bit constant is a different digest
 a one-entry hit rate above the unbounded stack's is red
 a one-field baseline line is rejected before the suite runs
 a pad frequency that is not whole hertz cannot be compared exactly
+a pair carrying both Hazard3 builds still renders the area build under its name
 a pair measured for the first time is news on its own, with no --current at all
+a pair publishing one build of a two-build core says the other is not stamped
 a pairing naming a program nobody wrote is red
+a parameter both builds share drifting in the bench is red
 a parameter list spread over several lines is refused, not skimmed
+a parameter the bench sets and the build file does not list is red
 a parameter this cannot read stops rather than comparing nothing
 a part this repo does not place is refused before any placement
 a part this repo does not place is refused, not added by asking
@@ -575,6 +584,7 @@ a stall reason the accounting cannot name is red even with every test passing
 a stall reason with no driving cell stops the run
 a stall-sites repo root that does not exist is red before anything is scanned
 a stalled-bus mutant red for only some goals is not full evidence
+a stamp carrying the performance build renders it under its named build
 a stamp measured on a dirty tree is STALE even if nothing has moved since
 a stamp that moved under the committed document is red
 a stamp whose base commit no longer resolves is still graded fresh by its digest
@@ -904,6 +914,7 @@ control: the ECP5 arm reads its own fabric's two cell names
 control: the MUL constant-latency assertion fails at its own line
 control: the Zkt-isolation assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
+control: the authors' examples agree with the build file
 control: the block RAM is named at the end of the path it sits at
 control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
@@ -925,6 +936,7 @@ control: the shipping Makefile agrees with check-sources' warn-not-fail exit
 control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
+control: the shipping bench and build file agree
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
 control: the shipping exclusion set matches its baseline both ways
@@ -967,6 +979,7 @@ dx_output.rs1 widened past 5 bits is red, unclassified
 ecp5 names fewer than twelve seeds and is refused before any placement
 every excluded cell reaches dfflibmap and abc as -dont_use
 every excluded cell reaches the timing run's dfflibmap and abc too
+every opponent row names the build it ran
 every source line moving is the comment class, and is forgiven
 excluding --require-news's artifact does not blind it to a real soc/compare/ change
 excluding the artifact does not blind the check to a real soc/compare/ change
@@ -1093,6 +1106,9 @@ the address the printing program writes is checked against the UART
 the artifact moving does not make its own stamp stale
 the artifact the run itself rewrites does not count as the tree moving
 the attribute nextpnr places against disagreeing with CORE_HZ is red
+the authors' area example enabling a predictor the build file denies is red
+the authors' performance example dropping its fast multiply is red
+the authors' two performance examples disagreeing is red
 the baud rate is still refused beside the clock a top may set
 the benchmark script must keep linking against the part's rom
 the benchmark's own FAIL verdict stops the number being quoted
@@ -1140,6 +1156,7 @@ the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything
 the override prints the mismatch it was passed to get past
+the performance build losing its single-cycle multiply is red
 the pre-fix commit line -- '-m' and '-F' together -- is red for the reason it used to fail
 the program addressing RAM somewhere the harness has none is red
 the proof describes the part's text window, not the harness's
@@ -1201,6 +1218,7 @@ up5k names fewer than twelve seeds and is refused before any placement
 upstream's own x29 scratch reappearing is named and located
 usage: a missing argument is exit 2
 widening a declared mnemonic list without the baseline is red
+without --require-clone an absent clone is said aloud
 wrong argument count is a usage error
 wrong argument count is a usage error
 wrong argument count is a usage error, not a silent pass

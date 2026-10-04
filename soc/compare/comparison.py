@@ -28,12 +28,29 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 
 BENCHMARKS = [("dhrystone", "Dhrystone 2.1"), ("coremark", "CoreMark")]
 PARTS = [("", "iCE40 UP5K"), ("_ecp5", "ECP5 LFE5U-25F")]
-CORE_ORDER = ["littlecpu", "vexriscv", "hazard3"]
+CORE_ORDER = ["littlecpu", "vexriscv", "hazard3", "hazard3_perf"]
+# Every row names the build it ran. A core in the stamp with no entry here is refused, so a
+# new opponent cannot be published without stating its configuration (docs/adr/0246).
+CORE_LABELS = {
+    "littlecpu": "littlecpu",
+    "vexriscv": "vexriscv (performance build)",
+    "hazard3": "hazard3 (area build)",
+    "hazard3_perf": "hazard3_perf (performance build)",
+}
 CORE_NOTES = {
     "littlecpu": "this core, built at the shared RV32IM subset",
-    "vexriscv": "the generated VexRiscv in the pinned riscv-formal clone: M, no A, no C",
-    "hazard3": "Hazard3's two-port iCE40 build; its disclosed bus wait is counted in its cycles",
+    "vexriscv": "the generated VexRiscv in the pinned riscv-formal clone, its authors' "
+                "performance configuration (it ships no other): M, no A, no C",
+    "hazard3": "Hazard3's two-port build from its iCE40 example (`fpga_icebreaker.v`): "
+               "bit-serial multiply, no branch predictor, no counters, no fence.i; its "
+               "disclosed bus wait is counted in its cycles",
+    "hazard3_perf": "Hazard3's two-port build from its two ECP5 examples "
+                    "(`fpga_ulx3s.v`, `fpga_orangecrab_25f.v`): single-cycle multiply, "
+                    "branch predictor, counters, fence.i; the same bus adapter and wait",
 }
+# A pair carrying the first of these and not the second is publishing one build of a core
+# that ships two, and says so.
+SIBLING_BUILDS = {"hazard3": "hazard3_perf"}
 CLOCK_NOT_RATCHETED = ("not ratcheted, because the placer's spread is wider than any "
                        "difference a gate could grade")
 
@@ -41,7 +58,10 @@ CAVEATS = [
     "**Hazard3's ECP5 clock** carries a standing flag: the same RTL read 33.26 MHz in one "
     "session and 48.50 in a later one, and the unpinned nextpnr-ecp5 is the likely, "
     "unconfirmed cause. Read it as measured and inherit the flag.",
-    "**Hazard3 has no Dhrystone row** in the stamp; only CoreMark carries all three cores.",
+    "**One standard for every opponent** (docs/adr/0246): each core runs the configuration "
+    "its authors ship for a part with room, and a core that ships a small-part build as well "
+    "gets that build as its own named column. No ratio here is against an unnamed build, "
+    "and an ISA choice (C, A, M) is the harness row's, never an opponent's tuning.",
     "**CoreMark's cycles are simulated at a larger map than the clock is placed at**: its "
     "text does not fit the up5k's placed ROM, so the cycle half and the clock half come "
     "from different geometries. Dhrystone fits, and nothing in its rows is distorted by "
@@ -50,7 +70,7 @@ CAVEATS = [
     "toolchain.** Every row here shares one stamp commit and one tool list.",
     "**Parts are never blended.** The up5k and ECP5 sections answer different questions "
     "and are not averaged or ranked against each other.",
-    "**The comparison is RV32IM**, the widest ISA all three cores share; no pairwise "
+    "**The comparison is RV32IM**, the widest ISA all the cores share; no pairwise "
     "wider-ISA row is stamped, so none is rendered.",
     "**nanocpu is not in this comparison** and is never quoted beside littlecpu.",
 ]
@@ -100,11 +120,16 @@ def render_pair(title, pair, out):
                   f"{score} worst | {score} median | vs {target} (worst / median) |")
         sep = "|---|---:|---|---:|---:|---|"
     out += ["", header, sep]
+    unlabelled = sorted(set(pair["cores"]) - set(CORE_LABELS))
+    if unlabelled:
+        sys.exit(f"*** {title}: {', '.join(unlabelled)} in the stamp with no configuration "
+                 "label in comparison.py's CORE_LABELS; a ratio against an unnamed build "
+                 "is not published.")
     for core in CORE_ORDER:
         if core not in pair["cores"]:
             continue
         c = pair["cores"][core]
-        row = f"| {core} | {f(c['cycle_factor'], 4)} | {clock_cell(c['clock_mhz'])} |"
+        row = f"| {CORE_LABELS[core]} | {f(c['cycle_factor'], 4)} | {clock_cell(c['clock_mhz'])} |"
         if core == target:
             prod = next(iter(pair["products"].values()))[f"{target}_dmips"]
             ratio = "1.000x" if step else "1.000x / 1.000x"
@@ -118,6 +143,11 @@ def render_pair(title, pair, out):
         else:
             row += f" {f(prod['worst'])} | {f(prod['median'])} | {ratio} |"
         out.append(row)
+    for core, sibling in SIBLING_BUILDS.items():
+        if core in pair["cores"] and sibling not in pair["cores"]:
+            out += ["", f"Not stamped: `{sibling}` is absent from this pair, so `{core}` "
+                    "above is that core's small-part build alone; the next "
+                    "`make compare-product` run adds the other."]
     out += ["", f"Cycle factor: ratcheted for `{target}` only (`soc/compare/CYCLE_FLOOR`); the "
             f"other cores' factors are reported. Clock: {CLOCK_NOT_RATCHETED}.", ""]
 
@@ -144,6 +174,11 @@ def render(stamp):
     out += ["## Caveats that travel with the numbers", ""]
     out += [f"- **{core}**: {note}." for core, note in CORE_NOTES.items()]
     out += [f"- {caveat}" for caveat in CAVEATS]
+    unstamped = [title for bench, title in BENCHMARKS
+                 if not any("hazard3" in (pairs.get(bench + sfx) or {}).get("cores", {})
+                            for sfx, _ in PARTS)]
+    if unstamped:
+        out.append(f"- **Hazard3 has no {' or '.join(unstamped)} row** in this stamp.")
     out += ["", "## Stamp provenance", ""]
     measured = {n: p for n, p in sorted(pairs.items()) if p["status"] == "measured"}
     for name, pair in measured.items():

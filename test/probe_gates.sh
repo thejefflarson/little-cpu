@@ -4794,6 +4794,98 @@ printf '#!/bin/bash\necho "nothing to see here"\n' > "$d/soc/compare/run_unrelat
 probe "a soc/compare script naming no .lds at all does not sink the scan" 0 \
   "stated the same way everywhere it is declared" "$GT $d"
 
+begin_group "soc/compare/hazard3_config_test.py"
+
+HC="python3 $REPO/soc/compare/hazard3_config_test.py"
+
+hc_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc/compare"
+  cp "$REPO"/soc/compare/bench_hazard3.v "$REPO"/soc/compare/hazard3_builds.txt \
+     "$REPO"/soc/compare/hazard3_pin.mk "$d/soc/compare/"
+  printf '%s' "$d"
+}
+
+# A stand-in for the pinned clone, written from the build file itself so this group needs
+# no network: one example per build, every listed parameter set explicitly.
+hc_clone() {
+  local d=$1 c="$d/soc/compare/hazard3"
+  mkdir -p "$c/hdl" "$c/example_soc/fpga"
+  printf 'parameter UNLISTED = 0,\n' > "$c/hdl/hazard3_config.vh"
+  local pair name col
+  for pair in icebreaker:2 ulx3s:3 orangecrab_25f:3; do
+    name=${pair%:*}; col=${pair#*:}
+    { printf 'example_soc #(\n'
+      awk -v c="$col" '/^#/ || $1 == "pin" || NF == 0 { next } { printf "\t.%s (%s),\n", $1, $c }' \
+        "$d/soc/compare/hazard3_builds.txt"
+      printf '\t.LAST (0)\n) soc_u (\n'
+    } > "$c/example_soc/fpga/fpga_$name.v"
+  done
+}
+
+d=$(hc_fixture)
+probe "control: the shipping bench and build file agree" 0 \
+  "26 parameters agree between bench_hazard3.v, hazard3_builds.txt" "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.MUL_FAST             (PERF ? 1 : 0)/.MUL_FAST             (0)/'
+probe "the performance build losing its single-cycle multiply is red" 1 \
+  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0, the authors' builds are area=0 perf=1" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.MULDIV_UNROLL        (1)/.MULDIV_UNROLL        (2)/'
+probe "a parameter both builds share drifting in the bench is red" 1 \
+  "MULDIV_UNROLL: bench_hazard3.v elaborates area=2 perf=2" "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.PMP_REGIONS          (0),/.PMP_REGIONS          (0), .PMP_GRAIN (0),/'
+probe "a parameter the bench sets and the build file does not list is red" 1 \
+  "PMP_GRAIN is set in bench_hazard3.v and graded against nothing" "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1/MUL_FAST 0 0/'
+probe "PERF moving a parameter the authors' builds agree on is red" 1 \
+  "PERF moves BRANCH_PREDICTOR" "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" \
+  's/^pin [0-9a-f]*/pin 0000000000000000000000000000000000000000/'
+probe "a build file pinned to a different Hazard3 than the Makefile is red" 1 \
+  "not the SHA hazard3_pin.mk pins" "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" \
+  's/^BRANCH_PREDICTOR 0 1/BRANCH_PREDICTOR 0/'
+probe "a build-file line this cannot read stops rather than being skipped" 1 \
+  "cannot read the line" "$HC $d"
+
+d=$(hc_fixture); hc_clone "$d"
+probe "control: the authors' examples agree with the build file" 0 \
+  "and the pinned clone's examples" "$HC $d --require-clone"
+
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_icebreaker.v" \
+  's/\.BRANCH_PREDICTOR (0)/.BRANCH_PREDICTOR (1)/'
+probe "the authors' area example enabling a predictor the build file denies is red" 1 \
+  "BRANCH_PREDICTOR: hazard3_builds.txt area=0, fpga_icebreaker.v says 1" "$HC $d"
+
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_ulx3s.v" 's/\.MUL_FAST (1)/.MUL_FAST (0)/'
+probe "the authors' performance example dropping its fast multiply is red" 1 \
+  "MUL_FAST: hazard3_builds.txt perf=1, fpga_ulx3s.v says 0" "$HC $d"
+
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_orangecrab_25f.v" \
+  's/\.CSR_COUNTER (1)/.CSR_COUNTER (0)/'
+probe "the authors' two performance examples disagreeing is red" 1 \
+  "the pinned clone's two performance examples disagree on CSR_COUNTER" "$HC $d"
+
+d=$(hc_fixture)
+probe "--require-clone with no clone present is red, not a skipped leg" 1 \
+  "was not checked against the authors' files" "$HC $d --require-clone"
+
+d=$(hc_fixture)
+probe "without --require-clone an absent clone is said aloud" 0 \
+  "pinned clone absent: not re-read against the authors' files" "$HC $d"
+
 begin_group "soc/compare/vexriscv_path_test.sh"
 
 VPT="$REPO/soc/compare/vexriscv_path_test.sh"
@@ -9543,6 +9635,40 @@ probe "a floor line matching no stamped pair is red" 1 \
 d=$(new_case); sed 's/rv32im 0\.99/rv32imc 0.99/' "$CMP_FLOOR" > "$d/floor"
 probe "a floor stated for a different ISA is a new row, not a pass" 1 \
   "a different row is a new floor" "$CMP ratchet --stamp $CMP_STAMP --floor $d/floor"
+
+probe "every opponent row names the build it ran" 0 \
+  "hazard3 (area build)" "$CMP render --stamp $CMP_STAMP"
+
+probe "a pair publishing one build of a two-build core says the other is not stamped" 0 \
+  "Not stamped: \`hazard3_perf\` is absent from this pair" "$CMP render --stamp $CMP_STAMP"
+
+# cmp_stamp_with <core> <out>: the committed stamp with a copy of hazard3's CoreMark column
+# added under <core>.
+cmp_stamp_with() {
+  python3 - "$CMP_STAMP" "$2" "$1" <<'PY'
+import json, sys
+src, dst, core = sys.argv[1:4]
+stamp = json.load(open(src))
+for name in ("coremark", "coremark_ecp5"):
+    pair = stamp["pairs"][name]
+    pair["cores"][core] = dict(pair["cores"]["hazard3"])
+    pair["products"][core] = {
+        k.replace("hazard3", core): v for k, v in pair["products"]["hazard3"].items()}
+json.dump(stamp, open(dst, "w"))
+PY
+}
+
+d=$(new_case); cmp_stamp_with hazard3_perf "$d/stamp.json"
+probe "a stamp carrying the performance build renders it under its named build" 0 \
+  "hazard3_perf (performance build)" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_with hazard3_perf "$d/stamp.json"
+probe "a pair carrying both Hazard3 builds still renders the area build under its name" 0 \
+  "| hazard3 (area build) |" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_with hazard9 "$d/stamp.json"
+probe "a core in the stamp with no configuration label is refused, not skipped" 1 \
+  "hazard9 in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
 
 begin_group "test/probes_header_test.py"
 
