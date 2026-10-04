@@ -7,6 +7,10 @@
 --cores naming no core at all is red before anything is parsed
 --field stamps an extra provenance field verbatim
 --list answers for every part, derived or not
+--paired excuses only the candidate's dirty tree, not the base's
+--paired still refuses a placer mismatch
+--paired still refuses a toolchain mismatch
+--paired: a base ref against a dirty working tree produces a verdict
 --require-clone with no clone present is red, not a skipped leg
 --require-news against an unchanged repo and matching --current is quiet
 --require-news is news the moment --current disagrees with the older stamp
@@ -19,11 +23,13 @@
 ...and a second flush one settling cycle later fails the same way
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
+...and the .asc it refuses is deleted rather than left to be read
 ...and the count that site was declared with is red too
 ...and the message routes kill to the cycle-accounting identity instead
 ...and the report names the parameter, not merely 'changed'
 ...and the report names the target make actually overrode
 ...and the same for the second mutation, which shares that line
+...and the stale report and .asc are gone, so no sweep can read them
 ...and their second copy is compared whole, not just its ISA
 0 retires overrides every verdict above to exit 6, the blind oracle
 CoreMark data past the end of the simulated RAM is red, not silent
@@ -392,6 +398,7 @@ a netlist with no top module names no one design
 a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
+a nextpnr that cannot place fails the recipe, stale .asc beside it
 a nextpnr that died early is NOT graded on the last run's pair
 a non-.S program cannot carry a real floor; this runner only globs .S
 a non-comparable CSR value is exempted -- and every exemption printed
@@ -402,6 +409,7 @@ a non-numeric floor is named rather than compared arithmetically
 a non-numeric retire count is NO-COUNTS, not a silent PASS
 a non-numeric retire count is graded NO-COUNTS, not compared as an integer
 a non-numeric spec-checked count is NO-COUNTS too
+a nonzero exit with no timing verdict behind it is fatal
 a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-entry hit rate above the unbounded stack's is red
@@ -410,6 +418,7 @@ a pad frequency that is not whole hertz cannot be compared exactly
 a pair carrying both Hazard3 builds still renders the area build under its name
 a pair measured for the first time is news on its own, with no --current at all
 a pair publishing one build of a two-build core says the other is not stamped
+a paired_sweep.sh that drops --paired is caught
 a pairing naming a program nobody wrote is red
 a parameter both builds share drifting in the bench is red
 a parameter list spread over several lines is refused, not skimmed
@@ -431,6 +440,7 @@ a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
 a pinned compiler version the stamp did not measure is STALE
 a placement at zero MHz is not a placement
+a placement failure is fatal even with an .asc left on disk
 a placer that wrote no bitstream placed nothing, which is not a pass
 a plain directory git cannot list is a scan of nothing, not green
 a plain directory git cannot list is a scan of nothing, not green
@@ -696,6 +706,7 @@ an arm that admits rs1 where the effective address belongs is red
 an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
 an empty --current value is refused, not compared as though it were the field's value
+an empty .asc is no placement
 an empty CoreMark image is named rather than reported as fitting easily
 an empty asm directory is red rather than a suite of size zero
 an empty configuration means nothing was expressible on the part
@@ -818,11 +829,13 @@ control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a r
 control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
+control: a clean nextpnr run is accepted
 control: a complete --measured call writes a valid pair
 control: a core over the step passes and is compared on cycles
 control: a count matching the declaration is green
 control: a depth exactly at the floor passes
 control: a derived part states both figures and names itself
+control: a design that only missed its clock is still a placement
 control: a deterministic placer and a forgiven mutant pass
 control: a file within the comment-density budget is not reported
 control: a fresh stamp with nothing changed prints clean and exits 0
@@ -844,6 +857,7 @@ control: a one-retire floor is F+2, not F+G+2
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
 control: a pin whose sources match checks OK
+control: a placed design that missed its clock still builds the .asc
 control: a placement holding the whole core is green
 control: a plain liberty and source produce the expected yosys script
 control: a plain liberty and source produce the expected yosys script
@@ -919,6 +933,7 @@ control: nano's startup check is graded the same way, and it is green
 control: nano/formal/Makefile also puts the cached suite first
 control: nothing changing during the run is unmoved
 control: one register-file build reports its area and delay
+control: paired_sweep.sh hands the summary --paired
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: run_product.sh evals no tool string and splices no variable into python3 -c
@@ -1234,6 +1249,7 @@ up5k names fewer than twelve seeds and is refused before any placement
 upstream's own x29 scratch reappearing is named and located
 usage: a missing argument is exit 2
 widening a declared mnemonic list without the baseline is red
+without --paired the same differing bases still refuse
 without --require-clone an absent clone is said aloud
 wrong argument count is a usage error
 wrong argument count is a usage error

@@ -41,7 +41,12 @@ rejected instead of summarised: an unstamped file is a failed measurement, not a
 comparable one, and the whole reason this format exists is that a bare column of
 frequencies looks equally usable either way.
 
-Usage: baseline_summary.py <csv> [<csv> [--allow-mismatch] [--min-seeds N]]
+`--paired` is for soc/paired_sweep.sh, whose two sweeps are a base ref and the working
+tree by construction: it excuses the `base` field, and the SECOND sweep's dirty flag
+(the candidate is the working tree). Every other field, the toolchain above all,
+still refuses, and `--allow-mismatch` is not implied.
+
+Usage: baseline_summary.py <csv> [<csv> [--allow-mismatch] [--paired] [--min-seeds N]]
 """
 
 import argparse
@@ -244,7 +249,7 @@ def refuse_below_min_seeds(loaded, min_seeds):
         + "\n*** --allow-mismatch does NOT cover this. Sweep more seeds."
     )
 
-def mismatches(first, second):
+def mismatches(first, second, paired=False):
     """Every recorded reason these two sweeps are not one experiment.
 
     A dirty tree is one of them on its own: the base line then names a commit
@@ -258,10 +263,14 @@ def mismatches(first, second):
     part = first_prov[PART_FIELD]
     out = []
     for path, provenance in (first, second):
+        if paired and provenance is second_prov:
+            continue
         if provenance["dirty"] != "no":
             out.append(f"{path} was measured on a tree with uncommitted changes, "
                        f"so its base names no tree")
     for key in COMMON_COMPARED + PART_REQUIRED[part]:
+        if paired and key == "base":
+            continue
         if first_prov[key] != second_prov[key]:
             out.append(f"{key}:\n"
                        f"  {first_prov[key]}  ({first_path})\n"
@@ -293,6 +302,12 @@ def main():
         "with the mismatch beside it",
     )
     parser.add_argument(
+        "--paired",
+        action="store_true",
+        help="the first sweep is a base ref and the second the working tree, so "
+        "their base commits and the second's dirty flag differ by design",
+    )
+    parser.add_argument(
         "--min-seeds",
         type=int,
         default=0,
@@ -315,7 +330,7 @@ def main():
     if args.min_seeds:
         refuse_below_min_seeds(loaded, args.min_seeds)
     refuse_across_parts((first_path, first_prov), (second_path, second_prov))
-    reasons = mismatches((first_path, first_prov), (second_path, second_prov))
+    reasons = mismatches((first_path, first_prov), (second_path, second_prov), args.paired)
     if reasons and not args.allow_mismatch:
         print("*** these two sweeps were not measured the same way, so the")
         print("*** difference between them is not a measurement of the design:")

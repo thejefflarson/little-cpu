@@ -132,7 +132,7 @@ for part in $parts; do
   echo
   echo "== $part: verdict =="
   if ! python3 soc/baseline_summary.py \
-        "$out/base-$part.csv" "$out/candidate-$part.csv" --min-seeds "$MIN_SEEDS"; then
+        "$out/base-$part.csv" "$out/candidate-$part.csv" --paired --min-seeds "$MIN_SEEDS"; then
     status=1
   fi
 done

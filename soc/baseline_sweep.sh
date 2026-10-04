@@ -115,6 +115,9 @@ for seed in $seeds; do
     default) arg="" ;;
     *)       arg=$seed ;;
   esac
+  for artifact in $artifacts; do
+    rm -f "$build/$artifact"
+  done
   # up5k's recipe writes $build/soc.timing.rpt before SOC_MIN_MHZ, so a seed under the floor
   # is real data with a nonzero exit; only a missing artifact stops the sweep below.
   if log=$(make "$place_target" "$seed_var=$arg" "$@" 2>&1); then

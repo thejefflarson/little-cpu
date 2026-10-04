@@ -975,8 +975,9 @@ $(BUILD)/soc.json: $(SOC_SRCS) soc-rom | $(BUILD)
 	@python3 soc/cell_census.py $(BUILD)/soc.synth.log SB_RAM40_4K $(SOC_EXPECT_EBR) \
 	  "rtl/imemory.v or rtl/regfile.v has stopped inferring block RAM, or the ROM size changed"
 
-# `|| true` matters: nextpnr's exit status is not the signal (icetime's report of the
-# .asc is), and without it .DELETE_ON_ERROR deletes the .asc unread.
+# nextpnr exits nonzero when the design misses its clock, which is still a real placement;
+# soc/pnr_check.sh tolerates exactly that and fails every other outcome. The .asc and the
+# report are deleted first so a failed run cannot be read as the last run's numbers.
 SOC_SEED ?=
 
 # With no SOC_SEED override, `make soc-timing` places at the PINNED seed; `origin` tells that apart from an explicit `SOC_SEED=`, since both read empty.
@@ -992,23 +993,19 @@ soc-pin-check: soc-rom
 	@python3 soc/soc_pin.py check-sources $(SOC_PIN) $(SOC_SRCS) $(SOC_ROM_HEX)
 
 $(BUILD)/soc.asc: $(BUILD)/soc.json soc/littlesoc.pcf $(if $(SOC_SEED_PINNED),soc-pin-check)
+	@rm -f $@ $(BUILD)/soc.timing.rpt
 	@echo 'nextpnr: placing and routing littlesoc on up5k/sg48 (log: $(BUILD)/soc.pnr.log)'
 	@seed='$(SOC_SEED)'; \
 	if [ -n '$(SOC_SEED_PINNED)' ]; then \
 	  seed=$$(python3 soc/soc_pin.py seed $(SOC_PIN)) || exit 1; \
 	fi; \
+	status=0; \
 	if [ -n "$$seed" ]; then \
-	  $(SOC_PNR) --json $< --seed "$$seed" --asc $@ > $(BUILD)/soc.pnr.log 2>&1 || true; \
+	  $(SOC_PNR) --json $< --seed "$$seed" --asc $@ > $(BUILD)/soc.pnr.log 2>&1 || status=$$?; \
 	else \
-	  $(SOC_PNR) --json $< --asc $@ > $(BUILD)/soc.pnr.log 2>&1 || true; \
-	fi
-	@test -s $@ || { \
-	  echo '*** make soc-timing: nextpnr produced no bitstream, so NOTHING was'; \
-	  echo '*** measured. That is a failed placement, not a slow design.'; \
-	  tail -30 $(BUILD)/soc.pnr.log; \
-	  rm -f $@; \
-	  exit 1; \
-	}
+	  $(SOC_PNR) --json $< --asc $@ > $(BUILD)/soc.pnr.log 2>&1 || status=$$?; \
+	fi; \
+	sh soc/pnr_check.sh 'make soc-timing' "$$status" $(BUILD)/soc.pnr.log $@
 	@grep -q 'ICESTORM_LC:' $(BUILD)/soc.pnr.log || { \
 	  echo '*** make soc-timing: nextpnr printed no utilisation table.'; \
 	  tail -30 $(BUILD)/soc.pnr.log; \
@@ -1377,15 +1374,10 @@ $(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) | $(BUILD)
 
 $(BUILD)/board.asc: $(BUILD)/board.json $(BOARD_PCF)
 	@echo 'nextpnr: placing $(BOARD_TOP) on up5k/sg48 (log: $(BUILD)/board.pnr.log)'
-	@nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF) --json $< \
-	  --asc $@ > $(BUILD)/board.pnr.log 2>&1 || true
-	@test -s $@ || { \
-	  echo '*** make bitstream: nextpnr wrote no .asc, so there is nothing to'; \
-	  echo '*** pack. That is a failed placement, not a slow design.'; \
-	  tail -30 $(BUILD)/board.pnr.log; \
-	  rm -f $@; \
-	  exit 1; \
-	}
+	@rm -f $@
+	@status=0; nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF) --json $< \
+	  --asc $@ > $(BUILD)/board.pnr.log 2>&1 || status=$$?; \
+	sh soc/pnr_check.sh 'make bitstream' "$$status" $(BUILD)/board.pnr.log $@
 
 $(BUILD)/board.bin: $(BUILD)/board.asc
 	@icepack $< $@
@@ -1665,16 +1657,11 @@ $(BUILD)/compare.$(COMPARE_CORE).json: compare-rom $(COMPARE_DEPS)
 
 $(BUILD)/compare.$(COMPARE_CORE).asc: $(BUILD)/compare.$(COMPARE_CORE).json $(COMPARE_PCF)
 	@echo 'nextpnr: placing $(COMPARE_TOP) on $(COMPARE_PART) (log: $(BUILD)/compare.$(COMPARE_CORE).pnr.log)'
-	@nextpnr-ice40 $(COMPARE_PNR_FLAGS) --json $< --pcf $(COMPARE_PCF) \
+	@rm -f $@
+	@status=0; nextpnr-ice40 $(COMPARE_PNR_FLAGS) --json $< --pcf $(COMPARE_PCF) \
 	  $(if $(COMPARE_SEED),--seed '$(COMPARE_SEED)') --asc $@ \
-	  > $(BUILD)/compare.$(COMPARE_CORE).pnr.log 2>&1 || true
-	@test -s $@ || { \
-	  echo '*** make compare-timing: nextpnr produced no bitstream, so NOTHING'; \
-	  echo '*** was measured. That is a failed placement, not a fast design.'; \
-	  tail -30 $(BUILD)/compare.$(COMPARE_CORE).pnr.log; \
-	  rm -f $@; \
-	  exit 1; \
-	}
+	  > $(BUILD)/compare.$(COMPARE_CORE).pnr.log 2>&1 || status=$$?; \
+	sh soc/pnr_check.sh 'make compare-timing' "$$status" $(BUILD)/compare.$(COMPARE_CORE).pnr.log $@
 
 COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                       soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
