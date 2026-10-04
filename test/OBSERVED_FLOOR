@@ -41,6 +41,7 @@ lrsclock.S          156    141   # a retry loop under a live timer, like mtimer.
 lui.S                28     28
 lw.S                230    230
 minstret.S           41     30
+mseccfg.S            25     20
 mtimer.S           1103   1074
 mtimermask.S        296    263
 mul.S               422    422

@@ -793,6 +793,7 @@ board.lds putting .data back at ram's origin is red
 board.lds putting the stack back at the top of ram is red
 boot.lds putting .data back at ram's origin is red
 boot.lds putting the stack back at the top of ram is red
+buffering words during the start-up window is red
 check is run only when the shards and the baseline collector are both there
 check-sources actually refusing on a mismatch is red even if the text still warns
 cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red
@@ -968,6 +969,7 @@ control: the shipping tree keeps the retired term inside its allow-list
 control: the shipping tree names one ISA at every site
 control: the shipping tree names the seven stall signals and the six CPI reasons consistently
 control: the shipping tree states every band figure in one place
+control: the shipping trng passes its own bench
 control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
 control: the stamped compiler name and pinned version agree
 control: the tracked monitor sanitizes, and rule 3 fires
@@ -1022,6 +1024,7 @@ nano's runner exit 4 is MONITOR-ERROR too, carrying nano's own code
 nano's suite goes through the same shape check first
 nano's trap proof with no CI step is red
 netlist-diff reaches the same check as netlist-digest does
+no adaptive proportion test lets a biased source through
 no base ref names nothing to sweep against
 no components.sby is exit 2 here too, not a green control
 no components.sby is exit 2, not a probe against an invented script
@@ -1035,12 +1038,14 @@ no harness-directory argument is a usage error, not a silent default
 no named source at all is reported, and is not a failure
 no placer on PATH is refused the same way
 no programs at all would report a clean 0 of 0
+no repetition count on the corrected bits lets an alternating source through
 no riscv-formal checkout is exit 2 here too, not a probe against nothing
 no riscv-formal checkout is exit 2, not a probe against nothing
 no riscv-formal checkout is exit 2, not a probe against nothing
 no riscv-formal checkout is exit 2, not an ill_e probe against nothing
 no riscv-none-elf-gcc on PATH at all is red
 no standalone count leaves nothing to compare against
+no starvation timeout lets a beat pattern through
 no utilisation table is a failure, not a 0% fit
 no utilisation table means nothing was placed, not that nothing was lost
 no yosys on PATH is refused rather than skipped

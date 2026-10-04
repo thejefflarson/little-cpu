@@ -1,19 +1,23 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// rtl/trng.v driven by streams standing in for the board's slow oscillator: a jittered
-// square wave that must reach ES16, and three sources that must never read as anything
-// but DEAD.
+// rtl/trng.v driven by streams standing in for the board's slow oscillator: jittered square
+// waves that must reach ES16, and every source below that must end DEAD and never read ES16.
+// The generated sources (5 to 9) pick each rising-edge interval so that the sample bit
+// `ticks[1] ^ ticks[0]` takes the pattern named beside them: interval 5 samples 0 and 6
+// samples 1.
 module trng_tb;
   localparam logic [1:0] BIST = 2'b00, WAIT = 2'b01, ES16 = 2'b10, DEAD = 2'b11;
-  localparam int N = 5;
+  localparam int N = 10;
 
   logic clk = 0;
   always #5 clk = ~clk;
   logic reset = 1'b1;
 
   // 0: jittered, healthy. 1: stuck low. 2: stuck high. 3: constant period, so every
-  // interval sample is the same bit. 4: healthy, then stops.
+  // interval sample is the same bit. 4: healthy, then stops. 5: samples alternate 0,1.
+  // 6: samples 1,1,1,1,1,1,1,0 repeating. 7: ten 0s then ten 1s, a slow beat. 8: samples
+  // 94% ones at random. 9: samples 62% ones at random, which must still reach ES16.
   logic [N-1:0]  raw = '0;
   logic [N-1:0]  pop = '0;
   logic [31:0]   seed [N];
@@ -21,6 +25,9 @@ module trng_tb;
   logic [1:0]    wait_left [N];
   logic [3:0]    period_count = 4'd0;
   logic          stop_source4 = 1'b0;
+  int            left [N];
+  int            since [N];
+  int            idx [N];
 
   for (genvar i = 0; i < N; i++) begin : g_dut
     trng dut (
@@ -36,10 +43,36 @@ module trng_tb;
     for (int i = 0; i < N; i++) begin
       lfsr[i]      = 16'hACE1 + 16'(i);
       wait_left[i] = 2'b0;
+      left[i]      = 0;
+      since[i]     = 0;
+      idx[i]       = 0;
     end
   end
 
+  function automatic logic sample_of(input int which, input int k, input logic [15:0] r);
+    case (which)
+      5:       sample_of = k % 2 == 1;
+      6:       sample_of = k % 8 != 7;
+      7:       sample_of = k % 20 >= 10;
+      8:       sample_of = r[3:0] != 4'b0;
+      default: sample_of = r[2:0] < 3'd5;
+    endcase
+  endfunction
+
   always_ff @(posedge clk) begin
+    for (int i = 5; i < N; i++) begin
+      if (left[i] == 0) begin
+        left[i]  <= sample_of(i, idx[i], lfsr[i]) ? 5 : 4;
+        since[i] <= 1;
+        idx[i]   <= idx[i] + 1;
+        raw[i]   <= 1'b1;
+      end else begin
+        left[i]  <= left[i] - 1;
+        since[i] <= since[i] + 1;
+        raw[i]   <= since[i] < 2;
+      end
+    end
+
     for (int i = 0; i < N; i++)
       lfsr[i] <= {lfsr[i][14:0], lfsr[i][15] ^ lfsr[i][13] ^ lfsr[i][12] ^ lfsr[i][10]};
 
@@ -98,8 +131,19 @@ module trng_tb;
   logic [N-1:0] dead_seen = '0;
   logic [N-1:0] dead_then_other = '0;
   logic [N-1:0] noise_in_dead = '0;
+  logic [1:0]   prev_status [N];
+  logic [N-1:0] left_bist_into_es16 = '0;
+  int           edges0 = 0;
+  int           edges_at_warm = 0;
+  logic         raw0_q = 1'b0;
   always_ff @(posedge clk) if (!reset) begin
+    raw0_q <= raw[0];
+    if (raw[0] && !raw0_q) edges0 <= edges0 + 1;
+    if (prev_status[0] == BIST && seed[0][31:30] != BIST && edges_at_warm == 0)
+      edges_at_warm <= edges0;
     for (int i = 0; i < N; i++) begin
+      prev_status[i] <= seed[i][31:30];
+      if (prev_status[i] == BIST && seed[i][31:30] == ES16) left_bist_into_es16[i] <= 1'b1;
       if (seed[i][31:30] == ES16) es16_seen[i] <= 1'b1;
       if (seed[i][31:30] == DEAD) dead_seen[i] <= 1'b1;
       if (dead_seen[i] && seed[i][31:30] != DEAD) dead_then_other[i] <= 1'b1;
@@ -134,7 +178,7 @@ module trng_tb;
     pop[0] = 1'b0;
     check("a pop with nothing ready changes nothing", {30'b0, seed[0][31:30]}, {30'b0, BIST});
 
-    wait_status(0, ES16, 20000);
+    wait_status(0, ES16, 60000);
     check("a healthy source reaches ES16", {30'b0, seed[0][31:30]}, {30'b0, ES16});
     check("reserved and custom bits are zero", {14'b0, seed[0][29:16]}, 32'b0);
     first_word = seed[0][15:0];
@@ -147,7 +191,7 @@ module trng_tb;
     pop[0] = 1'b0;
     check("a pop consumes the word: back to WAIT", {30'b0, seed[0][31:30]}, {30'b0, WAIT});
     check("...with the entropy field cleared", {16'b0, seed[0][15:0]}, 32'b0);
-    wait_status(0, ES16, 20000);
+    wait_status(0, ES16, 60000);
     second_word = seed[0][15:0];
     check("the next word arrives", {30'b0, seed[0][31:30]}, {30'b0, ES16});
     if (second_word === first_word) begin
@@ -161,8 +205,18 @@ module trng_tb;
     check("a source stuck high reads DEAD", {30'b0, seed[2][31:30]}, {30'b0, DEAD});
     wait_status(3, DEAD, 6000);
     check("a constant-period source reads DEAD", {30'b0, seed[3][31:30]}, {30'b0, DEAD});
+    wait_status(5, DEAD, 200000);
+    check("samples alternating 0,1 read DEAD", {30'b0, seed[5][31:30]}, {30'b0, DEAD});
+    wait_status(6, DEAD, 200000);
+    check("a short periodic interval pattern reads DEAD", {30'b0, seed[6][31:30]}, {30'b0, DEAD});
+    wait_status(7, DEAD, 200000);
+    check("a beat pattern reads DEAD", {30'b0, seed[7][31:30]}, {30'b0, DEAD});
+    wait_status(8, DEAD, 200000);
+    check("a source 94% biased reads DEAD", {30'b0, seed[8][31:30]}, {30'b0, DEAD});
+    wait_status(9, ES16, 200000);
+    check("a mildly biased source still reaches ES16", {30'b0, seed[9][31:30]}, {30'b0, ES16});
 
-    wait_status(4, ES16, 20000);
+    wait_status(4, ES16, 60000);
     check("the fourth source starts healthy", {30'b0, seed[4][31:30]}, {30'b0, ES16});
     stop_source4 = 1'b1;
     wait_status(4, DEAD, 6000);
@@ -177,9 +231,19 @@ module trng_tb;
     check("a constant-period source never read as ES16", {31'b0, es16_seen[3]}, 32'b0);
     check("a source that stops reads ES16 before it stops",
           {31'b0, es16_seen[4]}, 32'b1);
+    check("an alternating source never read as ES16", {31'b0, es16_seen[5]}, 32'b0);
+    check("a periodic source never read as ES16", {31'b0, es16_seen[6]}, 32'b0);
+    check("a beat source never read as ES16", {31'b0, es16_seen[7]}, 32'b0);
+    check("a biased source never read as ES16", {31'b0, es16_seen[8]}, 32'b0);
     check("DEAD is sticky for every dead source",
-          {27'b0, dead_then_other}, 32'b0);
-    check("DEAD never carries entropy", {27'b0, noise_in_dead}, 32'b0);
+          32'(dead_then_other), 32'b0);
+    check("DEAD never carries entropy", 32'(noise_in_dead), 32'b0);
+    check("no source reads ES16 straight out of BIST: nothing is buffered in the start-up window",
+          32'(left_bist_into_es16), 32'b0);
+    if (edges_at_warm < 1024) begin
+      $display("MISMATCH BIST ended after %0d raw edges, expected at least 1024", edges_at_warm);
+      errors++;
+    end
 
     pop[1] = 1'b1;
     repeat (3) @(posedge clk);
@@ -202,7 +266,7 @@ module trng_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: trng (BIST, ES16, destructive read, WAIT, DEAD on stuck low/high, constant interval and a source that stops)");
+      $display("PASSED: trng (BIST over 1024 samples, ES16, destructive read, WAIT, DEAD on stuck, constant, alternating, periodic, beat and biased sources and one that stops)");
       $finish;
     end
   end

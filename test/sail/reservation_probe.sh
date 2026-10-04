@@ -29,7 +29,7 @@ fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-rsrv.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 
-"$CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
+"$CC" -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib \
   -I "$REPO/test/asm" -T "$REPO/test/asm/sections.lds" \
   "$PROBE" -o "$tmp/probe.elf"
 

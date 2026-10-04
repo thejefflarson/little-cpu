@@ -13,7 +13,7 @@ fi
 
 # THE ONE SOURCE. Everything below is graded against this string; changing it alone, with
 # no site changed, is red at every site.
-DECLARED_MARCH='rv32imac_zicsr_zifencei_zkt'
+DECLARED_MARCH='rv32imac_zicsr_zifencei_zkt_zkr'
 
 # The sites, with the exact number of times each states it.
 required_sites() {

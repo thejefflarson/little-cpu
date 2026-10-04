@@ -17,7 +17,7 @@ OBJCOPY=${CC%gcc}objcopy
 objs=(); names=(); i=0
 for prog in "$@"; do
   base=$(basename "$prog")
-  $CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
+  $CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -DBOARD_SUITE \
       -DTEXT_PAST=$(( ROM_WORDS * 4 )) \
       -I "$ROOT/test/asm" -c -o "$OUT/p$i.o" "$prog"
   $OBJCOPY --prefix-symbols="p${i}_" "$OUT/p$i.o"
@@ -36,9 +36,9 @@ done
   echo 'board_count:'
   echo "  .word $i"
 } > "$OUT/table.S"
-$CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -c -o "$OUT/table.o" "$OUT/table.S"
+$CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -c -o "$OUT/table.o" "$OUT/table.S"
 
-$CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
+$CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -DBOARD_SUITE \
     -I "$ROOT/test/asm" -T "$HERE/board.lds" -o "$OUT/batch.elf" \
     "$HERE/board_suite.S" "$OUT/table.o" "${objs[@]}"
 

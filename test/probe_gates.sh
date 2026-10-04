@@ -887,7 +887,7 @@ vacuity_fixture() {  # $1 = top-level text (defines), $2 = code inside RVTEST_CO
 
 vacuity_build() {  # $1 = fixture dir -- assemble only: the guard fires at assembly
                     # time, and a fixture this small links nothing worth chasing
-  "$VACUITY_CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 \
+  "$VACUITY_CC" -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 \
     -I "$1/asm" -c "$1/asm/vacuity.S" -o "$1/out.o"
 }
 
@@ -3292,6 +3292,39 @@ d=$(fq_fixture "s/assign committed = cnt + (req_valid ? 3'd2 : 3'd0);/assign com
 probe "a room check that forgets the response landing this cycle is red" 1 \
   "a response due this cycle, on top of one queued pair: no room left" "fq_run $d"
 
+begin_group "test/trng_tb.v"
+
+tg_fixture() {  # $1 = sed expression applied to a copy of rtl/trng.v, or "" for the control
+  local d; d=$(new_case)
+  cp "$REPO/rtl/trng.v" "$d/trng.v"
+  if [ -n "$1" ]; then mutate "$d/trng.v" "$1"; fi
+  printf '%s' "$d"
+}
+
+tg_run() {  # $1 = fixture dir
+  iverilog -g2012 -o "$1/tg.vvp" "$1/trng.v" "$REPO/test/trng_tb.v" && vvp "$1/tg.vvp"
+}
+
+d=$(tg_fixture "")
+probe "control: the shipping trng passes its own bench" 0 \
+  "PASSED: trng" "tg_run $d"
+
+d=$(tg_fixture "s/if (run == RUN_LIMIT) dead <= 1'b1;//")
+probe "no repetition count on the corrected bits lets an alternating source through" 1 \
+  "samples alternating 0,1 read DEAD" "tg_run $d"
+
+d=$(tg_fixture "s/if (apt_count == APT_LAST) dead <= 1'b1;//")
+probe "no adaptive proportion test lets a biased source through" 1 \
+  "a source 94% biased reads DEAD" "tg_run $d"
+
+d=$(tg_fixture "s/if (!emit \&\& starve == STARVE_LAST) dead <= 1'b1;//")
+probe "no starvation timeout lets a beat pattern through" 1 \
+  "a beat pattern reads DEAD" "tg_run $d"
+
+d=$(tg_fixture "s/word_done \&\& !full \&\& warm/word_done \&\& !full/")
+probe "buffering words during the start-up window is red" 1 \
+  "nothing is buffered in the start-up window" "tg_run $d"
+
 begin_group "test/stall_report.py"
 
 SR="python3 $REPO/test/stall_report.py"
@@ -3859,7 +3892,7 @@ STUB
 }
 
 layout_link() {  # $1 = fixture dir, $2 = script path inside it
-  "$LAYOUT_CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
+  "$LAYOUT_CC" -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib \
     -T "$1/$2" "$1/stub.S" -o "$1/out.elf"
 }
 
@@ -4289,19 +4322,19 @@ probe "a repo root that does not exist is red before anything is scanned" 1 \
   "is not a directory" "$MA $d/nowhere"
 
 d=$(ma_fixture)
-c_arm=$(grep -n -- '-march=rv32imac_zicsr_zifencei_zkt' "$d/test/run_tests.sh" | head -1 | cut -d: -f1)
-ma_edit "$d" test/run_tests.sh "${c_arm}s/rv32imac_zicsr_zifencei_zkt/rv32imc_zicsr_zifencei_zkt/"
+c_arm=$(grep -n -- '-march=rv32imac_zicsr_zifencei_zkt_zkr' "$d/test/run_tests.sh" | head -1 | cut -d: -f1)
+ma_edit "$d" test/run_tests.sh "${c_arm}s/rv32imac_zicsr_zifencei_zkt_zkr/rv32imc_zicsr_zifencei_zkt_zkr/"
 probe "one build site left at the narrower ISA is red, and located" 1 \
-  "test/run_tests.sh:${c_arm}: -march=rv32imc_zicsr_zifencei_zkt" "$MA $d"
+  "test/run_tests.sh:${c_arm}: -march=rv32imc_zicsr_zifencei_zkt_zkr" "$MA $d"
 
 probe "...and the count that site was declared with is red too" 1 \
-  "test/run_tests.sh states -march=rv32imac_zicsr_zifencei_zkt 1 time(s), not 2" "$MA $d"
+  "test/run_tests.sh states -march=rv32imac_zicsr_zifencei_zkt_zkr 1 time(s), not 2" "$MA $d"
 
 d=$(ma_fixture)
 ma_edit "$d" Makefile \
-  's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei_zkt/'
+  's/^DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt_zkr/DHRY_CFLAGS := -march=rv32imc_zicsr_zifencei_zkt_zkr/'
 probe "the Dhrystone flags drifting from the suite's ISA is red" 1 \
-  "Makefile states -march=rv32imac_zicsr_zifencei_zkt 4 time(s), not 5" "$MA $d"
+  "Makefile states -march=rv32imac_zicsr_zifencei_zkt_zkr 4 time(s), not 5" "$MA $d"
 
 probe "...and their second copy is compared whole, not just its ISA" 1 \
   "the Dhrystone flags are stated twice and they disagree" "$MA $d"
@@ -4315,7 +4348,7 @@ probe "two copies of the flags agreeing about -march and nothing else" 1 \
 d=$(ma_fixture)
 ma_edit "$d" test/march_test.sh 's/rv32imac_zicsr_zifencei/rv32imafc_zicsr_zifencei/'
 probe "moving the declared string alone, with every site unchanged, is red" 1 \
-  "CLAUDE.md states -march=rv32imafc_zicsr_zifencei_zkt 0 time(s), not 1" \
+  "CLAUDE.md states -march=rv32imafc_zicsr_zifencei_zkt_zkr 0 time(s), not 1" \
   "$d/test/march_test.sh $d"
 
 d=$(ma_fixture)
