@@ -67,8 +67,14 @@ cache=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu/paired-sweep
 base_tree="$cache/$base_sha"
 if [ ! -d "$base_tree" ]; then
   echo "soc/paired_sweep.sh: extracting $base_ref ($base_sha) into $base_tree"
-  mkdir -p "$base_tree"
-  git archive --format=tar "$base_ref" | tar -x -C "$base_tree"
+  mkdir -p "$cache"
+  stage=$(mktemp -d "$cache/.stage.XXXXXX")
+  trap 'rm -rf "$stage"' EXIT
+  git archive --format=tar -o "$stage/base.tar" "$base_sha"
+  mkdir "$stage/tree"
+  tar -x -C "$stage/tree" -f "$stage/base.tar"
+  rm -f "$stage/base.tar"
+  mv "$stage/tree" "$base_tree"
 else
   echo "soc/paired_sweep.sh: reusing the extracted tree for $base_sha"
 fi
@@ -132,7 +138,7 @@ for part in $parts; do
   echo
   echo "== $part: verdict =="
   if ! python3 soc/baseline_summary.py \
-        "$out/base-$part.csv" "$out/candidate-$part.csv" --min-seeds "$MIN_SEEDS"; then
+        "$out/base-$part.csv" "$out/candidate-$part.csv" --paired --min-seeds "$MIN_SEEDS"; then
     status=1
   fi
 done

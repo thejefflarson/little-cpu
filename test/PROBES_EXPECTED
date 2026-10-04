@@ -7,6 +7,10 @@
 --cores naming no core at all is red before anything is parsed
 --field stamps an extra provenance field verbatim
 --list answers for every part, derived or not
+--paired excuses only the candidate's dirty tree, not the base's
+--paired still refuses a placer mismatch
+--paired still refuses a toolchain mismatch
+--paired: a base ref against a dirty working tree produces a verdict
 --require-clone with no clone present is red, not a skipped leg
 --require-news against an unchanged repo and matching --current is quiet
 --require-news is news the moment --current disagrees with the older stamp
@@ -17,13 +21,16 @@
 --step-mhz replaces each core's own placed clock with one fixed step in its product
 ...and a margin under the floor writes no pin file at all
 ...and a second flush one settling cycle later fails the same way
+...and leaves no partial tree for the next run to reuse
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
+...and the .asc it refuses is deleted rather than left to be read
 ...and the count that site was declared with is red too
 ...and the message routes kill to the cycle-accounting identity instead
 ...and the report names the parameter, not merely 'changed'
 ...and the report names the target make actually overrode
 ...and the same for the second mutation, which shares that line
+...and the stale report and .asc are gone, so no sweep can read them
 ...and their second copy is compared whole, not just its ISA
 0 retires overrides every verdict above to exit 6, the blind oracle
 CoreMark data past the end of the simulated RAM is red, not silent
@@ -225,12 +232,14 @@ a differing value is a divergence, located by change index
 a digest-bearing stamp is STALE when rtl/ changes, naming the file
 a directory the glob stopped matching is red, not a suite of size zero
 a dirty tree names no base, so its sweep is not subtracted either
+a dirty tree never resumes, since its base names no placed content
 a display filter that lets an escape sequence through is red
 a document with one number edited by hand is red
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
 a dual directory that is not there is the failure this exists to see
 a duplicated manifest line would make comm non-symmetric
+a failed extraction of the base ref stops the sweep
 a failing assembler is ASSEMBLE-ERROR
 a failing assembler is fatal, not a divergence
 a failing objcopy names the region that failed
@@ -405,6 +414,7 @@ a netlist with no top module names no one design
 a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
+a nextpnr that cannot place fails the recipe, stale .asc beside it
 a nextpnr that died early is NOT graded on the last run's pair
 a non-.S program cannot carry a real floor; this runner only globs .S
 a non-comparable CSR value is exempted -- and every exemption printed
@@ -426,6 +436,7 @@ a pair name product_write.py would never write is refused
 a pair name run_product.sh does not measure is refused
 a pair publishing one build of a two-build core says the other is not stamped
 a pair that is not an object is refused, not skipped
+a paired_sweep.sh that drops --paired is caught
 a pairing naming a program nobody wrote is red
 a parameter both builds share drifting in the bench is red
 a parameter list spread over several lines is refused, not skimmed
@@ -447,6 +458,7 @@ a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
 a pinned compiler version the stamp did not measure is STALE
 a placement at zero MHz is not a placement
+a placement failure is fatal even with an .asc left on disk
 a placer that wrote no bitstream placed nothing, which is not a pass
 a plain directory git cannot list is a scan of nothing, not green
 a plain directory git cannot list is a scan of nothing, not green
@@ -588,6 +600,7 @@ a shipping core that fails ill_e is red before any mutant runs
 a shipping harness that cannot reach its own cover goal is red
 a shipping harness that cannot reach its own goals is red
 a signal in scope only in an earlier module stops it too
+a signal is fatal even when the log already holds a timing verdict
 a simulated ROM smaller than the part's is red
 a simulation this cannot parse is a run that did not happen
 a single, fully-excluded manifest is red: a run that tests nothing is not a pass
@@ -641,6 +654,7 @@ a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything
 a sweep file that is not there reads as missing, not as empty
 a sweep of the part with no icetime is refused, not walked
+a sweep placed by another toolchain is started afresh, not resumed
 a sweep that names no part says which instrument is missing
 a sweep whose lowest value already passes is refused a flip point, not reported one
 a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out
@@ -731,6 +745,7 @@ an arm that admits rs1 where the effective address belongs is red
 an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
 an empty --current value is refused, not compared as though it were the field's value
+an empty .asc is no placement
 an empty CoreMark image is named rather than reported as fitting easily
 an empty asm directory is red rather than a suite of size zero
 an empty configuration means nothing was expressible on the part
@@ -761,6 +776,7 @@ an exception whose site stopped naming that ISA is red
 an excluded program that assembles and passes anyway is red, not silently trusted
 an exclusion with no reason written under it is rejected
 an exemption naming no program is red, not a program quietly excused
+an exit of 1 with no timing verdict behind it is fatal
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
 an ignored opponent clone gaining an uncommitted change refuses to stamp
@@ -856,11 +872,14 @@ control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a r
 control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
+control: a clean nextpnr run is accepted
+control: a clean sweep on the same toolchain resumes and skips a placed seed
 control: a complete --measured call writes a valid pair
 control: a core over the step passes and is compared on cycles
 control: a count matching the declaration is green
 control: a depth exactly at the floor passes
 control: a derived part states both figures and names itself
+control: a design that only missed its clock is still a placement
 control: a deterministic placer and a forgiven mutant pass
 control: a file within the comment-density budget is not reported
 control: a fresh stamp with nothing changed prints clean and exits 0
@@ -882,6 +901,7 @@ control: a one-retire floor is F+2, not F+G+2
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
 control: a pin whose sources match checks OK
+control: a placed design that missed its clock still builds the .asc
 control: a placement holding the whole core is green
 control: a plain liberty and source produce the expected yosys script
 control: a plain liberty and source produce the expected yosys script
@@ -960,6 +980,7 @@ control: nano's startup check is graded the same way, and it is green
 control: nano/formal/Makefile also puts the cached suite first
 control: nothing changing during the run is unmoved
 control: one register-file build reports its area and delay
+control: paired_sweep.sh hands the summary --paired
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: run_product.sh evals no tool string and splices no variable into python3 -c
@@ -1277,6 +1298,7 @@ up5k names fewer than twelve seeds and is refused before any placement
 upstream's own x29 scratch reappearing is named and located
 usage: a missing argument is exit 2
 widening a declared mnemonic list without the baseline is red
+without --paired the same differing bases still refuse
 without --require-clone an absent clone is said aloud
 wrong argument count is a usage error
 wrong argument count is a usage error

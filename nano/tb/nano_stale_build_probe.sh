@@ -84,7 +84,7 @@ unstamped() {
   cp "$1" "$tmp/scan/nano/tb.mk" || exit 1
   printf 'BUILD := build\nall:\ninclude nano/tb.mk\n' > "$tmp/scan/Makefile"
   db=$(make -C "$tmp/scan" -qp 2>/dev/null || true)
-  if ! printf '%s\n' "$db" | grep -q '^nano-sim:'; then
+  if ! grep -q '^nano-sim:' <<< "$db"; then
     echo "error: make -qp read no nano-sim rule from $1" >&2
     exit 1
   fi

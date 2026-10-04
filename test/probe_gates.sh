@@ -2378,6 +2378,33 @@ d=$(bs_fixture)
 probe "--allow-mismatch does not cover the seed-count refusal either" 1 \
   "does NOT cover this" "$BS $d/before.csv $d/after.csv --min-seeds 12 --allow-mismatch"
 
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' 's/^# dirty: no/# dirty: yes/'
+probe "--paired: a base ref against a dirty working tree produces a verdict" 0 \
+  "delta, second sweep against first" "$BS $d/before.csv $d/after.csv --paired --min-seeds 2"
+
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' 's/^# yosys: Yosys 0.68/# yosys: Yosys 0.55/'
+probe "--paired still refuses a toolchain mismatch" 1 \
+  "yosys:" "$BS $d/before.csv $d/after.csv --paired --min-seeds 2"
+
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/' 's/^# nextpnr-ice40: nextpnr-0.11/# nextpnr-ice40: nextpnr-0.12/'
+probe "--paired still refuses a placer mismatch" 1 \
+  "nextpnr-ice40:" "$BS $d/before.csv $d/after.csv --paired --min-seeds 2"
+
+d=$(bs_fixture); mutate "$d/before.csv" 's/^# dirty: no/# dirty: yes/'
+probe "--paired excuses only the candidate's dirty tree, not the base's" 1 \
+  "uncommitted changes" "$BS $d/before.csv $d/after.csv --paired --min-seeds 2"
+
+d=$(bs_fixture); mutate "$d/after.csv" 's/^# base: aaaaaaaaaaaa/# base: bbbbbbbbbbbb/'
+probe "without --paired the same differing bases still refuse" 1 \
+  "not measured the same way" "$BS $d/before.csv $d/after.csv --min-seeds 2"
+
+d=$(new_case); cp "$REPO/soc/paired_sweep.sh" "$d/paired_sweep.sh"
+probe "control: paired_sweep.sh hands the summary --paired" 0 "--paired" \
+  "grep -e '--paired' $d/paired_sweep.sh"
+mutate "$d/paired_sweep.sh" 's/ --paired//'
+probe "a paired_sweep.sh that drops --paired is caught" 1 "" \
+  "grep -e '--paired' $d/paired_sweep.sh"
+
 begin_group "soc/baseline_sweep.sh"
 
 probe "a part this repo does not place stops the sweep before any placement" 2 \
@@ -2389,6 +2416,48 @@ probe "a part this repo does not place stops the sweep before any placement" 2 \
 # silently place the default sixteen seeds for someone who asked for none.
 probe "an empty seed list stops the sweep instead of placing the default" 2 \
   "SOC_SEEDS is empty" "SOC_SEEDS= sh $REPO/soc/baseline_sweep.sh"
+
+# Resume, against a stub make: a CSV with seed 1 already placed, and a place target that
+# writes nothing, so a resumed sweep exits 0 and a fresh one stops on the missing artifacts.
+bsw_fixture() {  # <csv's yosys line> <csv's dirty flag>
+  local d; d=$(new_case)
+  fixture_anchor "$REPO/soc/baseline_sweep.sh" 'echo "# baseline-sweep v1"'
+  fixture_anchor "$REPO/soc/baseline_sweep.sh" 'tools=$(make -s "$toolchain_target" "$@")'
+  fixture_anchor "$REPO/soc/baseline_sweep.sh" 'echo "# prog: $prog"'
+  mkdir -p "$d/bin" "$d/build" "$d/out"
+  cat > "$d/bin/make" <<'STUB'
+#!/bin/sh
+[ "$1" = -s ] && shift
+case $1 in
+  soc-timing-toolchain) echo "# yosys: Yosys 0.68" ;;
+  print-BUILD) echo "$BSW_BUILD" ;;
+  print-SOC_PROG) echo x.S ;;
+  print-SOC_ROM_WORDS) echo 2048 ;;
+  *) exit 1 ;;
+esac
+STUB
+  chmod +x "$d/bin/make"
+  printf '# baseline-sweep v1\n# base: aaaa\n# dirty: %s\n# part: up5k\n# yosys: %s\n# prog: x.S\n# end-provenance\nname,part,seed\nb,up5k,1\n' \
+    "$2" "$1" > "$d/out/b.csv"
+  echo placed > "$d/out/b.1.timing.rpt"
+  printf '%s' "$d"
+}
+bsw_run() {  # <fixture> <this run's dirty flag>
+  printf 'PATH=%s/bin:$PATH BSW_BUILD=%s/build BASELINE_OUT=%s/out BASELINE_NAME=b BASELINE_BASE_OVERRIDE=aaaa BASELINE_DIRTY_OVERRIDE=%s SOC_SEEDS=1 sh %s/soc/baseline_sweep.sh' \
+    "$1" "$1" "$1" "$2" "$REPO"
+}
+
+d=$(bsw_fixture "Yosys 0.68" no)
+probe "control: a clean sweep on the same toolchain resumes and skips a placed seed" 0 \
+  "already placed, skipping" "$(bsw_run "$d" no)"
+
+d=$(bsw_fixture "Yosys 0.55" no)
+probe "a sweep placed by another toolchain is started afresh, not resumed" 1 \
+  "placed by a different toolchain" "$(bsw_run "$d" no)"
+
+d=$(bsw_fixture "Yosys 0.68" yes)
+probe "a dirty tree never resumes, since its base names no placed content" 1 \
+  "left no artifacts behind" "$(bsw_run "$d" yes)"
 
 begin_group "soc/paired_sweep.sh"
 
@@ -2414,6 +2483,87 @@ probe "up5k names fewer than twelve seeds and is refused before any placement" 1
 probe "ecp5 names fewer than twelve seeds and is refused before any placement" 1 \
   "ecp5 names 4 seeds" \
   "PAIRED_SEEDS_ECP5='default 1 2 3' $PS HEAD ecp5"
+
+d=$(new_case); mkdir -p "$d/bin" "$d/cache"
+printf '#!/bin/sh\nexit 1\n' > "$d/bin/tar"; chmod +x "$d/bin/tar"
+probe "a failed extraction of the base ref stops the sweep" 1 "" \
+  "PATH=$d/bin:\$PATH XDG_CACHE_HOME=$d/cache $PS HEAD up5k"
+probe "...and leaves no partial tree for the next run to reuse" 0 "NO PARTIAL TREE" \
+  "test -z \"\$(ls -A $d/cache/little-cpu/paired-sweep)\" && echo NO PARTIAL TREE"
+
+begin_group "soc/pnr_check.sh"
+
+PC="sh $REPO/soc/pnr_check.sh t"
+
+pc_fixture() {  # <log text> -- an .asc already on disk, as a stale one would be
+  local d; d=$(new_case)
+  printf '%s\n' "$1" > "$d/pnr.log"
+  echo stale > "$d/x.asc"
+  printf '%s' "$d"
+}
+
+d=$(pc_fixture "Info: Device utilisation:")
+probe "control: a clean nextpnr run is accepted" 0 "" "$PC 0 $d/pnr.log $d/x.asc"
+
+d=$(pc_fixture "ERROR: Max frequency for clock 'clk': 11.00 MHz (FAIL at 12.00 MHz)")
+probe "control: a design that only missed its clock is still a placement" 0 "" \
+  "$PC 1 $d/pnr.log $d/x.asc"
+
+d=$(pc_fixture "ERROR: Failed to expand region")
+probe "a placement failure is fatal even with an .asc left on disk" 1 \
+  "logged an ERROR" "$PC 1 $d/pnr.log $d/x.asc"
+
+probe "...and the .asc it refuses is deleted rather than left to be read" 0 \
+  "ASC REMOVED" "test ! -e $d/x.asc && echo ASC REMOVED"
+
+d=$(pc_fixture "Info: Device utilisation:")
+probe "an exit of 1 with no timing verdict behind it is fatal" 1 \
+  "exited 1 with no timing verdict" "$PC 1 $d/pnr.log $d/x.asc"
+
+d=$(pc_fixture "ERROR: Max frequency for clock 'clk': 11.00 MHz (FAIL at 12.00 MHz)")
+probe "a signal is fatal even when the log already holds a timing verdict" 1 \
+  "exited 143" "$PC 143 $d/pnr.log $d/x.asc"
+
+d=$(pc_fixture "Info: Device utilisation:"); : > "$d/x.asc"
+probe "an empty .asc is no placement" 1 "wrote no" "$PC 0 $d/pnr.log $d/x.asc"
+
+# The recipe itself, with a stub nextpnr: soc.json is held up to date (-o) so no
+# synthesis runs, and an explicit SOC_SEED bypasses the pin.
+soc_asc_fixture() {  # stdin = the stub nextpnr's body; leaves a stale asc and report
+  local d; d=$(new_case)
+  mkdir -p "$d/build"
+  echo '{}' > "$d/build/soc.json"
+  echo stale > "$d/build/soc.asc"
+  touch -t 200001010000 "$d/build/soc.asc"
+  echo "79.25 ns" > "$d/build/soc.timing.rpt"
+  { echo '#!/bin/sh'; cat; } > "$d/nextpnr"
+  chmod +x "$d/nextpnr"
+  printf '%s' "$d"
+}
+soc_asc_make() {  # <fixture>
+  printf 'make -C %s -o %s/build/soc.json BUILD=%s/build SOC_SEED=1 SOC_PNR=%s/nextpnr %s/build/soc.asc' \
+    "$REPO" "$1" "$1" "$1" "$1"
+}
+
+d=$(soc_asc_fixture <<'STUB'
+echo "ERROR: Failed to expand region"
+exit 1
+STUB
+)
+probe "a nextpnr that cannot place fails the recipe, stale .asc beside it" 2 \
+  "NOTHING was measured" "$(soc_asc_make "$d")"
+probe "...and the stale report and .asc are gone, so no sweep can read them" 0 \
+  "STALE GONE" "test ! -e $d/build/soc.timing.rpt && test ! -e $d/build/soc.asc && echo STALE GONE"
+
+d=$(soc_asc_fixture <<'STUB'
+while [ "$#" -gt 0 ]; do [ "$1" = --asc ] && echo fresh > "$2"; shift; done
+printf 'Info: Device utilisation:\nInfo:            ICESTORM_LC:  4000/ 5280    75%%\n'
+echo "ERROR: Max frequency for clock 'clk': 11.00 MHz (FAIL at 12.00 MHz)"
+exit 1
+STUB
+)
+probe "control: a placed design that missed its clock still builds the .asc" 0 \
+  "" "$(soc_asc_make "$d")"
 
 begin_group "soc/print_toolchain.sh"
 

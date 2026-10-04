@@ -1,7 +1,7 @@
 #!/bin/sh
 # Places the SoC at many seeds ON EITHER PART, KEEPS every seed's report, and stamps
-# the sweep. RESUMES rather than restarts: a CSV stamped with this run's own base,
-# dirty flag and part is read, not truncated, and a placed seed is skipped.
+# the sweep. RESUMES rather than restarts: a CSV stamped with this run's own clean base,
+# part and toolchain is read, not truncated, and a placed seed is skipped.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -86,17 +86,22 @@ block=$(
 )
 
 resume=0
-if [ -s "$csv" ] && [ "$(sed -n '1p' "$csv")" = "# baseline-sweep v1" ]; then
+if [ "$dirty" = no ] && [ -s "$csv" ] && [ "$(sed -n '1p' "$csv")" = "# baseline-sweep v1" ]; then
   old_base=$(sed -n 's/^# base: //p' "$csv" | head -1)
   old_dirty=$(sed -n 's/^# dirty: //p' "$csv" | head -1)
   old_part=$(sed -n 's/^# part: //p' "$csv" | head -1)
-  if [ "$old_base" = "$base" ] && [ "$old_dirty" = "$dirty" ] && [ "$old_part" = "$part" ]; then
-    resume=1
+  old_tools=$(awk '/^# part: /{on=1; next} /^# (corner|prog): /{exit} on' "$csv")
+  if [ "$old_base" = "$base" ] && [ "$old_dirty" = no ] && [ "$old_part" = "$part" ]; then
+    if [ "$old_tools" = "$tools" ]; then
+      resume=1
+    else
+      echo "soc/baseline_sweep.sh: $csv was placed by a different toolchain; starting it afresh"
+    fi
   fi
 fi
 
 if [ "$resume" = 1 ]; then
-  echo "soc/baseline_sweep.sh: resuming $csv -- same base, dirty flag and part"
+  echo "soc/baseline_sweep.sh: resuming $csv -- same clean base, part and toolchain"
 else
   printf '%s\n' "$block" > "$csv"
   python3 soc/depth/row.py --header >> "$csv"
@@ -115,6 +120,9 @@ for seed in $seeds; do
     default) arg="" ;;
     *)       arg=$seed ;;
   esac
+  for artifact in $artifacts; do
+    rm -f "$build/$artifact"
+  done
   # up5k's recipe writes $build/soc.timing.rpt before SOC_MIN_MHZ, so a seed under the floor
   # is real data with a nonzero exit; only a missing artifact stops the sweep below.
   if log=$(make "$place_target" "$seed_var=$arg" "$@" 2>&1); then
