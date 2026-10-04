@@ -4969,6 +4969,28 @@ mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_orangecrab_25f.v" \
 probe "the authors' two performance examples disagreeing is red" 1 \
   "the pinned clone's two performance examples disagree on CSR_COUNTER" "$HC $d"
 
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_ulx3s.v" 's/\.MUL_FAST (1)/.MUL_FAST (1'"'"'b1)/'
+probe "an example spelling a build parameter as a sized literal is red, not read as the core default" 1 \
+  "MUL_FAST is '1'b1', which this check cannot read as a decimal number" "$HC $d"
+
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_icebreaker.v" \
+  's/^\(.*\.BRANCH_PREDICTOR (0)\)/\/\/ \1/'
+probe "an example whose setting is commented out does not set it" 1 \
+  "does not set BRANCH_PREDICTOR and the core has no default for it" "$HC $d"
+
+d=$(hc_fixture); hc_clone "$d"
+mutate "$d/soc/compare/hazard3/example_soc/fpga/fpga_ulx3s.v" \
+  's/^\(.*\.MUL_FAST (1)\)/\/* .MUL_FAST (0), *\/ \1/'
+probe "a commented-out setting beside the live one does not override it" 0 \
+  "and the pinned clone's examples" "$HC $d --require-clone"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.PMP_REGIONS          (0),/.PMP_REGIONS          (0), \/\/ .PMP_GRAIN (0),/'
+probe "a commented-out bench parameter is not read as set" 0 \
+  "26 parameters agree" "$HC $d"
+
 d=$(hc_fixture)
 probe "--require-clone with no clone present is red, not a skipped leg" 1 \
   "was not checked against the authors' files" "$HC $d --require-clone"
@@ -7916,6 +7938,111 @@ probe "a floating tool is recorded and never graded, so a new yosys is not STALE
   "dhrystone: fresh, stamped" \
   "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=15.2.0-1')"
 
+d=$(product_check_fixture)
+probe "a --current field the stamp does not record is STALE, not a pass" 1 \
+  "records no nosuchfield" "$(pc_cmd "$d" '--current nosuchfield=1')"
+
+d=$(product_check_fixture)
+probe "a compiler_version with no compiler is STALE, not skipped" 1 \
+  "without --current compiler" "$(pc_cmd "$d" '--current compiler_version=15.2.0-1')"
+
+d=$(product_check_fixture)
+mutate "$d/repo/product.json" 's/15\.2\.0 \[/15.2.0-1 [/'
+probe "control: a stamp recording the release suffix agrees with the same release" 0 \
+  "dhrystone: fresh, stamped" \
+  "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=15.2.0-1')"
+
+d=$(product_check_fixture)
+mutate "$d/repo/product.json" 's/15\.2\.0 \[/15.2.0-1 [/'
+probe "a different release of the same compiler version is STALE when the stamp records the release" 1 \
+  "is pinned, but the stamp measured" \
+  "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=15.2.0-2')"
+
+d=$(product_check_fixture)
+probe "base_resolvable refuses a ref name that is not a full SHA" 0 \
+  "False" \
+  "python3 -c \"import sys; sys.path.insert(0, '$REPO/soc/compare'); from product_check import base_resolvable; print(base_resolvable('$d/repo', 'HEAD'))\""
+
+begin_group "soc/compare/product_digest.py"
+
+PDG="python3 $REPO/soc/compare/product_digest.py"
+
+pdg_repo() {
+  local d; d=$(new_case)
+  mkdir -p "$d/repo/rtl" "$d/repo/build"
+  echo 'module a(); endmodule' > "$d/repo/rtl/a.v"
+  git -c init.defaultBranch=main -C "$d/repo" init -q
+  printf '%s' "$d"
+}
+
+d=$(pdg_repo)
+probe "control: a plain tree digests" 0 "sha256:" "$PDG --repo $d/repo"
+
+d=$(pdg_repo)
+echo outside > "$d/outside.v"
+ln -s ../../outside.v "$d/repo/rtl/link.v"
+probe "a symlink leaving the repo is refused" 2 "leaving the repo" "$PDG --repo $d/repo"
+
+d=$(pdg_repo)
+echo one > "$d/repo/build/t.v"
+ln -s ../build/t.v "$d/repo/rtl/link.v"
+d2=$(pdg_repo)
+echo two > "$d2/repo/build/t.v"
+ln -s ../build/t.v "$d2/repo/rtl/link.v"
+probe "a symlink is digested by its target's bytes, not its path" 0 "DIFFERENT" \
+  "[ \"\$($PDG --repo $d/repo)\" != \"\$($PDG --repo $d2/repo)\" ] && echo DIFFERENT"
+
+d=$(pdg_repo)
+d2=$(pdg_repo)
+printf 'x' > "$d/repo/rtl/b"
+printf 'x' > "$d/repo/rtl/c"
+mkdir -p "$d2/repo/rtl/$(printf 'b\n2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  rtl')"
+printf 'x' > "$d2/repo/rtl/$(printf 'b\n2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  rtl')/c"
+probe "records are NUL-separated, so a file name cannot imitate a record boundary" 0 "DIFFERENT" \
+  "[ \"\$($PDG --repo $d/repo)\" != \"\$($PDG --repo $d2/repo)\" ] && echo DIFFERENT"
+
+begin_group "soc/compare/product_verify.py"
+
+PV="python3 $REPO/soc/compare/product_verify.py"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+probe "control: a stamp taken at this commit over this tree verifies" 0 \
+  "was taken at" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+echo '/* touched */' >> "$d/repo/rtl/decoder.v"
+probe "a stamp whose digest is not this tree's is refused" 1 \
+  "digest is" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
+d=$(product_check_fixture)
+probe "a stamp whose base is not the checked-out commit is refused" 1 \
+  "not the checked-out" \
+  "$PV $d/repo/product.json --sha cccccccccccccccccccccccccccccccccccccccc --repo $d/repo"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+mutate "$d/repo/product.json" '/"digest":/d'
+probe "a measured pair with no digest is refused" 1 \
+  "digest is None" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+echo '{"pairs": {}}' > "$d/empty.json"
+probe "a stamp with no measured pair is refused rather than vacuously verified" 1 \
+  "no measured pair" "$PV $d/empty.json --sha $pv_sha --repo $d/repo"
+
+d=$(product_check_fixture)
+probe "a --sha that is not a full commit SHA is refused" 2 \
+  "40-character" "$PV $d/repo/product.json --sha main --repo $d/repo"
+
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+mutate "$d/repo/product.json" 's/"target_core": "littlecpu"/"target_core": "littlecpu [x](http:\/\/x)"/'
+probe "a stamp whose strings the issue would print unvalidated is refused before publishing" 1 \
+  ".target_core is 'littlecpu [x](http://x)'" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
 begin_group "soc/compare/product_write.py"
 
 PW_BASE="python3 $REPO/soc/compare/product_write.py"
@@ -7958,6 +8085,23 @@ d=$(new_case)
 probe "a missing content digest is refused" 1 \
   "wants --digest" \
   "$PW_BASE $d/p.json $(pw_args '' '# yosys: Y 1' '# yosys: Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+echo '{"pairs": {"coremark": {"status": "measured"}}}' > "$d/p.json"
+probe "merging drops a digest-less measured pair instead of relabelling it" 0 \
+  "dropping coremark" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1' '# yosys: Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+echo '{"pairs": {"whetstone": {"status": "measured", "digest": "x"}}}' > "$d/p.json"
+probe "merging drops a pair run_product.sh no longer measures" 0 \
+  "dropping whetstone" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1' '# yosys: Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+probe "a pair name run_product.sh does not measure is refused" 1 \
+  "is not a pair name" \
+  "$PW_BASE $d/p.json whetstone --not-yet-measured --reason x"
 
 d=$(new_case)
 probe "a sweep with fewer samples than seeds is refused" 1 \
@@ -9336,6 +9480,16 @@ probe "control: the shipping schedule workflow confines its credential to the pu
   "confines its credential" \
   "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
+d=$(cpst_fixture 's|ref: ${{ github.sha }}|ref: main|')
+probe "a publish job that checks out main instead of the measured commit is red" 1 \
+  "does not check out" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
+d=$(cpst_fixture '/product_verify.py/d')
+probe "a publish job that never verifies the stamp is red" 1 \
+  "never runs product_verify.py" \
+  "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
+
 d=$(cpst_fixture '/if: github.ref ==/d')
 probe "a job with no main-only guard is red, since workflow_dispatch can target any ref" 1 \
   "workflow_dispatch against any ref" \
@@ -9781,6 +9935,73 @@ probe "a pair carrying both Hazard3 builds still renders the area build under it
 d=$(new_case); cmp_stamp_with hazard9 "$d/stamp.json"
 probe "a core in the stamp with no configuration label is refused, not skipped" 1 \
   "hazard9 in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/-fno-tree-loop-distribute-patterns/`x`/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a stamp string that would break out of its code span is refused" 1 \
+  "which is not a value this document publishes verbatim" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"isa": "rv32im"/"isa": "rv32im](http:\/\/x)"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a stamp string carrying markup is refused" 1 \
+  ".isa is 'rv32im](http://x)'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"base": "11cc506e3183f4b1f125f0cf8246536aa49cbf1e"/"base": "not-a-sha"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a stamp whose base is not a full SHA is refused" 1 \
+  ".base is 'not-a-sha'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/oss-cad-suite 20260930/oss-cad-suite <b>20260930/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a tool version carrying HTML is refused" 1 \
+  "tools.icetime" "$CMP render --stamp $d/stamp.json"
+
+# cmp_stamp_edit <python statement over `stamp`> <out>: the committed stamp, edited.
+cmp_stamp_edit() {
+  python3 - "$CMP_STAMP" "$2" "$1" <<'PY'
+import json, sys
+src, dst, edit = sys.argv[1:4]
+stamp = json.load(open(src))
+exec(edit)
+json.dump(stamp, open(dst, "w"))
+PY
+}
+
+d=$(new_case); sed 's/"target_core": "littlecpu"/"target_core": "littlecpu @owner"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a target core carrying a mention is refused" 1 \
+  ".target_core is 'littlecpu @owner'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"target_core": "littlecpu"/"target_core": "hazard3_perf"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a target core that is not one of its pair's cores is refused" 1 \
+  "target_core, absent from its cores" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["products"]["hazard9"] = stamp["pairs"]["dhrystone"]["products"]["vexriscv"]' "$d/stamp.json"
+probe "a product named for a core with no configuration label is refused" 1 \
+  "hazard9 in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"rom_words": 1024/"rom_words": "1024 [x](http:\/\/x)"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a word count that is a string is refused" 1 \
+  ".rom_words is '1024 [x](http://x)'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"rom_words": 1024/"rom_words": true/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a word count that is a boolean is refused" 1 \
+  ".rom_words is True" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"n": 12/"n": 11/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a clock sample count that is not one per seed is refused" 1 \
+  "clock_mhz.n, against 12 seeds" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["cores"]["vexriscv"]["clock_mhz"]["worst_mhz"] = "12 <b>"' "$d/stamp.json"
+probe "a clock figure that is not a number is refused" 1 \
+  "clock_mhz.worst_mhz is '12 <b>'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"median": 0.8706297298222785/"median": 0.9/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a ratio that is not its two products' quotient is refused" 1 \
+  "products.vexriscv.ratio.median, against" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["whetstone"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+probe "a pair name product_write.py would never write is refused" 1 \
+  "pair name is 'whetstone'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["coremark"] = "measured"' "$d/stamp.json"
+probe "a pair that is not an object is refused, not skipped" 1 \
+  "pair coremark is 'measured'" "$CMP render --stamp $d/stamp.json"
 
 begin_group "test/probes_header_test.py"
 

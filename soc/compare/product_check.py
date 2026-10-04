@@ -82,9 +82,11 @@ def base_resolvable(repo, base):
     stamp that measurement produced is not wrong, it just names a place
     nothing can look any more.
     """
+    if not BASE_RE.fullmatch(str(base)):
+        return False
     try:
         subprocess.run(
-            ["git", "-C", repo, "cat-file", "-e", f"{base}^{{commit}}"],
+            ["git", "-C", repo, "cat-file", "-e", "--end-of-options", f"{base}^{{commit}}"],
             capture_output=True, check=True,
         )
         return True
@@ -135,14 +137,21 @@ def tool_reasons(pair, current):
     if not isinstance(tools, dict) or not tools:
         return ["the stamp records no readable tools block"]
     name = current.get("compiler")
-    if name is not None and name not in tools:
+    if name is None:
+        if "compiler_version" in current:
+            reasons.append("--current compiler_version was given without --current "
+                           "compiler, so no tool of the stamp's can be compared with it")
+    elif name not in tools:
         reasons.append(f"the compiler is now {name}, but the stamp's tools block "
                        f"records {', '.join(sorted(tools))} and no {name}")
-    elif name is not None and "compiler_version" in current:
-        version = current["compiler_version"].split("-")[0]
-        if version not in tools[name].split():
-            reasons.append(f"{name} {current['compiler_version']} is pinned, but "
-                           f"the stamp measured '{tools[name]}'")
+    elif "compiler_version" in current:
+        want = current["compiler_version"]
+        tokens = tools[name].split()
+        releases = [t for t in tokens if t.startswith(want.split("-")[0] + "-")]
+        # `gcc --version` omits the packaging suffix, so a suffix-less stamp is graded on the dotted part.
+        if want not in tokens and (releases or want.split("-")[0] not in tokens):
+            reasons.append(f"{name} {want} is pinned, but the stamp measured "
+                           f"'{tools[name]}'")
     return reasons
 
 def stale_reasons(pair, repo, current, artifact=None):
@@ -198,8 +207,12 @@ def stale_reasons(pair, repo, current, artifact=None):
                 reasons.append(f"differing from {pair['base'][:12]}: {', '.join(named)}")
     reasons += tool_reasons(pair, current)
     for field, value in current.items():
+        if field in TOOL_FIELDS:
+            continue
         stamped = pair.get(field)
-        if field not in TOOL_FIELDS and stamped is not None and str(value) != str(stamped):
+        if stamped is None:
+            reasons.append(f"{field} is asked about but the stamp records no {field}")
+        elif str(value) != str(stamped):
             reasons.append(f"{field} changed: stamped '{stamped}', now '{value}'")
     return reasons
 

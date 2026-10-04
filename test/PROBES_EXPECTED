@@ -53,9 +53,11 @@ TIMEOUT exits 2
 TOOLS_ON_PATH stops formal/Makefile shadowing a fixture's stubs too
 TOOLS_ON_PATH stops nano/formal/Makefile shadowing a fixture's stubs too
 TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
+a --current field the stamp does not record is STALE, not a pass
 a --field naming a key the schema already reserves is refused
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tools-block is refused rather than stamping an unknown toolchain
+a --sha that is not a full commit SHA is refused
 a .sby stating depth twice is refused, since sby searches to the last
 a <retires> argument that is not 1 or 2 is refused
 a C floor copied out of the measured table is rejected, not honoured
@@ -154,16 +156,21 @@ a checks.cfg with no #derive G is refused by name, not a traceback
 a class-wide predicate over an opcode the pin partly models is rejected
 a classification naming a port the netlist has never seen is red
 a clock factor and a cycle factor measured with different tools are not a product
+a clock figure that is not a number is refused
 a clock for a core nobody graded is named rather than ignored
+a clock sample count that is not one per seed is refused
 a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
 a collector that drops the post-route STA's per-corner reports is refused
 a combined actions/cache step in place of restore is refused
 a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
 a commented-out CI step does not count as run
+a commented-out bench parameter is not read as set
+a commented-out setting beside the live one does not override it
 a commit that leaves the regenerated comparison document behind is red
 a commit that stages more than the stamp is red
 a commit under the age floor stops the bump, naming its age
+a compiler_version with no compiler is STALE, not skipped
 a configuration for another corner is refused, not reported
 a configuration nextpnr never wrote is a failed run, not a fast design
 a configuration truncated to nothing is caught, which test -e cannot be
@@ -212,6 +219,7 @@ a design entry missing area/num_cells/by_type is refused, not read as what is le
 a design that MET the target has measured the target
 a design whose Makefile is gone is exit-nonzero, not skipped
 a different ISA in the generated comparison is red, and located
+a different release of the same compiler version is STALE when the stamp records the release
 a different riscv-none-elf-gcc earlier on PATH is red, not silently used
 a differing value is a divergence, located by change index
 a digest-bearing stamp is STALE when rtl/ changes, naming the file
@@ -328,6 +336,7 @@ a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
 a matrix proof dropped from the workflow is red
 a measure job holding a write scope is red
+a measured pair with no digest is refused
 a memcheck with no cover sibling has an untied depth, and is red
 a mid-word # does not hide a real sed -i after it
 a missing PLL file is refused rather than read as agreement
@@ -413,7 +422,10 @@ a one-field baseline line is rejected before the suite runs
 a pad frequency that is not whole hertz cannot be compared exactly
 a pair carrying both Hazard3 builds still renders the area build under its name
 a pair measured for the first time is news on its own, with no --current at all
+a pair name product_write.py would never write is refused
+a pair name run_product.sh does not measure is refused
 a pair publishing one build of a two-build core says the other is not stamped
+a pair that is not an object is refused, not skipped
 a pairing naming a program nobody wrote is red
 a parameter both builds share drifting in the bench is red
 a parameter list spread over several lines is refused, not skimmed
@@ -446,14 +458,17 @@ a pre-ADR-0035 one-field baseline line is rejected, not half-matched
 a pre-ADR-0036 one-field baseline line is named, not half-matched
 a predicate keyed on a decoder flag is rejected, not parsed
 a predicate matching an opcode its declaration does not is named
+a product named for a core with no configuration label is refused
 a program both exempt and paired is red
 a program that stopped assembling is ASSEMBLE-ERROR
 a program that went quiet is BELOW-FLOOR on retires
 a proof going red somewhere else is not evidence about the mtval arm
 a prose copy of a band figure goes red where it is written
 a publish job on the self-hosted pool is red
+a publish job that checks out main instead of the measured commit is red
 a publish job that ignores the measure job's moved output is red
 a publish job that never regenerates the comparison document is red
+a publish job that never verifies the stamp is red
 a publish job that rides a second target on make compare-doc is red
 a publish job that runs any make target but compare-doc is red
 a publish job that runs make beside the write token is red
@@ -461,6 +476,7 @@ a push aimed at main instead of the refresh branch is red
 a push carrying no per-command credential helper is red
 a push landing only one word instead of two is red across every occupancy
 a push surviving a flush lets the overtaken request's reply land
+a ratio that is not its two products' quotient is refused
 a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ
 a raw sed -i outside mutate/mutate_remove is red, naming the line
 a reached line whose wording hides its step is exit 2, not a tie of nothing
@@ -601,8 +617,15 @@ a stall-sites repo root that does not exist is red before anything is scanned
 a stalled-bus mutant red for only some goals is not full evidence
 a stamp carrying the performance build renders it under its named build
 a stamp measured on a dirty tree is STALE even if nothing has moved since
+a stamp string carrying markup is refused
+a stamp string that would break out of its code span is refused
 a stamp that moved under the committed document is red
 a stamp whose base commit no longer resolves is still graded fresh by its digest
+a stamp whose base is not a full SHA is refused
+a stamp whose base is not the checked-out commit is refused
+a stamp whose digest is not this tree's is refused
+a stamp whose strings the issue would print unvalidated is refused before publishing
+a stamp with no measured pair is refused rather than vacuously verified
 a stamp with no table under it is a failed measurement
 a stamp with no tools block is STALE, not read as having nothing to compare
 a stamped benchmark with no floor line is red
@@ -622,11 +645,15 @@ a sweep that names no part says which instrument is missing
 a sweep whose lowest value already passes is refused a flip point, not reported one
 a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out
 a sweep with fewer samples than seeds is refused
+a symlink is digested by its target's bytes, not its path
+a symlink leaving the repo is refused
 a synthesis that failed is not a passed control either
 a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
 a target added to littlecpu's all with no CI step is red
 a target added to nano's all with no CI step is red
+a target core carrying a mention is refused
+a target core that is not one of its pair's cores is refused
 a term with no allow-list behind it stops rather than grading nothing
 a test/bench source is a measured input
 a testbench simulating a different map than the image is linked for is red
@@ -639,6 +666,7 @@ a token handed to the step that executes upstream code is red
 a tool that exits nonzero while printing is refused on its status
 a tool that is not installed names itself rather than the list
 a tool that prints nothing is refused, not stamped blank
+a tool version carrying HTML is refused
 a tool version string handed back to eval is red
 a toolchain that moved is a different digest, and is named first
 a tools block naming one tool twice is refused rather than the later line winning
@@ -669,6 +697,8 @@ a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
+a word count that is a boolean is refused
+a word count that is a string is refused
 a workflow that never fetches the register-file macro is refused
 a workflow that reinstalls a global credential helper is red
 a workflow-level write scope inherited by every job is red
@@ -724,6 +754,8 @@ an encoding failure reported only by the induction leg is not evidence
 an engine genchecks no longer emits is refused
 an escaped apostrophe inside a $'...' string does not close it early
 an escaped apostrophe outside quotes does not mask a real sed -i
+an example spelling a build parameter as a sized literal is red, not read as the core default
+an example whose setting is commented out does not set it
 an exception whose port is connected now is red
 an exception whose site stopped naming that ISA is red
 an excluded program that assembles and passes anyway is red, not silently trusted
@@ -794,6 +826,7 @@ asking for shard i of n where i exceeds n is refused
 assembler output on a successful build is still a defect
 assembler output on a successful build is still a defect
 awk -i inplace is a raw edit like sed -i
+base_resolvable refuses a ref name that is not a full SHA
 baselining ERROR would re-create the btorsim hole with this gate's blessing
 bench.lds putting .data back at ram's origin is red
 bench.lds putting the stack back at the top of ram is red
@@ -852,6 +885,7 @@ control: a pin whose sources match checks OK
 control: a placement holding the whole core is green
 control: a plain liberty and source produce the expected yosys script
 control: a plain liberty and source produce the expected yosys script
+control: a plain tree digests
 control: a report clearing the floor is green
 control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's to grade
 control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
@@ -860,6 +894,8 @@ control: a rule from this developer's init.templateDir is not this repository's 
 control: a seed list of 'default' and digits reaches the next refusal
 control: a shard runs its slice and writes a status for every check in it
 control: a single rtl/*.v mention is prose, not a list
+control: a stamp recording the release suffix agrees with the same release
+control: a stamp taken at this commit over this tree verifies
 control: a stamped sweep summarises
 control: a stamped sweep with its reports behind it is binned
 control: a suite matching its manifest is green
@@ -1015,6 +1051,8 @@ layer 1: the trap comparison moved INTO the span is refused, not gated
 layer 2: the enclosed handle_error multiset is pinned, not merely counted
 layer 3: error 101 vanishing from the OUTPUT is caught after every rule
 margin above the step is reported as unspendable, not as speed
+merging drops a digest-less measured pair instead of relabelling it
+merging drops a pair run_product.sh no longer measures
 more accesses near an edge than there were accesses is red
 more cycles saved than the jalr redirects cost is red
 more returns than jalr is red
@@ -1075,6 +1113,7 @@ over budget names the count and the budget
 perl -pi is a raw edit like sed -i
 product_write.py refuses a --base that is not a 40-character commit SHA
 publishing with a refresh issue or PR already open is red
+records are NUL-separated, so a file name cannot imitate a record boundary
 reg_rs1 laundered through out.rd_data's own register is still red
 renaming the upstream-code step out of reach stops rather than passing
 retires that stopped being spec-checked is its own status
