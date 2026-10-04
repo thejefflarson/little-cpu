@@ -216,3 +216,12 @@ nano-qspi-latency-test: nano/tb/nano_qspi_latency.vvp nano-qspi-latency-probe
 .PHONY: nano-qspi-window-test
 nano-qspi-window-test:
 	@./nano/tb/nano_qspi_window_probe.sh
+
+# The three yosys elaborations behind nano-sim, nano-qspi-sim and nano-qspi-pins-sim, through `check`. `make elaborate-strict` runs it, and nano_elaborate_strict.sh fails on any warning but yosys's deep-recursion notice.
+NANO_ELAB_YOSYS = ./nano/tb/nano_elaborate_strict.sh $(BUILD)/$(3).log 'read_verilog -sv $(addprefix -D ,$(NANO_RISCV_FORMAL_MACROS)) $(1) $(2); hierarchy -top nano_testbench; proc; opt_clean; check; write_cxxrtl $(BUILD)/$(3).cc'
+
+.PHONY: nano-elaborate-strict
+nano-elaborate-strict: $(NANO_SIM_IN) $(NANO_QSPI_SIM_RTL_SRCS) $(NANO_QSPI_PINS_IN) | $(BUILD)
+	$(call NANO_ELAB_YOSYS,,$(NANO_SIM_IN),nano-elaborate-strict)
+	$(call NANO_ELAB_YOSYS,-D NANO_QSPI_TIMING,rvfi_macros.vh $(NANO_QSPI_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v,nano-elaborate-strict-qspi)
+	$(call NANO_ELAB_YOSYS,-D NANO_QSPI_PINS,$(NANO_QSPI_PINS_IN),nano-elaborate-strict-pins)

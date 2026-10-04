@@ -339,7 +339,7 @@ dual-dhrystone-aggregate: dual-sim
 # Keep this yosys -p script on one line: a backslash split inside its single quotes stays
 # literal, and yosys dies on it on CI's make though not on macOS's.
 .PHONY: elaborate-strict
-elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS) | $(BUILD)
+elaborate-strict: $(SIM_RTL_SRCS) $(SIM_TB_SRCS) nano-elaborate-strict | $(BUILD)
 	yosys -p 'read_verilog -sv $(SIM_RTL_SRCS) $(SIM_TB_SRCS); hierarchy -top testbench; proc; opt_clean; check; write_cxxrtl $(BUILD)/elaborate-strict.cc'
 
 MONITOR_GEN = cd $(RISCV_FORMAL_DIR)/monitor && python3 generate.py -i rv32imc -c 1 -a -p monitor

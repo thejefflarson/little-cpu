@@ -737,6 +737,7 @@ a workflow-level write scope inherited by every job is red
 a wrapper that dumps with no --vcd is red
 a wrapper that ignores --vcd is red
 a wrong-rule mutant that still passes is not a control
+a yosys that fails outright is red before warnings are graded
 a yosys whose -p and quoted script sit on a continuation line is red
 an #insn-check naming a file that does not exist is refused
 an ABI alias outside x0-x15 (a7 = x17) is caught the same way
@@ -806,6 +807,7 @@ an ill_e cover that cannot go red is not a control
 an ill_e shipping harness that cannot reach its own cover goal is red
 an image objcopy wrote nothing into is red, not empty and accepted
 an image whose RAM outgrows the part's SPRAM does not fit either
+an implicit net, which yosys check reports as undriven, is red and shown
 an indented line equal to a plain heredoc's token does not close it early
 an injection site that moved stops the control, loudly
 an input edited during the run refuses to stamp
@@ -861,6 +863,7 @@ and the diagnostic states the corollary this check is enforcing
 and the refusal names the clock it would actually have to run at
 and the reverse: a divergence reported with exit 0
 and the same for the check-set baseline
+any other warning beside the allowlisted one is still red
 asking for shard i of n where i exceeds n is refused
 assembler output on a successful build is still a defect
 assembler output on a successful build is still a defect
@@ -895,6 +898,7 @@ control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a r
 control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
+control: a clean module elaborates with zero promoted warnings
 control: a clean nextpnr run is accepted
 control: a clean sweep on the same toolchain resumes and skips a placed seed
 control: a complete --measured call writes a valid pair
@@ -1229,6 +1233,7 @@ the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
 the cxxrtl leg failing its own baseline is red before any comparison
 the cxxrtl runner's kRamBase drifting is red
+the deep-recursion notice alone is allowlisted
 the default text window is the part's, not the harness's
 the defect this exists for: a core clocked from the pad, not the PLL
 the defect this exists for: a summary line re-deriving the mode from inputs.
