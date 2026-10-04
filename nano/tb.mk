@@ -59,6 +59,11 @@ nano-dhrystone: nano-sim
 NANO_COREMARK_ITERATIONS ?= 5
 NANO_COREMARK_CYCLES     ?= 30000000
 
+NANO_QSPI_PINS_DHRY_CYCLES         ?= 8000000
+NANO_QSPI_PINS_COREMARK_ITERATIONS ?= 1
+NANO_QSPI_PINS_COREMARK_CYCLES     ?= 30000000
+NANO_QSPI_PINS_MEMORY := nano/qspi.v against the pin-level flash and PSRAM models (nano/tb/nano_qspi_*_model.v)
+
 .PHONY: nano-coremark
 nano-coremark: nano-sim
 	@./nano/bench/run_coremark.sh ./nano-sim $(NANO_COREMARK_ITERATIONS) $(NANO_COREMARK_CYCLES) '$(NANO_CFLAGS)'
@@ -128,11 +133,13 @@ nano-qspi-pins-test: nano-qspi-pins-sim nano/tb/nano_icarus_qspi_pins.vvp nano-q
 
 .PHONY: nano-qspi-pins-dhrystone
 nano-qspi-pins-dhrystone: nano-qspi-pins-sim
-	@./nano/bench/run_dhrystone.sh ./nano-qspi-pins-sim $(NANO_DHRY_RUNS) $(NANO_DHRY_CYCLES) '$(NANO_CFLAGS)'
+	@NANO_BENCH_MEMORY='$(NANO_QSPI_PINS_MEMORY)' \
+	  ./nano/bench/run_dhrystone.sh ./nano-qspi-pins-sim $(NANO_DHRY_RUNS) $(NANO_QSPI_PINS_DHRY_CYCLES) '$(NANO_CFLAGS)'
 
 .PHONY: nano-qspi-pins-coremark
 nano-qspi-pins-coremark: nano-qspi-pins-sim
-	@./nano/bench/run_coremark.sh ./nano-qspi-pins-sim $(NANO_COREMARK_ITERATIONS) $(NANO_COREMARK_CYCLES) '$(NANO_CFLAGS)'
+	@NANO_BENCH_MEMORY='$(NANO_QSPI_PINS_MEMORY)' \
+	  ./nano/bench/run_coremark.sh ./nano-qspi-pins-sim $(NANO_QSPI_PINS_COREMARK_ITERATIONS) $(NANO_QSPI_PINS_COREMARK_CYCLES) '$(NANO_CFLAGS)'
 
 # The minimal reproduction, no nano.v; the models' own grader.
 NANO_QSPI_RESUME_SRCS := nano/qspi.v nano/tb/nano_qspi_flash_model.v \

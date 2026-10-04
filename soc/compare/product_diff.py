@@ -97,9 +97,9 @@ def is_news(name, before, after, repo, current, artifact=None):
     if b.get("status") != "measured":
         a = after.get("pairs", {}).get(name)
         return a is not None and a.get("status") == "measured"
-    # A squash-merge deletes the branch a stamp's `base` names; that is not
-    # evidence the tree is unchanged, so recover by re-measuring.
-    if not base_resolvable(repo, b["base"]):
+    # A legacy stamp's `base` can name a branch commit a squash-merge deleted; that is
+    # not evidence the tree is unchanged, so recover by re-measuring.
+    if "digest" not in b and not base_resolvable(repo, b["base"]):
         return True
     return bool(stale_reasons(b, repo, current.get(name, {}), artifact))
 
