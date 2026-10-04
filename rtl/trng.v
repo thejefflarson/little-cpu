@@ -55,7 +55,7 @@ module trng (
       dead       <= 1'b0;
       warm       <= 1'b0;
       run_last   <= 1'b0;
-      run        <= 5'b0;
+      run        <= 5'h1f;
       samples    <= 10'b0;
       apt_ref    <= 1'b0;
       apt_count  <= 9'b0;
@@ -99,7 +99,7 @@ module trng (
         run_last <= word_bit;
         if (word_bit == run_last) begin
           run <= run_next[4:0];
-          if (run_next[5]) dead <= 1'b1;
+          if (run == 5'd30) dead <= 1'b1;
         end else begin
           run <= 5'b0;
         end

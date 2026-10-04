@@ -8,7 +8,7 @@
 // samples 1.
 module trng_tb;
   localparam logic [1:0] BIST = 2'b00, WAIT = 2'b01, ES16 = 2'b10, DEAD = 2'b11;
-  localparam int N = 10;
+  localparam int N = 15;
 
   logic clk = 0;
   always #5 clk = ~clk;
@@ -18,6 +18,7 @@ module trng_tb;
   // interval sample is the same bit. 4: healthy, then stops. 5: samples alternate 0,1.
   // 6: samples 1,1,1,1,1,1,1,0 repeating. 7: ten 0s then ten 1s, a slow beat. 8: samples
   // 87% ones at random. 9: samples 62% ones at random, which must still reach ES16.
+  // 10-12: 31, 32 and 33 folded ones between alternating bits. 13-14: 31 and 32 zeros from reset.
   logic [N-1:0]  raw = '0;
   logic [N-1:0]  pop = '0;
   logic [31:0]   seed [N];
@@ -49,7 +50,24 @@ module trng_tb;
     end
   end
 
+  // Ones at least eight corrected bits apart put at most one in any fold window, so the folded
+  // stream is the same whichever corrected bit the fold happens to start on.
+  function automatic logic corrected_bit(input int which, input int j);
+    int n;
+    if (which >= 13) begin
+      n = which - 13 + 31;
+      corrected_bit = j >= 8 * n && (j - 8 * n) % 16 == 0;
+    end else begin
+      n = which - 10 + 31;
+      if (j < 64) corrected_bit = j % 16 == 0;
+      else if (j < 64 + 8 * n) corrected_bit = (j - 64) % 8 == 0;
+      else corrected_bit = (j - 64 - 8 * (n - 1)) % 16 == 0;
+    end
+  endfunction
+
   function automatic logic sample_of(input int which, input int k, input logic [15:0] r);
+    if (which >= 10)
+      return k == 0 || (corrected_bit(which, (k - 1) / 2) == ((k + 1) % 2 == 0));
     case (which)
       5:       sample_of = k % 2 == 1;
       6:       sample_of = k % 8 != 7;
@@ -61,7 +79,9 @@ module trng_tb;
 
   always_ff @(posedge clk) begin
     for (int i = 5; i < N; i++) begin
-      if (left[i] == 0) begin
+      if (i >= 10 && reset) begin
+        raw[i] <= 1'b0;
+      end else if (left[i] == 0) begin
         left[i]  <= sample_of(i, idx[i], lfsr[i]) ? 5 : 4;
         since[i] <= 1;
         idx[i]   <= idx[i] + 1;
@@ -224,6 +244,13 @@ module trng_tb;
           {30'b0, seed[4][31:30]}, {30'b0, DEAD});
     check("...and gives the word up", {16'b0, seed[4][15:0]}, 32'b0);
 
+    check("31 identical folded bits do not read DEAD", {31'b0, dead_seen[10]}, 32'b0);
+    check("exactly 32 identical folded bits read DEAD", {31'b0, dead_seen[11]}, 32'b1);
+    check("33 identical folded bits read DEAD", {31'b0, dead_seen[12]}, 32'b1);
+    check("31 folded zeros from reset do not read DEAD: reset counts no bit",
+          {31'b0, dead_seen[13]}, 32'b0);
+    check("32 folded zeros from reset read DEAD", {31'b0, dead_seen[14]}, 32'b1);
+
     repeat (100) @(posedge clk);
     #1;
     check("a stuck-low source never read as ES16", {31'b0, es16_seen[1]}, 32'b0);
@@ -266,7 +293,7 @@ module trng_tb;
       $display("FAILED: %0d mismatches", errors);
       $fatal(1);
     end else begin
-      $display("PASSED: trng (BIST over 1024 samples, ES16, destructive read, WAIT, DEAD on stuck, constant, alternating, periodic, beat and biased sources and one that stops)");
+      $display("PASSED: trng (BIST over 1024 samples, ES16, destructive read, WAIT, DEAD on stuck, constant, alternating, periodic, beat and biased sources and one that stops; the repetition count trips on exactly 32)");
       $finish;
     end
   end

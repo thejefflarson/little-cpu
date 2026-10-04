@@ -481,6 +481,8 @@ a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
 a renamed task stops rather than probing some other design
 a renamed task stops this probe rather than moving its control
+a repetition count that counts a phantom bit at reset is red
+a repetition count that misses the first bit of a run is red
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed

@@ -113,7 +113,7 @@ not in the ISA string", the single repetition test) describe the tree before thi
 |---|---|---|
 | Edge timeout | cycles since a rising edge | 4,096 with none (unchanged) |
 | Starvation | raw samples per 64-sample aligned block | a block ends with no corrected bit |
-| Repetition count | the folded output bits | the 32nd repeat of the previous bit |
+| Repetition count | the folded output bits | 32 identical bits in a row, counting from the first |
 | Adaptive proportion | raw samples, 512-sample windows | one value fills 410 of a window |
 
 BIST lasts 1,024 raw samples, and no word reaches the buffer until the sample counter wraps once,
@@ -127,6 +127,9 @@ so a source must pass all four tests for that long before the first word. `test/
   a source that alternates 0,1 or repeats a short period, because the corrector and the fold turn
   a periodic input into a periodic output. Counting repeats of the emitted bit also catches a
   period-2 emitted pattern, which is the failure a user of `seed` would see.
+  The count includes the run's first bit and reset counts none, so the alarm lands on exactly the
+  32nd identical bit; `test/trng_tb.v` feeds 31, 32 and 33 folded ones and 31 and 32 folded zeros
+  from reset to pin that.
 - *The starvation check exists because a beat pattern would otherwise sit in WAIT forever.* A
   source whose pairs never straddle a transition (ten 0s, ten 1s, repeating) emits no corrected
   bit, never trips the edge timeout (edges keep arriving) and never trips the proportion test
@@ -140,6 +143,13 @@ is **unmeasured**: no board has captured the raw intervals of an `SB_LFOSC`, so 
 nor the sample bits (`ticks[1] ^ ticks[0]`) nor the fold depth is settled until one does. The ISA
 string makes the Zkr claim ahead of that measurement, because the ticket asked for it, and this
 paragraph is where the claim is bounded.
+
+**The continuous tests do not rule out a periodic lock.** They detect gross failure, not the
+absence of entropy: an oscillator beat-locked to the core clock with intervals repeating every 7
+(a, a, a+1, a, a+1, a, a+1) emits corrected bits of period 6 and folds to 1,0,1,1,0,1, whose runs
+never pass 2 and whose proportions are balanced, so it reaches ES16. Only the board capture of
+`SB_LFOSC`'s raw intervals settles whether such a lock occurs; a lag-match test over lags 1 to 8
+would catch it and costs far more than the part's free cells.
 
 **`mseccfg` (0x747) and `mseccfgh` (0x757) read zero and ignore writes.** The privileged
 specification says "Implementations may implement mseccfg such that sseed and useed is a read-only

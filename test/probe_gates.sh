@@ -3309,9 +3309,17 @@ d=$(tg_fixture "")
 probe "control: the shipping trng passes its own bench" 0 \
   "PASSED: trng" "tg_run $d"
 
-d=$(tg_fixture "s/if (run_next\[5\]) dead <= 1'b1;//")
+d=$(tg_fixture "s/if (run == 5'd30) dead <= 1'b1;//")
 probe "no repetition count on the corrected bits lets an alternating source through" 1 \
   "samples alternating 0,1 read DEAD" "tg_run $d"
+
+d=$(tg_fixture "s/run <= 5'b0;/run <= 5'h1f;/")
+probe "a repetition count that misses the first bit of a run is red" 1 \
+  "exactly 32 identical folded bits read DEAD" "tg_run $d"
+
+d=$(tg_fixture "s/run        <= 5'h1f;/run        <= 5'b0;/")
+probe "a repetition count that counts a phantom bit at reset is red" 1 \
+  "31 folded zeros from reset do not read DEAD" "tg_run $d"
 
 d=$(tg_fixture "s/if (apt_count == 9'd511) dead <= 1'b1;//")
 probe "no adaptive proportion test lets a biased source through" 1 \
