@@ -836,8 +836,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # compare-product-schedule-publish, stall-sites, pin-help-text,
                     # formal-ci-coverage, yosys-script-oneline, tmp-path)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
-                    # dual-build, nano-test, nano-startup-test, nano-littlecpu-test and
-                    # nano-qspi-loop-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
+                    # dual-build, nano-test, nano-startup-test, nano-littlecpu-test,
+                    # nano-qspi-loop-test and nano-qspi-control-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
                     # with STALL_REPORT=1 so the cycle-accounting identity runs on every
                     # call, not only `make cycles`
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
@@ -999,8 +999,13 @@ make nano-qspi-sim  # nano-sim built against nano/tb/nano_qspi_memory.v instead 
 make nano-qspi-timing # sweeps that model's configurations against Dhrystone and CoreMark,
                     # reporting cycles, DMIPS/MHz or CoreMark/MHz at an assumed 64 MHz,
                     # and the {execute, parcel wait, redirect preamble, loop hit, handshake,
-                    # PSRAM wait} bucket split. Reporting only, no ratchet, like `make cycles`.
-                    # Not on `make test`'s path
+                    # PSRAM wait} bucket split. Reporting only, no ratchet, like `make cycles`;
+                    # its zero-wait control is graded against nano/bench/QSPI_CONTROL, the one
+                    # place those cycle counts are stated. Not on `make test`'s path
+make nano-qspi-control-test # that control alone, both benchmarks on the shipping nano-sim, so a
+                    # nano timing change moves QSPI_CONTROL in the commit that moved it
+                    # (docs/manifests/qspi-control.md); qspi_control_check.sh's probes are
+                    # its forced-red direction. On `make test`'s path
 make nano-qspi-loop-test # the loop buffer's three invariants, each able to fail: a branch-free
                     # program costs the same cycles with the loop buffer on or off; a loop
                     # resident in it pays no marginal preamble/wait and exactly two hits an

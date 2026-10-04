@@ -1307,6 +1307,39 @@ probe "a QSPI timing row labelled with another build's preamble is refused" 1 \
 probe "a QSPI timing log whose served fetches differ from its retires is refused" 1 \
   "FETCH/RETIRE MISMATCH" "$QTR '$d/extra_retire.log' $QTR_ROW"
 
+begin_group "nano/bench/qspi_control_check.sh"
+
+d=$(new_case)
+printf 'BENCH marks=2 cycles=1000 verdict=1 writes=5\n' > "$d/match.log"
+printf 'BENCH marks=2 cycles=1001 verdict=1 writes=5\n' > "$d/off_by_one.log"
+printf 'no benchmark line here\n' > "$d/no_bench.log"
+printf 'dhrystone 200 1000\ncoremark 5 2000\n' > "$d/control"
+printf 'dhrystone 200 1000\n' > "$d/control_no_coremark"
+printf 'dhrystone 200 1000\ndhrystone 200 1001\ncoremark 5 2000\n' > "$d/control_doubled"
+printf 'dhrystone 200 lots\ncoremark 5 2000\n' > "$d/control_malformed"
+QCC="'$REPO/nano/bench/qspi_control_check.sh'"
+
+probe "control: a zero-wait log that matches QSPI_CONTROL passes" 0 "" \
+  "$QCC '$d/match.log' dhrystone 200 '$d/control'"
+
+probe "a zero-wait log one cycle off QSPI_CONTROL is refused" 1 \
+  "read 1001 cycles, not the 1000" "$QCC '$d/off_by_one.log' dhrystone 200 '$d/control'"
+
+probe "a zero-wait log with no BENCH line is refused, not read as zero" 1 \
+  "that run did not happen" "$QCC '$d/no_bench.log' dhrystone 200 '$d/control'"
+
+probe "a QSPI_CONTROL line recorded at another run count is refused" 1 \
+  "this sweep runs 5" "$QCC '$d/match.log' dhrystone 5 '$d/control'"
+
+probe "a QSPI_CONTROL with no line for the benchmark is refused" 1 \
+  "must hold exactly one 'coremark" "$QCC '$d/match.log' coremark 5 '$d/control_no_coremark'"
+
+probe "a QSPI_CONTROL with two lines for one benchmark is refused" 1 \
+  "must hold exactly one 'dhrystone" "$QCC '$d/match.log' dhrystone 200 '$d/control_doubled'"
+
+probe "a QSPI_CONTROL line with a non-numeric cycle count is refused" 1 \
+  "malformed dhrystone line" "$QCC '$d/match.log' dhrystone 200 '$d/control_malformed'"
+
 begin_group "nano_qspi_memory.v's own accounting identity (real build)"
 
 NANO_QSPI_ACCOUNTING_CC=""

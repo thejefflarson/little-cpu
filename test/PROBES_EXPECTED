@@ -97,6 +97,10 @@ a QSPI timing log whose buckets do not sum to its window is refused as malformed
 a QSPI timing log whose served fetches differ from its retires is refused
 a QSPI timing row labelled with another build's loop kind is refused
 a QSPI timing row labelled with another build's preamble is refused
+a QSPI_CONTROL line recorded at another run count is refused
+a QSPI_CONTROL line with a non-numeric cycle count is refused
+a QSPI_CONTROL with no line for the benchmark is refused
+a QSPI_CONTROL with two lines for one benchmark is refused
 a RAM comparison over no words is named as unable to fail
 a RAM half the size in the core's copy is red
 a RAM half the size in the proof's copy is red
@@ -741,6 +745,8 @@ a wrapper that ignores --vcd is red
 a wrong-rule mutant that still passes is not a control
 a yosys that fails outright is red before warnings are graded
 a yosys whose -p and quoted script sit on a continuation line is red
+a zero-wait log one cycle off QSPI_CONTROL is refused
+a zero-wait log with no BENCH line is refused, not read as zero
 an #insn-check naming a file that does not exist is refused
 an ABI alias outside x0-x15 (a7 = x17) is caught the same way
 an ECP5 placement read with ice40 names names the part, not a bad log
@@ -954,6 +960,7 @@ control: a tool that answers is stamped with its version and its path
 control: a tracked file with no matching ignore rule is clean
 control: a well-formed report publishes the frequency
 control: a wrapper that dumps only when named is green
+control: a zero-wait log that matches QSPI_CONTROL passes
 control: agreeing paths outside the checkout are green
 control: all five shipping scripts link at the inset layout
 control: all three arms fail, each at its own line
