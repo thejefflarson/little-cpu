@@ -1119,6 +1119,10 @@ probe "a yosys that fails outright is red before warnings are graded" 1 \
   "yosys failed before its warnings were graded" \
   "$NES $d/missing.log 'read_verilog -sv $d/absent.v; $NES_TAIL'"
 
+printf 'module m(output [3:0] b);\n  assign b = 4'"'"'d17;\nendmodule\n' > "$d/literal.v"
+probe "a file-located frontend warning with no bare-prefixed echo is red" 1 \
+  "Literal has a width" "$NES $d/literal.log 'read_verilog -sv $d/literal.v; $NES_TAIL'"
+
 mkdir -p "$tmp/bin-nes"
 cat > "$tmp/bin-nes/yosys" <<'STUB'
 #!/bin/sh
@@ -1133,6 +1137,13 @@ probe "the deep-recursion notice alone is allowlisted" 0 "zero promoted warnings
 probe "any other warning beside the allowlisted one is still red" 1 \
   "Width mismatch" \
   "STUB_NES_EXTRA='Width mismatch' PATH='$tmp/bin-nes:/usr/bin:/bin' $NES $d/stub2.log x"
+
+cat > "$tmp/bin-nes/yosys" <<'STUB'
+#!/bin/sh
+echo "x.v:3: Warning: Range select out of bounds"
+STUB
+probe "a stubbed file:line warning is red" 1 "Range select out of bounds" \
+  "PATH='$tmp/bin-nes:/usr/bin:/bin' $NES $d/stub3.log x"
 
 begin_group "nano/tb/nano_sim_icarus.sh"
 

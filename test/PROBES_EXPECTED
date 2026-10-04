@@ -261,6 +261,7 @@ a file the manifest stopped naming is red before shasum ever runs
 a file the manifest stopped naming is red before shasum ever runs
 a file with no row in the index is named as orphaned
 a file with two rows in the index is named
+a file-located frontend warning with no bare-prefixed echo is red
 a fixed /tmp/ scratch name in a script is red, and located
 a fixed /tmp/ scratch name in the Makefile is red, and located
 a fixture that opens its body on the head line is still inspected
@@ -666,6 +667,7 @@ a status sby has never written here is reported on its own
 a step between the oscillator's own is refused, not graded against
 a stray comma in a connection list is named as one
 a stray file named after the check-solver target does not skip the guard
+a stubbed file:line warning is red
 a substituted, non-archive download is refused for every file, not silently skipped
 a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything

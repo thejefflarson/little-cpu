@@ -1,7 +1,6 @@
 #!/bin/bash
-# Runs one yosys elaboration of a nano simulation top and fails on any warning, because
-# the repo treats elaboration warnings as errors. The one allowlisted notice is yosys's own
-# "Deep recursion in AST simplifier", which the elaborate CI job allows for the same reason.
+# Fails a yosys elaboration on any warning but its deep-recursion notice, in both the file:line and
+# bare forms yosys prints; the repo treats elaboration warnings as errors.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
@@ -17,7 +16,7 @@ if ! yosys -p "$script" > "$log" 2>&1; then
   exit 1
 fi
 
-if promoted=$(grep -E '^Warning:' "$log" | grep -vE 'Deep recursion in AST simplifier'); then
+if promoted=$(grep -E '(^|: )Warning: ' "$log" | grep -vE 'Deep recursion in AST simplifier'); then
   printf '%s\n' "$promoted" >&2
   echo "error: yosys reported the warning(s) above; elaboration warnings are errors." >&2
   exit 1
