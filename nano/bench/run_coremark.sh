@@ -75,9 +75,7 @@ echo "== CoreMark on nanocpu =="
 echo "compiler    : $CC $($CC -dumpversion)"
 echo "flags       : $CFLAGS"
 echo "iterations  : $ITERATIONS"
-echo "memory model: nano/tb/nano_memory.v, behavioural, zero-wait-state, 20480 words (80 KB) flat"
-echo "              -- a core-only figure, not the Tiny Tapeout board's own timing. See"
-echo "              'make nano-qspi-pins-coremark' for the real bit-serial QSPI/PSRAM front end."
+echo "memory model: ${NANO_BENCH_MEMORY:-nano/tb/nano_memory.v, behavioural, zero-wait-state, 20480 words (80 KB) flat}"
 echo
 
 set +e
@@ -87,6 +85,9 @@ sim_status=$?
 set -e
 cat "$tmp/run.log"
 if [ "$sim_status" -ne 0 ]; then
+  if grep -q '^TIMEOUT$' "$tmp/run.log"; then
+    echo "*** the run used its whole $CYCLE_LIMIT-cycle budget before finishing; its cycle count is not a measurement." >&2
+  fi
   echo "*** the run did not reach a passing verdict (runner exit $sim_status)." >&2
   exit "$sim_status"
 fi
