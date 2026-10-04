@@ -1751,7 +1751,9 @@ compare-dhrystone: hazard3-config-clone-test $(BUILD)/compare.dhry.vvp $(BUILD)/
 	  python3 soc/compare/product_check.py soc/compare/product.json dhrystone \
 	    --repo . --current 'cflags=$(COMPARE_DHRY_CFLAGS)' \
 	    --current 'rom_words=$(COMPARE_ROM_WORDS)' \
-	    --current 'ram_words=$(COMPARE_RAM_WORDS)' || true; \
+	    --current 'ram_words=$(COMPARE_RAM_WORDS)' \
+	    --current 'compiler=riscv-none-elf-gcc' \
+	    --current 'compiler_version=$(RISCV_GCC_VERSION)' || true; \
 	else \
 	  echo 'no soc/compare/product.json yet -- `make compare-product` stamps one'; \
 	fi

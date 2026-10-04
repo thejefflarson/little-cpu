@@ -664,10 +664,13 @@ FITS it, so nothing in that row is distorted by memory size; CoreMark's 10,648 b
 (22 block RAMs, 26 with the core's own 4, against a 4 KB placed ROM), so its cycles are still
 simulated at a larger map than the clock they are multiplied by was placed at. `make compare-dhrystone`
 and `make compare-coremark` print that block arithmetic every run, and ADR-0098 lists the
-distortions. `soc/compare/product.json` carries a `base` that is a commit on `main`, which is why
-the stamp is taken by the weekly `.github/workflows/compare-product-schedule.yml` dispatched on
-`main` and not on a PR branch: this repo squash-merges and deletes branches, so no checkout could
-resolve a PR-branch commit once merged; the workflow pushes the branch that carries the stamp and
+distortions. `soc/compare/product.json` is keyed on a `digest` of the bytes the measurement read
+(`rtl`, `soc/compare`, `test/bench`, the Makefile and `formal/pin.mk`, less the stamp,
+`CYCLE_FLOOR` and `docs/comparison.md`), not on a commit: this repo squash-merges and deletes
+branches, so a PR-branch commit stops resolving once merged. Its compiler entry is graded by name and
+pinned version and the floating OSS CAD Suite tools are only recorded (ADR-0247). A stamp without a digest
+is legacy and is graded by its `base` until the weekly
+`.github/workflows/compare-product-schedule.yml` re-stamps it; the workflow pushes the branch that carries the stamp and
 opens an issue linking it, and a person opens the PR (ADR-0233). Two graded checks stand in front of every number:
 `soc/compare/placed_vs_synth.py` refuses a placed count under `COMPARE_MIN_RATIO` of the core's own
 synthesis — an all-NOP image once placed a quarter of this core with a plausible critical path
