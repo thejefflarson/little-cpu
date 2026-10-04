@@ -12,7 +12,7 @@ SIM=$1
 ASM_DIR=$2
 EXPECTED_FAIL=$3
 OBSERVED_FLOOR=$4
-CYCLES=5000
+CYCLES=8000
 HERE=$(cd "$(dirname "$0")" && pwd)
 STALL_REPORT=${STALL_REPORT:-0}
 
@@ -114,7 +114,7 @@ for src in "${programs[@]}"; do
 
   case $name in
     *.c)
-      build=("$CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib
+      build=("$CC" -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib
              -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns
              -Wall -Wextra -Werror -I "$ASM_DIR"
              -T "$ASM_DIR/boot.lds" "$HERE/crt0.S" "$src" -o "$elf")
@@ -122,7 +122,7 @@ for src in "${programs[@]}"; do
       ram_flags=(--only-section=.tohost)
       ;;
     *)
-      build=("$CC" -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib
+      build=("$CC" -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib
              -I "$ASM_DIR" -T "$ASM_DIR/sections.lds" "$src" -o "$elf")
       rom_flags=(--only-section=.text)
       ram_flags=(--remove-section=.text)

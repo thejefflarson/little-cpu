@@ -646,8 +646,8 @@
       "supported": true,
       "sseed_reset_value": false,
       "useed_reset_value": false,
-      "sseed_read_only_zero": false,
-      "useed_read_only_zero": false
+      "sseed_read_only_zero": true,
+      "useed_read_only_zero": true
     },
     "Zksed": { "supported": false },
     "Zksh": { "supported": false },

@@ -99,3 +99,102 @@ instruction word alone; `rtl/decoder.v` asserts the two flags that model reads, 
 - Whether the oscillator's interval LSBs carry entropy. No board has run it.
 - ECP5 and the dual top read DEAD; neither has an oscillator wired.
 - The sweep is one machine's draw of sixteen.
+
+## Amendment: Zkr is claimed (2026-10-04)
+
+The title records the decision as first made. Zkr is now in the `-march` string, `_zkr` at the
+seven sites `test/march_test.sh` grades, and the sections above that say otherwise ("Why Zkr is
+not in the ISA string", the single repetition test) describe the tree before this amendment.
+
+**Four health tests set the sticky DEAD.** Each is graded by a forced-red probe in
+`test/probe_gates.sh` against `test/trng_tb.v`, and the old raw 32-identical test is deleted.
+
+| Test | Looks at | Dead when |
+|---|---|---|
+| Edge timeout | cycles since a rising edge | 4,096 with none (unchanged) |
+| Starvation | raw samples per 64-sample aligned block | a block ends with no corrected bit |
+| Repetition count | the folded output bits | 32 identical bits in a row, counting from the first |
+| Adaptive proportion | raw samples, 512-sample windows | one value fills 410 of a window |
+
+BIST lasts 1,024 raw samples, and no word reaches the buffer until the sample counter wraps once,
+so a source must pass all four tests for that long before the first word. `test/run_tests.sh` and
+`test/cosim.py` move from a 5,000-cycle to an 8,000-cycle budget because `seed.S` now waits about
+5,650 retired instructions for ES16 on the bench oscillator.
+
+**Two design calls.**
+
+- *The repetition count reads the folded bits, not the raw samples.* A raw-sample run test passes
+  a source that alternates 0,1 or repeats a short period, because the corrector and the fold turn
+  a periodic input into a periodic output. Counting repeats of the emitted bit also catches a
+  period-2 emitted pattern, which is the failure a user of `seed` would see.
+  The count includes the run's first bit and reset counts none, so the alarm lands on exactly the
+  32nd identical bit; `test/trng_tb.v` feeds 31, 32 and 33 folded ones and 31 and 32 folded zeros
+  from reset to pin that.
+- *The starvation check exists because a beat pattern would otherwise sit in WAIT forever.* A
+  source whose pairs never straddle a transition (ten 0s, ten 1s, repeating) emits no corrected
+  bit, never trips the edge timeout (edges keep arriving) and never trips the proportion test
+  (it is balanced). Aligning the check to 64-sample blocks costs one flop and reuses the sample
+  counter, where a free-running six-bit counter cost more cells; a healthy source misses a block
+  with probability 2^-32.
+
+**The cutoff is an assumption.** The proportion cutoff of 410 in 512 is NIST SP 800-90B 4.4.2's
+value for a claimed 0.5 bit of min-entropy per sample at a 2^-20 false-positive rate. That 0.5 bit
+is **unmeasured**: no board has captured the raw intervals of an `SB_LFOSC`, so neither the claim
+nor the sample bits (`ticks[1] ^ ticks[0]`) nor the fold depth is settled until one does. The ISA
+string makes the Zkr claim ahead of that measurement, because the ticket asked for it, and this
+paragraph is where the claim is bounded.
+
+**The continuous tests do not rule out a periodic lock.** They detect gross failure, not the
+absence of entropy: an oscillator beat-locked to the core clock with intervals repeating every 7
+(a, a, a+1, a, a+1, a, a+1) emits corrected bits of period 6 and folds to 1,0,1,1,0,1, whose runs
+never pass 2 and whose proportions are balanced, so it reaches ES16. Only the board capture of
+`SB_LFOSC`'s raw intervals settles whether such a lock occurs; a lag-match test over lags 1 to 8
+would catch it and costs far more than the part's free cells.
+
+**`mseccfg` (0x747) and `mseccfgh` (0x757) read zero and ignore writes.** The privileged
+specification says "Implementations may implement mseccfg such that sseed and useed is a read-only
+constant value 0", and this core has neither S nor U mode to grant `seed` to. Both addresses are
+implemented because the spec lists `mseccfgh` as the RV32 upper half; the neighbouring addresses
+stay unimplemented, which `test/asm/mseccfg.S` and `test/csr_tb.v` grade, and Sail agrees on
+`mseccfg.S`. `nano/asm/LITTLECPU_FLOOR` excludes `mseccfg.S` as a CSR program.
+
+**Measurements** (`soc/paired_sweep.sh origin/main up5k`, sixteen placements `default, 1..15`, same
+stamp as above: Yosys 0.68+48, nextpnr-ice40 0.11-1-g62e659ed, icetime oss-cad-suite 20260811,
+Darwin arm64). Base is `main` at e008baa1 and the candidate is the tree of this amendment. The
+script's own verdict refuses the pair, because it compares the two trees' commit ids; the numbers
+below come from `soc/baseline_summary.py --allow-mismatch` over its two CSVs.
+
+| | main (e008baa1) | this tree |
+|---|---|---|
+| packed `ICESTORM_LC`, SoC | 5,205 | 5,209 (+4; 98.7% of 5,280) |
+| `make fit`, local | 4,492 | 4,503 (+11) |
+| worst placement | 78.60 ns, 12.72 MHz | 81.50 ns, 12.27 MHz |
+| median | 76.15 ns, 13.13 MHz | 77.47 ns, 12.91 MHz |
+| best | 74.16 ns, 13.48 MHz | 75.16 ns, 13.30 MHz |
+| spread | 6.0% | 8.4% |
+| under 12.00 MHz | 0 of 16 | 0 of 16 |
+
+Per-seed MHz, `default, 1..15`:
+
+- main: 13.43 13.16 13.06 13.01 13.48 12.72 13.33 12.80 12.97 13.32 13.08 13.10 13.06 13.19 13.26 13.38
+- this tree: 13.25 12.70 12.82 13.12 12.70 13.30 12.97 12.61 12.93 13.00 12.27 13.18 12.45 12.89 12.86 12.98
+
+The worst placement clears 12.00 by 2.2%. **The cell count is a draw of the mapper.** The first
+spelling of these tests packed to 5,325 cells and nextpnr refused it (`Failed to expand region`);
+the same logic respelled packed anywhere from 5,238 to 5,316 across eight carry-chain spellings and
+six statement orders, and a comment's presence moved it too. Making the repetition count land on
+exactly 32 moved it again, in both directions: the carry-out spelling with the run's first bit
+counted packed to 5,281 and did not place, and five more spellings read 5,209 to 5,319. This tree
+ships the one that packed to 5,209: a 10-bit sample counter whose wrap ends BIST, a repetition
+count that compares against 30 and resets to all ones so its first increment lands on zero, a
+block-aligned starvation flag in place of a six-bit counter, and an adaptive count offset by 102 so
+the 410th match is the one that finds it all ones. At 98.7% occupancy the next edit to any file
+synthesis reads owes this sweep again, and no test may be dropped to buy cells back.
+
+`make soc-seed-search` re-pinned `soc/pin.json` to seed 20382078 at 13.19 MHz (9.9% over 12.00).
+`make fit` reads 4,503 against `FIT_MAX_LC` 4,586, unchanged: the budget holds with 83 cells to
+spare locally, and the churn band of ADR-0220 is about that wide, so a CI count above the local one
+can still trip it. `make ecp5-timing` reads 39.95 MHz (25.03 ns, one placement at the default seed) with `DP16KD` 36, `TRELLIS_DPR16X4` 32 and
+`MULT18X18D` 4 as declared and no block-RAM reset driven by logic. `make -C formal all` passes
+with the baselines unchanged, and `make cosim-suite` agrees on 73 of 81 against
+`COSIM_EXPECTED_FAIL`.

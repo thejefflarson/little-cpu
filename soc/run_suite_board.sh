@@ -25,7 +25,7 @@ export PATH="$RISCV_GCC_CACHE/riscv-gcc/bin:$RISCV_GCC_CACHE/oss-cad-suite/bin:$
 
 mkdir -p build
 # How much of the 8192-byte ROM a batch's PROGRAMS may fill.
-DRIVER_BYTES=$(riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
+DRIVER_BYTES=$(riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib \
                  -DBOARD_SUITE -I test/asm -c -o build/.drv.$$.o test/board/board_suite.S 2>/dev/null \
                && riscv-none-elf-size build/.drv.$$.o | awk 'NR==2{print $1+$2}')
 rm -f build/.drv.$$.o
@@ -54,7 +54,7 @@ sizes=""
 for f in test/asm/*.S; do
   b=$(basename "$f")
   case " $SKIP " in *" $b "*) echo "   skip $b (larger than the ROM)"; continue;; esac
-  riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -DBOARD_SUITE \
+  riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -DBOARD_SUITE \
     -I test/asm -c -o "$OUT/one.o" "$f" 2>/dev/null || { echo "   skip $b (does not assemble)"; continue; }
   n=$(riscv-none-elf-size "$OUT/one.o" | awk 'NR==2{print $1+$2}')
   sizes="$sizes$n $f"$'\n'

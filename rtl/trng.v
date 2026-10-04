@@ -1,17 +1,18 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Turns a slow free-running oscillator into the 16-bit words the `seed` CSR returns. The
-// raw bit is the low interval bits between the oscillator's rising edges, in `clk` cycles.
+// Turns a slow free-running oscillator into the 16-bit words `seed` returns; four health
+// tests set the sticky `dead`, and no word is buffered until 1,024 samples pass. A beat that
+// yields no corrected bit is caught by the 64-sample starvation count.
 module trng (
   input  logic        clk,
   input  logic        reset,
   input  logic        raw,
-  // A committed read of `seed`; the word is consumed only when the status says ES16.
   input  logic        pop,
   output logic [31:0] seed
 );
   localparam logic [1:0] BIST = 2'b00, WAIT = 2'b01, ES16 = 2'b10, DEAD = 2'b11;
-  localparam logic [4:0] RUN_LIMIT = 5'd31;
+  localparam int APT_WINDOW = 512, APT_CUTOFF = 410;
+  localparam logic [8:0] APT_FIRST = 9'(APT_WINDOW - APT_CUTOFF + 1);
   localparam logic [2:0] FOLD_LAST = 3'd7;
 
   logic [2:0] sync;
@@ -26,9 +27,15 @@ module trng (
   logic sample;
   assign sample = ticks[1] ^ ticks[0];
 
-  logic        dead, bist;
+  logic        dead, warm;
   logic        run_last;
   logic [4:0]  run;
+  logic [9:0]  samples;
+  logic        apt_ref;
+  logic [8:0]  apt_count;
+  logic [5:0]  run_next;
+  assign run_next = {1'b0, run} + 6'd1;
+  logic        block_emit;
   logic        have, held;
   logic [2:0]  fold_count;
   logic        fold_acc;
@@ -39,13 +46,20 @@ module trng (
   assign emit = edge_seen && have && (held != sample);
   assign word_bit = fold_acc ^ held;
 
+  logic word_done;
+  assign word_done = emit && fold_count == FOLD_LAST;
+
   always_ff @(posedge clk) begin
     if (reset) begin
       ticks      <= 12'b0;
       dead       <= 1'b0;
-      bist       <= 1'b1;
+      warm       <= 1'b0;
       run_last   <= 1'b0;
-      run        <= 5'b0;
+      run        <= 5'h1f;
+      samples    <= 10'b0;
+      apt_ref    <= 1'b0;
+      apt_count  <= 9'b0;
+      block_emit <= 1'b0;
       have       <= 1'b0;
       held       <= 1'b0;
       fold_count <= 3'b0;
@@ -56,12 +70,20 @@ module trng (
       if (!edge_seen && ticks_next[12]) dead <= 1'b1;
 
       if (edge_seen) begin
-        run_last <= sample;
-        if (sample == run_last) begin
-          run <= run + 5'd1;
-          if (run == RUN_LIMIT) dead <= 1'b1;
-        end else begin
-          run <= 5'b0;
+        samples <= samples + 10'd1;
+        if (&samples) warm <= 1'b1;
+        if (samples[5:0] == 6'd63) begin
+          block_emit <= 1'b0;
+          if (!block_emit && !emit) dead <= 1'b1;
+        end else if (emit) begin
+          block_emit <= 1'b1;
+        end
+        if (samples[8:0] == 9'b0) begin
+          apt_ref   <= sample;
+          apt_count <= APT_FIRST;
+        end else if (sample == apt_ref) begin
+          apt_count <= apt_count + 9'd1;
+          if (apt_count == 9'd511) dead <= 1'b1;
         end
         have <= !have;
         held <= sample;
@@ -70,10 +92,19 @@ module trng (
       if (emit) begin
         fold_count <= fold_count + 3'd1;
         fold_acc   <= (fold_count == FOLD_LAST) ? 1'b0 : fold_acc ^ held;
-        if (fold_count == FOLD_LAST && !full) shift <= {shift[15:0], word_bit};
+        if (word_done && !full && warm) shift <= {shift[15:0], word_bit};
       end
 
-      if (full) bist <= 1'b0;
+      if (word_done) begin
+        run_last <= word_bit;
+        if (word_bit == run_last) begin
+          run <= run_next[4:0];
+          if (run == 5'd30) dead <= 1'b1;
+        end else begin
+          run <= 5'b0;
+        end
+      end
+
       if (pop && full) shift <= 17'b1;
     end
   end
@@ -82,7 +113,7 @@ module trng (
   always_comb begin
     if (dead)      opst = DEAD;
     else if (full) opst = ES16;
-    else if (bist) opst = BIST;
+    else if (!warm) opst = BIST;
     else           opst = WAIT;
   end
 

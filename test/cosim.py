@@ -268,7 +268,7 @@ def assemble(cc, src, outdir):
     ram = os.path.join(outdir, base + ".ram.hex")
     objcopy = cc[: -len("gcc")] + "objcopy"
     if src.endswith(".c"):
-        build = [cc, "-march=rv32imac_zicsr_zifencei_zkt", "-mabi=ilp32", "-nostdlib",
+        build = [cc, "-march=rv32imac_zicsr_zifencei_zkt_zkr", "-mabi=ilp32", "-nostdlib",
                  "-Os", "-std=c11", "-ffreestanding",
                  "-fno-tree-loop-distribute-patterns",
                  "-Wall", "-Wextra", "-Werror", "-I", ASM_DIR,
@@ -277,7 +277,7 @@ def assemble(cc, src, outdir):
         rom_args = ["--only-section=.text", "--only-section=.data"]
         ram_args = ["--only-section=.tohost"]
     else:
-        build = [cc, "-march=rv32imac_zicsr_zifencei_zkt", "-mabi=ilp32", "-nostdlib",
+        build = [cc, "-march=rv32imac_zicsr_zifencei_zkt_zkr", "-mabi=ilp32", "-nostdlib",
                  "-I", ASM_DIR,
                  "-T", os.path.join(ASM_DIR, "sections.lds"), src, "-o", elf]
         rom_args = ["--only-section=.text"]
@@ -497,8 +497,8 @@ def main():
                     help="a test/asm/*.S or *.c file name (default: add.S)")
     ap.add_argument("--cosim-binary", default=os.path.join(REPO, "cosim"))
     ap.add_argument("--sail", default=None, help="path to sail_riscv_sim")
-    ap.add_argument("--cycles", type=int, default=5000,
-                    help="cxxrtl cycle budget (test/run_tests.sh uses 5000)")
+    ap.add_argument("--cycles", type=int, default=8000,
+                    help="cxxrtl cycle budget (test/run_tests.sh uses 8000)")
     ap.add_argument("--inst-limit", type=int, default=20000,
                     help="sail instruction budget")
     ap.add_argument("--quiet", action="store_true")

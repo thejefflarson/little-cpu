@@ -790,7 +790,7 @@ cycles: sim
 # Dhrystone 2.1, the one number this core can be quoted against other cores'.
 DHRY_RUNS   ?= 2000
 DHRY_CYCLES ?= 4000000
-DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
+DHRY_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -O2 -std=c11 \
                -ffreestanding -fno-tree-loop-distribute-patterns \
                -Wall -Wextra -Werror
 
@@ -802,7 +802,7 @@ dhrystone: sim
 # smaller one.
 COREMARK_ITERATIONS ?= 100
 COREMARK_CYCLES     ?= 200000000
-COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -O2 -std=c11 \
+COREMARK_CFLAGS := -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -O2 -std=c11 \
                     -ffreestanding -fno-tree-loop-distribute-patterns \
                     -Wall -Wextra -Werror
 
@@ -939,12 +939,12 @@ soc-rom:
 	esac; \
 	test -f "$$prog" || { echo "error: no such program: $$prog" >&2; exit 1; }; \
 	case '$(SOC_PROG)' in \
-	  *.c) $$CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib \
+	  *.c) $$CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib \
 	         -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
 	         -Wall -Wextra -Werror -I test/asm -T test/asm/boot.lds \
 	         -o "$$tmp/prog.elf" test/crt0.S "$$prog"; \
 	       sections='-j .text -j .data' ;; \
-	  *)   $$CC -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -nostdlib -I test/asm \
+	  *)   $$CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -I test/asm \
 	         -T test/asm/sections.lds -o "$$tmp/prog.elf" "$$prog"; \
 	       sections='-j .text' ;; \
 	esac; \
@@ -1273,7 +1273,7 @@ COREMARK_ECP5_CFLAGS     ?= $(COREMARK_CFLAGS)
 COREMARK_ECP5_ITERATIONS ?= $(COREMARK_ITERATIONS)
 
 # -O2 does not fit the part's 8 KB ROM at any port size; this is the smallest that does.
-COREMARK_UP5K_CFLAGS ?= -march=rv32imac_zicsr_zifencei_zkt -mabi=ilp32 -Os -flto \
+COREMARK_UP5K_CFLAGS ?= -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -Os -flto \
                           -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
                           -Wall -Wextra -Werror
 

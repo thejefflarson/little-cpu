@@ -240,6 +240,20 @@ module csr_tb;
     // only the read side is this module's half.
     check_read("mconfigptr reads 0 after an attempted write", 12'hF15, 32'h0);
 
+    // Zkr adds SSEED and USEED to mseccfg; with no S or U mode they are legally read-only zero.
+    check_read("mseccfg reads 0", 12'h747, 32'h0);
+    check_read("mseccfgh reads 0", 12'h757, 32'h0);
+    poke(12'h747, 32'hFFFF_FFFF);
+    check_read("mseccfg still reads 0 after a write (SSEED, USEED stay 0)", 12'h747, 32'h0);
+    poke(12'h757, 32'hFFFF_FFFF);
+    check_read("mseccfgh still reads 0 after a write", 12'h757, 32'h0);
+    peek(12'h746);
+    check_bit("0x746 is not mseccfg", implemented, 1'b0);
+    peek(12'h767);
+    check_bit("0x767 is not mseccfgh", implemented, 1'b0);
+    peek(12'h74F);
+    check_bit("0x74f is not mseccfg", implemented, 1'b0);
+
     peek(12'h7C0); // a custom/unimplemented machine CSR
     check_bit("0x7c0 is not implemented", implemented, 1'b0);
     check_hex("...and reads 0", rdata, 32'h0);

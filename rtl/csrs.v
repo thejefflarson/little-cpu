@@ -98,6 +98,10 @@ module csrs #(
   assign hpm_event   = addr[11:5] == MHPMEVENT_WINDOW;
   assign hpm_zero    = hpm_number && (hpm_counter || hpm_event);
 
+  // mseccfg and mseccfgh: SSEED and USEED read zero, as no S or U mode exists to grant `seed`.
+  logic mseccfg_zero;
+  assign mseccfg_zero = addr[11:5] == 7'h3A && addr[3:0] == 4'h7;
+
   logic [31:0] seed_value;
   trng entropy (
     .clk(clk),
@@ -133,7 +137,7 @@ module csrs #(
       MVENDORID, MARCHID, MIMPID, MCONFIGPTR: rdata = 32'b0;
       default: begin
         rdata = 32'b0;
-        implemented = hpm_zero;
+        implemented = hpm_zero || mseccfg_zero;
       end
     endcase
   end

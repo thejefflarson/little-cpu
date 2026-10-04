@@ -1,7 +1,7 @@
 # Little CPU
 
 A hobby RISC-V core in SystemVerilog on the open toolchain (Yosys / iverilog / SymbiYosys — no
-vendor EDA). Target **RV32IMAC_Zicsr_Zifencei_Zkt**, machine mode only; home is an ice40 up5k
+vendor EDA). Target **RV32IMAC_Zicsr_Zifencei_Zkt_Zkr**, machine mode only; home is an ice40 up5k
 running at the board's 12 MHz crystal.
 
 **Four goals: fast, simple, readable, formally verified.** They are not in tension by default — the
@@ -222,7 +222,7 @@ where their term now lives; `atomic-region-ignored` and `loadstore-region-ignore
 
 ## ISA target
 
-RV32IMAC_Zicsr_Zifencei_Zkt, M-mode only, `misa = 0x4000_1105` (none of the three Z-extensions has
+RV32IMAC_Zicsr_Zifencei_Zkt_Zkr, M-mode only, `misa = 0x4000_1105` (none of the four Z-extensions has
 a `misa` bit; the `-march` string is the only place they are claimed). Traps implemented:
 instruction access fault = 1, illegal instruction = 2, breakpoint = 3, load misaligned = 4, load
 access fault = 5, store misaligned = 6, store/AMO access fault = 7, ecall from M = 11.
@@ -251,7 +251,7 @@ against the fused decoder's fetch-loop budget, which no longer exists on this tr
 **The eleven A instructions are decoded, executed and claimed** (ADR-0106, ADR-0108): Zaamo and
 Zalrsc in full, `.aq`/`.rl` decoded and ignored, cause 4 for a misaligned `lr.w` and 6 for the
 other ten; `misa` bit 0 is the only runtime statement of that. The suite builds at
-`-march=rv32imac_zicsr_zifencei_zkt`, so six programs execute atomics — `amo.S`, `amominmax.S`,
+`-march=rv32imac_zicsr_zifencei_zkt_zkr`, so six programs execute atomics — `amo.S`, `amominmax.S`,
 `amotrap.S`, `lrsc.S`, `lrsclock.S`, `amoregion.S` — and five agree with the reference model, the
 semantic oracle for the nine functions, LR/SC's five invalidation events and the four causes
 (`lrsclock.S` arms the timer the model lacks). The `.S` suite is not an oracle for them:
@@ -261,7 +261,7 @@ evidence anything was compared. Every claim they make is an in-band assertion th
 result back into a register, because `test/cosim.cc` compares registers and never memory.
 
 **The ISA string has one source and `make test` grades it**: `test/march_test.sh` declares
-`rv32imac_zicsr_zifencei_zkt` and checks all seven sites that state it, four of which are silent
+`rv32imac_zicsr_zifencei_zkt_zkr` and checks all seven sites that state it, four of which are silent
 when wrong — `soc-rom`'s `.c` shape, `DHRY_CFLAGS`, `COREMARK_CFLAGS` and the copy of
 `DHRY_CFLAGS` in `soc/depth/cycles.py` all build programs with no atomic in them. Two spellings
 that look identical must **not** move with it: `formal/checks.cfg`'s `isa rv32imc` and
@@ -291,7 +291,7 @@ multiplies resolve in the `init` state with no counter and `components_executor`
 `formal/executor-zkt-probe.py` as the red direction and prerequisite; its header says why the
 mutation is narrowed to `rs2 != 0` and why only the basecase leg is read.
 
-**`seed` (0x015) is implemented and Zkr is not claimed** (ADR-0245). A read returns the status in
+**`seed` (0x015) is implemented and Zkr is claimed** (ADR-0245, amended). A read returns the status in
 bits 31:30 (BIST 00, WAIT 01, ES16 10, DEAD 11), zero in 29:16, and 16 bits of entropy in 15:0 only
 under ES16; a read consumes the word, and a read that never reads (`csrrw` with `rd = x0`) consumes
 nothing. The access must write: `csrrs`/`csrrc` with a zero source field, register or immediate
@@ -300,14 +300,22 @@ ADR-0240 spelling that held 12 MHz where a flag out of `rtl/csrs.v` did not). `s
 so no value-dependent timing exists and `test/zkt_isolation_test.py` stays green. The source is
 `rtl/trng.v`, inside `rtl/csrs.v`: a slow oscillator reaches the core on the `entropy_raw` input,
 and the module measures the interval between its rising edges in `clk` cycles, takes the low two
-bits, runs a von Neumann corrector and an 8-to-1 XOR fold, and buffers 16 bits. Two hardware health
-tests report DEAD, sticky and never alongside entropy: 32 identical interval samples in a row, and
-no edge for 4,096 cycles. `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
+bits, runs a von Neumann corrector and an 8-to-1 XOR fold, and buffers 16 bits. Four hardware health
+tests report DEAD, sticky and never alongside entropy: no edge for 4,096 cycles; a 64-sample aligned
+block of raw samples with no corrected bit (a beat pattern emits nothing and would otherwise sit in
+WAIT forever); the 32nd repeat of the previous corrected bit in a row (a repetition count on the folded output, which
+also catches a period-2 emitted pattern); and an adaptive proportion over 512-sample windows, dead
+when one value fills 410 (NIST SP 800-90B 4.4.2, a claimed 0.5 bit per sample at 2^-20). BIST lasts
+until 1,024 raw samples have passed all four, and words produced before then are discarded.
+`soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
 (~10 kHz, a hard macro costing no cell); an `entropy_raw` held low, as the iCESugar-Pro board file
-and every formal harness hold it, reads DEAD, which is spec-honest. **Zkr stays out of the ISA
-string until a board measurement of the raw intervals settles the sample bits and the fold depth**;
-the same claim also owes `mseccfg` (0x747), the adaptive-proportion test in firmware (which needs
-a raw tap this change does not build) and a statement of what the conditioner promises. Simulation
+and every formal harness hold it, reads DEAD, which is spec-honest. **Zkr is in the ISA
+string**, `_zkr` at all seven sites `test/march_test.sh` grades, and no board has measured the raw
+intervals: the sample bits, the fold depth and the claimed 0.5 bit per sample are unmeasured
+guesses until a board capture settles them. `mseccfg` (0x747) and `mseccfgh` (0x757) read zero and
+ignore writes: Zkr adds the SSEED and USEED fields, which the Zkr text allows to be read-only zero,
+and M-mode access to `seed` is unconditional. Both addresses are implemented because the privileged
+spec lists `mseccfgh` as the RV32 upper half of `mseccfg`. Simulation
 drives `entropy_raw` from a seeded LFSR in `test/testbench.v`, so every run reproduces.
 `test/asm/seedaccess.S` agrees with Sail (which claims Zkr in `test/sail/rv32imac_zicsr.json`,
 `seed`'s value exempt in `test/cosim.py`); `test/asm/seed.S` and `test/trng_tb.v` grade the
@@ -1123,9 +1131,9 @@ that it advances by exactly the non-trapping issues; `test/asm/minstret.S`, `tes
 `make -C formal check` as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is necessary,
 not sufficient.
 
-With the `seed` CSR and its entropy source, `make fit` reads 4,492 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
-soc-timing` places at 5,205 of 5,280 `ICESTORM_LC` (98.6%), with sixteen paired seeds at 12.72–13.48 MHz and
-`soc/pin.json` holding seed 67306537 at 13.62 MHz (ADR-0245 records the sweep and that a respelling at this occupancy moved the count 51 cells; the ECP5 and dual figures are not re-taken there beyond `make ecp5-timing`'s gates).
+With the `seed` CSR, its entropy source and the Zkr health tests, `make fit` reads 4,503 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
+soc-timing` places at 5,209 of 5,280 `ICESTORM_LC` (98.7%), with sixteen paired seeds at 12.27–13.30 MHz (median 12.91) and
+`soc/pin.json` holding seed 20382078 at 13.19 MHz (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.95 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
@@ -1205,7 +1213,7 @@ oracle for the wire.
 
 The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. Anything
 under `test/bench/` is deliberately outside it: both legs glob `test/asm`, and a benchmark that
-needs two million cycles would time out against the runner's 5000. The two shapes differ only in
+needs two million cycles would time out against the runner's 8000. The two shapes differ only in
 how `.data` reaches RAM — poked in by the harness for assembly, copied by the startup for C — and a
 change to one shape's build is a change in FIVE places: `test/run_tests.sh`, `test/cosim.py`'s
 `assemble()`, the Makefile's `soc-rom`, `test/dual_smoke.sh` and `test/dual_build.sh`.
