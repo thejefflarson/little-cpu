@@ -300,12 +300,14 @@ ADR-0240 spelling that held 12 MHz where a flag out of `rtl/csrs.v` did not). `s
 so no value-dependent timing exists and `test/zkt_isolation_test.py` stays green. The source is
 `rtl/trng.v`, inside `rtl/csrs.v`: a slow oscillator reaches the core on the `entropy_raw` input,
 and the module measures the interval between its rising edges in `clk` cycles, takes the low two
-bits, runs a von Neumann corrector and an 8-to-1 XOR fold, and buffers 16 bits. Two hardware health
-tests report DEAD, sticky and never alongside entropy: no edge for 4,096 cycles; 64 raw samples in
-a row with no corrected bit; 32 identical corrected bits in a row (a repetition count on the folded
-output); and an adaptive proportion over 512-sample windows, dead when one value fills 410 (NIST
-SP 800-90B 4.4.2, a claimed 0.5 bit per sample at 2^-20). BIST lasts until 1,024 raw samples have
-passed all four, and words produced before then are discarded. `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
+bits, runs a von Neumann corrector and an 8-to-1 XOR fold, and buffers 16 bits. Four hardware health
+tests report DEAD, sticky and never alongside entropy: no edge for 4,096 cycles; a 64-sample aligned
+block of raw samples with no corrected bit (a beat pattern emits nothing and would otherwise sit in
+WAIT forever); the 32nd repeat of the previous corrected bit in a row (a repetition count on the folded output, which
+also catches a period-2 emitted pattern); and an adaptive proportion over 512-sample windows, dead
+when one value fills 410 (NIST SP 800-90B 4.4.2, a claimed 0.5 bit per sample at 2^-20). BIST lasts
+until 1,024 raw samples have passed all four, and words produced before then are discarded.
+`soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
 (~10 kHz, a hard macro costing no cell); an `entropy_raw` held low, as the iCESugar-Pro board file
 and every formal harness hold it, reads DEAD, which is spec-honest. **Zkr is in the ISA
 string**, `_zkr` at all seven sites `test/march_test.sh` grades, and no board has measured the raw
@@ -1129,9 +1131,9 @@ that it advances by exactly the non-trapping issues; `test/asm/minstret.S`, `tes
 `make -C formal check` as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is necessary,
 not sufficient.
 
-With the `seed` CSR and its entropy source, `make fit` reads 4,492 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
-soc-timing` places at 5,205 of 5,280 `ICESTORM_LC` (98.6%), with sixteen paired seeds at 12.72–13.48 MHz and
-`soc/pin.json` holding seed 67306537 at 13.62 MHz (ADR-0245 records the sweep and that a respelling at this occupancy moved the count 51 cells; the ECP5 and dual figures are not re-taken there beyond `make ecp5-timing`'s gates).
+With the `seed` CSR, its entropy source and the Zkr health tests, `make fit` reads 4,560 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
+soc-timing` places at 5,241 of 5,280 `ICESTORM_LC` (99.3%), with sixteen paired seeds at 12.03–13.16 MHz (median 12.82) and
+`soc/pin.json` holding seed 125781539 at 13.14 MHz (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 37.95 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
