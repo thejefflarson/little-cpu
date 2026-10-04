@@ -7524,6 +7524,11 @@ probe "a mutation line with a stray extra field is red rather than read as the n
   "takes exactly one field" "$MCOV $d"
 begin_group "soc/compare/product_check.py"
 
+PW_DIGEST=sha256:$(printf 'a%.0s' $(seq 64))
+PW_GCC='riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0 [/opt/bin/riscv-none-elf-gcc]'
+PW_TOOLS="# yosys: Yosys 0.68 [/opt/bin/yosys]
+# riscv-none-elf-gcc: $PW_GCC"
+
 product_check_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/repo/rtl" "$d/repo/soc/compare"
@@ -7533,16 +7538,24 @@ product_check_fixture() {
   git -C "$d/repo" add -A
   git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
   local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  local digest; digest=$(python3 "$REPO/soc/compare/product_digest.py" --repo "$d/repo")
+  local tools=$PW_TOOLS
   python3 "$REPO/soc/compare/product_write.py" "$d/repo/product.json" dhrystone --measured \
     --target-core littlecpu --base "$base" --dirty no --date 2026-08-16T00:00:00Z \
     --seeds 'default 1' --cflags '-march=rv32ic -O2' --isa rv32ic \
     --rom-words 1024 --ram-words 512 \
-    --unit DMIPS/MHz --tool 'yosys=Yosys 0.68 [/opt/bin/yosys]' \
+    --unit DMIPS/MHz --digest "$digest" --tools-block "$tools" --cycle-tools-block "$tools" \
     --clock-ns 'littlecpu=32.36,31.25' --clock-ns 'vexriscv=20.73,20.18' \
     --cycle-factor 'littlecpu=0.748' --cycle-factor 'vexriscv=0.557' > /dev/null
   python3 "$REPO/soc/compare/product_write.py" "$d/repo/product.json" coremark \
     --not-yet-measured --target-core littlecpu --core hazard3 \
     --reason 'not on this tree yet' > /dev/null
+  printf '%s' "$d"
+}
+
+product_check_legacy_fixture() {  # a stamp from before the digest existed: no `digest` field
+  local d; d=$(product_check_fixture)
+  mutate "$d/repo/product.json" '/"digest":/d'
   printf '%s' "$d"
 }
 
@@ -7557,10 +7570,14 @@ d=$(product_check_fixture)
 probe "control: a fresh stamp with nothing changed prints clean and exits 0" 0 \
   "dhrystone: fresh, stamped" "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
 
-d=$(product_check_fixture)
+d=$(product_check_legacy_fixture)
+probe "control: a legacy stamp with no digest is still graded, by its base commit, and fresh" 0 \
+  "dhrystone: fresh, stamped" "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
+
+d=$(product_check_legacy_fixture)
 echo '/* touched */' >> "$d/repo/rtl/decoder.v"
 git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qam touch
-probe "an rtl/ change since the stamp's base is STALE, and the file is named" 1 \
+probe "a legacy stamp's rtl/ change since its base is STALE, and the file is named" 1 \
   "rtl/ or soc/compare/ changed since" \
   "$(product_check_run "$d" dhrystone 'cflags=-march=rv32ic -O2')"
 
@@ -7629,16 +7646,133 @@ d=$(product_check_fixture)
 probe "an empty --current value is refused, not compared as though it were the field's value" 2 \
   "--current cflags= is empty" "$(product_check_run "$d" dhrystone 'cflags=')"
 
+pc_cmd() {  # <fixture dir> <extra product_check.py arguments>
+  printf 'python3 %s/soc/compare/product_check.py %s/repo/product.json dhrystone --repo %s/repo %s' \
+    "$REPO" "$1" "$1" "$2"
+}
+
+pc_commit() {  # <fixture dir> -- commit whatever the probe just changed
+  git -C "$1/repo" add -A
+  git -C "$1/repo" -c user.email=probe@example -c user.name=probe commit -qm change
+}
+
+d=$(product_check_fixture)
+echo '/* touched */' >> "$d/repo/rtl/decoder.v"
+pc_commit "$d"
+probe "a digest-bearing stamp is STALE when rtl/ changes, naming the file" 1 \
+  "differing from" "$(pc_cmd "$d" '')"
+
+d=$(product_check_fixture)
+echo 'all: ;' > "$d/repo/Makefile"
+probe "an uncommitted Makefile, which the base diff never watched, makes the digest STALE" 1 \
+  "the measured inputs changed" "$(pc_cmd "$d" '')"
+
+d=$(product_check_fixture)
+mkdir -p "$d/repo/test/bench"
+echo 'int main(void){return 0;}' > "$d/repo/test/bench/dhry_1.c"
+probe "a test/bench source is a measured input" 1 \
+  "the measured inputs changed" "$(pc_cmd "$d" '')"
+
+d=$(product_check_fixture)
+mkdir -p "$d/repo/formal"
+echo 'RISCV_FORMAL_SHA := 0' > "$d/repo/formal/pin.mk"
+probe "formal/pin.mk is a measured input" 1 \
+  "the measured inputs changed" "$(pc_cmd "$d" '')"
+
+d=$(product_check_fixture)
+echo 'dhrystone littlecpu rv32im 1.0' > "$d/repo/soc/compare/CYCLE_FLOOR"
+mkdir -p "$d/repo/docs"
+echo '# generated' > "$d/repo/docs/comparison.md"
+probe "the files the stamp itself feeds are excluded, so it never goes stale on its own output" 0 \
+  "dhrystone: fresh, stamped" "$(pc_cmd "$d" '')"
+
+d=$(product_check_fixture)
+mutate -E "$d/repo/product.json" 's/"base": "[0-9a-f]{40}"/"base": "cccccccccccccccccccccccccccccccccccccccc"/'
+probe "a stamp whose base commit no longer resolves is still graded fresh by its digest" 0 \
+  "dhrystone: fresh, stamped" "$(pc_cmd "$d" '')"
+
+d=$(product_check_fixture)
+probe "control: the stamped compiler name and pinned version agree" 0 \
+  "dhrystone: fresh, stamped" \
+  "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=15.2.0-1')"
+
+d=$(product_check_fixture)
+probe "a renamed compiler is itself a reason, keyed by name" 1 \
+  "no riscv64-unknown-elf-gcc" \
+  "$(pc_cmd "$d" '--current compiler=riscv64-unknown-elf-gcc --current compiler_version=15.2.0-1')"
+
+d=$(product_check_fixture)
+probe "a pinned compiler version the stamp did not measure is STALE" 1 \
+  "16.2.0-1 is pinned" \
+  "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=16.2.0-1')"
+
+d=$(product_check_fixture)
+mutate "$d/repo/product.json" 's/"tools": {/"tools_gone": {/'
+probe "a stamp with no tools block is STALE, not read as having nothing to compare" 1 \
+  "records no readable tools block" "$(pc_cmd "$d" '')"
+
+d=$(product_check_fixture)
+mutate "$d/repo/product.json" 's/Yosys 0.68/Yosys 0.99/'
+probe "a floating tool is recorded and never graded, so a new yosys is not STALE" 0 \
+  "dhrystone: fresh, stamped" \
+  "$(pc_cmd "$d" '--current compiler=riscv-none-elf-gcc --current compiler_version=15.2.0-1')"
+
 begin_group "soc/compare/product_write.py"
+
+PW_BASE="python3 $REPO/soc/compare/product_write.py"
+pw_args() {  # <digest> <tools-block> <cycle-tools-block> <seeds> <clock-ns sample list>
+  printf "%s --measured --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+--dirty no --date 2026-08-16T00:00:00Z --seeds '%s' --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
+--rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest '%s' --tools-block '%s' \
+--cycle-tools-block '%s' --clock-ns littlecpu=%s --clock-ns vexriscv=%s \
+--cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5" \
+    "dhrystone" "$4" "$1" "$2" "$3" "$5" "$5"
+}
+
+d=$(new_case)
+probe "control: matching tool stamps, a digest and a sample per seed write a pair" 0 \
+  "wrote dhrystone (measured)" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1' '# yosys: Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+probe "a clock factor and a cycle factor measured with different tools are not a product" 1 \
+  "measured with different tools (yosys)" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1' '# yosys: Y 2' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+probe "a missing cycle tools block is refused, not defaulted to the clock side's" 1 \
+  "wants --cycle-tools-block" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1' '' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+probe "a tools block that is not '# NAME: VALUE' lines is refused as unreadable" 1 \
+  "is not a unique '# NAME: VALUE' entry" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" 'yosys Y 1' 'yosys Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+probe "a tools block naming one tool twice is refused rather than the later line winning" 1 \
+  "is not a unique '# NAME: VALUE' entry" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1
+# yosys: Y 2' '# yosys: Y 2' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+probe "a missing content digest is refused" 1 \
+  "wants --digest" \
+  "$PW_BASE $d/p.json $(pw_args '' '# yosys: Y 1' '# yosys: Y 1' 'default 1' 30.0,31.0)"
+
+d=$(new_case)
+probe "a sweep with fewer samples than seeds is refused" 1 \
+  "a sweep that lost a seed" \
+  "$PW_BASE $d/p.json $(pw_args "$PW_DIGEST" '# yosys: Y 1' '# yosys: Y 1' 'default 1 2' 30.0,31.0)"
 
 d=$(new_case)
 probe "control: a complete --measured call writes a valid pair" 0 \
   "wrote dhrystone (measured)" \
   "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds 'default 1' \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
 
@@ -7647,9 +7781,9 @@ probe "control: a THIRD core's --clock-ns/--cycle-factor adds a second product, 
   "wrote dhrystone (measured)" \
   "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds 'default 1' \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
     --clock-ns hazard3=25.0,26.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 --cycle-factor hazard3=0.6"
@@ -7659,9 +7793,9 @@ probe "a lone target core with no other core is refused, not written as an empty
   "at least twice" \
   "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds 'default 1' \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns littlecpu=30.0,31.0 --cycle-factor littlecpu=0.7"
 
 d=$(new_case)
@@ -7671,7 +7805,7 @@ probe "--clock-ns and --cycle-factor naming different core sets is refused" 1 \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns littlecpu=30.0 --clock-ns hazard3=20.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
 
@@ -7682,13 +7816,13 @@ probe "cores given with no --target-core among them is refused" 1 \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns vexriscv=30.0 --clock-ns hazard3=20.0 \
     --cycle-factor vexriscv=0.7 --cycle-factor hazard3=0.5"
 
 d=$(new_case)
-probe "a --measured call with no --tool is refused rather than stamping an unknown toolchain" 1 \
-  "wants at least one --tool" \
+probe "a --measured call with no --tools-block is refused rather than stamping an unknown toolchain" 1 \
+  "wants --tools-block" \
   "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
@@ -7704,7 +7838,7 @@ probe "a --measured call with no --isa is refused the same way as a missing --cf
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
     --cflags '-march=rv32ic -mabi=ilp32' \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
 
@@ -7718,11 +7852,12 @@ pd_fixture() {  # writes before.json and after.json into a fresh, isolated repo
   git -C "$d/repo" add -A
   git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
   local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  local digest; digest=$(python3 "$REPO/soc/compare/product_digest.py" --repo "$d/repo")
   python3 "$REPO/soc/compare/product_write.py" "$d/before.json" dhrystone --measured \
     --target-core littlecpu --base "$base" \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest "$digest" --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 > /dev/null
   cp "$d/before.json" "$d/after.json"
@@ -7759,7 +7894,7 @@ python3 "$REPO/soc/compare/product_write.py" "$d/after.json" coremark --measured
   --target-core littlecpu --base bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
   --dirty no --date 2026-08-17T00:00:00Z --seeds default \
   --cflags '-march=rv32ima -mabi=ilp32' --isa rv32ima \
-  --rom-words 4096 --ram-words 4096 --unit CoreMark/MHz --tool yosys=Yosys \
+  --rom-words 4096 --ram-words 4096 --unit CoreMark/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
   --clock-ns littlecpu=30.0 --clock-ns hazard3=25.0 \
   --cycle-factor littlecpu=2.0 --cycle-factor hazard3=1.4 > /dev/null
 probe "a pair measured for the first time is news on its own, with no --current at all" 0 \
@@ -7784,7 +7919,7 @@ probe "product_write.py refuses a --base that is not a 40-character commit SHA" 
     --target-core littlecpu --base deadbeef \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
 
@@ -7795,7 +7930,7 @@ probe "a --field naming a key the schema already reserves is refused" 1 \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --field base=x \
     --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5"
@@ -7807,7 +7942,7 @@ probe "--field stamps an extra provenance field verbatim" 0 \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --field ecp5_part=LFE5U-25F-6CABGA381 \
     --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 \
@@ -7818,9 +7953,9 @@ probe "--step-mhz replaces each core's own placed clock with one fixed step in i
   "\"worst\": 2.0" \
   "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds 'default 1' \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --step-mhz 10 --clock-ns littlecpu=30.0,31.0 --clock-ns vexriscv=20.0,21.0 \
     --cycle-factor littlecpu=1.0 --cycle-factor vexriscv=2.0 \
     && cat $d/p.json"
@@ -7830,9 +7965,9 @@ probe "--step-mhz refuses a core whose worst placement is under the step" 1 \
   "a core under the step is out of the comparison" \
   "python3 $REPO/soc/compare/product_write.py $d/p.json dhrystone --measured \
     --target-core littlecpu --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-    --dirty no --date 2026-08-16T00:00:00Z --seeds default \
+    --dirty no --date 2026-08-16T00:00:00Z --seeds 'default 1' \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest $PW_DIGEST --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --step-mhz 12 --clock-ns littlecpu=80.0,90.0 --clock-ns vexriscv=20.0,21.0 \
     --cycle-factor littlecpu=1.0 --cycle-factor vexriscv=2.0"
 
@@ -7848,11 +7983,12 @@ pd_real_layout_fixture() {
   git -C "$d/repo" add -A
   git -C "$d/repo" -c user.email=probe@example -c user.name=probe commit -qm base
   local base; base=$(git -C "$d/repo" rev-parse HEAD)
+  local digest; digest=$(python3 "$REPO/soc/compare/product_digest.py" --repo "$d/repo")
   python3 "$REPO/soc/compare/product_write.py" "$d/before.json" dhrystone --measured \
     --target-core littlecpu --base "$base" \
     --dirty no --date 2026-08-16T00:00:00Z --seeds default \
     --cflags '-march=rv32ic -mabi=ilp32' --isa rv32ic \
-    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --tool yosys=Yosys \
+    --rom-words 1024 --ram-words 512 --unit DMIPS/MHz --digest "$digest" --tools-block '# yosys: Yosys' --cycle-tools-block '# yosys: Yosys' \
     --clock-ns littlecpu=30.0 --clock-ns vexriscv=20.0 \
     --cycle-factor littlecpu=0.7 --cycle-factor vexriscv=0.5 > /dev/null
   cp "$d/before.json" "$d/repo/soc/compare/product.json"
@@ -7880,9 +8016,93 @@ probe "excluding --require-news's artifact does not blind it to a real soc/compa
 
 d=$(pd_fixture)
 mutate -E "$d/before.json" 's/"base": "[0-9a-f]{40}"/"base": "0123456789abcdef0123456789abcdef01234567"/'
-probe "an orphaned base recovers --require-news as news rather than refusing the run" 0 \
+mutate "$d/before.json" '/"digest":/d'
+probe "an orphaned base on a legacy stamp recovers --require-news as news rather than refusing the run" 0 \
   "news" \
   "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
+
+d=$(pd_fixture)
+mutate -E "$d/before.json" 's/"base": "[0-9a-f]{40}"/"base": "0123456789abcdef0123456789abcdef01234567"/'
+probe "an orphaned base on a digest-bearing stamp is not news, the digest still matching" 1 \
+  "no news" \
+  "python3 $REPO/soc/compare/product_diff.py $d/before.json $d/after.json --require-news --repo $d/repo"
+
+begin_group "soc/compare/run_product.sh"
+
+# Naming a part the harness does not know ends the run at its own refusal, before anything
+# is built or placed, so a seed list that gets that far has passed the seed validation.
+RPS="$REPO/soc/compare/run_product.sh"
+
+probe "control: a seed list of 'default' and digits reaches the next refusal" 2 \
+  "names 'hx8k'" \
+  "COMPARE_PRODUCT_SEEDS='default 7' COMPARE_PRODUCT_PARTS=hx8k sh $RPS"
+
+probe "a seed word carrying shell syntax is refused before it is expanded" 2 \
+  "has the word '1;'" \
+  "COMPARE_PRODUCT_SEEDS='default 1; id' COMPARE_PRODUCT_PARTS=hx8k sh $RPS"
+
+probe "a glob seed word stays a literal and is refused, not expanded to file names" 2 \
+  "has the word '*'" \
+  "COMPARE_PRODUCT_SEEDS='*' COMPARE_PRODUCT_PARTS=hx8k sh $RPS"
+
+rp_state_fixture() {  # a repo with an ignored opponent clone, and run_product.sh's state functions
+  local d; d=$(new_case)
+  local g="git -c user.email=probe@example -c user.name=probe"
+  mkdir -p "$d/repo/rtl" "$d/repo/soc/compare/hazard3"
+  cp "$REPO/soc/compare/product_digest.py" "$d/repo/soc/compare/"
+  echo 'module a(); endmodule' > "$d/repo/rtl/a.v"
+  echo soc/compare/hazard3 > "$d/repo/.gitignore"
+  $g -C "$d/repo/soc/compare/hazard3" init -q
+  echo x > "$d/repo/soc/compare/hazard3/f"
+  $g -C "$d/repo/soc/compare/hazard3" add -A
+  $g -C "$d/repo/soc/compare/hazard3" commit -qm clone
+  $g -C "$d/repo" init -q
+  $g -C "$d/repo" add -A
+  $g -C "$d/repo" commit -qm base
+  awk '/^tree_status\(\) \{/{on=1} /^BASE=/{on=0} on' "$RPS" > "$d/fn.sh"
+  printf '%s\n' 'set -eu' "cd $d/repo" 'OUT_EXCLUDE=soc/compare/product.json' \
+    '. ../fn.sh' 'START_STATE=$(tree_state)' 'eval "$MUT"' 'assert_tree_unmoved' 'echo unmoved' \
+    > "$d/run.sh"
+  printf '%s' "$d"
+}
+
+d=$(rp_state_fixture)
+probe "control: nothing changing during the run is unmoved" 0 \
+  "unmoved" "MUT=true sh $d/run.sh"
+
+d=$(rp_state_fixture)
+probe "an input edited during the run refuses to stamp" 1 \
+  "changed during the run" "MUT='echo more >> rtl/a.v' sh $d/run.sh"
+
+d=$(rp_state_fixture)
+probe "the artifact the run itself rewrites does not count as the tree moving" 0 \
+  "unmoved" "MUT='echo {} > soc/compare/product.json' sh $d/run.sh"
+
+d=$(rp_state_fixture)
+probe "an ignored opponent clone gaining an uncommitted change refuses to stamp" 1 \
+  "changed during the run" "MUT='echo y > soc/compare/hazard3/g' sh $d/run.sh"
+
+d=$(rp_state_fixture)
+probe "an ignored opponent clone moving to another commit refuses to stamp" 1 \
+  "changed during the run" \
+  "MUT='git -c user.email=p@e -c user.name=p -C soc/compare/hazard3 commit --allow-empty -qm moved' sh $d/run.sh"
+
+RP_SPLICE='TOOL_ARGS|eval "set --|python3 -c "[^"]*\$'
+
+probe "control: run_product.sh evals no tool string and splices no variable into python3 -c" 0 \
+  "" "! grep -nE '$RP_SPLICE' $RPS"
+
+d=$(new_case)
+cp "$RPS" "$d/run_product.sh"
+echo 'X=$(python3 -c "print($N * 2)")' >> "$d/run_product.sh"
+probe "a variable spliced into python3 -c text is red" 1 \
+  "print(" "! grep -nE '$RP_SPLICE' $d/run_product.sh"
+
+d=$(new_case)
+cp "$RPS" "$d/run_product.sh"
+echo 'eval "set -- $TOOL_ARGS"' >> "$d/run_product.sh"
+probe "a tool version string handed back to eval is red" 1 \
+  "TOOL_ARGS" "! grep -nE '$RP_SPLICE' $d/run_product.sh"
 
 begin_group "test/probe_gates.sh: mutate, mutate_remove and fixture_anchor"
 
