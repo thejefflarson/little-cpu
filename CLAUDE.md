@@ -1131,9 +1131,9 @@ that it advances by exactly the non-trapping issues; `test/asm/minstret.S`, `tes
 `make -C formal check` as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is necessary,
 not sufficient.
 
-With the `seed` CSR, its entropy source and the Zkr health tests, `make fit` reads 4,560 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
-soc-timing` places at 5,241 of 5,280 `ICESTORM_LC` (99.3%), with sixteen paired seeds at 12.03–13.16 MHz (median 12.82) and
-`soc/pin.json` holding seed 125781539 at 13.14 MHz (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 37.95 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
+With the `seed` CSR, its entropy source and the Zkr health tests, `make fit` reads 4,503 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
+soc-timing` places at 5,209 of 5,280 `ICESTORM_LC` (98.7%), with sixteen paired seeds at 12.27–13.30 MHz (median 12.91) and
+`soc/pin.json` holding seed 20382078 at 13.19 MHz (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.95 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets

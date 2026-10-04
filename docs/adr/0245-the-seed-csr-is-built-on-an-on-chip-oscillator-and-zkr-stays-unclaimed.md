@@ -166,33 +166,35 @@ below come from `soc/baseline_summary.py --allow-mismatch` over its two CSVs.
 
 | | main (e008baa1) | this tree |
 |---|---|---|
-| packed `ICESTORM_LC`, SoC | 5,205 | 5,241 (+36; 99.3% of 5,280) |
-| `make fit`, local | 4,492 | 4,560 (+68) |
-| worst placement | 78.60 ns, 12.72 MHz | 83.10 ns, 12.03 MHz |
-| median | 76.15 ns, 13.13 MHz | 78.03 ns, 12.82 MHz |
-| best | 74.16 ns, 13.48 MHz | 75.98 ns, 13.16 MHz |
-| spread | 6.0% | 9.4% |
+| packed `ICESTORM_LC`, SoC | 5,205 | 5,209 (+4; 98.7% of 5,280) |
+| `make fit`, local | 4,492 | 4,503 (+11) |
+| worst placement | 78.60 ns, 12.72 MHz | 81.50 ns, 12.27 MHz |
+| median | 76.15 ns, 13.13 MHz | 77.47 ns, 12.91 MHz |
+| best | 74.16 ns, 13.48 MHz | 75.16 ns, 13.30 MHz |
+| spread | 6.0% | 8.4% |
 | under 12.00 MHz | 0 of 16 | 0 of 16 |
 
 Per-seed MHz, `default, 1..15`:
 
 - main: 13.43 13.16 13.06 13.01 13.48 12.72 13.33 12.80 12.97 13.32 13.08 13.10 13.06 13.19 13.26 13.38
-- this tree: 13.11 12.87 12.03 12.78 12.76 12.95 12.93 12.86 12.87 13.16 12.73 12.52 12.58 12.44 12.76 13.15
+- this tree: 13.25 12.70 12.82 13.12 12.70 13.30 12.97 12.61 12.93 13.00 12.27 13.18 12.45 12.89 12.86 12.98
 
-The worst placement clears 12.00 by 0.25%. **This is a draw of the mapper, as the first
-measurement above was.** The first spelling of these tests packed to 5,325 cells and nextpnr
-refused it (`Failed to expand region`); the same logic respelled packed anywhere from 5,238 to
-5,316 across eight carry-chain spellings and six statement orders, and a comment's presence moved
-it too. This tree ships a spelling that packed to 5,241: a 10-bit sample counter whose wrap ends
-BIST, a carry out for the repetition count, a block-aligned starvation flag in place of a six-bit
-counter, and an adaptive count offset by 102 so the 410th match is the one that finds it all ones.
-At 99.3% occupancy the next edit to any file synthesis reads owes this sweep again, and no test
-may be dropped to buy cells back.
+The worst placement clears 12.00 by 2.2%. **The cell count is a draw of the mapper.** The first
+spelling of these tests packed to 5,325 cells and nextpnr refused it (`Failed to expand region`);
+the same logic respelled packed anywhere from 5,238 to 5,316 across eight carry-chain spellings and
+six statement orders, and a comment's presence moved it too. Making the repetition count land on
+exactly 32 moved it again, in both directions: the carry-out spelling with the run's first bit
+counted packed to 5,281 and did not place, and five more spellings read 5,209 to 5,319. This tree
+ships the one that packed to 5,209: a 10-bit sample counter whose wrap ends BIST, a repetition
+count that compares against 30 and resets to all ones so its first increment lands on zero, a
+block-aligned starvation flag in place of a six-bit counter, and an adaptive count offset by 102 so
+the 410th match is the one that finds it all ones. At 98.7% occupancy the next edit to any file
+synthesis reads owes this sweep again, and no test may be dropped to buy cells back.
 
-`make soc-seed-search` re-pinned `soc/pin.json` to seed 125781539 at 13.14 MHz (9.5% over 12.00).
-`make fit` reads 4,560 against `FIT_MAX_LC` 4,586, unchanged: the budget holds with 26 cells to
-spare, and the churn band of ADR-0220 is wider than that, so a CI count above the local one trips
-it. `make ecp5-timing` reads 37.95 MHz (26.35 ns) with `DP16KD` 36, `TRELLIS_DPR16X4` 32 and
+`make soc-seed-search` re-pinned `soc/pin.json` to seed 20382078 at 13.19 MHz (9.9% over 12.00).
+`make fit` reads 4,503 against `FIT_MAX_LC` 4,586, unchanged: the budget holds with 83 cells to
+spare locally, and the churn band of ADR-0220 is about that wide, so a CI count above the local one
+can still trip it. `make ecp5-timing` reads 39.95 MHz (25.03 ns, one placement at the default seed) with `DP16KD` 36, `TRELLIS_DPR16X4` 32 and
 `MULT18X18D` 4 as declared and no block-RAM reset driven by logic. `make -C formal all` passes
 with the baselines unchanged, and `make cosim-suite` agrees on 73 of 81 against
 `COSIM_EXPECTED_FAIL`.
