@@ -1211,7 +1211,7 @@ oracle for the wire.
 
 The suite is `test/asm/*.S` **and** `test/asm/*.c`, and `test/OBSERVED_FLOOR` names both. Anything
 under `test/bench/` is deliberately outside it: both legs glob `test/asm`, and a benchmark that
-needs two million cycles would time out against the runner's 5000. The two shapes differ only in
+needs two million cycles would time out against the runner's 8000. The two shapes differ only in
 how `.data` reaches RAM — poked in by the harness for assembly, copied by the startup for C — and a
 change to one shape's build is a change in FIVE places: `test/run_tests.sh`, `test/cosim.py`'s
 `assemble()`, the Makefile's `soc-rom`, `test/dual_smoke.sh` and `test/dual_build.sh`.

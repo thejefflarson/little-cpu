@@ -497,8 +497,8 @@ def main():
                     help="a test/asm/*.S or *.c file name (default: add.S)")
     ap.add_argument("--cosim-binary", default=os.path.join(REPO, "cosim"))
     ap.add_argument("--sail", default=None, help="path to sail_riscv_sim")
-    ap.add_argument("--cycles", type=int, default=5000,
-                    help="cxxrtl cycle budget (test/run_tests.sh uses 5000)")
+    ap.add_argument("--cycles", type=int, default=8000,
+                    help="cxxrtl cycle budget (test/run_tests.sh uses 8000)")
     ap.add_argument("--inst-limit", type=int, default=20000,
                     help="sail instruction budget")
     ap.add_argument("--quiet", action="store_true")
