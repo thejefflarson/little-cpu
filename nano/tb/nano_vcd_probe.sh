@@ -1,8 +1,6 @@
 #!/bin/bash
-# Requires the iverilog wrapper to write no waveform unless given --vcd, and to write the
-# named file when given one. Not hermetic with the real wrapper: it runs vvp on the
-# built nano_icarus.vvp. Runs inside a scratch directory, so a stray dump lands there
-# rather than in the repo root.
+# Requires the iverilog wrapper to write no waveform without --vcd and the named file with it.
+# Runs real vvp on a one-word jal-to-self image in a scratch dir, so a stray dump lands there.
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
@@ -21,7 +19,6 @@ fi
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
 
-# One jal-to-self word: the run need not pass, only reach the testbench's dump decision.
 printf '0000006f\n' > "$WORKDIR/loop.rom.hex"
 printf '00000000\n' > "$WORKDIR/loop.ram.hex"
 
