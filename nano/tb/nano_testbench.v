@@ -87,6 +87,7 @@ module nano_testbench(
   (* keep *) logic stream_fault;
   (* keep *) logic queue_fault;
   (* keep *) logic hit_fault;
+  (* keep *) logic evict_fault;
   (* keep *) logic in_preamble;
   // Echoes this build's own parameters so nano_cxxrtl.cc can print a MODEL line from the
   // binary itself, rather than trusting the script that invoked its build.
@@ -131,6 +132,7 @@ module nano_testbench(
     .stream_fault(stream_fault),
     .queue_fault(queue_fault),
     .hit_fault(hit_fault),
+    .evict_fault(evict_fault),
     .in_preamble(in_preamble)
   );
 `elsif NANO_QSPI_PINS

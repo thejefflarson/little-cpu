@@ -76,6 +76,9 @@ run_mutation "cam-lookup-ignores-valid-bit" \
 run_mutation "tag-compare-dropped" \
   "s/target_index\[31:SLOTBITS\] == tag_window_tag \&\&//;s/target_index_p1\[31:SLOTBITS\] == tag_window_tag \&\&//" \
   "never entered the buffer" || status=1
+run_mutation "cam-holds-twice-its-window" \
+  "s/localparam int CAM_SLOTS = SLOTS;/localparam int CAM_SLOTS = 2 * SLOTS;/" \
+  "already evicted" || status=1
 run_mutation "resync-first-cycle-charged-to-parcel-wait" \
   "s/(preamble_pending || (redirect_now \&\& !loop_hit_full))/(redirect_now \&\& !loop_hit_full)/" \
   "still in its address phase" || status=1

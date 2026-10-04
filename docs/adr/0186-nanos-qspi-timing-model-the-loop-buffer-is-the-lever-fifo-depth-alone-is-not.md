@@ -328,10 +328,12 @@ each delivery with a running sequence number and accepts a hit only within `LOOP
 deliveries of it, so a parcel evicted from the window cannot hit. Dropping the second parcel's
 valid bit from `tag_ready1` alone fails it on `KIND=4`, a loop of two 32-bit instructions;
 dropping the CAM lookup's `cam_valid` term fails it on the first fetch; dropping the tagged
-block's tag compare fails it where a loop crosses a block edge. Single-line mutations that
+block's tag compare fails it where a loop crosses a block edge. Mutations that
 corrupt the CAM's shift are caught by the marginal-cost check instead, because they lose hits
-rather than invent them; no one-line mutation inflates the CAM past its capacity, so the window
-bound is exercised by construction and not by a forced-red case. `in_preamble` lets the harness refuse
+rather than invent them. The window bound has its own exit, `evict_fault`, so a delivered but
+evicted parcel reads differently from one never delivered; its forced-red case gives the CAM twice
+its storage (`CAM_SLOTS`) while the grader keeps `LOOP_WINDOW`, and `KIND=3`'s fourteen-parcel
+loop then hits parcels the specified eight-parcel window had already dropped. `in_preamble` lets the harness refuse
 a fetch cycle charged to parcel wait while the flash is still in its address phase.
 
 **One cycle per load or store moved from parcel wait to redirect preamble.** On a transaction's

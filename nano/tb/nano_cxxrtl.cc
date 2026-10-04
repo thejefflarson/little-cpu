@@ -239,10 +239,12 @@ int main(int argc, char **argv) {
       items.count("queue_fault") ? &items.at("queue_fault").at(0) : nullptr;
   const cxxrtl::debug_item *qspi_hit_fault =
       items.count("hit_fault") ? &items.at("hit_fault").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_evict_fault =
+      items.count("evict_fault") ? &items.at("evict_fault").at(0) : nullptr;
   const cxxrtl::debug_item *qspi_in_preamble =
       items.count("in_preamble") ? &items.at("in_preamble").at(0) : nullptr;
   const bool qspi_timing = qspi_mem_valid && qspi_parcel && qspi_preamble && qspi_loophit &&
-                            qspi_handshake && qspi_psram && qspi_fault && qspi_queue_fault && qspi_hit_fault &&
+                            qspi_handshake && qspi_psram && qspi_fault && qspi_queue_fault && qspi_hit_fault && qspi_evict_fault &&
                             qspi_in_preamble;
   uint64_t bucket_execute = 0, bucket_parcel = 0, bucket_preamble = 0, bucket_loophit = 0,
            bucket_handshake = 0, bucket_psram = 0, bucket_window_cycles = 0;
@@ -351,6 +353,7 @@ int main(int argc, char **argv) {
       if (qspi_fault->outline) qspi_fault->outline->eval();
       if (qspi_queue_fault->outline) qspi_queue_fault->outline->eval();
       if (qspi_hit_fault->outline) qspi_hit_fault->outline->eval();
+      if (qspi_evict_fault->outline) qspi_evict_fault->outline->eval();
       if (qspi_in_preamble->outline) qspi_in_preamble->outline->eval();
       if (qspi_fault->curr[0]) {
         std::fprintf(stderr, "QSPI TIMING: cycle %ld serves a fetch from parcels the flash stream "
@@ -360,6 +363,11 @@ int main(int argc, char **argv) {
       if (qspi_queue_fault->curr[0]) {
         std::fprintf(stderr, "QSPI TIMING: cycle %ld serves a fetch for a parcel the flash queue "
                               "already handed over\n", cycle);
+        return finish(7, cycle + 1);
+      }
+      if (qspi_evict_fault->curr[0]) {
+        std::fprintf(stderr, "QSPI TIMING: cycle %ld serves a loop-buffer hit for a parcel the "
+                              "buffer's capacity had already evicted\n", cycle);
         return finish(7, cycle + 1);
       }
       if (qspi_hit_fault->curr[0]) {

@@ -28,6 +28,7 @@ module nano_qspi_memory #(
   output logic        stream_fault,
   output logic        queue_fault,
   output logic        hit_fault,
+  output logic        evict_fault,
   output logic        in_preamble
 );
   initial begin
@@ -48,6 +49,7 @@ module nano_qspi_memory #(
 
   localparam int SLOTS = LOOP_WINDOW <= 0 ? 1 : LOOP_WINDOW;
   localparam int SLOTBITS = SLOTS <= 1 ? 1 : $clog2(SLOTS);
+  localparam int CAM_SLOTS = SLOTS;
   localparam int QUEUE_SPAN = PREFETCH_DEPTH < 2 ? 2 : PREFETCH_DEPTH;
 
   logic [31:0] mem [0:WORDS-1];
@@ -105,13 +107,13 @@ module nano_qspi_memory #(
     target_index_p1[31:SLOTBITS] == tag_window_tag &&
     tag_window_bits[target_index_p1[SLOTBITS-1:0]];
 
-  logic [SLOTS-1:0] cam_valid;
-  int unsigned cam_idx [0:SLOTS-1];
+  logic [CAM_SLOTS-1:0] cam_valid;
+  int unsigned cam_idx [0:CAM_SLOTS-1];
   logic cam_has0, cam_has1;
   always_comb begin
     cam_has0 = 1'b0;
     cam_has1 = 1'b0;
-    for (int i = 0; i < SLOTS; i++) begin
+    for (int i = 0; i < CAM_SLOTS; i++) begin
       if (cam_valid[i] && cam_idx[i] == target_index) cam_has0 = 1'b1;
       if (cam_valid[i] && cam_idx[i] == target_index + 1) cam_has1 = 1'b1;
     end
@@ -180,6 +182,9 @@ module nano_qspi_memory #(
   assign queue_fault = mem_valid && mem_instr && mem_ready && !loop_hit_now &&
     arrived_valid && arrived_index >= target_index + QUEUE_SPAN;
   assign in_preamble = preamble_pending;
+  assign evict_fault = mem_valid && mem_instr && loop_hit_now && LOOP_KIND == 2 &&
+    ((hit_stamp_lo != 0 && delivery_seq - hit_stamp_lo >= LOOP_WINDOW) ||
+     (target_len == 2 && hit_stamp_hi != 0 && delivery_seq - hit_stamp_hi >= LOOP_WINDOW));
   assign hit_fault = mem_valid && mem_instr && loop_hit_now &&
     !(stamp_ok_lo && (target_len == 1 || stamp_ok_hi));
 
@@ -272,20 +277,20 @@ module nano_qspi_memory #(
           expect_index <= target_index + target_len;
           if (target_index == fifo_head) fifo_head <= target_index + target_len;
           if (LOOP_KIND == 2) begin
-            if (target_len == 1 || SLOTS > 1) begin
+            if (target_len == 1 || CAM_SLOTS > 1) begin
               delivery_seq <= delivery_seq + target_len;
               parcel_stamp[target_index] <= delivery_seq + target_len;
               if (target_len == 2) parcel_stamp[target_index_p1] <= delivery_seq + 1;
             end
             if (target_len == 1) begin
-              for (int i = SLOTS - 1; i > 0; i--) begin
+              for (int i = CAM_SLOTS - 1; i > 0; i--) begin
                 cam_idx[i] <= cam_idx[i - 1];
                 cam_valid[i] <= cam_valid[i - 1];
               end
               cam_idx[0] <= target_index;
               cam_valid[0] <= 1'b1;
-            end else if (SLOTS > 1) begin
-              for (int i = SLOTS - 1; i > 1; i--) begin
+            end else if (CAM_SLOTS > 1) begin
+              for (int i = CAM_SLOTS - 1; i > 1; i--) begin
                 cam_idx[i] <= cam_idx[i - 2];
                 cam_valid[i] <= cam_valid[i - 2];
               end
