@@ -518,6 +518,7 @@ a retried response gated on a stale, registered req_valid is red
 a room check that forgets the response landing this cycle is red
 a root-binary check that ignores group and world write is red
 a root-binary check that ignores the owner is red
+a root-binary check that runs a #! script is red
 a row naming a file that does not exist is named
 a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed

@@ -3986,6 +3986,11 @@ mutate "$d/board_verdict.sh" 's/"\$uid" != "\$owner"/"x" != "x"/'
 probe "a root-binary check that ignores the owner is red" 1 \
   "file owned by someone else: got accept" "$BV $d/board_verdict.sh"
 
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/    \*) echo "error: \$bin is not a Mach-O or ELF executable/    NEVERMATCH) echo "/'
+probe "a root-binary check that runs a #! script is red" 1 \
+  "a #! script was accepted" "$BV $d/board_verdict.sh"
+
 begin_group "test/adr_numbering_test.sh"
 
 AN="$HERE/adr_numbering_test.sh"

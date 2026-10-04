@@ -57,7 +57,7 @@ if [ -n "$unfiltered" ]; then
   fail=1
 fi
 
-bin=$WORK/tool; mkdir "$WORK/d"; touch "$bin"
+bin=$WORK/tool; mkdir "$WORK/d"; printf '\177ELF' > "$bin"
 me=$(id -u)
 chmod 755 "$bin"; chmod 755 "$WORK"
 expect_bin() {
@@ -75,6 +75,10 @@ chmod 755 "$WORK"
 ln -s "$bin" "$WORK/link"
 if check_root_binary "$WORK/link" "$me" 2>/dev/null; then echo "FAIL: a symlink was accepted" >&2; fail=1; fi
 if check_root_binary "$WORK/missing" "$me" 2>/dev/null; then echo "FAIL: a missing path was accepted" >&2; fail=1; fi
+printf '#!/usr/bin/env bash\nexec true\n' > "$WORK/script"; chmod 755 "$WORK/script"
+if check_root_binary "$WORK/script" "$me" 2>/dev/null; then echo "FAIL: a #! script was accepted" >&2; fail=1; fi
+: > "$WORK/empty"; chmod 755 "$WORK/empty"
+if check_root_binary "$WORK/empty" "$me" 2>/dev/null; then echo "FAIL: an empty file was accepted" >&2; fail=1; fi
 
 [ "$fail" -eq 0 ] || exit 1
 echo "board verdict parse OK: hostile verdicts rejected, nothing executed, display filtered, root binaries checked"

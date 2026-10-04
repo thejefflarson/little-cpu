@@ -11,13 +11,19 @@ grade_verdict() {
 
 display_safe() { LC_ALL=C tr -cd '[:print:]\n'; }
 
-# Refuses a symlink, or a file or parent directory not owned by OWNER_UID (root) or writable by group or world.
+native_magic() { LC_ALL=C od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
+
+# Refuses a symlink, a script, or a file or parent directory not owned by OWNER_UID (root) or writable by group or world.
 check_root_binary() {
   local bin=${1-} owner=${2-0} path st uid mode
   [ -n "$bin" ] || { echo "error: no binary named" >&2; return 1; }
   if [ -L "$bin" ] || [ ! -f "$bin" ]; then
     echo "error: $bin is not a regular file (a symlink or a missing path)" >&2; return 1
   fi
+  case $(native_magic "$bin") in
+    7f454c46|cffaedfe|cefaedfe|feedfacf|feedface|cafebabe) ;;
+    *) echo "error: $bin is not a Mach-O or ELF executable; a #! script resolves its interpreter through the caller's PATH" >&2; return 1;;
+  esac
   for path in "$bin" "$(dirname "$bin")"; do
     st=$(stat -c '%u %a' "$path" 2>/dev/null || stat -f '%u %Lp' "$path" 2>/dev/null) \
       || { echo "error: cannot stat $path" >&2; return 1; }

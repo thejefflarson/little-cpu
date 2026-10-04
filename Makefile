@@ -1397,11 +1397,10 @@ bitstream: $(BUILD)/board.bin
 
 ICEPROG_DEV  ?=
 ICEPROG_SUDO ?= $(if $(filter Darwin,$(shell uname -s)),sudo,)
-# Root must never run a binary the user can write, so under sudo the recipes run root-owned
-# copies from BOARD_TOOLS_DIR (docs/flashing-the-upduino.md), and refuse them if they drift.
+# Under sudo, run only root-owned copies from BOARD_TOOLS_DIR (docs/flashing-the-upduino.md).
 BOARD_TOOLS_DIR ?= /usr/local/libexec/little-cpu
-BOARD_ICEPROG   ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/iceprog,iceprog)
-BOARD_FTREAD    ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/ftread,$(abspath $(BUILD))/ftread)
+BOARD_ICEPROG   ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/bin/iceprog,iceprog)
+BOARD_FTREAD    ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/bin/ftread,$(abspath $(BUILD))/ftread)
 BOARD_TOOLS_GROUP ?= $(if $(filter Darwin,$(shell uname -s)),wheel,root)
 
 .PHONY: install-board-tools
@@ -1411,10 +1410,7 @@ install-board-tools: $(BUILD)/ftread
 	  echo '*** `make setup` caches -- put its bin/ first on PATH.'; \
 	  exit 1; \
 	}
-	sudo install -d -o root -g $(BOARD_TOOLS_GROUP) -m 755 '$(BOARD_TOOLS_DIR)'
-	sudo install -o root -g $(BOARD_TOOLS_GROUP) -m 755 "$$(command -v iceprog)" '$(BOARD_TOOLS_DIR)/iceprog'
-	sudo install -o root -g $(BOARD_TOOLS_GROUP) -m 755 '$(BUILD)/ftread' '$(BOARD_TOOLS_DIR)/ftread'
-	@echo 'installed iceprog and ftread, root-owned, in $(BOARD_TOOLS_DIR)'
+	@./soc/install_board_tools.sh '$(BOARD_TOOLS_DIR)' '$(BOARD_TOOLS_GROUP)' '$(BUILD)/ftread'
 
 .PHONY: prog
 prog: $(BUILD)/board.bin

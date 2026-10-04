@@ -8,11 +8,15 @@ elsewhere). This page explains why, and what happens to the serial port afterwar
 Root must not execute a binary the user can write: `iceprog` from the OSS CAD Suite and `build/ftread`
 both live in user-owned directories. Run `make install-board-tools` once (and again after a new
 `iceprog` or a rebuilt `ftread`). It copies both, owned by root and mode 755, into
-`/usr/local/libexec/little-cpu` (`BOARD_TOOLS_DIR` moves it) and asks for your password through `sudo`.
+`/usr/local/libexec/little-cpu/bin` (`BOARD_TOOLS_DIR` moves the prefix) and asks for your password
+through `sudo`. The OSS CAD Suite's `bin/iceprog` is a bash wrapper, not the program: copied alone it
+cannot find its siblings, and under `sudo` its `#!/usr/bin/env bash` would run whichever `bash` the
+caller's `PATH` names first. So the install takes the real executable from the suite's `libexec/`,
+and on macOS the libraries it loads from `@executable_path/../lib` into `lib/` beside `bin/`.
 
 Whenever `ICEPROG_SUDO` is non-empty, `make prog` and `make suite-board` run those copies by path and
-first refuse any binary that is a symlink, is not owned by root, is group- or world-writable, or sits in
-such a directory (`soc/check_root_binary.sh`, graded by `test/board_verdict_test.sh`). On Linux
+first refuse any binary that is a symlink, is not a Mach-O or ELF executable (a `#!` script included),
+is not owned by root, is group- or world-writable, or sits in such a directory (`soc/check_root_binary.sh`, graded by `test/board_verdict_test.sh`). On Linux
 `ICEPROG_SUDO` is empty and nothing changes: `iceprog` comes from `PATH` and `ftread` from `build/`.
 
 ## Why flashing needs root
