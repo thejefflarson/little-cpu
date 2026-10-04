@@ -5,7 +5,6 @@ set -eu
 CFLAGS=$1
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
-WORKDIR="$HERE/nano-tt-test"
 
 CC=""
 if command -v riscv-none-elf-gcc >/dev/null 2>&1; then
@@ -25,8 +24,9 @@ if ! command -v iverilog >/dev/null 2>&1; then
   exit 2
 fi
 
-rm -rf "$WORKDIR"
-mkdir -p "$WORKDIR"
+mkdir -p "$REPO/build"
+WORKDIR=$(mktemp -d "$REPO/build/nano-tt-test.XXXXXX")
+trap 'rm -rf "$WORKDIR"' EXIT
 
 # shellcheck disable=SC2086
 "$CC" $CFLAGS -nostdlib -I "$REPO/test/asm" -T "$REPO/nano/tb/asm/nano_tt.lds" \

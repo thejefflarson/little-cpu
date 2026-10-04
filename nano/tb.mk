@@ -204,7 +204,7 @@ nano-uio-oe-probe:
 
 .PHONY: nano-tt-test
 nano-tt-test: nano-uio-oe-probe nano-tt-timer-probe
-	@./nano/tb/run_nano_tt_test.sh '$(NANO_CFLAGS)'
+	@env -u NANO_TT_TOP -u NANO_TT_BUS ./nano/tb/run_nano_tt_test.sh '$(NANO_CFLAGS)'
 
 # Runs a hardened netlist through the pins-only test. Off `make test`'s path, like nano-area.
 .PHONY: nano-gl-gate-probe
