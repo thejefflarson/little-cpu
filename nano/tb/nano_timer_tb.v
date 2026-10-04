@@ -1,8 +1,6 @@
 `timescale 1ns/1ps
-// Drives nano_timer's bus port directly and grades `mtip` against a model of the
-// counters kept here. `mtip` may post late and may never post early: it is allowed only
-// when mtime >= mtimecmp held in an earlier cycle, and it is required once that has held
-// for two. Run with iverilog; a failed check prints FAIL, a clean run prints PASS.
+// Drives nano_timer's bus port and grades `mtip` against a model: early is an error, late by more than a cycle is.
+// Run with iverilog; a failed check prints FAIL, a clean run prints PASS.
 module nano_timer_tb;
   localparam logic [31:0] BASE = 32'h1080_0010;
 
@@ -32,7 +30,6 @@ module nano_timer_tb;
   int          rises = 0, falls = 0;
   logic        mtip_seen = 1'b0;
 
-  // The model's own write, a byte at a time.
   function automatic logic [63:0] put(input logic [63:0] old, input logic hi,
                                       input logic [31:0] data, input logic [3:0] strb);
     logic [63:0] v;
@@ -81,7 +78,6 @@ module nano_timer_tb;
     bus_write(BASE + {28'b0, word, 2'b00}, data, 4'hf);
   endtask
 
-  // A read is combinational: the data is on the bus in the cycle the address is, so the model is read in that cycle too.
   task automatic rd_check(input logic [1:0] word, input string what);
     logic [63:0] model;
     logic [31:0] want;
@@ -119,7 +115,6 @@ module nano_timer_tb;
   int          before_rises;
 
   initial begin
-    // Hand-computed, before the model grades anything: the carry out of the low word.
     if (put(64'h0000_0000_ffff_ffff, 1'b0, 32'h0000_0001, 4'b0001) !== 64'h0000_0000_ffff_ff01) begin
       $display("ORACLE BROKEN: put() merges a byte wrongly");
       $finish;
@@ -153,7 +148,6 @@ module nano_timer_tb;
     expect_mtip(1'b1, "after the deadline");
     if (rises != before_rises + 1) fail("the level did not post exactly once");
 
-    // A level, not an edge: it stays up until mtimecmp moves past mtime.
     idle(8);
     expect_mtip(1'b1, "still posted");
     set_cmp(64'hffff_ffff_ffff_ffff);
@@ -218,7 +212,6 @@ module nano_timer_tb;
     rd_check(2'd1, "mtime high after a low write on the carry edge");
     rd_check(2'd0, "mtime low after the same write");
 
-    // Nothing outside the four words answers or takes a write.
     bus_write(BASE + 32'd16, 32'hdead_beef, 4'hf);
     bus_write(BASE - 32'd4, 32'hdead_beef, 4'hf);
     rd_check(2'd2, "mtimecmp low after stray stores");

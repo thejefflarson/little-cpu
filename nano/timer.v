@@ -1,10 +1,6 @@
 `default_nettype none
-// `mtip` is a LEVEL, held while `mtime >= mtimecmp`, so a handler that returns without
-// moving `mtimecmp` is re-entered. It compares the registered counters and registers the
-// result: it can post a cycle later than the store that caused it, never earlier.
-// An RV32 `mtimecmp` update is three stores, low all-ones then high then low; any other
-// order passes through a value at or below `mtime` and posts a spurious interrupt.
-// Reads are combinational, like the other devices on this bus.
+// `mtip` is a level, held while `mtime >= mtimecmp`, and registered: it posts a cycle late and never early.
+// An RV32 `mtimecmp` update is three stores, low all-ones, high, low; any other order posts a spurious interrupt.
 module nano_timer #(
   parameter logic [31:0] BASE = 32'h1080_0010
 ) (
@@ -37,7 +33,6 @@ module nano_timer #(
   logic [31:0] wmask;
   assign wmask = {{8{mem_wstrb[3]}}, {8{mem_wstrb[2]}}, {8{mem_wstrb[1]}}, {8{mem_wstrb[0]}}};
 
-  // A write to either half of mtime suspends that cycle's tick, so no carry crosses a half-written value.
   logic [63:0] time_inc;
   assign time_inc = {time_hi, time_lo} + 64'd1;
 
