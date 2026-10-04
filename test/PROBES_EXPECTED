@@ -152,7 +152,9 @@ a checks.cfg with no #derive G is refused by name, not a traceback
 a class-wide predicate over an opcode the pin partly models is rejected
 a classification naming a port the netlist has never seen is red
 a clock factor and a cycle factor measured with different tools are not a product
+a clock figure that is not a number is refused
 a clock for a core nobody graded is named rather than ignored
+a clock sample count that is not one per seed is refused
 a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
 a collector that drops the post-route STA's per-corner reports is refused
@@ -416,8 +418,10 @@ a one-field baseline line is rejected before the suite runs
 a pad frequency that is not whole hertz cannot be compared exactly
 a pair carrying both Hazard3 builds still renders the area build under its name
 a pair measured for the first time is news on its own, with no --current at all
+a pair name product_write.py would never write is refused
 a pair name run_product.sh does not measure is refused
 a pair publishing one build of a two-build core says the other is not stamped
+a pair that is not an object is refused, not skipped
 a pairing naming a program nobody wrote is red
 a parameter both builds share drifting in the bench is red
 a parameter list spread over several lines is refused, not skimmed
@@ -450,6 +454,7 @@ a pre-ADR-0035 one-field baseline line is rejected, not half-matched
 a pre-ADR-0036 one-field baseline line is named, not half-matched
 a predicate keyed on a decoder flag is rejected, not parsed
 a predicate matching an opcode its declaration does not is named
+a product named for a core with no configuration label is refused
 a program both exempt and paired is red
 a program that stopped assembling is ASSEMBLE-ERROR
 a program that went quiet is BELOW-FLOOR on retires
@@ -467,6 +472,7 @@ a push aimed at main instead of the refresh branch is red
 a push carrying no per-command credential helper is red
 a push landing only one word instead of two is red across every occupancy
 a push surviving a flush lets the overtaken request's reply land
+a ratio that is not its two products' quotient is refused
 a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ
 a raw sed -i outside mutate/mutate_remove is red, naming the line
 a reached line whose wording hides its step is exit 2, not a tie of nothing
@@ -613,6 +619,7 @@ a stamp whose base commit no longer resolves is still graded fresh by its digest
 a stamp whose base is not a full SHA is refused
 a stamp whose base is not the checked-out commit is refused
 a stamp whose digest is not this tree's is refused
+a stamp whose strings the issue would print unvalidated is refused before publishing
 a stamp with no measured pair is refused rather than vacuously verified
 a stamp with no table under it is a failed measurement
 a stamp with no tools block is STALE, not read as having nothing to compare
@@ -640,6 +647,8 @@ a table with no placements in it is one too
 a tarball already in the cache is reused, and still meets the digest
 a target added to littlecpu's all with no CI step is red
 a target added to nano's all with no CI step is red
+a target core carrying a mention is refused
+a target core that is not one of its pair's cores is refused
 a term with no allow-list behind it stops rather than grading nothing
 a test/bench source is a measured input
 a testbench simulating a different map than the image is linked for is red
@@ -683,6 +692,8 @@ a wait bound that admits a starved hart is red
 a wait bound that admits a starved hart is red
 a wire that does not carry its class's name is named
 a wire that names a funct7 without a funct3 is rejected, not parsed
+a word count that is a boolean is refused
+a word count that is a string is refused
 a workflow that never fetches the register-file macro is refused
 a workflow that reinstalls a global credential helper is red
 a workflow-level write scope inherited by every job is red

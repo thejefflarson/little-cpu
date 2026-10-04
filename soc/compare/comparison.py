@@ -25,6 +25,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+from product_write import PAIR_NAME_RE  # noqa: E402
 
 BENCHMARKS = [("dhrystone", "Dhrystone 2.1"), ("coremark", "CoreMark")]
 PARTS = [("", "iCE40 UP5K"), ("_ecp5", "ECP5 LFE5U-25F")]
@@ -87,27 +89,99 @@ FIELD_PATTERNS = {
     "unit": r"[A-Za-z]+/MHz",
     "cflags": r"[A-Za-z0-9 =_.,+/:-]+",
     "reason": r"[A-Za-z0-9 .,;:'()/_+-]+",
+    "target_core": r"[a-z0-9_]+",
 }
 TOOL_NAME_PATTERN = r"[A-Za-z0-9_.-]+"
 TOOL_VERSION_PATTERN = r"[A-Za-z0-9 .,+()_/:\"'-]+"
-MEASURED_FIELDS = ("base", "date", "dirty", "seeds", "isa", "unit", "cflags")
+MEASURED_FIELDS = ("base", "date", "dirty", "seeds", "isa", "unit", "cflags", "target_core")
+CLOCK_NUMBERS = ("worst_mhz", "median_mhz", "best_mhz", "spread_pct")
+
+
+def malformed(where, value):
+    sys.exit(f"*** {where} is {value!r}, which is not a value this document "
+             "publishes verbatim; the stamp is malformed or tampered with.")
+
+
+def require(where, value, pattern):
+    if not isinstance(value, str) or not re.fullmatch(pattern, value):
+        malformed(where, value)
+
+
+def require_dict(where, value):
+    if not isinstance(value, dict):
+        malformed(where, value)
+    return value
+
+
+def require_number(where, value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        malformed(where, value)
+    return value
+
+
+def require_count(where, value):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        malformed(where, value)
+    return value
+
+
+def validate_measured(name, pair):
+    """The numbers and core names a measured pair contributes, and their arithmetic."""
+    for field in ("rom_words", "ram_words"):
+        require_count(f"{name}.{field}", pair.get(field))
+    if pair.get("step_mhz") is not None:
+        require_number(f"{name}.step_mhz", pair["step_mhz"])
+    cores = require_dict(f"{name}.cores", pair.get("cores"))
+    products = require_dict(f"{name}.products", pair.get("products"))
+    unlabelled = sorted((set(cores) | set(products)) - set(CORE_LABELS))
+    if unlabelled:
+        sys.exit(f"*** {name}: {', '.join(unlabelled)} in the stamp with no "
+                 "configuration label in comparison.py's CORE_LABELS; a ratio against an "
+                 "unnamed build is not published.")
+    target = pair["target_core"]
+    if target not in cores:
+        malformed(f"{name}.target_core, absent from its cores,", target)
+    if set(products) != set(cores) - {target}:
+        malformed(f"{name}.products, against its cores {sorted(cores)},", sorted(products))
+    seeds = len(pair["seeds"].split())
+    for core, c in sorted(cores.items()):
+        c = require_dict(f"{name}.cores.{core}", c)
+        require_number(f"{name}.cores.{core}.cycle_factor", c.get("cycle_factor"))
+        clock = require_dict(f"{name}.cores.{core}.clock_mhz", c.get("clock_mhz"))
+        for field in CLOCK_NUMBERS:
+            require_number(f"{name}.cores.{core}.clock_mhz.{field}", clock.get(field))
+        if require_count(f"{name}.cores.{core}.clock_mhz.n", clock.get("n")) != seeds:
+            malformed(f"{name}.cores.{core}.clock_mhz.n, against {seeds} seeds,", clock["n"])
+    for core, p in sorted(products.items()):
+        p = require_dict(f"{name}.products.{core}", p)
+        ratio = require_dict(f"{name}.products.{core}.ratio", p.get("ratio"))
+        mine = require_dict(f"{name}.products.{core}.{core}_dmips", p.get(f"{core}_dmips"))
+        theirs = require_dict(f"{name}.products.{core}.{target}_dmips", p.get(f"{target}_dmips"))
+        for key in ("worst", "median"):
+            r = require_number(f"{name}.products.{core}.ratio.{key}", ratio.get(key))
+            a = require_number(f"{name}.products.{core}.{core}_dmips.{key}", mine.get(key))
+            b = require_number(f"{name}.products.{core}.{target}_dmips.{key}", theirs.get(key))
+            if b == 0 or not math.isclose(r, a / b, rel_tol=1e-9):
+                malformed(f"{name}.products.{core}.ratio.{key}, against {a!r} / {b!r},", r)
 
 
 def validate(stamp):
-    """Exit on the first stamp string that does not match its pattern."""
-    def require(where, value, pattern):
-        if not isinstance(value, str) or not re.fullmatch(pattern, value):
-            sys.exit(f"*** {where} is {value!r}, which is not a value this document "
-                     "publishes verbatim; the stamp is malformed or tampered with.")
-
-    for name, pair in sorted(stamp["pairs"].items()):
-        require(f"pair name {name}", name, r"[a-z0-9_]+")
-        fields = MEASURED_FIELDS if pair.get("status") == "measured" else ("reason",)
-        for field in fields:
+    """Exit on the first stamp value that is not what this document publishes verbatim."""
+    pairs = require_dict("the stamp's pairs", require_dict("the stamp", stamp).get("pairs"))
+    for name, pair in sorted(pairs.items()):
+        if not PAIR_NAME_RE.fullmatch(name):
+            malformed("pair name", name)
+        pair = require_dict(f"pair {name}", pair)
+        measured = pair.get("status") == "measured"
+        for field in MEASURED_FIELDS if measured else ("reason",):
             require(f"{name}.{field}", pair.get(field), FIELD_PATTERNS[field])
-        for tool, version in sorted(pair.get("tools", {}).items()):
+        for tool, version in sorted(require_dict(f"{name}.tools", pair.get("tools", {})).items()):
             require(f"{name}.tools key", tool, TOOL_NAME_PATTERN)
+            if not isinstance(version, str):
+                malformed(f"{name}.tools.{tool}", version)
             require(f"{name}.tools.{tool}", tool_version(version), TOOL_VERSION_PATTERN)
+        if measured:
+            validate_measured(name, pair)
 
 
 def f(value, places=2):
@@ -154,11 +228,6 @@ def render_pair(title, pair, out):
                   f"{score} worst | {score} median | vs {target} (worst / median) |")
         sep = "|---|---:|---|---:|---:|---|"
     out += ["", header, sep]
-    unlabelled = sorted(set(pair["cores"]) - set(CORE_LABELS))
-    if unlabelled:
-        sys.exit(f"*** {title}: {', '.join(unlabelled)} in the stamp with no configuration "
-                 "label in comparison.py's CORE_LABELS; a ratio against an unnamed build "
-                 "is not published.")
     for core in CORE_ORDER:
         if core not in pair["cores"]:
             continue

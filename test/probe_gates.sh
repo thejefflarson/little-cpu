@@ -8016,6 +8016,12 @@ d=$(product_check_fixture)
 probe "a --sha that is not a full commit SHA is refused" 2 \
   "40-character" "$PV $d/repo/product.json --sha main --repo $d/repo"
 
+d=$(product_check_fixture)
+pv_sha=$(git -C "$d/repo" rev-parse HEAD)
+mutate "$d/repo/product.json" 's/"target_core": "littlecpu"/"target_core": "littlecpu [x](http:\/\/x)"/'
+probe "a stamp whose strings the issue would print unvalidated is refused before publishing" 1 \
+  ".target_core is 'littlecpu [x](http://x)'" "$PV $d/repo/product.json --sha $pv_sha --repo $d/repo"
+
 begin_group "soc/compare/product_write.py"
 
 PW_BASE="python3 $REPO/soc/compare/product_write.py"
@@ -9924,6 +9930,57 @@ probe "a stamp whose base is not a full SHA is refused" 1 \
 d=$(new_case); sed 's/oss-cad-suite 20260930/oss-cad-suite <b>20260930/' "$CMP_STAMP" > "$d/stamp.json"
 probe "a tool version carrying HTML is refused" 1 \
   "tools.icetime" "$CMP render --stamp $d/stamp.json"
+
+# cmp_stamp_edit <python statement over `stamp`> <out>: the committed stamp, edited.
+cmp_stamp_edit() {
+  python3 - "$CMP_STAMP" "$2" "$1" <<'PY'
+import json, sys
+src, dst, edit = sys.argv[1:4]
+stamp = json.load(open(src))
+exec(edit)
+json.dump(stamp, open(dst, "w"))
+PY
+}
+
+d=$(new_case); sed 's/"target_core": "littlecpu"/"target_core": "littlecpu @owner"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a target core carrying a mention is refused" 1 \
+  ".target_core is 'littlecpu @owner'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"target_core": "littlecpu"/"target_core": "hazard3_perf"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a target core that is not one of its pair's cores is refused" 1 \
+  "target_core, absent from its cores" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["products"]["hazard9"] = stamp["pairs"]["dhrystone"]["products"]["vexriscv"]' "$d/stamp.json"
+probe "a product named for a core with no configuration label is refused" 1 \
+  "hazard9 in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"rom_words": 1024/"rom_words": "1024 [x](http:\/\/x)"/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a word count that is a string is refused" 1 \
+  ".rom_words is '1024 [x](http://x)'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"rom_words": 1024/"rom_words": true/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a word count that is a boolean is refused" 1 \
+  ".rom_words is True" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"n": 12/"n": 11/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a clock sample count that is not one per seed is refused" 1 \
+  "clock_mhz.n, against 12 seeds" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["cores"]["vexriscv"]["clock_mhz"]["worst_mhz"] = "12 <b>"' "$d/stamp.json"
+probe "a clock figure that is not a number is refused" 1 \
+  "clock_mhz.worst_mhz is '12 <b>'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); sed 's/"median": 0.8706297298222785/"median": 0.9/' "$CMP_STAMP" > "$d/stamp.json"
+probe "a ratio that is not its two products' quotient is refused" 1 \
+  "products.vexriscv.ratio.median, against" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["whetstone"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+probe "a pair name product_write.py would never write is refused" 1 \
+  "pair name is 'whetstone'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["coremark"] = "measured"' "$d/stamp.json"
+probe "a pair that is not an object is refused, not skipped" 1 \
+  "pair coremark is 'measured'" "$CMP render --stamp $d/stamp.json"
 
 begin_group "test/probes_header_test.py"
 

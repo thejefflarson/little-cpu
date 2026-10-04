@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Refuse to publish a measured stamp the checked-out tree did not produce.
+"""Refuse to publish a measured stamp that is not bound to the checked-out tree.
 
 The publish job runs with write scopes and takes its stamp from an artifact, so it
 re-derives what the stamp claims: every measured pair's `base` must be the commit
 checked out, and its `digest` must equal soc/compare/product_digest.py over this tree.
+That binds the stamp to this tree; it cannot show the numbers were measured from it.
+Every value the publish step prints is first held to soc/compare/comparison.py's
+validate(), so the issue and commit it writes carry nothing the stamp's author chose
+beyond numbers and names those patterns admit.
 
 Usage: product_verify.py STAMP --sha SHA [--repo DIR]
 Exit:  0 every measured pair verified, 1 a pair did not verify, 2 refused
@@ -15,6 +19,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from comparison import validate  # noqa: E402
 from product_check import BASE_RE, REFUSED, load, refuse  # noqa: E402
 from product_digest import content_digest  # noqa: E402
 
@@ -26,7 +31,7 @@ def problems(stamp, sha, digest):
     found = []
     measured = 0
     for name, pair in sorted(pairs.items()):
-        if not isinstance(pair, dict) or pair.get("status") != "measured":
+        if pair.get("status") != "measured":
             continue
         measured += 1
         if pair.get("base") != sha:
@@ -47,7 +52,9 @@ def main():
     args = parser.parse_args()
     if not BASE_RE.fullmatch(args.sha):
         refuse(f"*** --sha '{args.sha}' is not a 40-character commit SHA")
-    found = problems(load(args.stamp), args.sha, content_digest(args.repo))
+    stamp = load(args.stamp)
+    validate(stamp)
+    found = problems(stamp, args.sha, content_digest(args.repo))
     for line in found:
         print(f"*** {line}", file=sys.stderr)
     if found:
