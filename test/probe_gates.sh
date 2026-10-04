@@ -7975,7 +7975,8 @@ d=$(pdg_repo)
 d2=$(pdg_repo)
 printf 'x' > "$d/repo/rtl/b"
 printf 'x' > "$d/repo/rtl/c"
-printf 'x' > "$d2/repo/rtl/$(printf 'b\n2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  rtl/c')"
+mkdir -p "$d2/repo/rtl/$(printf 'b\n2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  rtl')"
+printf 'x' > "$d2/repo/rtl/$(printf 'b\n2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881  rtl')/c"
 probe "records are NUL-separated, so a file name cannot imitate a record boundary" 0 "DIFFERENT" \
   "[ \"\$($PDG --repo $d/repo)\" != \"\$($PDG --repo $d2/repo)\" ] && echo DIFFERENT"
 
@@ -9914,7 +9915,7 @@ probe "a stamp string that would break out of its code span is refused" 1 \
 
 d=$(new_case); sed 's/"isa": "rv32im"/"isa": "rv32im](http:\/\/x)"/' "$CMP_STAMP" > "$d/stamp.json"
 probe "a stamp string carrying markup is refused" 1 \
-  "dhrystone.isa" "$CMP render --stamp $d/stamp.json"
+  ".isa is 'rv32im](http://x)'" "$CMP render --stamp $d/stamp.json"
 
 d=$(new_case); sed 's/"base": "11cc506e3183f4b1f125f0cf8246536aa49cbf1e"/"base": "not-a-sha"/' "$CMP_STAMP" > "$d/stamp.json"
 probe "a stamp whose base is not a full SHA is refused" 1 \
