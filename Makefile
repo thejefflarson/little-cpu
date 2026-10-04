@@ -975,9 +975,7 @@ $(BUILD)/soc.json: $(SOC_SRCS) soc-rom | $(BUILD)
 	@python3 soc/cell_census.py $(BUILD)/soc.synth.log SB_RAM40_4K $(SOC_EXPECT_EBR) \
 	  "rtl/imemory.v or rtl/regfile.v has stopped inferring block RAM, or the ROM size changed"
 
-# nextpnr exits nonzero when the design misses its clock, which is still a real placement;
-# soc/pnr_check.sh tolerates exactly that and fails every other outcome. The .asc and the
-# report are deleted first so a failed run cannot be read as the last run's numbers.
+# soc/pnr_check.sh fails every nextpnr outcome but a missed clock; stale outputs are deleted first.
 SOC_SEED ?=
 
 # With no SOC_SEED override, `make soc-timing` places at the PINNED seed; `origin` tells that apart from an explicit `SOC_SEED=`, since both read empty.

@@ -1,9 +1,5 @@
 #!/bin/sh
-# Grades one nextpnr run: <target> <nextpnr-exit-status> <log> <artifact>...
-# A nonzero exit is tolerated only when every ERROR line in the log is the timing
-# verdict ("Max frequency for clock"), because a design under its clock is a real
-# placement that the caller's own requirement grades. Any other failure, or a missing
-# artifact, means nothing was measured.
+# nextpnr exits nonzero on a missed clock, which is still a placement: only that ERROR is tolerated.
 set -eu
 
 if [ "$#" -lt 4 ]; then
