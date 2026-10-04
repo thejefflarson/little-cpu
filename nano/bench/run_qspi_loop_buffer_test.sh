@@ -76,9 +76,16 @@ run_sim() {  # $1 = sim tag, $2 = elf name -> writes $tmp/<tag>.<elf>.log
   }
 }
 
-build_sim none 0 0
-build_sim tagged 1 8
-build_sim cam 2 8
+build_sim none 0 0 & build_none=$!
+build_sim tagged 1 8 & build_tagged=$!
+build_sim cam 2 8 & build_cam=$!
+built=1
+for pid in "$build_none" "$build_tagged" "$build_cam"; do
+  wait "$pid" || built=0
+done
+if [ "$built" -ne 1 ]; then
+  exit 1
+fi
 assemble straight.elf -DKIND=0
 
 for tag in none tagged cam; do
