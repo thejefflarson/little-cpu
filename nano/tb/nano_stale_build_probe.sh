@@ -1,9 +1,6 @@
 #!/bin/bash
-# Grades nano/stamp.mk: a simulator image must rebuild when an input's content changes even if
-# the input's mtime is older than the image, and every image in nano/tb.mk must be keyed on a
-# stamp. Red direction: the same scenario against a rule with no stamp must go stale, and the
-# structural check must fail against a tb.mk with one stamp removed. Hermetic, touches no
-# tracked file.
+# Grades nano/stamp.mk both ways, hermetically; docs/nano-stale-builds.md describes the scenarios
+# and their red directions.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
