@@ -48,7 +48,7 @@ esac
 # The opponents are gitignored clones the repo's own status cannot see.
 tree_status() {
   if [ -n "$OUT_EXCLUDE" ]; then
-    git status --porcelain --untracked-files=all -- . ":(exclude)$OUT_EXCLUDE"
+    git status --porcelain --untracked-files=all -- . ":(exclude,literal)$OUT_EXCLUDE"
   else
     git status --porcelain --untracked-files=all
   fi
