@@ -153,9 +153,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: compare-product-stamp
-          path: |
-            ${{ env.OUT_DIR }}/product.json
-            ${{ env.OUT_DIR }}/product-diff.md
+          path: ${{ env.OUT_DIR }}/product.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -193,7 +191,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Fetch the measured stamp
@@ -202,11 +200,19 @@ jobs:
           name: compare-product-stamp
           path: ${{ runner.temp }}/compare-product
 
-      # The one make target the publish job may run; it needs only python3.
-      - name: Stage the stamp and regenerate the comparison document
+      # The artifact is data from a job that ran build tools: verify it, regenerate its diff here.
+      - name: Verify the stamp against this commit
+        env:
+          OUT_DIR: ${{ runner.temp }}/compare-product
+        run: python3 soc/compare/product_verify.py "$OUT_DIR/product.json" --sha "$GITHUB_SHA" --repo .
+
+      # The one make target the publish job may run needs only python3.
+      - name: Stage the stamp and regenerate the diff and the comparison document
         env:
           OUT_DIR: ${{ runner.temp }}/compare-product
         run: |
+          python3 soc/compare/product_diff.py soc/compare/product.json "$OUT_DIR/product.json" \
+            > "$OUT_DIR/product-diff.md"
           cp "$OUT_DIR/product.json" soc/compare/product.json
           make compare-doc
 

@@ -48,25 +48,34 @@ def input_files(repo):
     names = {name.decode() for name in out.split(b"\0") if name}
     return sorted(names - set(EXCLUDED))
 
-def file_hash(path):
+def file_hash(repo, path):
+    """Content hash of `path`. A symlink is followed and its target's bytes hashed, since
+    the build reads the target; one that resolves outside `repo` is refused, because the
+    stamp would then depend on bytes no checkout of the repo carries.
+    """
     if os.path.islink(path):
-        return "link:" + hashlib.sha256(os.readlink(path).encode()).hexdigest()
+        root = os.path.realpath(repo)
+        path = os.path.realpath(path)
+        if os.path.commonpath([root, path]) != root:
+            refuse(f"*** measured input {path} is a symlink leaving the repo {root}")
     try:
         with open(path, "rb") as handle:
             return hashlib.sha256(handle.read()).hexdigest()
-    except FileNotFoundError:
+    except (FileNotFoundError, IsADirectoryError):
         return "absent"
     except OSError as exc:
         refuse(f"*** cannot read measured input {path}: {exc}")
 
 def content_digest(repo):
-    """`sha256:<hex>` over every measured input's path and bytes. A tracked file
-    deleted from the working tree hashes as `absent`, so deleting it moves the
+    """`sha256:<hex>` over every measured input's path and bytes, as NUL-terminated
+    `hash NUL name NUL` records so no file name can imitate a record boundary. A tracked
+    file deleted from the working tree hashes as `absent`, so deleting it moves the
     digest rather than dropping out of it unnoticed.
     """
-    lines = "".join(f"{file_hash(os.path.join(repo, name))}  {name}\n"
-                    for name in input_files(repo))
-    return "sha256:" + hashlib.sha256(lines.encode()).hexdigest()
+    records = b"".join(
+        f"{file_hash(repo, os.path.join(repo, name))}\0{name}\0".encode()
+        for name in input_files(repo))
+    return "sha256:" + hashlib.sha256(records).hexdigest()
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,

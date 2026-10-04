@@ -97,6 +97,15 @@ def main(argv):
         failures.append("the publish job never runs `make compare-doc`, so the refresh "
                         "branch would carry a stamp its committed comparison document "
                         "disagrees with.")
+    publish_checkout = [s for s in steps(publish) if "actions/checkout" in s]
+    if not any(re.search(r"^\s+ref:\s*\$\{\{\s*github\.sha\s*\}\}\s*$", s, re.M)
+               for s in publish_checkout):
+        failures.append("the publish job does not check out `${{ github.sha }}`, so it "
+                        "would publish against whatever main holds by then.")
+    if not re.search(r'^\s*run:\s*python3 soc/compare/product_verify\.py .*--sha "\$GITHUB_SHA"',
+                     code_lines(publish), re.M):
+        failures.append("the publish job never runs product_verify.py against "
+                        "$GITHUB_SHA, so it would publish a stamp nothing re-derived.")
     if not [s for s in steps(publish) if "actions/download-artifact" in s]:
         failures.append("the publish job downloads no artifact, so it has no stamp to publish.")
 
