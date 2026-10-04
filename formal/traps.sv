@@ -21,7 +21,8 @@ module traps #(
     input logic bus_wait,  // free; an ungranted hart issues nothing, so it commits no trap either
     input logic rom_fault,  // free, like everything else not instantiated here
     input logic accessor_out_valid,
-    input logic irq_timer  // the platform's timer line, free every cycle
+    input logic irq_timer,  // the platform's timer line, free every cycle
+    input logic entropy_raw  // the platform's oscillator, free every cycle
 );
   logic [31:0] fetch_pc, fetch_pc_next;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
@@ -147,6 +148,7 @@ module traps #(
     .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .irq_timer(irq_timer),
+    .entropy_raw(entropy_raw),
     .mtvec_value(mtvec_value),
     .mepc_value(mepc_value),
     .interrupt_pending(interrupt_pending)
@@ -161,6 +163,7 @@ module traps #(
   `define TRAPS_CHECK_QUIESCENCE
  `endif
 
+  localparam logic [11:0] SEED      = 12'h015;
   localparam logic [11:0] MSTATUS   = 12'h300;
   localparam logic [11:0] MIE       = 12'h304;
   localparam logic [11:0] MEPC      = 12'h341;
@@ -512,10 +515,13 @@ module traps #(
   assign c_atomic_ram_mapped = c_fwd_rs1 >= LS_RAM_BASE && c_fwd_rs1 < LS_RAM_TOP;
   assign c_atomic_refused = !c_atomic_ram_mapped && c_atomic_word_aligned;
 
-  logic c_reserved_opcode, c_zero_halfword, c_is_illegal;
+  logic c_reserved_opcode, c_zero_halfword, c_seed_readonly, c_is_illegal;
   assign c_reserved_opcode = c_uncompressed && c_opcode == 5'b11111;
   assign c_zero_halfword = dx_instr == 32'h0000_0000;
-  assign c_is_illegal = c_reserved_opcode || c_zero_halfword;
+  // A csrrs/csrrc (register or immediate form) whose source field is zero does not write.
+  assign c_seed_readonly = c_uncompressed && c_opcode == 5'b11100 && c_funct3[1] &&
+                           dx_instr[31:20] == SEED && dx_instr[19:15] == 5'b0;
+  assign c_is_illegal = c_reserved_opcode || c_zero_halfword || c_seed_readonly;
 
   logic c_is_ecall, c_is_ebreak;
   assign c_is_ecall  = dx_instr == 32'h0000_0073;
@@ -621,8 +627,8 @@ module traps #(
     assert(mepc_value == prev_mepc);
   end
 
-  always_comb if (settled && addr_held && !prev_counter_ticking && !prev_csr_wen &&
-                  !prev_written_by_trap)
+  always_comb if (settled && addr_held && csr_addr != SEED && !prev_counter_ticking &&
+                  !prev_csr_wen && !prev_written_by_trap)
     assert(csr_rdata == prev_rdata);
 
   always_comb if (settled2 && prev2_trap_entry) assert(fetch_pc == prev2_mtvec);

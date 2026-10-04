@@ -9,5 +9,6 @@ HARNESS  imemcheck.sv
 PORT bus_wait    1'b0
 PORT snoop_write 1'b0
 PORT snoop_addr  32'b0
+PORT entropy_raw 1'b0
 
 ELSEWHERE irq_timer INTERRUPT_TIE_OFF

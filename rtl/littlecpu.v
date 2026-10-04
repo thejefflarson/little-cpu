@@ -38,6 +38,7 @@ module littlecpu #(
   // it against its grant and answers on `bus_wait`.
   output logic        bus_request,
   input  logic        irq_timer,
+  input  logic        entropy_raw,
   output logic trap
   `ifdef RISCV_FORMAL
   ,
@@ -229,6 +230,7 @@ module littlecpu #(
     .trap_tval(csr_trap_tval),
     .mret_entry(csr_mret_entry),
     .irq_timer(irq_timer),
+    .entropy_raw(entropy_raw),
     .rdata(csr_rdata),
     .implemented(csr_implemented),
     .mtvec_value(csr_mtvec),

@@ -20,6 +20,13 @@ no second hart to have:
 - `snoop_write` — another bus initiator is writing
 - `snoop_addr` — ...and where
 
+One more input rides in the same file because the sweep for undeclared tie-offs reads
+it: `entropy_raw`, the platform's slow oscillator behind the `seed` CSR. It is not a
+bus signal. Tied low it gives the entropy source no edge, so `seed` reads DEAD after the
+no-edge timeout and the generated checks see no entropy; they would not compare a `seed`
+read in any case, since the pin ships no spec model for a CSR value. The source is graded
+by `test/trng_tb.v`, `test/csr_tb.v` and `test/asm/seed.S`, none of which this file covers.
+
 `mem_lock` is the fourth port of that surface and is deliberately NOT here.
 It is an OUTPUT: a harness that leaves it unread cannot weaken a check, and
 what it says is proved by `formal/components.sby`'s accessor task, where the

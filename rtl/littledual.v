@@ -123,6 +123,7 @@ module littledual #(
       .mem_lock(mem_lock[h]),
       .bus_request(bus_request[h]),
       .irq_timer(irq_timer[h]),
+      .entropy_raw(1'b0),
       .trap(trap[h])
      `ifdef RISCV_FORMAL
       , .rvfi_valid(rvfi_valid[h]),

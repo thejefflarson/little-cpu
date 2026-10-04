@@ -86,7 +86,7 @@ def main():
     needle_sby = (
         "traps_cause:\n"
         "read -sv -formal -noassume -D TRAPS_SKIP_EXEC_ARITH structs.v fetcher.v "
-        "decoder.v executor.v regsel.v csrs.v\n"
+        "decoder.v executor.v regsel.v csrs.v trng.v\n"
     )
     if needle_sby not in real_sby:
         stop(

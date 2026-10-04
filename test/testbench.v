@@ -70,6 +70,19 @@ module testbench(
   logic reset = 1;
   always #5 clk = ~clk;
  `endif
+  logic        entropy_raw = 1'b0;
+  logic [1:0]  osc_wait = 2'b0;
+  logic [15:0] osc_lfsr = 16'hACE1;
+  always_ff @(posedge clk) begin
+    osc_lfsr <= {osc_lfsr[14:0], osc_lfsr[15] ^ osc_lfsr[13] ^ osc_lfsr[12] ^ osc_lfsr[10]};
+    if (osc_wait == 2'b0) begin
+      entropy_raw <= !entropy_raw;
+      osc_wait    <= osc_lfsr[1:0];
+    end else begin
+      osc_wait    <= osc_wait - 2'd1;
+    end
+  end
+
   memory dmem (
     .clk(clk),
     .mem_addr(mem_addr),
@@ -162,6 +175,7 @@ module testbench(
     .mem_lock(mem_lock),
     .bus_request(bus_request),
     .irq_timer(irq_timer),
+    .entropy_raw(entropy_raw),
     .trap(trap)
    `ifdef RISCV_FORMAL
     , .rvfi_valid(rvfi_valid),

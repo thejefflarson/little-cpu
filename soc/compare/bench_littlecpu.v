@@ -60,6 +60,7 @@ module bench_littlecpu #(
     .mem_lock(mem_lock),
     .bus_request(bus_request),
     .irq_timer(irq_timer),
+    .entropy_raw(1'b0),
     .imem_fault(imem_fault),
     .trap(trap)
   );

@@ -13,7 +13,7 @@ rvfi_macros.vh: $(RISCV_FORMAL_DIR)/checks/rvfi_macros.py
 $(BUILD):
 	mkdir -p $@
 
-SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
+SIM_RTL_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/trng.v rtl/decoder.v rtl/executor.v \
                 rtl/fetcher.v rtl/imemory.v rtl/memory.v rtl/regfile.v rtl/regsel.v \
                 rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/writeback.v rtl/littlecpu.v
 
@@ -457,7 +457,7 @@ lint-setup:
 
 UNIT_BENCHES := exec_tb executor_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb \
                 monitor_tb timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb \
-                fetchqueue_tb fetcher_tb
+                fetchqueue_tb fetcher_tb trng_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_executor_tb := rtl/structs.v rtl/executor.v
@@ -465,7 +465,7 @@ UNIT_BENCH_SRC_mem_tb      := rtl/memory.v
 UNIT_BENCH_SRC_imem_tb     := rtl/imemory.v
 UNIT_BENCH_SRC_decoder_tb  := rtl/structs.v rtl/decoder.v rtl/regsel.v
 UNIT_BENCH_SRC_regfile_tb  := rtl/regfile.v
-UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v
+UNIT_BENCH_SRC_csr_tb      := rtl/structs.v rtl/csrs.v rtl/trng.v
 UNIT_BENCH_SRC_accessor_tb := rtl/structs.v rtl/accessor.v
 UNIT_BENCH_SRC_monitor_tb  := test/monitor.sim.v
 UNIT_BENCH_SRC_timer_tb    := rtl/timer.v
@@ -475,6 +475,7 @@ UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
 UNIT_BENCH_SRC_miso_share_enable_tb := soc/miso_share_enable.v
 UNIT_BENCH_SRC_fetchqueue_tb := rtl/fetchqueue.v
 UNIT_BENCH_SRC_fetcher_tb := rtl/structs.v rtl/fetcher.v
+UNIT_BENCH_SRC_trng_tb := rtl/trng.v
 
 # `present` reads the directory in the recipe, not via $(wildcard) -- make caches that
 # and a stale listing could miss a bench that is really there.
@@ -872,7 +873,7 @@ coremark: sim
 
 # Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
 # magnitude and in sign on the same netlist.
-FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v rtl/executor.v \
+FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/trng.v rtl/decoder.v rtl/executor.v \
             rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
 $(BUILD)/fit.json: $(FIT_SRCS) | $(BUILD)
@@ -880,9 +881,9 @@ $(BUILD)/fit.json: $(FIT_SRCS) | $(BUILD)
 	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
 	  > $(BUILD)/fit.synth.log 2>&1 || { tail -40 $(BUILD)/fit.synth.log; exit 1; }
 
-# 4441 = 4347 + 40 + 54: the higher of this tree's local and job counts, the churn band measured
-# on this tree, and the widest toolchain gap measured on one tree (derivation: ADR-0220).
-FIT_MAX_LC := 4441
+# 4586 = 4492 + 40 + 54: this tree's local count (the job's is not yet measured, and the local
+# one was the higher on the tree before), the churn band and the toolchain gap of ADR-0220.
+FIT_MAX_LC := 4586
 
 FIT_LAST_LC := 4332
 
@@ -910,7 +911,7 @@ SOC_ROM_CHPARAM := $(if $(filter command line,$(origin SOC_ROM_WORDS)),chparam -
 SOC_EXPECT_SPRAM := 2
 SOC_EXPECT_EBR   := 20
 
-SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/decoder.v \
+SOC_SRCS      := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/trng.v rtl/decoder.v \
                  rtl/executor.v rtl/fetcher.v rtl/imemory.v rtl/memory.v \
                  rtl/regfile.v rtl/regsel.v rtl/timer.v rtl/uart.v rtl/spiflash.v \
                  rtl/writeback.v rtl/littlecpu.v rtl/littlesoc.v

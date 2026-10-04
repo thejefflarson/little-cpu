@@ -51,9 +51,17 @@ module upduino_top #(
     .D_IN_0(ssn_pin)
   );
 
+  logic entropy_raw;
+  SB_LFOSC lfosc (
+    .CLKLFPU(1'b1),
+    .CLKLFEN(1'b1),
+    .CLKLF(entropy_raw)
+  );
+
   littlesoc soc (
     .clk(clk),
     .btn_n(1'b1),
+    .entropy_raw(entropy_raw),
     .ledr_n(ledr_n),
     .ledg_n(ledg_n),
     .uart_tx(uart_tx),

@@ -643,7 +643,7 @@
     "Zkne": { "supported": false },
     "Zknh": { "supported": false },
     "Zkr": {
-      "supported": false,
+      "supported": true,
       "sseed_reset_value": false,
       "useed_reset_value": false,
       "sseed_read_only_zero": false,

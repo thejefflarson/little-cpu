@@ -4556,7 +4556,7 @@ mt_fixture() {
   {
     printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS cover.sv\n'
     printf 'HARNESS dmemcheck.sv\nHARNESS imemcheck.sv\n'
-    printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\n"
+    printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\nPORT entropy_raw 1'b0\n"
     printf 'ELSEWHERE irq_timer INTERRUPT_TIE_OFF\n'
   } > "$d/BASELINE"
   printf '%s' "$d"
@@ -5373,7 +5373,7 @@ probe "half of a macro-guarded group is red, where none of it is not" 1 \
   "connects littlecpu under RISCV_FORMAL but not .rvfi_mem_rmask" "$PC $d"
 
 d=$(pc_fixture); mutate "$d/test/testbench.v" \
-  's/^    \.irq_timer(irq_timer),$/    .irq_timer(irq_timer)/' \
+  's/^    \.entropy_raw(entropy_raw),$/    .entropy_raw(entropy_raw)/' \
   's/^    \.trap(trap)$//' \
   's/^    , \.rvfi_valid/    , .trap(trap), .rvfi_valid/'
 probe "an unconditional port connected only inside an ifdef is red" 1 \
@@ -5432,6 +5432,9 @@ case $(basename "$PWD") in
   wrong-cause)
     line=$(grep -n 'assert(csr_rdata == prev3_cause);' src/traps.sv | cut -d: -f1)
     status=${STUB_SBY_WRONG:-FAIL}; line=${STUB_SBY_WRONG_LINE:-$line} ;;
+  seed-readonly)
+    line=$(grep -n 'assert(trap_entry);' src/traps.sv | cut -d: -f1)
+    status=${STUB_SBY_SEED:-FAIL}; line=${STUB_SBY_SEED_LINE:-$line} ;;
 esac
 : > probe/logfile.txt
 if [ "$status" = FAIL ]; then
@@ -5448,7 +5451,7 @@ tr_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/formal"
   cp "$REPO"/rtl/structs.v "$REPO"/rtl/fetcher.v "$REPO"/rtl/decoder.v \
-     "$REPO"/rtl/executor.v "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$d/rtl/"
+     "$REPO"/rtl/executor.v "$REPO"/rtl/regsel.v "$REPO"/rtl/csrs.v "$REPO"/rtl/trng.v "$d/rtl/"
   cp "$REPO"/formal/traps.sv "$REPO"/formal/components.sby "$d/formal/"
   printf '%s' "$d"
 }
@@ -5456,8 +5459,8 @@ tr_fixture() {
 trs() { printf "%s --repo %s --workdir %s/work --sby %s" "$TR" "$1" "$1" "$tmp/sby-stub"; }
 
 d=$(tr_fixture)
-probe "control: both arms fail, each at its own line" 0 \
-  "Both load/store region arms fail for their own reason" "$(trs "$d")"
+probe "control: all three arms fail, each at its own line" 0 \
+  "Both load/store region arms and the seed arm fail for their own reason" "$(trs "$d")"
 
 d=$(tr_fixture)
 probe "an arm that admits a fault the core never commits is red" 1 \
@@ -5466,6 +5469,19 @@ probe "an arm that admits a fault the core never commits is red" 1 \
 d=$(tr_fixture)
 probe "an arm that admits the wrong cause is red" 1 \
   "the wrong-cause core proves" "STUB_SBY_WRONG=PASS $(trs "$d")"
+
+d=$(tr_fixture)
+probe "an arm that admits a read-only seed access that never traps is red" 1 \
+  "the seed-readonly core proves" "STUB_SBY_SEED=PASS $(trs "$d")"
+
+d=$(tr_fixture)
+probe "a seed proof going red somewhere else is not evidence" 1 \
+  "which does not include line" "STUB_SBY_SEED_LINE=9 $(trs "$d")"
+
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
+  's/(!instr_valid || csr_readonly_write || seed_readonly)/(!instr_valid||csr_readonly_write||seed_readonly)/'
+probe "a respelled illegal term stops: a core that still traps proves nothing" 2 \
+  "no longer spells what the seed-readonly mutation replaces" "$(trs "$d")"
 
 d=$(tr_fixture)
 probe "a must-trap proof going red somewhere else is not evidence" 1 \
@@ -6838,7 +6854,7 @@ mcp_fixture() {  # $1 = formal|nano/formal  $2 = imemcheck|dmemcheck
     # The exact list memcheck-cover-probe.py's own LITTLECPU_RTL names, not every
     # rtl/*.v file: the stub never reads any of them, but build_case() still copies
     # each one out of $d, so the fixture has to stock exactly what it will ask for.
-    for f in structs.v fetcher.v regfile.v csrs.v decoder.v regsel.v executor.v \
+    for f in structs.v fetcher.v regfile.v csrs.v trng.v decoder.v regsel.v executor.v \
              accessor.v writeback.v littlecpu.v; do
       cp "$REPO/rtl/$f" "$d/rtl/"
     done
@@ -7020,7 +7036,7 @@ np_fixture() {  # $1 = littlecpu|nano
     cp "$REPO/nano/nano.v" "$d/nano/"
   else
     mkdir -p "$d/rtl"
-    for f in structs.v fetcher.v regfile.v csrs.v decoder.v regsel.v executor.v \
+    for f in structs.v fetcher.v regfile.v csrs.v trng.v decoder.v regsel.v executor.v \
              accessor.v writeback.v littlecpu.v; do
       cp "$REPO/rtl/$f" "$d/rtl/"
     done
@@ -7598,14 +7614,14 @@ mcov_fixture() {
 
 d=$(mcov_fixture)
 probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
-  "20 rtl/*.v files, each ruled on" "$MCOV $d"
+  "21 rtl/*.v files, each ruled on" "$MCOV $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"
 
-d=$(mcov_fixture); touch "$d/rtl/trng.v"
+d=$(mcov_fixture); touch "$d/rtl/newfile.v"
 probe "a new rtl file with no line is red, naming the file" 1 \
-  "rtl/trng.v" "$MCOV $d"
+  "rtl/newfile.v" "$MCOV $d"
 
 d=$(mcov_fixture); rm "$d/rtl/spiflash.v"
 probe "deleting an rtl file and leaving its line is red" 1 \

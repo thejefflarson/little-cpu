@@ -53,6 +53,8 @@ rem.S                59     59
 remu.S               59     59
 rvc.S               183    183
 sb.S                393    393
+seed.S               2077   1928
+seedaccess.S         151    117
 selfmod.S            46     43
 sh.S                446    446
 simple.S              4      4

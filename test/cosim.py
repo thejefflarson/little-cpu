@@ -121,6 +121,9 @@ NONCOMPARABLE_CSRS = {
            "makes these agree, and one that did would mean this core retires "
            "one instruction per cycle. test/asm/minstret.S asserts only "
            "monotonicity and a bound, which both machines satisfy",
+    0x015: "seed returns an entropy source's words, which this core's source and the "
+           "model's answer differently by construction. Only a seed read's VALUE "
+           "is skipped; whether the access traps is compared exactly",
     0xB80: "mcycleh -- the upper half of the same counter. It reads zero on "
            "both sides for every program in this suite today; it is here so "
            "that stops being load-bearing",

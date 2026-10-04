@@ -512,6 +512,7 @@ a respelled constant-latency assertion stops rather than pinning nothing
 a respelled divide case item stops the same way
 a respelled fault site stops rather than building the shipping core twice
 a respelled flag declaration stops rather than comparing nothing
+a respelled illegal term stops: a core that still traps proves nothing
 a respelled indivisibility arm stops rather than pinning nothing
 a respelled indivisibility arm stops rather than pinning nothing
 a respelled lock cover stops rather than pinning nothing
@@ -552,6 +553,7 @@ a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is r
 a second instance of the macro is refused, not priced once
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
+a seed proof going red somewhere else is not evidence
 a seed word carrying shell syntax is refused before it is expanded
 a semicolon in the liberty path stays inside its own quoted token
 a semicolon in the liberty path stays inside its own quoted token
@@ -685,6 +687,7 @@ an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
 an anti-vacuity cover that cannot go red is not a control
 an arm that admits a fault the core never commits is red
+an arm that admits a read-only seed access that never traps is red
 an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
 an arm that admits the wrong cause is red
@@ -857,6 +860,7 @@ control: a tracked file with no matching ignore rule is clean
 control: a well-formed report publishes the frequency
 control: agreeing paths outside the checkout are green
 control: all five shipping scripts link at the inset layout
+control: all three arms fail, each at its own line
 control: an ECP5 sweep summarises against its own instrument
 control: an accounting that adds up prints the table
 control: an archive matching the vendored tree exactly is endorsed
@@ -875,7 +879,6 @@ control: another commit's canonical netlist is built from its own tree
 control: block RAM resets tied to a constant are green
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
-control: both arms fail, each at its own line
 control: both headers naming only x0-x15 is green
 control: both register-file builds are reported from one call
 control: both sides failing the same test number still AGREE

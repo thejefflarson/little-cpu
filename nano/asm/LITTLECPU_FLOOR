@@ -54,6 +54,8 @@ rem.S          EXCLUDED M extension
 remu.S         EXCLUDED M extension
 rvc.S          184
 sb.S           394
+seed.S         EXCLUDED CSR (seed), trap handler
+seedaccess.S  EXCLUDED CSR (seed), trap handler
 selfmod.S      EXCLUDED Zifencei (fence.i)
 sh.S           447
 simple.S         5
