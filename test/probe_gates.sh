@@ -4027,7 +4027,8 @@ probe "a root-binary check that ignores group and world write is red" 1 \
   "writable file: got accept" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
-mutate "$d/board_verdict.sh" 's/\[ "\$uid" = "\$owner" \] ||/[ "x" = "x" ] ||/'
+mutate "$d/board_verdict.sh" 's/\[ "\$uid" = "\$owner" \] ||/[ "x" = "x" ] ||/' \
+  's/elif \[ "\$uid" != "\$owner" \] \&\& \[ "\$uid" != 0 \]/elif [ "x" != "x" ]/'
 probe "a root-binary check that ignores the owner is red" 1 \
   "file owned by someone else: got accept" "$BV $d/board_verdict.sh"
 

@@ -30,7 +30,6 @@ if command -v otool >/dev/null; then
   done
 fi
 
-# ftread is repointed in a private staging copy, and its libraries live apart from iceprog's so two builds of one name cannot collide.
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp "$FTREAD" "$STAGE/ftread"; chmod 755 "$STAGE/ftread"
