@@ -1213,7 +1213,7 @@ FTDI_LIBS   ?= $(shell pkg-config --libs libftdi1 2>/dev/null || echo -L/opt/hom
 $(BUILD)/ftread: soc/ftread.c | $(BUILD)
 	@command -v cc >/dev/null || { echo 'error: no C compiler for the host.' >&2; exit 1; }
 	cc -O2 -Wall -o $@ $< $(FTDI_CFLAGS) $(FTDI_LIBS)
-	@echo 'built $@ -- run it as root: sudo $@ 115200 8000'
+	@echo 'built $@ -- install it root-owned with: make install-board-tools'
 
 .PHONY: ftread
 ftread: $(BUILD)/ftread
@@ -1223,7 +1223,7 @@ suite-board: $(BUILD)/ftread
 	@echo 'Runs the .S suite on the part, in batches. The script runs as you; only'
 	@echo 'iceprog and ftread run under ICEPROG_SUDO, as `make prog` does. Roughly ten minutes.'
 	@echo
-	@ICEPROG_SUDO='$(ICEPROG_SUDO)' FTREAD='$(abspath $(BUILD))/ftread' ./soc/run_suite_board.sh
+	@ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/run_suite_board.sh $(if $(ICEPROG_SUDO),--iceprog '$(BOARD_ICEPROG)' --ftread '$(BOARD_FTREAD)',--ftread '$(abspath $(BUILD))/ftread')
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
@@ -1406,15 +1406,32 @@ bitstream: $(BUILD)/board.bin
 
 ICEPROG_DEV  ?=
 ICEPROG_SUDO ?= $(if $(filter Darwin,$(shell uname -s)),sudo,)
-.PHONY: prog
-prog: $(BUILD)/board.bin
+# Under sudo, run only root-owned copies from BOARD_TOOLS_DIR (docs/flashing-the-upduino.md).
+BOARD_TOOLS_DIR ?= /usr/local/libexec/little-cpu
+BOARD_ICEPROG   ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/bin/iceprog,iceprog)
+BOARD_FTREAD    ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/bin/ftread,$(abspath $(BUILD))/ftread)
+BOARD_TOOLS_GROUP ?= $(if $(filter Darwin,$(shell uname -s)),wheel,root)
+
+.PHONY: install-board-tools
+install-board-tools: $(BUILD)/ftread
 	@command -v iceprog >/dev/null || { \
 	  echo '*** iceprog is not on PATH. It ships with the OSS CAD Suite that'; \
 	  echo '*** `make setup` caches -- put its bin/ first on PATH.'; \
 	  exit 1; \
 	}
+	@./soc/install_board_tools.sh '$(BOARD_TOOLS_DIR)' '$(BOARD_TOOLS_GROUP)' '$(BUILD)/ftread'
+
+.PHONY: prog
+prog: $(BUILD)/board.bin
+	@command -v '$(BOARD_ICEPROG)' >/dev/null || { \
+	  echo '*** $(BOARD_ICEPROG) not found. Without sudo, iceprog ships with the OSS CAD Suite'; \
+	  echo '*** that `make setup` caches -- put its bin/ first on PATH. Under sudo, run'; \
+	  echo '*** `make install-board-tools`.'; \
+	  exit 1; \
+	}
+	$(if $(ICEPROG_SUDO),@./soc/check_root_binary.sh '$(BOARD_ICEPROG)')
 	@echo 'Flashing $(BOARD). On macOS this needs root -- see docs/flashing-the-upduino.md.'
-	$(ICEPROG_SUDO) iceprog $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') $(BUILD)/board.bin
+	$(ICEPROG_SUDO) '$(BOARD_ICEPROG)' $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') $(BUILD)/board.bin
 
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
 

@@ -3,6 +3,22 @@
 `make prog` runs `iceprog` under `sudo` on macOS (`ICEPROG_SUDO` is `sudo` on Darwin and empty
 elsewhere). This page explains why, and what happens to the serial port afterwards.
 
+## Root runs only root-owned copies
+
+Root must not execute a binary the user can write: `iceprog` from the OSS CAD Suite and `build/ftread`
+both live in user-owned directories. Run `make install-board-tools` once (and again after a new
+`iceprog` or a rebuilt `ftread`). It copies both, owned by root and mode 755, into
+`/usr/local/libexec/little-cpu/bin` (`BOARD_TOOLS_DIR` moves the prefix) and asks for your password
+through `sudo`. The OSS CAD Suite's `bin/iceprog` is a bash wrapper, not the program: copied alone it
+cannot find its siblings, and under `sudo` its `#!/usr/bin/env bash` would run whichever `bash` the
+caller's `PATH` names first. So the install takes the real executable from the suite's `libexec/`,
+and on macOS the libraries it loads from `@executable_path/../lib` into `lib/` beside `bin/`.
+
+Whenever `ICEPROG_SUDO` is non-empty, `make prog` and `make suite-board` run those copies by path and
+first refuse any binary that is a symlink, is not a Mach-O or ELF executable (a `#!` script included),
+is not owned by root, is group- or world-writable, or sits in such a directory (`soc/check_root_binary.sh`, graded by `test/board_verdict_test.sh`). On Linux
+`ICEPROG_SUDO` is empty and nothing changes: `iceprog` comes from `PATH` and `ftread` from `build/`.
+
 ## Why flashing needs root
 
 Run unprivileged, every libftdi tool reports **zero devices**, even while `ioreg` shows the board.
@@ -23,11 +39,14 @@ The FT232H is both the programmer and the serial port. `iceprog` leaves it in MP
 
 - **Unplugging and replugging the board** brings the device node back.
 - **If the driver has been unloaded**, nothing attaches after a replug. `make ftread` builds
-  `./ftread`, which talks libftdi directly and reads the UART with no device node. Run it as root:
-  `sudo ./ftread 115200 8000`. `make suite-board` builds and uses it, running the script as you and only `iceprog` and `ftread` under `ICEPROG_SUDO`.
+  `./ftread`, which talks libftdi directly and reads the UART with no device node. Run the root-owned copy:
+  `sudo /usr/local/libexec/little-cpu/ftread 115200 8000`. `make suite-board` builds and uses it, running the script as you and only `iceprog` and `ftread` under `ICEPROG_SUDO`.
   The verdicts it reads off the UART are untrusted text: bash evaluates array subscripts inside
   `$(( ))`, so `grade_verdict` (`soc/board_verdict.sh`) accepts digits only and reports anything else as a
-  parse error. `test/board_verdict_test.sh` grades that.
+  parse error. `test/board_verdict_test.sh` grades that. The same text never reaches your terminal
+  raw either: the script shows it through `display_safe`, which keeps printable bytes and newlines
+  only, so an escape sequence on the wire cannot drive the terminal. The captures in
+  `build/suite_board_raw` stay byte-exact.
 
 The iCESugar-Pro doesn't have this problem. Its serial port is a CDC device on the iCELink
 debugger, a device node that flashing never takes away (`soc/board_read.py`).

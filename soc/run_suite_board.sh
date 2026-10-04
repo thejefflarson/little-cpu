@@ -6,6 +6,20 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 . "$ROOT/soc/board_verdict.sh"
 ICEPROG_SUDO=${ICEPROG_SUDO-}
+# Root-run binaries come from the command line, never the environment; under sudo they are required and checked.
+ICEPROG_BIN=""; FTREAD=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --iceprog) ICEPROG_BIN=${2-}; shift 2;;
+    --ftread) FTREAD=${2-}; shift 2;;
+    *) echo "usage: $0 [--iceprog PATH] [--ftread PATH]" >&2; exit 2;;
+  esac
+done
+if [ -n "$ICEPROG_SUDO" ]; then
+  [ -n "$ICEPROG_BIN" ] && [ -n "$FTREAD" ] \
+    || { echo "error: under ICEPROG_SUDO, --iceprog and --ftread are required" >&2; exit 2; }
+  "$ROOT/soc/check_root_binary.sh" "$ICEPROG_BIN" "$FTREAD" || exit 1
+fi
 RISCV_GCC_CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu
 export PATH="$RISCV_GCC_CACHE/riscv-gcc/bin:$RISCV_GCC_CACHE/oss-cad-suite/bin:$PATH"
 
@@ -18,7 +32,8 @@ rm -f build/.drv.$$.o
 : "${DRIVER_BYTES:=512}"
 BUDGET=${BUDGET:-$(( 8192 - DRIVER_BYTES - 600 ))}
 READ_MS=${READ_MS:-8000}
-FTREAD=${FTREAD:-$ROOT/build/ftread}
+: "${ICEPROG_BIN:=$(command -v iceprog)}"
+: "${FTREAD:=$ROOT/build/ftread}"
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteboard.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
 
@@ -106,7 +121,7 @@ while read -r progs; do
   flashed=""
   for attempt in 1 2 3 4; do
     echo "   flashing (iceprog, attempt $attempt):"
-    if $ICEPROG_SUDO "$(command -v iceprog)" build/board.bin 2>&1 | tee "$OUT/flash.log" | sed 's/^/      | /' \
+    if $ICEPROG_SUDO "$ICEPROG_BIN" build/board.bin 2>&1 | tee "$OUT/flash.log" | display_safe | sed 's/^/      | /' \
        && grep -q 'VERIFY OK' "$OUT/flash.log"; then
       flashed=yes; break
     fi
@@ -123,7 +138,7 @@ while read -r progs; do
   for attempt in 1 2 3; do
     raw=$($ICEPROG_SUDO "$FTREAD" 115200 "$READ_MS" 2>"$OUT/read.err")
     printf '%s' "$raw" > "$RAWDIR/batch$i.attempt$attempt.txt"
-    nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n')
+    nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n' | display_safe)
     block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
     got=$(printf '%s' "$block" | grep -c '^[0-9]' || true)
     echo "   read:  ${nbytes:-0} bytes, $got of $want verdicts (attempt $attempt) [$((SECONDS-t0))s]"
@@ -136,10 +151,10 @@ while read -r progs; do
   fi
 
   if [ -n "${SHOW_RAW:-}" ]; then
-    echo "   ---- raw capture ----"; printf '%s' "$raw" | sed 's/^/      /'
-    echo "   ---- parsed block ----"; printf '%s' "$block" | sed 's/^/      /'
+    echo "   ---- raw capture ----"; printf '%s' "$raw" | display_safe | sed 's/^/      /'
+    echo "   ---- parsed block ----"; printf '%s' "$block" | display_safe | sed 's/^/      /'
   else
-    echo "   verdicts: $(printf '%s' "$block" | tr '\n' ' ' | cut -c1-70)"
+    echo "   verdicts: $(printf '%s' "$block" | display_safe | tr '\n' ' ' | cut -c1-70)"
   fi
 
   j=0
