@@ -153,6 +153,7 @@ a clock factor and a cycle factor measured with different tools are not a produc
 a clock for a core nobody graded is named rather than ignored
 a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
+a collector that drops the post-route STA's per-corner reports is refused
 a combined actions/cache step in place of restore is refused
 a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
 a commented-out CI step does not count as run
