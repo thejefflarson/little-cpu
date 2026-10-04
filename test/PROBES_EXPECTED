@@ -86,6 +86,7 @@ a RAM comparison over no words is named as unable to fail
 a RAM half the size in the core's copy is red
 a RAM half the size in the proof's copy is red
 a ROM/RAM geometry change is checked the same generic way as CFLAGS
+a RUNPATH relative to the caller's directory is red
 a SHRUNK suite is caught when the missing program is the C one
 a SHRUNK suite: the manifest names a program the tree does not have
 a Sail install back inside the checkout is red
@@ -117,6 +118,7 @@ a block RAM read through its own reset is refused
 a block short of a tool is named, not summarised around
 a block with no end is truncated, and a truncated one is not read
 a bmc .sby stating depth twice is exit 2 here too
+a board suite that sudo-runs a path the check did not resolve is red
 a branch already on this repository stops the bump
 a build artifact missing is exit 2, not a probe against nothing
 a build file pinned to a different Hazard3 than the Makefile is red
@@ -290,6 +292,8 @@ a legacy stamp's rtl/ change since its base is STALE, and the file is named
 a liberty download whose bytes are not the pin is refused before it is kept
 a liberty file that does not match the pinned digest is refused
 a liberty file that does not match the pinned digest is refused
+a library check that ignores an ELF's RUNPATH is red
+a library check that trusts all of /System is red
 a line naming a mutation test/mutations/ does not have is red
 a line with no harness behind it is red too
 a line with no harness behind it is red too
@@ -424,7 +428,9 @@ a part with no cell-name row is refused rather than defaulted
 a part with no icetime walk reads NA rather than a fabricated zero
 a partial pin missing required fields is not a pin
 a path that does not reconcile blames the script, not the design
+a path walk that reads only the mode bits, not the ACL, is red
 a path walk that trusts a symlinked ancestor unresolved is red
+a path walk that word-splits a directory name is red
 a path with no LUT level at all reports zero rather than dividing by it
 a peripheral inside the timer's reserved span is red
 a pin file that does not exist is refused, not read as absent-is-fine
@@ -467,6 +473,7 @@ a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
 a reason dropped from the decoder's own composition is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
+a recipe running a script git records as 100644 is red, and located
 a red that is not a structural difference is not the red this probe wants
 a redirect counter that stopped being printed is named too
 a ref that names no commit here is refused before any placement
@@ -541,6 +548,7 @@ a retried response gated on a stale, registered req_valid is red
 a room check that forgets the response landing this cycle is red
 a root-binary check that ignores group and world write is red
 a root-binary check that ignores the owner is red
+a root-binary check that prints the unresolved path it was handed is red
 a root-binary check that runs a #! script is red
 a root-binary check that skips the libraries it loads is red
 a root-binary check that stops at the first library hop is red
@@ -557,6 +565,8 @@ a runner that passes but prints no per-program line leaves nothing to compare
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
 a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused
+a script run after a separator on a continuation line is graded too
+a script run inside a make conditional is graded too
 a second instance of the macro is refused, not priced once
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
@@ -728,6 +738,7 @@ an exception whose port is connected now is red
 an exception whose site stopped naming that ISA is red
 an excluded program that assembles and passes anyway is red, not silently trusted
 an exclusion with no reason written under it is rejected
+an exec-mode scan of a tree git cannot list is red, not green
 an exemption naming no program is red, not a program quietly excused
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
@@ -741,8 +752,10 @@ an indented line equal to a plain heredoc's token does not close it early
 an injection site that moved stops the control, loudly
 an input edited during the run refuses to stamp
 an input held constant that no baseline declares is red
+an installer that leaves all of /System unbundled is red
 an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
+an interpreter's argument is not a direct run, so nothing is graded
 an issue body that stops naming the hand-updated cycle floor is red
 an issue body whose compare link does not open the pull request form is red
 an ls_access with an extra encoding proving is red
@@ -852,6 +865,7 @@ control: a pin whose sources match checks OK
 control: a placement holding the whole core is green
 control: a plain liberty and source produce the expected yosys script
 control: a plain liberty and source produce the expected yosys script
+control: a recipe running an executable script is green
 control: a report clearing the floor is green
 control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's to grade
 control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
@@ -898,6 +912,7 @@ control: every goal first reached before complete's depth passes the tie
 control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0/0
 control: every line of the littlecpu-subset manifest marked EXCLUDED is red too
 control: every named source present proceeds
+control: every script the shipping Makefile runs directly is executable
 control: every site names every port of littlecpu
 control: every target in both designs' all lists is run by ci.yml
 control: fixture_anchor finds its literal in the real file

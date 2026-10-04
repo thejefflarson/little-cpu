@@ -4038,7 +4038,7 @@ probe "a root-binary check that runs a #! script is red" 1 \
   "a #! script was accepted" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
-mutate "$d/board_verdict.sh" 's/^  check_deps "\$bin" "\$owner"$/  :/'
+mutate "$d/board_verdict.sh" 's/^  check_deps "\$real" "\$owner" || return 1$/  :/'
 probe "a root-binary check that skips the libraries it loads is red" 1 \
   "world-writable library dependency: got accept" "$BV $d/board_verdict.sh"
 
@@ -4061,6 +4061,89 @@ d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's|  dir=\$(cd -P "\$(dirname "\$p")" 2>/dev/null \&\& pwd -P)|  dir=$(cd "$(dirname "$p")" 2>/dev/null \&\& pwd)|'
 probe "a path walk that trusts a symlinked ancestor unresolved is red" 1 \
   "symlinked ancestor resolves before the walk: got refuse" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "s/printf '%s\\\\n' \"\\\$real\"/printf '%s\\\\n' \"\$bin\"/"
+probe "a root-binary check that prints the unresolved path it was handed is red" 1 \
+  "not the resolved one a caller must run" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
+mutate "$d/run_suite_board.sh" 's/^  ICEPROG_BIN=\$("\$ROOT\/soc\/check_root_binary.sh" "\$ICEPROG_BIN") || exit 1$/  "$ROOT\/soc\/check_root_binary.sh" "$ICEPROG_BIN" "$FTREAD" || exit 1/'
+probe "a board suite that sudo-runs a path the check did not resolve is red" 1 \
+  "runs a path other than the one check_root_binary.sh resolved" \
+  "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^  \[ "\$real" = \/ \] || IFS=\/ read -r -a comps <<< "\${real#\/}"$/  comps=($(printf "%s" "${real#\/}" | tr "\/" " "))/'
+probe "a path walk that word-splits a directory name is red" 1 \
+  "a path with a space and a glob character in it: got refuse" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^    if acl_grants "\$cur"; then$/    if false; then/'
+probe "a path walk that reads only the mode bits, not the ACL, is red" 1 \
+  "an ancestor whose ACL grants what its mode does not: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" '/^        \/System\/Volumes\/\*) echo "error: \$f loads/d' \
+  's/^        \/usr\/lib\/\*|\/System\/Library\/\*|\/lib\/\*|\/lib64\/\*)$/        \/usr\/lib\/*|\/System\/*|\/lib\/*|\/lib64\/*)/'
+probe "a library check that trusts all of /System is red" 1 \
+  "a library on the /System/Volumes data volume: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/install_board_tools.sh" "$d/install_board_tools.sh"
+mutate "$d/install_board_tools.sh" '/^        \/System\/Volumes\/\*) echo/d' \
+  's/^        \/usr\/lib\/\*|\/System\/Library\/\*|@executable_path/        \/usr\/lib\/*|\/System\/*|@executable_path/'
+probe "an installer that leaves all of /System unbundled is red" 1 \
+  "trusts all of /System, the writable data volume included" \
+  "$BV $REPO/soc/board_verdict.sh $REPO/soc/run_suite_board.sh $d/install_board_tools.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^      deps=\$(elf_rpaths "\$f") || return 1$/      deps=""/'
+probe "a library check that ignores an ELF's RUNPATH is red" 1 \
+  "a world-writable RUNPATH directory: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^        case \$dir in \/\*) ;; \*) echo/        case $dir in *) ;; NEVERMATCH) echo/'
+probe "a RUNPATH relative to the caller's directory is red" 1 \
+  "a relative RUNPATH: got accept" "$BV $d/board_verdict.sh"
+
+begin_group "test/exec_mode_test.py"
+
+EM="python3 $HERE/exec_mode_test.py"
+
+em_fixture() {  # <Makefile text> <mode of run.sh>
+  local d; d=$(new_case)
+  printf '%b' "$1" > "$d/Makefile"
+  printf '#!/bin/sh\ntrue\n' > "$d/run.sh"; chmod "$2" "$d/run.sh"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" -c core.filemode=true add -A
+  printf '%s' "$d"
+}
+
+probe "control: every script the shipping Makefile runs directly is executable" 0 \
+  "every one executable" "$EM $REPO"
+
+d=$(em_fixture 'x:\n\t@./run.sh\n' 755)
+probe "control: a recipe running an executable script is green" 0 "1 direct run(s)" "$EM $d"
+
+d=$(em_fixture 'x:\n\t@./run.sh\n' 644)
+probe "a recipe running a script git records as 100644 is red, and located" 1 \
+  "Makefile:2: runs ./run.sh, which git records as 100644" "$EM $d"
+
+d=$(em_fixture 'x:\n\t@true; \\\n\t  ./run.sh\n' 644)
+probe "a script run after a separator on a continuation line is graded too" 1 \
+  "Makefile:2: runs ./run.sh" "$EM $d"
+
+d=$(em_fixture 'x:\n\t$(if $(Y),@./run.sh)\n' 644)
+probe "a script run inside a make conditional is graded too" 1 \
+  "runs ./run.sh" "$EM $d"
+
+d=$(em_fixture 'x:\n\t@python3 ./run.sh\n' 644)
+probe "an interpreter's argument is not a direct run, so nothing is graded" 1 \
+  "nothing was graded" "$EM $d"
+
+d=$(new_case)
+probe "an exec-mode scan of a tree git cannot list is red, not green" 1 \
+  "cannot enumerate any tracked files" "$EM $d"
 
 begin_group "test/adr_numbering_test.sh"
 

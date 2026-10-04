@@ -656,6 +656,10 @@ riscv-gcc-search-test:
 tmp-path-test:
 	@./test/tmp_path_test.sh
 
+.PHONY: exec-mode-test
+exec-mode-test:
+	@./test/exec_mode_test.py
+
 .PHONY: macro-register-test
 macro-register-test:
 	@./test/macro_register_test.sh
@@ -770,7 +774,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test \
       riscv-gcc-pin-test memmap-test \
       adr-numbering-test compare-geometry-test hazard3-config-test vexriscv-path-test retired-term-test port-connect-test march-test \
-      riscv-gcc-search-test tmp-path-test \
+      riscv-gcc-search-test tmp-path-test exec-mode-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
@@ -1429,9 +1433,11 @@ prog: $(BUILD)/board.bin
 	  echo '*** `make install-board-tools`.'; \
 	  exit 1; \
 	}
-	$(if $(ICEPROG_SUDO),@./soc/check_root_binary.sh '$(BOARD_ICEPROG)')
 	@echo 'Flashing $(BOARD). On macOS this needs root -- see docs/flashing-the-upduino.md.'
-	$(ICEPROG_SUDO) '$(BOARD_ICEPROG)' $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') $(BUILD)/board.bin
+	@bin='$(BOARD_ICEPROG)'; \
+	$(if $(ICEPROG_SUDO),bin=$$(./soc/check_root_binary.sh "$$bin") || exit 1;) \
+	echo "$(ICEPROG_SUDO) $$bin"; \
+	$(ICEPROG_SUDO) "$$bin" $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') $(BUILD)/board.bin
 
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
 

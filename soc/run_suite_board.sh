@@ -18,7 +18,8 @@ done
 if [ -n "$ICEPROG_SUDO" ]; then
   [ -n "$ICEPROG_BIN" ] && [ -n "$FTREAD" ] \
     || { echo "error: under ICEPROG_SUDO, --iceprog and --ftread are required" >&2; exit 2; }
-  "$ROOT/soc/check_root_binary.sh" "$ICEPROG_BIN" "$FTREAD" || exit 1
+  ICEPROG_BIN=$("$ROOT/soc/check_root_binary.sh" "$ICEPROG_BIN") || exit 1
+  FTREAD=$("$ROOT/soc/check_root_binary.sh" "$FTREAD") || exit 1
 fi
 RISCV_GCC_CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu
 export PATH="$RISCV_GCC_CACHE/riscv-gcc/bin:$RISCV_GCC_CACHE/oss-cad-suite/bin:$PATH"

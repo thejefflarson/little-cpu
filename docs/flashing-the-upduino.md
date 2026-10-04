@@ -20,11 +20,15 @@ builds of one library name cannot collide.
 
 Whenever `ICEPROG_SUDO` is non-empty, `make prog` and `make suite-board` run those copies by path and
 first refuse any binary that is a symlink, is not a Mach-O or ELF executable (a `#!` script included),
-or is not owned by root or is group- or world-writable. The same test runs on every directory from `/`
-down (after `realpath`, so macOS's `/var` to `/private/var` is walked as `/private/var`) and on every
-library `otool -L` (macOS) or `ldd` (Linux) lists, transitively. Libraries under `/usr/lib` and
-`/System` are the system's and pass; any other path, or an `@rpath` reference, is refused
-(`soc/check_root_binary.sh`, graded by `test/board_verdict_test.sh`). If `/usr/local` or
+or is not owned by root or is group- or world-writable, or carries an ACL that grants write. The same
+test runs on every directory from `/` down (after `realpath`, so macOS's `/var` to `/private/var` is
+walked as `/private/var`), on every library `otool -L` (macOS) or `env -i ldd` (Linux) lists,
+transitively, and on every directory an ELF's RUNPATH names. Libraries under `/usr/lib` and
+`/System/Library` are the system's and pass; `/System/Volumes`, the writable data volume, is refused,
+as is any other path that fails the test, or an `@rpath` reference. The check prints the resolved
+path it walked, and that is the path sudo runs, so a symlink in the name given cannot be repointed
+between the check and the run (`soc/check_root_binary.sh`, graded by `test/board_verdict_test.sh`).
+If `/usr/local` or
 `BOARD_TOOLS_DIR`'s parents are user-writable (some Intel Homebrew setups), the check refuses and
 `BOARD_TOOLS_DIR` must move to a root-owned prefix. On Linux
 `ICEPROG_SUDO` is empty and nothing changes: `iceprog` comes from `PATH` and `ftread` from `build/`.
