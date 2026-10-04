@@ -28,6 +28,7 @@ module rvfi_testbench (
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
     .irq_meip(1'b0),
+    .irq_mtip(1'b0),
     .trap(trap),
     `RVFI_CONN
   );

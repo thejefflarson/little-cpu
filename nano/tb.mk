@@ -7,7 +7,7 @@ NANO_RISCV_FORMAL_MACROS := RISCV_FORMAL RISCV_FORMAL_COMPRESSED RISCV_FORMAL_AL
 
 include nano/stamp.mk
 
-NANO_SIM_RTL_SRCS := nano/nano.v nano/tb/nano_memory.v soc/compare/dhry_monitor.v
+NANO_SIM_RTL_SRCS := nano/nano.v nano/timer.v nano/tb/nano_memory.v soc/compare/dhry_monitor.v
 NANO_SIM_TB_SRCS  := nano/tb/nano_testbench.v
 NANO_SIM_IN       := rvfi_macros.vh $(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
 $(eval $(call nano_stamp,NANO_SIM_STAMP,$(NANO_SIM_RTL_SRCS) $(NANO_SIM_TB_SRCS) nano/tb/nano_cxxrtl.cc,$(NANO_RISCV_FORMAL_MACROS)))
@@ -38,13 +38,29 @@ nano-rf-model-test:
 nano-rf-timing-probe: rvfi_macros.vh test/monitor.sim.v
 	@./nano/tb/nano_rf_timing_probe.sh '$(NANO_CFLAGS)' '$(NANO_SIM_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
 
+.PHONY: nano-mtimer-probe
+nano-mtimer-probe: rvfi_macros.vh test/monitor.sim.v
+	@./nano/tb/nano_mtimer_probe.sh '$(NANO_CFLAGS)' '$(NANO_SIM_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
+
+# nano_timer's bus port driven directly: MTIP graded against a model, never early and at most one cycle late. The probe forces seven mutants red first.
+.PHONY: nano-timer-probe
+nano-timer-probe:
+	@./nano/tb/nano_timer_probe.sh
+
+.PHONY: nano-timer-test
+nano-timer-test: nano-timer-probe
+	@mkdir -p $(BUILD) || exit 1; \
+	iverilog -g2012 -o $(BUILD)/nano_timer_tb.vvp nano/timer.v nano/tb/nano_timer_tb.v || exit 1; \
+	out=$$(vvp $(BUILD)/nano_timer_tb.vvp) || exit 1; echo "$$out"; \
+	printf '%s\n' "$$out" | grep -q '^PASS$$' || exit 1
+
 .PHONY: nano-meip-floor-probe
 nano-meip-floor-probe: nano-sim
 	@./nano/tb/nano_meip_floor_probe.sh ./nano-sim '$(NANO_CFLAGS)'
 
 .PHONY: nano-test
 nano-test: nano-sim nano/tb/nano_icarus.vvp nano-x-probe nano-meip-floor-probe \
-          nano-vcd-probe nano-rf-timing-probe nano-rf-model-test
+          nano-vcd-probe nano-rf-timing-probe nano-rf-model-test nano-mtimer-probe
 	@./nano/tb/nano_dual_leg_test.sh ./nano-sim ./nano/tb/nano_sim_icarus.sh nano/asm \
 	  nano/asm/EXPECTED_FAIL nano/asm/OBSERVED_FLOOR '$(NANO_CFLAGS)'
 
@@ -76,7 +92,7 @@ NANO_QSPI_PINS_MEMORY := nano/qspi.v against the pin-level flash and PSRAM model
 nano-coremark: nano-sim
 	@./nano/bench/run_coremark.sh ./nano-sim $(NANO_COREMARK_ITERATIONS) $(NANO_COREMARK_CYCLES) '$(NANO_CFLAGS)'
 
-NANO_QSPI_SIM_RTL_SRCS := nano/nano.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v
+NANO_QSPI_SIM_RTL_SRCS := nano/nano.v nano/timer.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v
 NANO_QSPI_PREFETCH_DEPTH ?= 0
 NANO_QSPI_LOOP_KIND      ?= 0
 NANO_QSPI_LOOP_WINDOW    ?= 0
@@ -115,7 +131,7 @@ nano-qspi-loop-test: nano-qspi-loop-probe
 	@./nano/bench/run_qspi_loop_buffer_test.sh '$(NANO_CFLAGS)'
 
 # nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio rather than the abstract bus nano_qspi_memory.v times. On `make test`'s path.
-NANO_QSPI_PINS_RTL_SRCS := nano/nano.v nano/qspi.v nano/tb/nano_qspi_flash_model.v \
+NANO_QSPI_PINS_RTL_SRCS := nano/nano.v nano/timer.v nano/qspi.v nano/tb/nano_qspi_flash_model.v \
                            nano/tb/nano_qspi_psram_model.v soc/compare/dhry_monitor.v
 
 NANO_QSPI_PINS_IN    := rvfi_macros.vh $(NANO_QSPI_PINS_RTL_SRCS) $(NANO_SIM_TB_SRCS) test/monitor.sim.v
@@ -178,12 +194,16 @@ nano-qspi-resume-probe:
 nano-qspi-resume-test: nano/tb/nano_qspi_resume.vvp nano-qspi-resume-probe
 	@out=$$(vvp nano/tb/nano_qspi_resume.vvp); echo "$$out"; printf '%s\n' "$$out" | grep -q '^PASS$$'
 
+.PHONY: nano-tt-timer-probe
+nano-tt-timer-probe:
+	@./nano/tb/nano_tt_timer_probe.sh '$(NANO_CFLAGS)'
+
 .PHONY: nano-uio-oe-probe
 nano-uio-oe-probe:
 	@./nano/tb/nano_uio_oe_probe.sh '$(NANO_CFLAGS)'
 
 .PHONY: nano-tt-test
-nano-tt-test: nano-uio-oe-probe
+nano-tt-test: nano-uio-oe-probe nano-tt-timer-probe
 	@./nano/tb/run_nano_tt_test.sh '$(NANO_CFLAGS)'
 
 # Runs a hardened netlist through the pins-only test. Off `make test`'s path, like nano-area.

@@ -23,6 +23,12 @@ SECTIONS {
         . += 4;
     } >ram
 
+    .mtimer : {
+        . = ALIGN(16);
+        __mtimer = .;
+        . += 16;
+    } >ram
+
     .data : {
         *(.data);
         *(.rodata);
@@ -36,4 +42,6 @@ SECTIONS {
     } >ram
 
     __stack_top = ORIGIN(ram) + LENGTH(ram);
+
+    ASSERT(__mtimer == 0x00010010, "nano_testbench.v hardcodes the timer's address")
 }

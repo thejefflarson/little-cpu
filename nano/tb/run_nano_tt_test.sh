@@ -38,10 +38,11 @@ mkdir -p "$WORKDIR"
   --adjust-vma=-0x10000000 "$WORKDIR/tt_gpio_uart.elf" "$WORKDIR/tt_gpio_uart.ram.hex"
 
 TT_TOP=${NANO_TT_TOP:-"$REPO/nano/tt/src/tt_um_thejefflarson_nanocpu.v"}
+TT_BUS=${NANO_TT_BUS:-"$REPO/nano/bus.v"}
 
 iverilog -g2012 -o "$WORKDIR/nano_tt.vvp" \
-  "$REPO/nano/nano.v" "$REPO/nano/qspi.v" "$REPO/nano/uart.v" "$REPO/nano/gpio.v" \
-  "$REPO/nano/bus.v" "$TT_TOP" \
+  "$REPO/nano/nano.v" "$REPO/nano/qspi.v" "$REPO/nano/uart.v" "$REPO/nano/gpio.v" "$REPO/nano/timer.v" \
+  "$TT_BUS" "$TT_TOP" \
   "$REPO/nano/tb/nano_qspi_flash_model.v" "$REPO/nano/tb/nano_qspi_psram_model.v" \
   "$REPO/nano/tb/nano_tt_tb.v"
 

@@ -209,6 +209,21 @@ module nano_testbench(
     else if (mem_valid && mem_ready && |mem_wstrb && mem_addr == IRQCTL_ADDR) irq_meip <= 1'b1;
   end
 
+  // No map here, so the timer sits in nano.lds's `.mtimer` block in the RAM window; its reads replace the memory's.
+  localparam bit [31:0] TIMER_ADDR = 32'h0001_0010;
+  logic [31:0] timer_rdata, core_rdata;
+  logic        irq_mtip;
+  nano_timer #(.BASE(TIMER_ADDR)) timer (
+    .clk(clk),
+    .reset(reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(timer_rdata),
+    .mtip(irq_mtip)
+  );
+  assign core_rdata = !mem_instr && mem_addr[31:4] == TIMER_ADDR[31:4] ? timer_rdata : mem_rdata;
+
   riscv uut (
     .clk(clk),
     .reset(reset),
@@ -218,8 +233,9 @@ module nano_testbench(
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
-    .mem_rdata(mem_rdata),
+    .mem_rdata(core_rdata),
     .irq_meip(irq_meip),
+    .irq_mtip(irq_mtip),
     .trap(trap)
 `ifdef RISCV_FORMAL
     , .rvfi_valid(rvfi_valid),

@@ -16,7 +16,7 @@ fail() {
   rc=1
 }
 
-for f in nano/tt/src/tt_um_thejefflarson_nanocpu.v nano/bus.v nano/uart.v nano/gpio.v nano/nano.v; do
+for f in nano/tt/src/tt_um_thejefflarson_nanocpu.v nano/bus.v nano/uart.v nano/gpio.v nano/timer.v nano/nano.v; do
   if [ ! -f "$REPO/$f" ]; then
     echo "error: $f is missing, so its copy of the memory map cannot be compared." >&2
     exit 1
@@ -45,16 +45,16 @@ PSRAM_BASE=$(hex_param "$TOP" PSRAM_BASE)
 PSRAM_BYTES=$(hex_param "$TOP" PSRAM_BYTES)
 UART_BASE=$(hex_param nano/uart.v BASE)
 GPIO_BASE=$(hex_param nano/gpio.v BASE)
+TIMER_BASE=$(hex_param nano/timer.v BASE)
 UART_BYTES=8
 GPIO_BYTES=8
-# Reserved for mtime/mtimecmp: four words, rtl/timer.v's one-hart shape.
-RESERVED_BYTES=16
+# mtime and mtimecmp: four words, rtl/timer.v's one-hart shape.
+TIMER_BYTES=16
 
 PSRAM_TOP=$((PSRAM_BASE + PSRAM_BYTES))
 UART_TOP=$((UART_BASE + UART_BYTES))
 GPIO_TOP=$((GPIO_BASE + GPIO_BYTES))
-RESERVED_BASE=$GPIO_TOP
-RESERVED_TOP=$((RESERVED_BASE + RESERVED_BYTES))
+TIMER_TOP=$((TIMER_BASE + TIMER_BYTES))
 
 if [ "$PSRAM_TOP" -ne "$UART_BASE" ]; then
   fail "PSRAM ends at $(hexfmt "$PSRAM_TOP") and the UART starts at
@@ -70,6 +70,13 @@ the same address from two peripherals at once, and nano_bus's select signals
 would both read true."
 fi
 
+if [ "$GPIO_TOP" -ne "$TIMER_BASE" ]; then
+  fail "GPIO ends at $(hexfmt "$GPIO_TOP") and the timer starts at
+$(hexfmt "$TIMER_BASE"). The core's fault window ends where MAP_TOP says, so a gap
+between the two is mapped and answers zero, and an overlap would answer one address
+from two peripherals at once."
+fi
+
 # The core's own check is the only thing that faults an out-of-window access, so it must
 # cover exactly the span nano_bus routes -- no gap either way.
 RAM_WORDS_RAW=$(sed -nE "s/.*RAM_WORDS[[:space:]]*=[[:space:]]*\(MAP_TOP[[:space:]]*-[[:space:]]*PSRAM_BASE\)[[:space:]]*\/[[:space:]]*4;.*/present/p" "$REPO/$TOP" | head -1)
@@ -82,12 +89,9 @@ fi
 MAP_TOP_RAW=$(sed -nE "s/.*MAP_TOP[[:space:]]*=[[:space:]]*PSRAM_BASE[[:space:]]*\+[[:space:]]*PSRAM_BYTES[[:space:]]*\+[[:space:]]*32'd8[[:space:]]*\+[[:space:]]*32'd8[[:space:]]*\+[[:space:]]*32'd16;.*/present/p" "$REPO/$TOP" | head -1)
 if [ "$MAP_TOP_RAW" != present ]; then
   fail "$TOP's MAP_TOP is no longer PSRAM_BASE + PSRAM_BYTES + the UART's, GPIO's
-and the reserved span's byte counts, in that order. This check computes the
+and the timer's byte counts, in that order. This check computes the
 expected window the same way; a divergent formula would pass here while faulting
 the wrong addresses on real hardware."
-fi
-if [ "$MAP_TOP_RAW" = present ] && [ "$RESERVED_TOP" -eq 0 ]; then
-  fail "internal error: RESERVED_TOP computed as zero."
 fi
 
 if [ $((PSRAM_BASE % PSRAM_BYTES)) -ne 0 ]; then
@@ -100,12 +104,15 @@ fi
 if [ $((GPIO_BASE % GPIO_BYTES)) -ne 0 ]; then
   fail "GPIO's base $(hexfmt "$GPIO_BASE") is not 8-byte aligned."
 fi
+if [ $((TIMER_BASE % TIMER_BYTES)) -ne 0 ]; then
+  fail "the timer's base $(hexfmt "$TIMER_BASE") is not 16-byte aligned."
+fi
 
 if [ "$rc" -eq 0 ]; then
   echo "Memory map agreed on: PSRAM $(hexfmt "$PSRAM_BASE")-$(hexfmt $((PSRAM_TOP - 1))), \
 UART $(hexfmt "$UART_BASE")-$(hexfmt $((UART_TOP - 1))), \
 GPIO $(hexfmt "$GPIO_BASE")-$(hexfmt $((GPIO_TOP - 1))), \
-reserved $(hexfmt "$RESERVED_BASE")-$(hexfmt $((RESERVED_TOP - 1)))."
+timer $(hexfmt "$TIMER_BASE")-$(hexfmt $((TIMER_TOP - 1)))."
 fi
 
 exit "$rc"

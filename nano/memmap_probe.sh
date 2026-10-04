@@ -10,7 +10,7 @@ MM="$HERE/memmap_test.sh"
 fixture() {
   d=$(mktemp -d "${TMPDIR:-/tmp}/nano-memmap-probe.XXXXXX")
   mkdir -p "$d/nano/tt/src"
-  cp "$REPO/nano/nano.v" "$REPO/nano/bus.v" "$REPO/nano/uart.v" "$REPO/nano/gpio.v" "$d/nano/"
+  cp "$REPO/nano/nano.v" "$REPO/nano/bus.v" "$REPO/nano/uart.v" "$REPO/nano/gpio.v" "$REPO/nano/timer.v" "$d/nano/"
   cp "$REPO/nano/tt/src/tt_um_thejefflarson_nanocpu.v" "$d/nano/tt/src/"
   printf '%s' "$d"
 }
@@ -60,8 +60,32 @@ elif ! printf '%s' "$out" | grep -q "8-byte aligned"; then
   red=1
 fi
 
+d=$(fixture)
+sed -i.bak "s/32'h1080_0010/32'h1080_0020/" "$d/nano/timer.v"
+if out=$("$MM" "$d" 2>&1); then
+  echo "*** the timer drifting off GPIO's top is not red:" >&2
+  echo "$out" >&2
+  red=1
+elif ! printf '%s' "$out" | grep -q "the timer starts at"; then
+  echo "*** the timer drifting off GPIO's top fails for the wrong reason:" >&2
+  echo "$out" >&2
+  red=1
+fi
+
+d=$(fixture)
+sed -i.bak "s/32'h1080_0010/32'h1080_0018/" "$d/nano/timer.v"
+if out=$("$MM" "$d" 2>&1); then
+  echo "*** a misaligned timer base is not red:" >&2
+  echo "$out" >&2
+  red=1
+elif ! printf '%s' "$out" | grep -q "16-byte aligned"; then
+  echo "*** a misaligned timer base fails for the wrong reason:" >&2
+  echo "$out" >&2
+  red=1
+fi
+
 if [ "$red" -ne 0 ]; then
   exit 1
 fi
 
-echo "nano/memmap_test.sh: the shipping map passes and three overlap/alignment mutants fail for their own reasons."
+echo "nano/memmap_test.sh: the shipping map passes and five overlap/alignment mutants fail for their own reasons."

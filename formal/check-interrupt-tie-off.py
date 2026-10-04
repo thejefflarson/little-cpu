@@ -30,7 +30,7 @@ Four things are decided here:
      riscv-formal's table, which is plumbing and says nothing about behaviour.
 
 nano runs the same check over its own harnesses: `--core nano` swaps the module name and
-the tied port (`riscv`, `.irq_meip(1'b0)`) and adds two things nano needs. A harness that
+the tied ports (`riscv`, `.irq_meip(1'b0)` and `.irq_mtip(1'b0)`) and adds two things nano needs. A harness that
 instantiates the core and leaves the input free on purpose, nano/formal/traps.sv, is a
 `FREE` record: it must instantiate the core and must NOT tie the input off, so the one file
 that is meant to see an interrupt is graded as well as the ones that are meant not to. And
@@ -47,10 +47,10 @@ import os
 import re
 import sys
 
-# Per core: the module a harness instantiates and the one input it ties low.
+# Per core: the module a harness instantiates and the inputs it ties low.
 CORES = {
-    'littlecpu': ('littlecpu', 'irq_timer'),
-    'nano': ('riscv', 'irq_meip'),
+    'littlecpu': ('littlecpu', ('irq_timer',)),
+    'nano': ('riscv', ('irq_meip', 'irq_mtip')),
 }
 
 # A port connected to a constant, whatever the port.
@@ -70,11 +70,11 @@ SEARCHED_SUFFIXES = ('.v', '.sv', '.vh')
 # The files upstream that carry assertions, as opposed to port declarations.
 CHECK_FILE = re.compile(r'^rvfi_\w+_check\.sv$')
 
-def scan_harnesses(formal_dir, module, port):
-    """Files in the harness directory that instantiate the core: whether each ties the
-    input off, and which ports each connects to a constant."""
+def scan_harnesses(formal_dir, module, ports):
+    """Files in the harness directory that instantiate the core: which of the interrupt
+    inputs each ties off, and which ports each connects to a constant."""
     instantiates = re.compile(rf'^\s*{module}\s+\w+\s*\(\s*$', re.M)
-    tie_off = re.compile(rf"^\s*\.{port}\(1'b0\)\s*,?\s*$", re.M)
+    tie_offs = {port: re.compile(rf"^\s*\.{port}\(1'b0\)\s*,?\s*$", re.M) for port in ports}
     found = {}
     constants = {}
     errors = []
@@ -91,7 +91,7 @@ def scan_harnesses(formal_dir, module, port):
             continue
         match = instantiates.search(text)
         if match:
-            found[name] = bool(tie_off.search(text))
+            found[name] = {port: bool(tie_off.search(text)) for port, tie_off in tie_offs.items()}
             constants[name] = set(CONST_PORT.findall(text[match.end():text.find(');', match.end())]))
     return found, constants, errors
 
@@ -158,10 +158,10 @@ def main():
               file=sys.stderr)
         return 2
     formal_dir, baseline_path, rf_dir = args
-    module, port = CORES[core]
+    module, ports = CORES[core]
 
     declared_harnesses, declared_upstream, declared_free, errors = parse_baseline(baseline_path)
-    found, constants, harness_errors = scan_harnesses(formal_dir, module, port)
+    found, constants, harness_errors = scan_harnesses(formal_dir, module, ports)
     errors += harness_errors
 
     for name in sorted(set(found) - declared_harnesses - declared_free):
@@ -178,7 +178,9 @@ def main():
             f'  Either the harness was removed and the line was not, or the\n'
             f'  instantiation was reshaped and this script can no longer see it.')
     for name in sorted(declared_harnesses & set(found)):
-        if not found[name]:
+        for port in ports:
+            if found[name][port]:
+                continue
             errors.append(
                 f"{formal_dir}/{name} does not connect .{port}(1'b0).\n"
                 f'  The baseline says the generated checks run with no interrupt\n'
@@ -191,7 +193,9 @@ def main():
             f'{baseline_path} names FREE {name}, which does not instantiate {module} '
             f'(or does not exist).')
     for name in sorted(declared_free & set(found)):
-        if found[name]:
+        for port in ports:
+            if not found[name][port]:
+                continue
             errors.append(
                 f"{formal_dir}/{name} ties .{port}(1'b0) and {baseline_path} names it "
                 f'FREE.\n'
@@ -203,7 +207,7 @@ def main():
         # Every constant a HARNESS file connects, other than the interrupt, is a
         # restriction on the checks that nothing has recorded.
         for name in sorted(declared_harnesses & set(found)):
-            for other in sorted(constants[name] - {port}):
+            for other in sorted(constants[name] - set(ports)):
                 errors.append(
                     f'{formal_dir}/{name} ties .{other} to a constant, and nothing in '
                     f'{baseline_path} records that restriction.')
@@ -239,9 +243,11 @@ def main():
 
     print(f'interrupt tie-off matches {baseline_path} (both directions):')
     for name in sorted(declared_harnesses):
-        print(f"  {name:<16} instantiates {module} with .{port}(1'b0)")
+        print(f"  {name:<16} instantiates {module} with "
+              + ', '.join(f".{port}(1'b0)" for port in ports))
     for name in sorted(declared_free):
-        print(f"  {name:<16} instantiates {module} with .{port} left free")
+        print(f"  {name:<16} instantiates {module} with "
+              + ', '.join(f'.{port}' for port in ports) + ' left free')
     print(f'  {len(declared_upstream)} files at the pin mention {INTR_SIGNAL}, '
           f'and no rvfi_*_check.sv names mie, mip or mstatus')
     print('INTERRUPT TIE-OFF: PASS')
