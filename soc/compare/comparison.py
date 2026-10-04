@@ -76,6 +76,40 @@ CAVEATS = [
 ]
 
 
+# Every string the stamp contributes to the document is matched against one of these first,
+# so a stamp cannot inject markup, a code-span break or a link into a published page.
+FIELD_PATTERNS = {
+    "base": r"[0-9a-f]{40}",
+    "date": r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ",
+    "dirty": r"yes|no",
+    "seeds": r"[A-Za-z0-9 ]+",
+    "isa": r"rv32[a-z0-9_]+",
+    "unit": r"[A-Za-z]+/MHz",
+    "cflags": r"[A-Za-z0-9 =_.,+/:-]+",
+    "reason": r"[A-Za-z0-9 .,;:'()/_+-]+",
+}
+TOOL_NAME_PATTERN = r"[A-Za-z0-9_.-]+"
+TOOL_VERSION_PATTERN = r"[A-Za-z0-9 .,+()_/:\"'-]+"
+MEASURED_FIELDS = ("base", "date", "dirty", "seeds", "isa", "unit", "cflags")
+
+
+def validate(stamp):
+    """Exit on the first stamp string that does not match its pattern."""
+    def require(where, value, pattern):
+        if not isinstance(value, str) or not re.fullmatch(pattern, value):
+            sys.exit(f"*** {where} is {value!r}, which is not a value this document "
+                     "publishes verbatim; the stamp is malformed or tampered with.")
+
+    for name, pair in sorted(stamp["pairs"].items()):
+        require(f"pair name {name}", name, r"[a-z0-9_]+")
+        fields = MEASURED_FIELDS if pair.get("status") == "measured" else ("reason",)
+        for field in fields:
+            require(f"{name}.{field}", pair.get(field), FIELD_PATTERNS[field])
+        for tool, version in sorted(pair.get("tools", {}).items()):
+            require(f"{name}.tools key", tool, TOOL_NAME_PATTERN)
+            require(f"{name}.tools.{tool}", tool_version(version), TOOL_VERSION_PATTERN)
+
+
 def f(value, places=2):
     return f"{value:.{places}f}"
 
@@ -248,6 +282,7 @@ def main():
     args = parser.parse_args()
     with open(args.stamp) as handle:
         stamp = json.load(handle)
+    validate(stamp)
 
     if args.mode == "render":
         sys.stdout.write(render(stamp))

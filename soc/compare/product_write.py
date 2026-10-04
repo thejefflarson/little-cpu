@@ -58,6 +58,9 @@ import sys
 from datetime import datetime, timezone
 
 SCHEMA = "compare-product v2"
+
+# The names run_product.sh measures: a benchmark, with `_ecp5` for the second part.
+PAIR_NAME_RE = re.compile(r"(dhrystone|coremark)(_ecp5)?")
 NOTE = "written by soc/compare/run_product.sh (make compare-product); do not hand-edit"
 BASE_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -313,9 +316,18 @@ def main():
     except (OSError, json.JSONDecodeError) as exc:
         sys.exit(f"error: cannot read '{args.out}' to merge into it: {exc}")
 
+    if not PAIR_NAME_RE.fullmatch(args.benchmark):
+        sys.exit(f"error: '{args.benchmark}' is not a pair name run_product.sh measures")
     doc["schema"] = SCHEMA
     doc["note"] = NOTE
-    doc.setdefault("pairs", {})[args.benchmark] = pair
+    pairs = doc.setdefault("pairs", {})
+    for name in sorted(pairs):
+        old = pairs[name]
+        if not PAIR_NAME_RE.fullmatch(name) or (
+                old.get("status") == "measured" and "digest" not in old):
+            print(f"dropping {name}: a pair this schema does not describe", file=sys.stderr)
+            del pairs[name]
+    pairs[args.benchmark] = pair
 
     with open(args.out, "w") as handle:
         json.dump(doc, handle, indent=2, sort_keys=True)

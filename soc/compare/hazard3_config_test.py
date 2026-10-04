@@ -42,6 +42,12 @@ def read(path):
         fail(f"cannot read {path}: {exc}")
 
 
+def read_verilog(path):
+    """The file's text with `//` and `/* */` comments removed, so a commented-out setting
+    is not read as live."""
+    return re.sub(r"//[^\n]*|/\*.*?\*/", " ", read(path), flags=re.S)
+
+
 def read_builds(path):
     pin = None
     builds = {}
@@ -67,7 +73,7 @@ def read_builds(path):
 
 def read_bench(path):
     """Parameter -> (area value, perf value) as bench_hazard3.v's core instance states it."""
-    text = read(path)
+    text = read_verilog(path)
     match = re.search(r"hazard3_cpu_2port\s*#\((.*?)\)\s*core\s*\(", text, re.S)
     if not match:
         fail(f"{path}: no 'hazard3_cpu_2port #(...) core (' instance to read")
@@ -96,17 +102,24 @@ def pinned_sha(path):
 
 
 def core_defaults(clone):
-    text = read(clone / "hdl" / "hazard3_config.vh")
+    text = read_verilog(clone / "hdl" / "hazard3_config.vh")
     defaults = dict(re.findall(r"^parameter\s+(\w+)\s*=\s*(\d+)\s*,?", text, re.M))
     return {k: int(v) for k, v in defaults.items()}
 
 
 def example_values(path, defaults, names):
-    text = read(path)
+    text = read_verilog(path)
     block = re.search(r"example_soc\s*#\((.*?)\)\s*soc_u\s*\(", text, re.S)
     if not block:
         fail(f"{path}: no 'example_soc #(...) soc_u (' instance to read")
-    set_here = {n: int(v) for n, v in re.findall(r"\.(\w+)\s*\(\s*(\d+)\s*\)", block.group(1))}
+    set_here = {}
+    for name, value in re.findall(r"\.(\w+)\s*\(([^()]*)\)", block.group(1)):
+        value = value.strip()
+        if name in names and not re.fullmatch(r"\d+", value):
+            fail(f"{path}: {name} is '{value}', which this check cannot read as a "
+                 "decimal number; it would otherwise fall back to the core's default")
+        if name in names:
+            set_here[name] = int(value)
     values = {}
     for name in names:
         if name in set_here:
