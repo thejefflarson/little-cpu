@@ -136,3 +136,9 @@ before trusting it on the shipping one.
 
 Hardening through the TT flow, Sail co-simulation of the new regions, gate-level
 simulation and FPGA bring-up — all named out of scope by the ticket this lands.
+
+## Amendments
+
+- ADR-0249 fills the span reserved for `mtime` and `mtimecmp` with `nano/timer.v`: `mtime` low and
+  high at `0x1080_0010` and `0x1080_0014`, `mtimecmp` at `0x1080_0018` and `0x1080_001c`. The
+  provenance bullet and the map above that call the span reserved describe the tree before it.

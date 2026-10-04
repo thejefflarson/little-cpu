@@ -2,9 +2,9 @@
 # Grades a nano-style suite on two simulator legs and requires them to agree program by program.
 set -euo pipefail
 
-if [ "$#" -ne 6 ]; then
+if [ "$#" -lt 6 ] || [ "$#" -gt 7 ]; then
   echo "usage: nano_dual_leg_test.sh <cxxrtl-sim> <icarus-sim> <asm-dir> <expected-fail>" \
-       "<floor> <cflags>" >&2
+       "<floor> <cflags> [cycles]" >&2
   exit 1
 fi
 
@@ -14,6 +14,7 @@ ASM_DIR=$3
 EXPECTED_FAIL=$4
 OBSERVED_FLOOR=$5
 CFLAGS=$6
+CYCLES=${7:-10000}
 HERE=$(cd "$(dirname "$0")" && pwd)
 RUNNER="$HERE/../asm/run_nano_tests.sh"
 
@@ -32,7 +33,8 @@ extract_table() {
 run_leg() {  # <sim> <logfile>
   local sim=$1 logfile=$2
   set +e
-  "$RUNNER" "$sim" "$ASM_DIR" "$EXPECTED_FAIL" "$OBSERVED_FLOOR" "$CFLAGS" > "$logfile" 2>&1
+  "$RUNNER" "$sim" "$ASM_DIR" "$EXPECTED_FAIL" "$OBSERVED_FLOOR" "$CFLAGS" \
+    "$ASM_DIR/nano.lds" "$CYCLES" > "$logfile" 2>&1
   echo $?
 }
 

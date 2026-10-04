@@ -778,7 +778,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test nano-stale-build-test \
-      nano-memmap-test nano-tt-test \
+      nano-memmap-test nano-tt-test nano-timer-test \
       stall-sites-test pin-help-text-test formal-ci-coverage-test yosys-script-oneline-test \
       compare-doc-test
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR

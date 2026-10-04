@@ -14,6 +14,7 @@ module riscv #(
   input  logic [31:0] mem_rdata,
   // Machine external interrupt, level-triggered, synchronized here.
   input  logic        irq_meip,
+  input  logic        irq_mtip,
   output logic        trap
  `ifdef RISCV_FORMAL
    , `RVFI_OUTPUTS
@@ -90,6 +91,7 @@ module riscv #(
   localparam logic [31:0] CAUSE_STORE_MISALIGNED    = 32'd6;
   localparam logic [31:0] CAUSE_STORE_ACCESS_FAULT  = 32'd7;
   localparam logic [31:0] CAUSE_ECALL_M             = 32'd11;
+  localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
   localparam logic [31:0] CAUSE_MACHINE_EXTERNAL    = 32'h8000_000B;
 
   logic [63:0] mcycle, minstret;
@@ -99,7 +101,7 @@ module riscv #(
   logic [30:0] mepc_msbs;
   logic [3:0]  mcause_code;
   logic        mcause_interrupt;
-  logic        mstatus_mie, mstatus_mpie, mie_meie;
+  logic        mstatus_mie, mstatus_mpie, mie_meie, mie_mtie;
   logic        irq_meip_sync1, irq_meip_sync2;
 
   logic [11:0] csr_addr;
@@ -110,7 +112,7 @@ module riscv #(
   logic        hpm_number;
   logic        hpm_counter_window, hpm_event_window, hpm_zero;
 
-  logic        interrupt_pending, take_interrupt;
+  logic        external_pending, interrupt_pending, take_interrupt;
   logic        load_misaligned, store_misaligned, ls_in_range, load_region_fault,
                store_region_fault;
   logic        take_trap;
@@ -396,14 +398,15 @@ module riscv #(
   logic [31:0] mstatus_value, mie_value, mip_value;
   // MPP is hardwired 2'b11: this core has no mode below machine.
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
-  assign mie_value = {20'b0, mie_meie, 11'b0};
-  assign mip_value = {20'b0, irq_meip_sync2, 11'b0};
+  assign mie_value = {20'b0, mie_meie, 3'b0, mie_mtie, 7'b0};
+  assign mip_value = {20'b0, irq_meip_sync2, 3'b0, irq_mtip, 7'b0};
 
   logic [31:0] mtvec_value, mepc_value, mcause_value;
   assign mtvec_value  = {mtvec_base, 2'b00};
   assign mepc_value   = {mepc_msbs, 1'b0};
   assign mcause_value = {mcause_interrupt, 27'b0, mcause_code};
-  assign interrupt_pending = irq_meip_sync2 && mie_meie && mstatus_mie;
+  assign external_pending  = irq_meip_sync2 && mie_meie;
+  assign interrupt_pending = (external_pending || (irq_mtip && mie_mtie)) && mstatus_mie;
 
   // Sliced here, not inside the case below: a constant part-select of a wider signal
   // inside an always_comb/always_ff is an iverilog "sorry", avoided by slicing here.
@@ -694,6 +697,7 @@ module riscv #(
       mstatus_mie      <= 1'b0;
       mstatus_mpie     <= 1'b0;
       mie_meie         <= 1'b0;
+      mie_mtie         <= 1'b0;
       irq_meip_sync1   <= 1'b0;
       irq_meip_sync2   <= 1'b0;
     end else begin
@@ -714,7 +718,10 @@ module riscv #(
             mstatus_mie  <= csr_new_value[3];
             mstatus_mpie <= csr_new_value[7];
           end
-          CSR_MIE:      mie_meie <= csr_new_value[11];
+          CSR_MIE: begin
+            mie_meie <= csr_new_value[11];
+            mie_mtie <= csr_new_value[7];
+          end
           CSR_MTVEC:    mtvec_base <= csr_new_value[31:2];
           CSR_MSCRATCH: mscratch   <= csr_new_value;
           CSR_MEPC:     mepc_msbs  <= csr_new_value[31:1];
@@ -728,7 +735,7 @@ module riscv #(
       end else if (take_interrupt) begin
         mepc_msbs        <= mem_addr[31:1];
         mcause_interrupt <= 1'b1;
-        mcause_code      <= CAUSE_MACHINE_EXTERNAL[3:0];
+        mcause_code      <= external_pending ? CAUSE_MACHINE_EXTERNAL[3:0] : CAUSE_MACHINE_TIMER[3:0];
         mstatus_mpie     <= mstatus_mie;
         mstatus_mie      <= 1'b0;
       end else if (cpu_state == execute_instr && take_trap) begin

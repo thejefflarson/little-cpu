@@ -1215,7 +1215,7 @@ fi
 accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's reason_* lines, or "" for the control
     local d; d=$(new_case)
     mkdir -p "$d/nano/tb" "$d/nano/asm" "$d/nano/bench" "$d/soc/compare" "$d/test/asm"
-    cp "$REPO/nano/nano.v" "$d/nano/"
+    cp "$REPO/nano/nano.v" "$REPO/nano/timer.v" "$d/nano/"
     cp "$REPO/nano/tb/nano_qspi_memory.v" "$REPO/nano/tb/nano_testbench.v" \
       "$REPO/nano/tb/nano_cxxrtl.cc" "$d/nano/tb/"
     cp "$REPO/soc/compare/dhry_monitor.v" "$d/soc/compare/"
@@ -1231,7 +1231,7 @@ accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's re
     local d=$1
     (
       cd "$d" || exit 1
-      yosys -p "read_verilog -sv -D RISCV_FORMAL -D RISCV_FORMAL_COMPRESSED -D RISCV_FORMAL_ALIGNED_MEM -D RISCV_FORMAL_NRET=1 -D RISCV_FORMAL_XLEN=32 -D RISCV_FORMAL_ILEN=32 -D NANO_QSPI_TIMING -D NANO_QSPI_PREFETCH_DEPTH=2 -D NANO_QSPI_LOOP_KIND=0 -D NANO_QSPI_LOOP_WINDOW=0 -D NANO_QSPI_PREAMBLE_CYCLES=24 rvfi_macros.vh nano/nano.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v nano/tb/nano_testbench.v test/monitor.sim.v; hierarchy -top nano_testbench; write_cxxrtl nano/tb/nano_qspi_rtl.cc" \
+      yosys -p "read_verilog -sv -D RISCV_FORMAL -D RISCV_FORMAL_COMPRESSED -D RISCV_FORMAL_ALIGNED_MEM -D RISCV_FORMAL_NRET=1 -D RISCV_FORMAL_XLEN=32 -D RISCV_FORMAL_ILEN=32 -D NANO_QSPI_TIMING -D NANO_QSPI_PREFETCH_DEPTH=2 -D NANO_QSPI_LOOP_KIND=0 -D NANO_QSPI_LOOP_WINDOW=0 -D NANO_QSPI_PREAMBLE_CYCLES=24 rvfi_macros.vh nano/nano.v nano/timer.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v nano/tb/nano_testbench.v test/monitor.sim.v; hierarchy -top nano_testbench; write_cxxrtl nano/tb/nano_qspi_rtl.cc" \
         > yosys.log 2>&1 || { cat yosys.log >&2; exit 1; }
       clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_qspi_rtl.cc"' \
         -isystem "$(yosys-config --datdir)/include/backends/cxxrtl/runtime" nano/tb/nano_cxxrtl.cc \
@@ -3954,6 +3954,29 @@ d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LEN
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
+begin_group "nano/asm/nano.lds's timer window ASSERT"
+
+nano_lds_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/asm"
+  cp "$REPO"/nano/asm/nano.lds "$d/nano/asm/"
+  printf '  .section .text.init,"ax",@progbits\n  .globl _start\n_start:\n  nop\n' > "$d/stub.S"
+  printf '%s' "$d"
+}
+
+nano_lds_link() {  # $1 = fixture dir
+  "$LAYOUT_CC" -march=rv32ec_zicsr -mabi=ilp32e -nostdlib -T "$1/nano/asm/nano.lds" "$1/stub.S" \
+    -o "$1/out.elf"
+}
+
+d=$(nano_lds_fixture)
+probe "control: nano.lds puts the timer block where nano_testbench.v hardcodes it" 0 \
+  "nano.lds links" "nano_lds_link $d && echo 'nano.lds links'"
+
+d=$(nano_lds_fixture); mutate "$d/nano/asm/nano.lds" 's/__mtimer = \.;/. += 4; __mtimer = .;/'
+probe "the timer block moving off nano_testbench.v's address is red" 1 \
+  "nano_testbench.v hardcodes the timer's address" "nano_lds_link $d"
+
 begin_group "test/dhry_board_parity_test.sh"
 
 if ! command -v riscv-none-elf-gcc > /dev/null 2>&1; then
@@ -4566,9 +4589,17 @@ d=$(itn_fixture); mutate "$d/formal/ill_e.sv" "s/\.irq_meip(1'b0),/.irq_meip(irq
 probe "a nano harness that stopped tying the input off is red" 1 \
   "does not connect .irq_meip" "$(itns "$d")"
 
+d=$(itn_fixture); mutate "$d/formal/ill_e.sv" "s/\.irq_mtip(1'b0),/.irq_mtip(irq_free),/"
+probe "a nano harness that stopped tying the timer input off is red" 1 \
+  "does not connect .irq_mtip" "$(itns "$d")"
+
 d=$(itn_fixture); mutate "$d/formal/traps.sv" "s/\.irq_meip(irq_meip),/.irq_meip(1'b0),/"
 probe "the free trap harness tied low would grade no interrupt entry, and is red" 1 \
   "names it FREE" "$(itns "$d")"
+
+d=$(itn_fixture); mutate "$d/formal/traps.sv" "s/\.irq_mtip(irq_mtip),/.irq_mtip(1'b0),/"
+probe "the free trap harness with only the timer input tied low is red too" 1 \
+  "ties .irq_mtip(1'b0)" "$(itns "$d")"
 
 d=$(itn_fixture); mutate "$d/BASELINE" '/^FREE traps.sv$/d'
 probe "the free harness with no line in the baseline is red" 1 \

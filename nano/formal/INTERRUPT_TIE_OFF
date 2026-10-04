@@ -7,7 +7,7 @@ HARNESS  dmemcheck.sv
 HARNESS  imemcheck.sv
 HARNESS  ill_e.sv
 
-# The one harness that leaves irq_meip free: the oracle for trap entry and the interrupt path.
+# The one harness that leaves irq_meip and irq_mtip free: the oracle for trap entry and the interrupt path.
 FREE     traps.sv
 
 UPSTREAM checks/rvfi_channel.sv

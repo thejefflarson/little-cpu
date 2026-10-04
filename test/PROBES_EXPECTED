@@ -382,6 +382,7 @@ a name defined twice is checked at both definitions, not just the last
 a named .sby that does not exist is refused
 a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff
 a nano harness that stopped tying the input off is red
+a nano harness that stopped tying the timer input off is red
 a nano target CI stopped running is red, and named
 a nested helper's own closing brace does not end the outer fixture early
 a netlist from another tree is named, not binned as `neither`
@@ -916,6 +917,7 @@ control: nano's own suite is graded the same way, and it is green
 control: nano's real divider defect is a baselined green, not a hidden one
 control: nano's shipping core passes the gate and the leak fails it
 control: nano's startup check is graded the same way, and it is green
+control: nano.lds puts the timer block where nano_testbench.v hardcodes it
 control: nano/formal/Makefile also puts the cached suite first
 control: nothing changing during the run is unmoved
 control: one register-file build reports its area and delay
@@ -1149,6 +1151,7 @@ the exemption does not extend to a write of the WRONG register
 the files the stamp itself feeds are excluded, so it never goes stale on its own output
 the free harness with no line in the baseline is red
 the free trap harness tied low would grade no interrupt entry, and is red
+the free trap harness with only the timer input tied low is red too
 the generated check set's isa line swept along with the flags is red
 the harness giving the UART its own baud rate is red
 the harness moving away takes the probe with it, loudly
@@ -1201,6 +1204,7 @@ the stale ISA name coming back in a formal harness comment is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red
 the timer address the programs arm is checked against the timer
+the timer block moving off nano_testbench.v's address is red
 the timer moving in the core's copy alone is red
 the timer moving in the proof's copy alone is red
 the timing run refuses a cell name that is not a bare sky130 cell too

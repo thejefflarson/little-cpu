@@ -70,6 +70,7 @@ nano/formal/memreq-probe/
 nano/formal/traps
 nano/formal/region-probe/
 nano/formal/tval-probe/
+nano/formal/mcause-probe/
 nano/formal/dmemcheck_latch
 nano/formal/imemcheck_latch
 nano/formal/dmemcheck_latch_cover
@@ -121,9 +122,12 @@ nano/tb/nano_qspi_latency.vvp
 nano/tb/nano-qspi-latency-probe/
 nano/tb/nano-tt-test/
 nano/tb/nano-uio-oe-probe/
+nano/tb/nano-tt-timer-probe/
 nano/tb/nano-gl-test/
 nano/tb/nano-rf-model-test/
 nano/tb/nano-rf-timing-probe/
+nano/tb/nano-mtimer-probe/
+nano/tb/nano-timer-probe/
 nano/tt/macro/
 nano/tb/nano-gl-gate-probe/
 nano/gl-census-probe/
