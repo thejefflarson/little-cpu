@@ -36,7 +36,17 @@ echo "== control: nano-sim (zero-wait, nano/tb/nano_memory.v) =="
 "$REPO/nano/bench/run_dhrystone.sh" "$REPO/nano-sim" "$DHRY_RUNS" 4000000 "$CFLAGS" \
   > "$tmp/control-dhry.log" 2>&1 || { cat "$tmp/control-dhry.log" >&2; exit 1; }
 keep_log "$tmp/control-dhry.log" control-dhry.log
-control_dhry_cycles=$(grep -m1 '^BENCH ' "$tmp/control-dhry.log" | grep -oE 'cycles=[0-9]+' | cut -d= -f2)
+bench_cycles() {  # a log -> the cycles on its first BENCH line; no such line is an error, not an empty answer
+  local cycles
+  cycles=$(grep -m1 '^BENCH ' "$1" | grep -oE 'cycles=[0-9]+' | cut -d= -f2) || cycles=""
+  if [ -z "$cycles" ]; then
+    echo "error: no BENCH line with a cycle count in $1: that run did not happen." >&2
+    exit 1
+  fi
+  printf '%s' "$cycles"
+}
+
+control_dhry_cycles=$(bench_cycles "$tmp/control-dhry.log") || exit 1
 if [ "$control_dhry_cycles" != "$CONTROL_DHRY_CYCLES" ]; then
   echo "error: control Dhrystone ($DHRY_RUNS runs) read $control_dhry_cycles cycles," \
     "not ADR-0182's $CONTROL_DHRY_CYCLES -- the zero-wait model no longer reproduces it." >&2
@@ -47,7 +57,7 @@ grep -E '^(cycles|DMIPS/MHz)' "$tmp/control-dhry.log"
 "$REPO/nano/bench/run_coremark.sh" "$REPO/nano-sim" "$COREMARK_ITERATIONS" 20000000 "$CFLAGS" \
   > "$tmp/control-cm.log" 2>&1 || { cat "$tmp/control-cm.log" >&2; exit 1; }
 keep_log "$tmp/control-cm.log" control-coremark.log
-control_cm_cycles=$(grep -m1 '^BENCH ' "$tmp/control-cm.log" | grep -oE 'cycles=[0-9]+' | cut -d= -f2)
+control_cm_cycles=$(bench_cycles "$tmp/control-cm.log") || exit 1
 if [ "$control_cm_cycles" != "$CONTROL_COREMARK_CYCLES" ]; then
   echo "error: control CoreMark ($COREMARK_ITERATIONS iterations) read $control_cm_cycles" \
     "cycles, not ADR-0182's $CONTROL_COREMARK_CYCLES." >&2
@@ -65,19 +75,22 @@ run_config() {  # name, depth, kind, window, preamble -> both report rows, DHRY_
     || { tail -60 "$tmp/$name.build.log" >&2; exit 1; }
   keep_log "$tmp/$name.build.log" "$name.build.log"
   local sim="$REPO/nano-qspi-sim.$name"
+  local memory="nano/tb/nano_qspi_memory.v, QSPI timing model: depth=$depth loop_kind=$kind loop_window=$window preamble=$preamble"
 
-  "$REPO/nano/bench/run_dhrystone.sh" "$sim" "$DHRY_RUNS" "$DHRY_CYCLE_LIMIT" "$CFLAGS" \
+  NANO_BENCH_MEMORY="$memory" "$REPO/nano/bench/run_dhrystone.sh" "$sim" "$DHRY_RUNS" "$DHRY_CYCLE_LIMIT" "$CFLAGS" \
     > "$tmp/$name.dhry.log" 2>&1 || { tail -60 "$tmp/$name.dhry.log" >&2; exit 1; }
   keep_log "$tmp/$name.dhry.log" "$name.dhry.log"
   python3 "$HERE/qspi_timing_report.py" "$tmp/$name.dhry.log" --config "$name" \
-    --kind dhrystone --runs "$DHRY_RUNS"
-  DHRY_CYCLES_OUT=$(grep -m1 '^BENCH ' "$tmp/$name.dhry.log" | grep -oE 'cycles=[0-9]+' | cut -d= -f2)
+    --kind dhrystone --runs "$DHRY_RUNS" --depth "$depth" --loop-kind "$kind" \
+    --loop-window "$window" --preamble "$preamble" || exit 1
+  DHRY_CYCLES_OUT=$(bench_cycles "$tmp/$name.dhry.log") || exit 1
 
-  "$REPO/nano/bench/run_coremark.sh" "$sim" "$COREMARK_ITERATIONS" "$COREMARK_CYCLE_LIMIT" "$CFLAGS" \
+  NANO_BENCH_MEMORY="$memory" "$REPO/nano/bench/run_coremark.sh" "$sim" "$COREMARK_ITERATIONS" "$COREMARK_CYCLE_LIMIT" "$CFLAGS" \
     > "$tmp/$name.cm.log" 2>&1 || { tail -60 "$tmp/$name.cm.log" >&2; exit 1; }
   keep_log "$tmp/$name.cm.log" "$name.cm.log"
   python3 "$HERE/qspi_timing_report.py" "$tmp/$name.cm.log" --config "$name" \
-    --kind coremark --runs "$COREMARK_ITERATIONS"
+    --kind coremark --runs "$COREMARK_ITERATIONS" --depth "$depth" --loop-kind "$kind" \
+    --loop-window "$window" --preamble "$preamble" || exit 1
   rm -f "$sim"
 }
 

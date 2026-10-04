@@ -25,7 +25,10 @@ module nano_qspi_memory #(
   output logic        reason_loop_hit,
   output logic        reason_handshake,
   output logic        reason_psram_wait,
-  output logic        stream_fault
+  output logic        stream_fault,
+  output logic        queue_fault,
+  output logic        hit_fault,
+  output logic        in_preamble
 );
   initial begin
     if (PARCEL_CYCLES < 1) $fatal(1, "PARCEL_CYCLES must be at least 1");
@@ -39,10 +42,13 @@ module nano_qspi_memory #(
       $fatal(1, "LOOP_WINDOW must be positive when LOOP_KIND is not 0");
     if (LOOP_KIND == 1 && (LOOP_WINDOW & (LOOP_WINDOW - 1)) != 0)
       $fatal(1, "LOOP_WINDOW must be a power of two for LOOP_KIND 1");
+    if (LOOP_KIND == 1 && LOOP_WINDOW < 2)
+      $fatal(1, "LOOP_WINDOW must be at least 2 for LOOP_KIND 1: the tag vector needs a slot index bit");
   end
 
   localparam int SLOTS = LOOP_WINDOW <= 0 ? 1 : LOOP_WINDOW;
   localparam int SLOTBITS = SLOTS <= 1 ? 1 : $clog2(SLOTS);
+  localparam int QUEUE_SPAN = PREFETCH_DEPTH < 2 ? 2 : PREFETCH_DEPTH;
 
   logic [31:0] mem [0:WORDS-1];
   logic [31:0] word_addr;
@@ -111,11 +117,25 @@ module nano_qspi_memory #(
     end
   end
 
-  logic loop_hit_full;
-  assign loop_hit_full =
+  // A parcel the flash queue would hand over this same cycle is a handshake, not a loop-buffer hit, whichever structure also holds it.
+  logic fifo_serves;
+  assign fifo_serves = already_aimed && arrived_valid && arrived_index >= target_last;
+  logic loop_hit_lookup;
+  assign loop_hit_lookup =
     LOOP_KIND == 1 ? (tag_ready0 && (target_len == 1 || tag_ready1)) :
     LOOP_KIND == 2 ? (cam_has0 && (target_len == 1 || cam_has1)) :
     1'b0;
+  logic loop_hit_full;
+  assign loop_hit_full = loop_hit_lookup && !fifo_serves;
+
+  // An independent record of when each parcel entered the loop buffer, stamped at production under the current tag (tagged block) or at delivery (CAM); hit_fault reads it, never tag_window_bits or cam_valid.
+  int unsigned parcel_stamp [0:2*WORDS-1];
+  int unsigned tag_gen;
+  int unsigned hit_stamp;
+  assign hit_stamp = LOOP_KIND == 1 ? tag_gen : 1;
+  int unsigned hit_stamp_lo, hit_stamp_hi;
+  assign hit_stamp_lo = parcel_stamp[target_index];
+  assign hit_stamp_hi = parcel_stamp[target_index_p1];
 
   logic xfer_active;
   logic xfer_aimed;
@@ -133,7 +153,7 @@ module nano_qspi_memory #(
   assign loop_hit_now = xfer_active ? xfer_loophit : (mem_valid && mem_instr && loop_hit_full);
   logic preamble_active_now;
   assign preamble_active_now = xfer_active ? preamble_pending
-    : (redirect_now && !loop_hit_full);
+    : (preamble_pending || (redirect_now && !loop_hit_full));
   logic aimed_now;
   assign aimed_now = xfer_active ? xfer_aimed : already_aimed;
 
@@ -151,6 +171,12 @@ module nano_qspi_memory #(
   // Independent of the aim logic: a fetch the buffer did not serve must lie inside what this flash run has streamed.
   assign stream_fault = mem_valid && mem_instr && mem_ready && !loop_hit_now &&
     !(arrived_valid && target_index >= preamble_target && target_last <= arrived_index);
+  // The flash queue holds at most QUEUE_SPAN parcels ahead of its head, so a served fetch with the stream further ahead than that is a parcel the queue already handed over.
+  assign queue_fault = mem_valid && mem_instr && mem_ready && !loop_hit_now &&
+    arrived_valid && arrived_index >= target_index + QUEUE_SPAN;
+  assign in_preamble = preamble_pending;
+  assign hit_fault = mem_valid && mem_instr && loop_hit_now &&
+    !(hit_stamp != 0 && hit_stamp_lo == hit_stamp && (target_len == 1 || hit_stamp_hi == hit_stamp));
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -166,6 +192,7 @@ module nano_qspi_memory #(
       tag_window_valid <= 1'b0;
       tag_window_tag <= 0;
       tag_window_bits <= '0;
+      tag_gen <= 0;
       cam_valid <= '0;
       xfer_active <= 1'b0;
       xfer_aimed <= 1'b0;
@@ -190,6 +217,7 @@ module nano_qspi_memory #(
           arrived_valid <= 1'b1;
           arrived_index <= next_to_produce;
           parcel_timer <= PARCEL_CYCLES - 1;
+          if (LOOP_KIND == 1) parcel_stamp[next_to_produce] <= tag_gen;
           if (LOOP_KIND == 1 && tag_window_valid &&
               next_to_produce[31:SLOTBITS] == tag_window_tag) begin
             tag_window_bits[next_to_produce[SLOTBITS-1:0]] <= 1'b1;
@@ -220,6 +248,7 @@ module nano_qspi_memory #(
             tag_window_valid <= 1'b1;
             tag_window_tag <= target_index[31:SLOTBITS];
             tag_window_bits <= '0;
+            tag_gen <= tag_gen + 1;
           end
         end
       end else if (mem_valid && xfer_active) begin
@@ -234,6 +263,8 @@ module nano_qspi_memory #(
           expect_index <= target_index + target_len;
           if (target_index == fifo_head) fifo_head <= target_index + target_len;
           if (LOOP_KIND == 2) begin
+            parcel_stamp[target_index] <= 1;
+            if (target_len == 2) parcel_stamp[target_index_p1] <= 1;
             if (target_len == 1) begin
               for (int i = SLOTS - 1; i > 0; i--) begin
                 cam_idx[i] <= cam_idx[i - 1];

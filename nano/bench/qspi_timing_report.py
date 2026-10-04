@@ -2,9 +2,13 @@
 """Turns one nano-qspi-sim --bench run's log into a row of the QSPI timing table.
 
 Reads `BENCH ...`, `MODEL ...` and `BUCKETS ...` (execute/parcel_wait/redirect_preamble/
-loop_hit/handshake/psram_wait/window_cycles) lines nano_cxxrtl.cc prints only when built
-against nano_qspi_memory.v. All three must be present, both markers must have landed, and
-the benchmark's own self-check (verdict) must be 1.
+loop_hit/handshake/psram_wait/window_cycles/window_retires) lines nano_cxxrtl.cc prints only
+when built against nano_qspi_memory.v. All three must be present, both markers must have
+landed, and the benchmark's own self-check (verdict) must be 1. The binary's own MODEL line
+must match the configuration the caller says it built, so a row's label cannot name one build
+and carry another's numbers. Served fetches (handshake + loop_hit) must equal the retires in
+the same window: nano issues one fetch per instruction, so the two are independent counts of
+one thing.
 """
 
 import argparse
@@ -24,7 +28,7 @@ BUCKETS = re.compile(
     r"^BUCKETS execute=(?P<execute>\d+) parcel_wait=(?P<parcel_wait>\d+) "
     r"redirect_preamble=(?P<redirect_preamble>\d+) loop_hit=(?P<loop_hit>\d+) "
     r"handshake=(?P<handshake>\d+) psram_wait=(?P<psram_wait>\d+) "
-    r"window_cycles=(?P<window_cycles>\d+)"
+    r"window_cycles=(?P<window_cycles>\d+) window_retires=(?P<window_retires>\d+)"
 )
 VAX_DHRYSTONES_PER_SEC = 1757.0
 BUCKET_KEYS = ("execute", "parcel_wait", "redirect_preamble", "loop_hit", "handshake", "psram_wait")
@@ -63,6 +67,11 @@ def main():
     parser.add_argument("--kind", choices=["dhrystone", "coremark"], required=True)
     parser.add_argument("--runs", type=int, required=True,
                          help="Dhrystone runs, or CoreMark iterations")
+    for flag, key in (("depth", "depth"), ("loop-kind", "loop_kind"),
+                      ("loop-window", "loop_window"), ("preamble", "preamble")):
+        parser.add_argument(f"--{flag}", type=int, required=True, dest=key,
+                             help=f"the {flag} this row's build was configured with; the log's "
+                                  "own MODEL line must agree")
     parser.add_argument("--mhz", type=float, default=64.0,
                          help="the clock this row's absolute figure assumes (default 64, the brief's target)")
     args = parser.parse_args()
@@ -81,12 +90,26 @@ def main():
             "run's cycle count is not a correct one."
         )
 
+    for key in ("depth", "loop_kind", "loop_window", "preamble"):
+        if model[key] != getattr(args, key):
+            sys.exit(
+                f"QSPI TIMING MODEL MISMATCH: row '{args.config}' was configured with "
+                f"{key}={getattr(args, key)} but the binary reports {key}={model[key]}."
+            )
+
     window_cycles = buckets["window_cycles"]
     bucket_total = sum(buckets[k] for k in BUCKET_KEYS)
     if bucket_total != window_cycles:
         sys.exit(
-            f"QSPI TIMING ACCOUNTING MISMATCH: buckets sum to {bucket_total} against "
-            f"{window_cycles} windowed cycles."
+            f"QSPI TIMING LOG FORMAT: the BUCKETS line's six buckets sum to {bucket_total} "
+            f"against its own {window_cycles} windowed cycles; the simulator proves one reason "
+            "a cycle, so this log was altered or truncated."
+        )
+    served = buckets["handshake"] + buckets["loop_hit"]
+    if served != buckets["window_retires"]:
+        sys.exit(
+            f"QSPI TIMING FETCH/RETIRE MISMATCH: {served} served fetches (handshake + "
+            f"loop_hit) against {buckets['window_retires']} retires in the same window."
         )
     if window_cycles != bench["cycles"]:
         sys.exit(

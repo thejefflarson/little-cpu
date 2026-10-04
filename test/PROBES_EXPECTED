@@ -82,6 +82,10 @@ a PLL told its input is something the pad is not is red
 a PROBES_EXPECTED header that lost only its multiset line is refused
 a PROBES_EXPECTED run through a whole-file LC_ALL=C sort is refused
 a PROBES_EXPECTED with its header deleted is refused
+a QSPI timing log whose buckets do not sum to its window is refused as malformed
+a QSPI timing log whose served fetches differ from its retires is refused
+a QSPI timing row labelled with another build's loop kind is refused
+a QSPI timing row labelled with another build's preamble is refused
 a RAM comparison over no words is named as unable to fail
 a RAM half the size in the core's copy is red
 a RAM half the size in the proof's copy is red
@@ -561,6 +565,7 @@ a seed word carrying shell syntax is refused before it is expanded
 a semicolon in the liberty path stays inside its own quoted token
 a semicolon in the liberty path stays inside its own quoted token
 a semicolon in the stat-json path stays inside its own quoted token
+a served fetch moved to parcel wait keeps one reason a cycle and fails the retire count
 a shard spec that is not <i>/<n> is refused before anything runs
 a shipping core that already fails the gate proves nothing about a leak
 a shipping core that fails ill_e is red before any mutant runs
@@ -1098,7 +1103,6 @@ the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycle
 the Dhrystone flags drifting from the suite's ISA is red
 the FORMAL hold-assert naming something other than x_busy is red
 the Makefile and test/cosim.py drifting apart is red
-the QSPI timing accounting identity is graded and can fail
 the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
 the RTL moving away takes the X probe with it, loudly

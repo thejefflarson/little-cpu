@@ -22,6 +22,9 @@ module nano_testbench(
 `ifndef NANO_QSPI_PREAMBLE_CYCLES
 `define NANO_QSPI_PREAMBLE_CYCLES 24
 `endif
+`ifndef NANO_QSPI_PARCEL_CYCLES
+`define NANO_QSPI_PARCEL_CYCLES 8
+`endif
 `ifndef NANO_QSPI_PSRAM_LOAD_CYCLES
 `define NANO_QSPI_PSRAM_LOAD_CYCLES 44
 `endif
@@ -82,6 +85,9 @@ module nano_testbench(
   (* keep *) logic reason_handshake;
   (* keep *) logic reason_psram_wait;
   (* keep *) logic stream_fault;
+  (* keep *) logic queue_fault;
+  (* keep *) logic hit_fault;
+  (* keep *) logic in_preamble;
   // Echoes this build's own parameters so nano_cxxrtl.cc can print a MODEL line from the
   // binary itself, rather than trusting the script that invoked its build.
   (* keep *) int unsigned model_prefetch_depth;
@@ -95,7 +101,7 @@ module nano_testbench(
   assign model_loop_kind = `NANO_QSPI_LOOP_KIND;
   assign model_loop_window = `NANO_QSPI_LOOP_WINDOW;
   assign model_preamble_cycles = `NANO_QSPI_PREAMBLE_CYCLES;
-  assign model_parcel_cycles = 8;
+  assign model_parcel_cycles = `NANO_QSPI_PARCEL_CYCLES;
   assign model_psram_load_cycles = `NANO_QSPI_PSRAM_LOAD_CYCLES;
   assign model_psram_store_cycles = `NANO_QSPI_PSRAM_STORE_CYCLES;
   nano_qspi_memory #(
@@ -104,6 +110,7 @@ module nano_testbench(
     .LOOP_KIND(`NANO_QSPI_LOOP_KIND),
     .LOOP_WINDOW(`NANO_QSPI_LOOP_WINDOW),
     .PREAMBLE_CYCLES(`NANO_QSPI_PREAMBLE_CYCLES),
+    .PARCEL_CYCLES(`NANO_QSPI_PARCEL_CYCLES),
     .PSRAM_LOAD_CYCLES(`NANO_QSPI_PSRAM_LOAD_CYCLES),
     .PSRAM_STORE_CYCLES(`NANO_QSPI_PSRAM_STORE_CYCLES)
   ) mem (
@@ -121,7 +128,10 @@ module nano_testbench(
     .reason_loop_hit(reason_loop_hit),
     .reason_handshake(reason_handshake),
     .reason_psram_wait(reason_psram_wait),
-    .stream_fault(stream_fault)
+    .stream_fault(stream_fault),
+    .queue_fault(queue_fault),
+    .hit_fault(hit_fault),
+    .in_preamble(in_preamble)
   );
 `elsif NANO_QSPI_PINS
   logic sck, flash_cs_n, psram_cs_n, spare_cs_n;

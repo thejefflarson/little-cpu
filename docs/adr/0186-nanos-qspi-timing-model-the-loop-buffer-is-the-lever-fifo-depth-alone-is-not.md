@@ -166,9 +166,9 @@ each built to be able to fail:
 2. **A loop resident in the buffer pays no marginal preamble/redirect cost per iteration once
    warm.** `qspi_loop_micro.S`'s `KIND=1` body is a `REPS`-iteration decrement loop aligned to sit
    entirely inside one 16-byte block. Run at `REPS=200` and `REPS=400` and take the delta: the
-   marginal 200 iterations must add zero `redirect_preamble`/`parcel_wait` cycles, a positive
-   number of `loop_hit`s, and no more than 11 cycles/iteration of total window time (the measured
-   figure is 10; 11 gives slack while still catching a hit that costs one cycle too many).
+   marginal 200 iterations must add zero `redirect_preamble`/`parcel_wait` cycles and exactly
+   two `loop_hit`s per iteration (amended: the first draft of this check accepted any positive
+   count and up to 11 cycles an iteration against a measured 8).
 3. **Every fetch the loop buffer does not serve comes from parcels its flash run streamed.**
    `nano_qspi_memory.v` publishes `stream_fault`, computed from the run's first parcel and its
    last-arrived parcel rather than from the aim logic, and every `nano-qspi-sim` exits 7 on the
@@ -208,7 +208,7 @@ so a config comparison is not diluted by setup cycles outside it. Both the per-c
 exactly-one-reason check and the printed-log identity are forced red in `test/probe_gates.sh`: a
 tied-low reason, an overlapping pair of reasons, and a hand-crafted log whose buckets do not sum
 to their stated total are each required to report the specific failure (`test/PROBES_EXPECTED`
-carries all three labels).
+carries all three labels; see the amendment for what the sum check became).
 
 ## Measured
 
@@ -307,3 +307,90 @@ ratchet — the same standing as `make cycles`, `make nano-dhrystone` and `make 
 path and graded. The accounting-identity, exactly-one-reason and stream-fault checks are graded
 and probed, and all three run on every cycle of every benchmark run in the sweep; the timing
 model's own comparative numbers are not, since there is nothing yet to ratchet them against.
+
+## Amendment (2026-10-04): the graders are tightened to the model's own strictness
+
+A security pass on this ADR's final state found nothing Critical or High, and several graders
+looser than the model they graded. Each is tightened, and each has a forced-red case
+(`nano-qspi-loop-probe`, or `test/probe_gates.sh` for the two scripts). Cycle counts do not move.
+
+**Three further per-cycle exits, beside `stream_fault`.** `queue_fault` fires on a served fetch
+whose stream is `max(PREFETCH_DEPTH, 2)` or more parcels ahead of it, a parcel the queue already
+handed over: `stream_fault` only required the parcel to lie between the run's first and last
+streamed parcel, so a model that re-served an earlier one passed. Letting the aim test accept any
+target past the run's start (`target_index >= preamble_target` for `fifo_head == target_index`)
+passes the old check on `qspi_loop_micro.S`'s new `KIND=3`, a fourteen-parcel loop across the
+16-byte block's edge, and fails `queue_fault`. `hit_fault` fires on a loop-buffer hit for a parcel
+that never entered the buffer, which `stream_fault` is gated off for: it reads a per-parcel stamp
+(the tag generation at production for the tagged block, delivery for the CAM) and never
+`tag_window_bits` or `cam_valid`. Dropping the second parcel's valid bit from `tag_ready1` alone
+fails it on `KIND=4`, a loop of two 32-bit instructions. `in_preamble` lets the harness refuse
+a fetch cycle charged to parcel wait while the flash is still in its address phase.
+
+**One cycle per load or store moved from parcel wait to redirect preamble.** On a transaction's
+first cycle `preamble_active_now` ignored `preamble_pending`, so the first fetch after a PSRAM
+access (whose resync starts at the access's completion) charged that cycle to parcel wait. Cycles
+do not move. Dhrystone / CoreMark, this tree's `main` -> this change:
+
+| Configuration | Dhry cycles/run, published above | Dhry cycles/run, `main` today and here | parcel wait % | redirect preamble % |
+|---|---|---|---|---|
+| no-overlap (depth 0) | 21,089.7 | 20,806.7 | 25.17 -> 24.26 / 35.51 -> 34.99 | 28.40 -> 29.31 / 28.11 -> 28.62 |
+| FIFO depth 2 | 20,300.5 | 20,232.6 | 23.05 -> 22.11 / 30.94 -> 30.40 | 29.20 -> 30.15 / 30.10 -> 30.64 |
+| FIFO depth 4 | 20,261.5 | 20,200.6 | 22.93 -> 21.98 / 30.42 -> 29.87 | 29.25 -> 30.19 / 30.32 -> 30.88 |
+| FIFO 2 + tagged-block loop 8 | 16,290.5 | 19,512.6 | 23.16 -> 22.18 / 29.33 -> 28.82 | 27.33 -> 28.31 / 28.30 -> 28.81 |
+| FIFO 2 + CAM loop 8 | 16,940.5 | 16,782.6 | 18.93 -> 18.14 / 23.46 -> 22.91 | 23.51 -> 24.30 / 22.64 -> 23.19 |
+| FIFO 2 + tagged-block loop 16 | 15,387.5 | 14,485.6 | 14.30 -> 13.64 / 28.98 -> 28.51 | 19.01 -> 19.67 / 27.76 -> 28.23 |
+| FIFO 2 + CAM loop 16 | 14,645.5 | 14,465.6 | 14.21 -> 13.55 / 22.99 -> 22.43 | 19.01 -> 19.67 / 21.84 -> 22.40 |
+| FIFO 2 + CAM loop 16 + QPI | 14,149.3 | 13,957.3 | 14.73 -> 14.04 / 23.92 -> 23.35 | 16.06 -> 16.74 / 18.65 -> 19.23 |
+
+Execute, loop hit, handshake and PSRAM wait percentages and every cycle count are identical
+before and after, measured twice on the two trees (the `main` column's tree and this one) with
+the same toolchain. **The published rows above do not reproduce on `main` today, and the cause
+predates this change**: `nano.v` has lost states and gained a register-file macro since they were
+taken, and the compiler the harness resolves is now the pinned one; which of these moved the
+rows was not measured. The zero-wait control reads 415,887
+Dhrystone cycles and 15,696,013 CoreMark cycles against the 505,295 and 9,242,400 this ADR and
+`run_qspi_timing.sh` still require, so `make nano-qspi-timing` stops at its control before it
+measures anything. The table's two measured columns were taken with those two constants
+substituted in a scratch copy of the script; the shipping script is unchanged and the sweep
+needs a re-baseline of its own, with the table above re-taken whole. The tagged block no longer
+leads the CAM at 8 parcels on today's tree (19,512.6 against 16,782.6 Dhrystone cycles a run),
+which the published conclusion says it does.
+
+**A parcel the flash queue would hand over the same cycle is a handshake, not a hit.** The tagged
+block counted a hit for a parcel production had already tagged, so its `loop_hit%` was not
+comparable with the CAM's. `loop_hit_full` now excludes a fetch the queue serves that cycle; the
+cycle is the same one, only the bucket differs, and no row above moved on it. The graded case is
+`qspi_loop_micro.S`'s resident loop: the tagged block counts exactly `2 * (REPS - 2)` hits and
+the CAM `2 * (REPS - 1)` (the tagged block's first back-branch re-tags into the next block). A
+divide ahead of invariant 1's straight-line program, to let the stream run ahead of the core,
+is not available: nano is RV32EC with M cut, no instruction idles the core long enough, and only
+a resident loop lets the stream run ahead. That is the case the exact count covers.
+
+**The sum check could not fire and is gone; a fetch/retire identity replaces it.** Each cycle is
+already proven one-reason, so `nano_cxxrtl.cc`'s end-of-run sum never differed from the window.
+`finish` now compares served fetches (`handshake + loop_hit`) with the retires inside the same
+window, counted apart from the buckets (`window_retires` on the `BUCKETS` line), because nano
+issues one fetch per instruction. A plain run stops on the cycle its last store lands, one before
+that instruction retires, so the identity allows one there. It catches a hit booked for two
+cycles and a served fetch moved into another bucket, neither of which the one-reason check sees.
+`qspi_timing_report.py` re-derives the identity from the log, and its own sum check stays as a
+format assertion, named so. The identity assumes a trap-free run, which every benchmark and
+micro-program here is.
+
+**The MODEL line is compared.** `qspi_timing_report.py` takes the row's depth, loop kind, loop
+window and preamble and exits on any disagreement with the binary's own `MODEL` line, so a
+transposed row in `run_qspi_timing.sh` cannot publish one build's numbers under another's name.
+`PARCEL_CYCLES` comes from one macro, `NANO_QSPI_PARCEL_CYCLES`, which the testbench both passes to
+the model and echoes.
+
+**Smaller items.** A one-slot tagged block (`LOOP_KIND=1`, `LOOP_WINDOW=1`) is refused at
+elaboration; it indexed past its tag vector. The accounting probes in `test/probe_gates.sh` match
+"not exactly one" rather than the `QSPI TIMING` prefix every fault exit shares. The sweep script
+names a missing `BENCH` line rather than exiting silently, the sweep's QSPI logs name their
+memory model instead of the zero-wait default, the loop probe matches its expected text
+with `grep -F`, and the QSPI `write_cxxrtl` path is quoted.
+
+**Declined.** The divide ahead of invariant 1 (above). The pin-level target's own unquoted
+`write_cxxrtl` is outside this model and is left for the change that owns `nano/tb.mk`'s
+dependency edges.

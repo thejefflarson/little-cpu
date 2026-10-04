@@ -235,10 +235,18 @@ int main(int argc, char **argv) {
       items.count("reason_psram_wait") ? &items.at("reason_psram_wait").at(0) : nullptr;
   const cxxrtl::debug_item *qspi_fault =
       items.count("stream_fault") ? &items.at("stream_fault").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_queue_fault =
+      items.count("queue_fault") ? &items.at("queue_fault").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_hit_fault =
+      items.count("hit_fault") ? &items.at("hit_fault").at(0) : nullptr;
+  const cxxrtl::debug_item *qspi_in_preamble =
+      items.count("in_preamble") ? &items.at("in_preamble").at(0) : nullptr;
   const bool qspi_timing = qspi_mem_valid && qspi_parcel && qspi_preamble && qspi_loophit &&
-                            qspi_handshake && qspi_psram && qspi_fault;
+                            qspi_handshake && qspi_psram && qspi_fault && qspi_queue_fault && qspi_hit_fault &&
+                            qspi_in_preamble;
   uint64_t bucket_execute = 0, bucket_parcel = 0, bucket_preamble = 0, bucket_loophit = 0,
            bucket_handshake = 0, bucket_psram = 0, bucket_window_cycles = 0;
+  uint64_t window_retires = 0, prev_retires = 0;
   auto print_model = [&]() {
     auto rd = [&](const char *n) -> uint32_t {
       return items.count(n) ? items.at(n).at(0).curr[0] : 0xffffffffu;
@@ -271,18 +279,21 @@ int main(int argc, char **argv) {
     if (qspi_timing) {
       print_model();
       std::printf("BUCKETS execute=%llu parcel_wait=%llu redirect_preamble=%llu loop_hit=%llu "
-                   "handshake=%llu psram_wait=%llu window_cycles=%llu\n",
+                   "handshake=%llu psram_wait=%llu window_cycles=%llu window_retires=%llu\n",
                    (unsigned long long)bucket_execute, (unsigned long long)bucket_parcel,
                    (unsigned long long)bucket_preamble, (unsigned long long)bucket_loophit,
                    (unsigned long long)bucket_handshake, (unsigned long long)bucket_psram,
-                   (unsigned long long)bucket_window_cycles);
-      uint64_t sum = bucket_execute + bucket_parcel + bucket_preamble + bucket_loophit +
-                     bucket_handshake + bucket_psram;
-      if (sum != bucket_window_cycles) {
+                   (unsigned long long)bucket_window_cycles,
+                   (unsigned long long)window_retires);
+      // nano issues one fetch per instruction, so served fetches and retires are two counts of one
+      // thing. A plain run stops on the cycle the final store lands, one before it retires.
+      const uint64_t expected_fetches = window_retires + (args.bench ? 0 : 1);
+      if (code == 0 && bucket_handshake + bucket_loophit != expected_fetches) {
         std::fprintf(stderr,
-                      "QSPI TIMING ACCOUNTING MISMATCH: %llu bucketed cycles against "
-                      "%llu windowed -- some cycle was left unexplained.\n",
-                      (unsigned long long)sum, (unsigned long long)bucket_window_cycles);
+                      "QSPI TIMING FETCH/RETIRE MISMATCH: %llu served fetches (handshake + "
+                      "loop_hit) against %llu expected from the retires in the same window.\n",
+                      (unsigned long long)(bucket_handshake + bucket_loophit),
+                      (unsigned long long)expected_fetches);
         return 7;
       }
     }
@@ -338,9 +349,27 @@ int main(int argc, char **argv) {
       if (qspi_handshake->outline) qspi_handshake->outline->eval();
       if (qspi_psram->outline) qspi_psram->outline->eval();
       if (qspi_fault->outline) qspi_fault->outline->eval();
+      if (qspi_queue_fault->outline) qspi_queue_fault->outline->eval();
+      if (qspi_hit_fault->outline) qspi_hit_fault->outline->eval();
+      if (qspi_in_preamble->outline) qspi_in_preamble->outline->eval();
       if (qspi_fault->curr[0]) {
         std::fprintf(stderr, "QSPI TIMING: cycle %ld serves a fetch from parcels the flash stream "
                               "never fetched in its current run\n", cycle);
+        return finish(7, cycle + 1);
+      }
+      if (qspi_queue_fault->curr[0]) {
+        std::fprintf(stderr, "QSPI TIMING: cycle %ld serves a fetch for a parcel the flash queue "
+                              "already handed over\n", cycle);
+        return finish(7, cycle + 1);
+      }
+      if (qspi_hit_fault->curr[0]) {
+        std::fprintf(stderr, "QSPI TIMING: cycle %ld serves a loop-buffer hit for parcels that "
+                              "never entered the buffer\n", cycle);
+        return finish(7, cycle + 1);
+      }
+      if (qspi_parcel->curr[0] && qspi_in_preamble->curr[0]) {
+        std::fprintf(stderr, "QSPI TIMING: cycle %ld charges parcel wait while the flash is still "
+                              "in its address phase\n", cycle);
         return finish(7, cycle + 1);
       }
       bool r_execute = !qspi_mem_valid->curr[0];
@@ -362,6 +391,7 @@ int main(int argc, char **argv) {
       // reported buckets; a plain .S run has no marker region, so everything counts.
       if (!args.bench || bench_marks.curr[0] == 1) {
         ++bucket_window_cycles;
+        window_retires += retires->curr[0] - prev_retires;
         if (r_execute) ++bucket_execute;
         if (r_parcel) ++bucket_parcel;
         if (r_preamble) ++bucket_preamble;
@@ -369,6 +399,7 @@ int main(int argc, char **argv) {
         if (r_handshake) ++bucket_handshake;
         if (r_psram) ++bucket_psram;
       }
+      prev_retires = retires->curr[0];
     }
 
     uint32_t errcode = monitor_errcode->curr[0] & 0xffff;
