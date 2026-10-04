@@ -3966,6 +3966,31 @@ mutate "$d/board_verdict.sh" "s/''|\*\[!0-9\]\*) echo PARSE; return 0;;/NEVERMAT
 probe "a verdict parser that stops validating the UART text is red" 1 \
   "a hostile verdict executed a command" "$BV $d/board_verdict.sh"
 
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "s/tr -cd '\[:print:\]\\\\n'/cat/"
+probe "a display filter that lets an escape sequence through is red" 1 \
+  "reached the displayed text" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
+mutate "$d/run_suite_board.sh" 's/display_safe | tr /tr /'
+probe "a UART summary line that skips the display filter is red" 1 \
+  "UART text reaches the terminal unfiltered" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/8#022/8#000/'
+probe "a root-binary check that ignores group and world write is red" 1 \
+  "writable file: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/"\$uid" != "\$owner"/"x" != "x"/'
+probe "a root-binary check that ignores the owner is red" 1 \
+  "file owned by someone else: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/    \*) echo "error: \$bin is not a Mach-O or ELF executable/    NEVERMATCH) echo "/'
+probe "a root-binary check that runs a #! script is red" 1 \
+  "a #! script was accepted" "$BV $d/board_verdict.sh"
+
 begin_group "test/adr_numbering_test.sh"
 
 AN="$HERE/adr_numbering_test.sh"

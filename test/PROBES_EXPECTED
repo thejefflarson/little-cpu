@@ -92,6 +92,7 @@ a Sail install back inside the checkout is red
 a SoC with no SPI controller at all does not pass by silence
 a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
+a UART summary line that skips the display filter is red
 a VCO outside the range the part locks over is red
 a backslash-continued sed -i is still a raw edit
 a backslash-newline after the closing quote, between recipe arguments, is green
@@ -211,6 +212,7 @@ a differing value is a divergence, located by change index
 a digest-bearing stamp is STALE when rtl/ changes, naming the file
 a directory the glob stopped matching is red, not a suite of size zero
 a dirty tree names no base, so its sweep is not subtracted either
+a display filter that lets an escape sequence through is red
 a document with one number edited by hand is red
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
@@ -532,6 +534,9 @@ a retire count below the floor is graded BELOW-FLOOR, not silently PASS
 a retire count too long for the shell's integers is NO-COUNTS
 a retried response gated on a stale, registered req_valid is red
 a room check that forgets the response landing this cycle is red
+a root-binary check that ignores group and world write is red
+a root-binary check that ignores the owner is red
+a root-binary check that runs a #! script is red
 a row naming a file that does not exist is named
 a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed
