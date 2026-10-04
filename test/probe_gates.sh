@@ -1180,26 +1180,39 @@ qtr_fixture() {
     'std::printf("MODEL depth=%u loop_kind=%u loop_window=%u preamble=%u parcel=%u "'
   fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" \
     'std::printf("BUCKETS execute=%llu parcel_wait=%llu redirect_preamble=%llu loop_hit=%llu "'
-  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" '"handshake=%llu psram_wait=%llu window_cycles=%llu\n",'
+  fixture_anchor "$REPO/nano/tb/nano_cxxrtl.cc" '"handshake=%llu psram_wait=%llu window_cycles=%llu window_retires=%llu\n",'
   cat > "$d/good.log" <<'EOF'
 BENCH marks=2 cycles=100 verdict=1 writes=5
 MODEL depth=2 loop_kind=0 loop_window=0 preamble=24 parcel=8 psram_load=44 psram_store=33
-BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=10 window_cycles=100
+BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=10 window_cycles=100 window_retires=10
 EOF
   cat > "$d/bad.log" <<'EOF'
 BENCH marks=2 cycles=100 verdict=1 writes=5
 MODEL depth=2 loop_kind=0 loop_window=0 preamble=24 parcel=8 psram_load=44 psram_store=33
-BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=5 window_cycles=100
+BUCKETS execute=50 parcel_wait=20 redirect_preamble=10 loop_hit=5 handshake=5 psram_wait=5 window_cycles=100 window_retires=10
 EOF
+  sed 's/window_retires=10/window_retires=11/' "$d/good.log" > "$d/extra_retire.log"
   printf '%s' "$d"
 }
 d=$(qtr_fixture)
 
-probe "control: a QSPI timing log whose buckets sum to its cycle count reports a row" 0 \
-  "DMIPS/MHz=" "python3 '$REPO/nano/bench/qspi_timing_report.py' '$d/good.log' --config c --kind dhrystone --runs 10"
+QTR="python3 '$REPO/nano/bench/qspi_timing_report.py'"
+QTR_ROW="--config c --kind dhrystone --runs 10 --depth 2 --loop-kind 0 --loop-window 0 --preamble 24"
 
-probe "the QSPI timing accounting identity is graded and can fail" 1 \
-  "ACCOUNTING MISMATCH" "python3 '$REPO/nano/bench/qspi_timing_report.py' '$d/bad.log' --config c --kind dhrystone --runs 10"
+probe "control: a QSPI timing log whose buckets sum to its cycle count reports a row" 0 \
+  "DMIPS/MHz=" "$QTR '$d/good.log' $QTR_ROW"
+
+probe "a QSPI timing log whose buckets do not sum to its window is refused as malformed" 1 \
+  "LOG FORMAT" "$QTR '$d/bad.log' $QTR_ROW"
+
+probe "a QSPI timing row labelled with another build's loop kind is refused" 1 \
+  "MODEL MISMATCH" "$QTR '$d/good.log' --config c --kind dhrystone --runs 10 --depth 2 --loop-kind 1 --loop-window 0 --preamble 24"
+
+probe "a QSPI timing row labelled with another build's preamble is refused" 1 \
+  "MODEL MISMATCH" "$QTR '$d/good.log' --config c --kind dhrystone --runs 10 --depth 2 --loop-kind 0 --loop-window 0 --preamble 20"
+
+probe "a QSPI timing log whose served fetches differ from its retires is refused" 1 \
+  "FETCH/RETIRE MISMATCH" "$QTR '$d/extra_retire.log' $QTR_ROW"
 
 begin_group "nano_qspi_memory.v's own accounting identity (real build)"
 
@@ -1212,7 +1225,7 @@ if [ -z "$NANO_QSPI_ACCOUNTING_CC" ]; then
   echo "cannot be forced red. Run \`make riscv-gcc-setup\`." >&2
   exit 1
 fi
-accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's reason_* lines, or "" for the control
+accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's reason_* lines, or "" for the control; $2 = an optional second one
     local d; d=$(new_case)
     mkdir -p "$d/nano/tb" "$d/nano/asm" "$d/nano/bench" "$d/soc/compare" "$d/test/asm"
     cp "$REPO/nano/nano.v" "$d/nano/"
@@ -1223,7 +1236,11 @@ accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's re
     cp "$REPO/test/monitor.sim.v" "$d/test/"
     cp "$REPO/nano/asm/alu.S" "$REPO/nano/asm/nano.lds" "$d/nano/asm/"
     cp "$REPO/test/asm/riscv_test.h" "$REPO/test/asm/test_macros.h" "$d/test/asm/"
-    if [ -n "$1" ]; then mutate "$d/nano/tb/nano_qspi_memory.v" "$1"; fi
+    if [ -n "$1" ] && [ -n "${2:-}" ]; then
+      mutate "$d/nano/tb/nano_qspi_memory.v" "$1" "$2"
+    elif [ -n "$1" ]; then
+      mutate "$d/nano/tb/nano_qspi_memory.v" "$1"
+    fi
     printf '%s' "$d"
   }
 
@@ -1252,11 +1269,15 @@ accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's re
 
   d=$(accounting_fixture 's/assign reason_parcel_wait = .*/assign reason_parcel_wait = 1'"'"'b0;/')
   probe "one reason tied permanently low is a real build's own accounting mismatch" 7 \
-    "QSPI TIMING" "accounting_build_and_run '$d'"
+    "not exactly one" "accounting_build_and_run '$d'"
 
   d=$(accounting_fixture 's/assign reason_parcel_wait = .*/assign reason_parcel_wait = mem_valid \&\& mem_instr \&\& !loop_hit_now \&\& !preamble_active_now;/')
   probe "two reasons overlapping is a real build's own accounting mismatch too" 7 \
-    "QSPI TIMING" "accounting_build_and_run '$d'"
+    "not exactly one" "accounting_build_and_run '$d'"
+
+  d=$(accounting_fixture 's/assign reason_handshake = \(.*\) \&\& mem_ready;/assign reason_handshake = \1 \&\& mem_ready \&\& mem_addr[3];/' 's/assign reason_parcel_wait = \(.*\) \&\& !mem_ready;/assign reason_parcel_wait = \1 \&\& !(mem_ready \&\& mem_addr[3]);/')
+  probe "a served fetch moved to parcel wait keeps one reason a cycle and fails the retire count" 7 \
+    "FETCH/RETIRE MISMATCH" "accounting_build_and_run '$d'"
 
 begin_group "test/run_cosim.sh"
 

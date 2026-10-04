@@ -1,5 +1,6 @@
-// KIND=0: straight-line code. KIND=1: a REPS-times loop inside one 16-byte block. KIND=2: a
-// REPS-times loop with a load whose 32-bit addi straddles the block's end.
+// KIND 0: straight-line code. 1: a REPS-times loop in one 16-byte block. 2: that loop with a load
+// and a 32-bit addi straddling the block's end. 3: a fourteen-parcel loop across the block edge.
+// 4: a loop of two 32-bit instructions in one block.
 #include "riscv_test.h"
 
 RVTEST_RV64U
@@ -34,6 +35,26 @@ loop:
   .option pop
   c.lw a2, 0(a3)
   c.bnez a0, loop
+#endif
+#if KIND == 3
+  li a0, REPS
+  .balign 16
+loop:
+  c.addi a0, -1
+  .rept 12
+  c.nop
+  .endr
+  c.bnez a0, loop
+#endif
+#if KIND == 4
+  li a0, REPS
+  .balign 16
+  .option push
+  .option norvc
+loop:
+  addi a0, a0, -1
+  bnez a0, loop
+  .option pop
 #endif
 
   RVTEST_PASS

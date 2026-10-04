@@ -1003,11 +1003,13 @@ make nano-qspi-timing # sweeps that model's configurations against Dhrystone and
                     # Not on `make test`'s path
 make nano-qspi-loop-test # the loop buffer's three invariants, each able to fail: a branch-free
                     # program costs the same cycles with the loop buffer on or off; a loop
-                    # resident in it pays no marginal preamble/wait per iteration once warm;
-                    # and a loop with a load and a block-straddling instruction runs to PASS
-                    # in both shapes, where every nano-qspi-sim exits 7 on a fetch served from
-                    # parcels its flash run never streamed (ADR-0186). nano-qspi-loop-probe
-                    # is its forced-red prerequisite. On `make test`'s path
+                    # resident in it pays no marginal preamble/wait and exactly two hits an
+                    # iteration once warm; and loops that load, straddle a block edge, outgrow
+                    # the buffer or hold only 32-bit instructions run to PASS in both shapes,
+                    # where every nano-qspi-sim exits 7 on a fetch served from parcels its flash
+                    # run never streamed or already handed over, a hit for a parcel that never
+                    # entered the buffer, or served fetches that differ from retires (ADR-0186).
+                    # nano-qspi-loop-probe is its forced-red prerequisite. On `make test`'s path
 make nano-qspi-pins-sim  # nano.v -> nano/qspi.v (the real bit-serial QSPI controller) ->
                     # pin-level flash/PSRAM behavioural models, sck/cs_n/sio rather than
                     # nano_qspi_memory.v's abstract bus. nano-qspi-pins-test reruns the
