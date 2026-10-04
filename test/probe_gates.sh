@@ -9246,7 +9246,7 @@ ntawt_fixture() {  # $1 = sed program applied to the workflow
 
 d=$(ntawt_fixture '')
 probe "control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally" 0 \
-  "saves its PDK cache unconditionally and fetches the register-file macro" \
+  "saves its PDK cache unconditionally, fetches the register-file macro and collects the post-route STA" \
   "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
 
 d=$(ntawt_fixture 's|summary_line "stop after synthesis: \$stop_after_synthesis_report"|summary_line "stop after synthesis: ${{ inputs.stop_after_synthesis \|\| '"'"'true'"'"' }}"|')
@@ -9283,6 +9283,11 @@ probe "a PDK cache save step with no if: always() only saves on job success" 1 \
 d=$(ntawt_fixture 's|run: make nano-rf-macro-install|run: true|')
 probe "a workflow that never fetches the register-file macro is refused" 1 \
   "no step runs \`make nano-rf-macro-install\`" \
+  "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
+
+d=$(ntawt_fixture 's|-openroad-stapostpnr/|-openroad-nothing/|')
+probe "a collector that drops the post-route STA's per-corner reports is refused" 1 \
+  "no step collects the post-route STA's" \
   "cd '$d' && python3 test/nano_tt_area_workflow_test.py ."
 
 d=$(ntawt_fixture 's|uses: actions/cache/restore@|uses: actions/cache@|')

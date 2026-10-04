@@ -286,6 +286,13 @@ jobs:
             mkdir -p "$(dirname "$dest")"
             cp "$log_file" "$dest" 2>/dev/null || true
           done < <(find nano/tt/runs/wokwi -maxdepth 2 -name '*.log' 2>/dev/null -print0)
+          # The post-route STA writes one directory per corner holding its path and
+          # violator reports, not under a directory named reports.
+          while IFS= read -r -d '' sta_file; do
+            dest="spike-stats/${sta_file#nano/tt/runs/wokwi/}"
+            mkdir -p "$(dirname "$dest")"
+            cp "$sta_file" "$dest" 2>/dev/null || true
+          done < <(find nano/tt/runs/wokwi -path '*-openroad-stapostpnr/*' \( -name '*.rpt' -o -name '*.log' \) -print0 2>/dev/null)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && steps.gl_netlist.outputs.found == 'true'
