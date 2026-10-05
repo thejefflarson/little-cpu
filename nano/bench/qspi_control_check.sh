@@ -1,7 +1,6 @@
 #!/bin/bash
-# Grades a zero-wait benchmark log's cycle count against nano/bench/QSPI_CONTROL, the one
-# declared source for run_qspi_timing.sh's control. Format and provenance:
-# docs/manifests/qspi-control.md.
+# Grades a zero-wait benchmark log's cycles against nano/bench/QSPI_CONTROL, the one declared
+# source for run_qspi_timing.sh's control; format and provenance: docs/manifests/qspi-control.md.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then
