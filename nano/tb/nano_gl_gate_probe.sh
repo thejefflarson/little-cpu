@@ -45,7 +45,7 @@ run() {  # $1 = fixture path, $2 = output vvp path
 echo "control: enable driven high"
 out=$(run "$FIXTURE" "$WORKDIR/control.vvp")
 echo "$out"
-if ! printf '%s\n' "$out" | grep -q '^PASS'; then
+if ! grep -q '^PASS' <<<"$out"; then
   echo "*** the shipping fixture does not pass on its own, so a mutant failing the" \
        "same way would prove nothing." >&2
   exit 1
@@ -55,7 +55,7 @@ echo
 echo "mutant: enable tied to a constant 0"
 out=$(run "$mutant" "$WORKDIR/mutant.vvp")
 echo "$out"
-if ! printf '%s\n' "$out" | grep -q '^FAIL'; then
+if ! grep -q '^FAIL' <<<"$out"; then
   echo "*** a flop whose enable is tied low still toggled." >&2
   exit 1
 fi

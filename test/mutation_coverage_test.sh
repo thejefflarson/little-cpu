@@ -112,7 +112,7 @@ $(($# - 2)) field(s) after \`unpaired\`."
         continue
       fi
       grader=$3
-      if ! printf '%s\n' "$valid_graders" | grep -qxF -- "$grader"; then
+      if ! grep -qxF -- "$grader" <<<"$valid_graders"; then
         fail "$file: \`unpaired $grader\` names no real bench, formal
 component task, or other declared grader. Checked against test/*_tb.v,
 formal/components.sby's [tasks] section, and $other_graders."
@@ -128,7 +128,7 @@ and a grader."
         continue
       fi
       mutation=$2
-      if ! printf '%s\n' "$valid_mutations" | grep -qxF -- "$mutation"; then
+      if ! grep -qxF -- "$mutation" <<<"$valid_mutations"; then
         fail "$file: \`$mutation\` is not in test/MUTATION_DETECTORS's first
 column. Either the mutation was renamed or this line was never a real one."
       fi

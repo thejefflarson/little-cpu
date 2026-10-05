@@ -42,7 +42,7 @@ if out=$(python3 "$HERE/gl_census.py" "$WORKDIR/rtl.v" 2>&1); then
   exit 1
 fi
 echo "$out"
-if ! printf '%s\n' "$out" | grep -q "no sky130_fd_sc_hd cell instantiations"; then
+if ! grep -q "no sky130_fd_sc_hd cell instantiations" <<<"$out"; then
   echo "*** the mutant was refused, but not for the reason this probe expects." >&2
   exit 1
 fi
@@ -106,7 +106,7 @@ macro_mutant() {  # $1 = label, $2 = netlist, $3 = the reason the census must gi
     exit 1
   fi
   echo "$out"
-  if ! printf '%s\n' "$out" | grep -q -- "$reason"; then
+  if ! grep -q -- "$reason" <<<"$out"; then
     echo "*** $label was refused, but not for the reason this probe expects." >&2
     exit 1
   fi
