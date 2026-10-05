@@ -1174,6 +1174,34 @@ icesugar-coremark:
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out icesugar_coremark.txt
 
+ICESUGAR_DUAL_ROM_WORDS ?= 2048
+ICESUGAR_DUAL_HELD      ?= 0
+ICESUGAR_DUAL_SRCS      := $(DUAL_RTL_SRCS) rtl/littledualsoc.v soc/icesugar_pro_pll.v soc/board_icesugar_pro_dual.v
+ICESUGAR_DUAL_TAG       := rom$(ICESUGAR_DUAL_ROM_WORDS)_held$(ICESUGAR_DUAL_HELD)
+
+$(BUILD)/icesugar_dual.json: $(ICESUGAR_DUAL_SRCS) soc/icesugar_pro.lpf | $(BUILD)
+	@$(MAKE) --no-print-directory soc-rom SOC_PROG=soc/dual_hello.S SOC_ROM_WORDS=$(ICESUGAR_DUAL_ROM_WORDS)
+	@yosys -p 'read_verilog -sv $(ICESUGAR_DUAL_SRCS); chparam -set ROM_WORDS $(ICESUGAR_DUAL_ROM_WORDS) littledualsoc; chparam -set HART1_HELD $(ICESUGAR_DUAL_HELD) littledualsoc; synth_ecp5 -top icesugar_pro_dual_top -json $@' \
+	  > $(BUILD)/icesugar_dual.synth.log 2>&1 || { tail -40 $(BUILD)/icesugar_dual.synth.log; exit 1; }
+	@python3 soc/bram_reset_check.py $@ --gate 'make icesugar-dual-run'
+
+$(BUILD)/icesugar_dual.config: $(BUILD)/icesugar_dual.json
+	@rm -f $@
+	@nextpnr-ecp5 $(ICESUGAR_DEVICE) --package $(ICESUGAR_PACKAGE) --speed $(ICESUGAR_SPEED) \
+	  --json $< --lpf soc/icesugar_pro.lpf \
+	  --textcfg $@ > $(BUILD)/icesugar_dual.pnr.log 2>&1 || { tail -30 $(BUILD)/icesugar_dual.pnr.log; exit 1; }
+
+$(BUILD)/icesugar_dual.bit: $(BUILD)/icesugar_dual.config
+	@ecppack $< $@
+
+.PHONY: icesugar-dual-run
+icesugar-dual-run:
+	@rm -f $(BUILD)/icesugar_dual.json $(BUILD)/icesugar_dual.config $(BUILD)/icesugar_dual.bit
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar_dual.bit
+	@grep -E 'Max frequency for clock' $(BUILD)/icesugar_dual.pnr.log | tail -1
+	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) -m $(BUILD)/icesugar_dual.bit
+	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt
+
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
 .PHONY: ecp5-timing-toolchain

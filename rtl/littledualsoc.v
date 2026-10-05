@@ -2,11 +2,16 @@
 `default_nettype none
 // rtl/littledual.v with its pins and a power-on reset. ECP5 only: two fetch windows are
 // two copies of the banked ROM, 32 block RAMs against the up5k's 30.
-module littledualsoc (
+module littledualsoc #(
+  parameter integer ROM_WORDS  = 2048,
+  parameter integer CLOCK_HZ   = 12_000_000,
+  parameter bit     HART1_HELD = 1'b0
+) (
   input  logic clk,
   input  logic btn_n,
   output logic ledr_n,
-  output logic ledg_n
+  output logic ledg_n,
+  output logic uart_tx
 );
   logic [3:0] por_count = 4'b0;
   logic       por_done  = 1'b0;
@@ -23,13 +28,15 @@ module littledualsoc (
 
   logic [1:0] trap;
   littledual #(
-    .ROM_WORDS(2048),
+    .ROM_WORDS(ROM_WORDS),
     .INIT_EVEN("soc/rom_even.hex"),
-    .INIT_ODD("soc/rom_odd.hex")
+    .INIT_ODD("soc/rom_odd.hex"),
+    .CLOCK_HZ(CLOCK_HZ)
   ) complex (
     .clk(clk),
-    .reset({reset, reset}),
-    .trap(trap)
+    .reset({reset || HART1_HELD, reset}),
+    .trap(trap),
+    .uart_tx(uart_tx)
   );
 
   logic trap_seen;
