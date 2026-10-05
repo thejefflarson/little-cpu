@@ -66,6 +66,25 @@ if [ -n "$unfiltered" ]; then
   fail=1
 fi
 
+ICE_SUITE=${4:-$HERE/../soc/run_suite_icesugar.sh}
+unfiltered=$(grep -E "$display_pat" "$ICE_SUITE" | grep -v display_safe || true)
+if [ -n "$unfiltered" ]; then
+  echo "FAIL: UART text reaches the terminal unfiltered in $ICE_SUITE: $unfiltered" >&2
+  fail=1
+fi
+
+# A replay as the CDC line delivers it: the debugger's chatter, a replay cut mid-line at the start, two whole replays, a cut tail.
+capture=$'@cdone:0\n1 1\n.\n0 1\n1 7\n2 1\n.\n0 1\n1 7\n2 1\n.\n0 1\n1'
+block=$(printf '%s' "$capture" | uart_last_block)
+[ "$block" = $'0 1\n1 7\n2 1' ] || { echo "FAIL: last block parsed as '$block'" >&2; fail=1; }
+[ -z "$(printf '0 1\n1 7\n' | uart_last_block)" ] || { echo "FAIL: a capture with no replay marker produced a block" >&2; fail=1; }
+[ "$(block_verdict "$block" 1)" = 7 ] || { echo "FAIL: block_verdict did not find index 1" >&2; fail=1; }
+[ -z "$(block_verdict "$block" 3)" ] || { echo "FAIL: block_verdict invented index 3" >&2; fail=1; }
+[ "$(result_line a.S 1)" = "a.S PASS" ] || { echo "FAIL: verdict 1 is not a pass" >&2; fail=1; }
+[ "$(result_line a.S 7)" = "a.S FAIL 3" ] || { echo "FAIL: verdict 7 is not a fail at test 3" >&2; fail=1; }
+[ "$(result_line a.S '')" = "a.S MISSING" ] || { echo "FAIL: no verdict is not MISSING" >&2; fail=1; }
+[ "$(result_line a.S zz)" = "a.S PARSE-ERROR" ] || { echo "FAIL: a non-number verdict is not a parse error" >&2; fail=1; }
+
 mkdir "$WORK/stubs"
 cat > "$WORK/stubs/otool" <<'STUB'
 #!/bin/bash

@@ -4213,6 +4213,21 @@ mutate "$d/board_verdict.sh" 's/^  check_deps "\$real" "\$owner" || return 1$/  
 probe "a root-binary check that skips the libraries it loads is red" 1 \
   "world-writable library dependency: got accept" "$BV $d/board_verdict.sh"
 
+d=$(new_case); cp "$REPO/soc/run_suite_icesugar.sh" "$d/run_suite_icesugar.sh"
+mutate "$d/run_suite_icesugar.sh" 's/display_safe | tr /tr /'
+probe "an iCESugar suite summary line that skips the display filter is red" 1 \
+  "UART text reaches the terminal unfiltered" "$BV $REPO/soc/board_verdict.sh $REPO/soc/run_suite_board.sh $REPO/soc/install_board_tools.sh $d/run_suite_icesugar.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/printf "%s", a\[n-1\]/printf "%s", a[n]/'
+probe "a replay parser that reads the cut tail instead of the last whole block is red" 1 \
+  "last block parsed as" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/echo "\$name MISSING"/echo "$name PASS"/'
+probe "a results line that reads a missing verdict as a pass is red" 1 \
+  "no verdict is not MISSING" "$BV $d/board_verdict.sh"
+
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/      queue+=("\$real")/      :/'
 probe "a root-binary check that stops at the first library hop is red" 1 \

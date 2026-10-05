@@ -11,6 +11,24 @@ grade_verdict() {
 
 display_safe() { LC_ALL=C tr -cd '[:print:]\n'; }
 
+# The last complete block of a UART replay: the driver ends each replay with a "." line, so the text before the final one.
+uart_last_block() { awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{printf "%s", a[n-1]}'; }
+
+# The verdict the driver printed for batch index $2 in block $1, empty when it printed none.
+block_verdict() { printf '%s\n' "$1" | awk -v k="$2" '$1==k{print $2; exit}'; }
+
+# One results line, "name PASS|FAIL <n>|PARSE-ERROR|MISSING", from a program's name and its verdict (empty if none arrived).
+result_line() {
+  local name=$1 v=${2-} g
+  if [ -z "$v" ]; then echo "$name MISSING"; return 0; fi
+  g=$(grade_verdict "$v")
+  case $g in
+    PASS) echo "$name PASS";;
+    PARSE) echo "$name PARSE-ERROR";;
+    *) echo "$name $g";;
+  esac
+}
+
 native_magic() { LC_ALL=C od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
 
 resolve_path() {

@@ -524,6 +524,7 @@ a renamed task stops rather than probing some other design
 a renamed task stops this probe rather than moving its control
 a repetition count that counts a phantom bit at reset is red
 a repetition count that misses the first bit of a run is red
+a replay parser that reads the cut tail instead of the last whole block is red
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
@@ -574,6 +575,7 @@ a respelled wait bound stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled word arm stops the same way
 a respelled zeroing loop stops rather than mutating nothing
+a results line that reads a missing verdict as a pass is red
 a retire count below the floor is graded BELOW-FLOOR, not silently PASS
 a retire count too long for the shell's integers is NO-COUNTS
 a retried response gated on a stale, registered req_valid is red
@@ -795,6 +797,7 @@ an exemption naming no program is red, not a program quietly excused
 an exit of 1 with no timing verdict behind it is fatal
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
+an iCESugar suite summary line that skips the display filter is red
 an ignored opponent clone gaining an uncommitted change refuses to stamp
 an ignored opponent clone moving to another commit refuses to stamp
 an ill_e cover that cannot go red is not a control

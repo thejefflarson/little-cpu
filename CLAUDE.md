@@ -892,6 +892,9 @@ make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write 
 make icesugar-read  # read that board's UART for a bounded window
 make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.
                     # Needs the board, so off `make test` and off CI, like suite-board
+make icesugar-suite-board # the .S suite on that board, in batches: place once, swap ROM contents
+                    # with ecpbram, load SRAM over JTAG, read the CDC UART. No sudo. Off
+                    # `make test` and CI; SHOW_RAW=1 prints each capture (ADR-0163)
 make icesugar-coremark # the same for CoreMark, at SOC_ROM_WORDS=4096: 16 KB of ROM, which
                     # this part has the spare block RAM for and the up5k does not.
                     # `make coremark-rom-ecp5` builds that image alone
