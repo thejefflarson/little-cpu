@@ -330,7 +330,7 @@ module nano_testbench(
     if (trap_d) trap_latched <= 1'b1;
   end
 `ifdef ICARUS
-  string icarus_rom_path, icarus_ram_path;
+  string icarus_rom_path, icarus_ram_path, icarus_vcd_path;
   int unsigned icarus_cycle_limit, icarus_cycle;
 
   task automatic finish_run(string msg = "");
@@ -355,8 +355,10 @@ module nano_testbench(
 `endif
     if (!$value$plusargs("CYCLES=%d", icarus_cycle_limit)) icarus_cycle_limit = 5000;
 
-    $dumpfile("nano_testbench.vcd");
-    $dumpvars(0, nano_testbench);
+    if ($value$plusargs("VCD=%s", icarus_vcd_path)) begin
+      $dumpfile(icarus_vcd_path);
+      $dumpvars(0, nano_testbench);
+    end
 
     for (icarus_cycle = 0; icarus_cycle < icarus_cycle_limit; icarus_cycle = icarus_cycle + 1) begin
       @(posedge clk);
