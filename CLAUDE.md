@@ -1152,8 +1152,9 @@ under `make ecp5-timing`'s own worst of twelve, and `--freq` is gone from the re
 derives the core domain from the PLL's dividers and a missed period is an ERROR rather than a
 slow board. **`CLOCK_HZ` is `rtl/uart.v`'s baud divisor, so the clock and that parameter must move
 together or the board's only output is garbage**; the frequency is stated in four places and
-`test/pll_clock_test.py` recomputes them from the pad and the dividers. Predicted 23.3 DMIPS at an
-unchanged 0.775 DMIPS/MHz, and **no board has run it**. Sharing
+`test/pll_clock_test.py` recomputes them from the pad and the dividers. The board ran it on 2026-10-05:
+**0.942 DMIPS/MHz, 28.3 DMIPS at 30.000 MHz** (wall-clock timed to 0.02%),
+cycle-identical to cxxrtl at 12,080,025 cycles over 20,000 runs (ADR-0172, amended). Sharing
 `DHRY_CFLAGS` does not make a board figure and a simulated one comparable: `dhrystone-rom` also
 defines `DHRY_UART` and `make dhrystone` does not, which moves `.text` and costs a cycle a run.
 `DHRY_BOARD_EXTRA_DEFINES` names that one difference in one place, and

@@ -302,3 +302,8 @@ consequence of implementing the zero arm without delegating it to the
 block's own reset feature rather than an independently load-bearing half of
 the fix. `soc/bram_reset_check.py`'s criterion — any block RAM reset port
 connected to a non-constant net — checks the invariant that matters.
+
+## Amendment, 2026-10-05
+
+The 25 MHz figures above are superseded by the 30 MHz PLL bitstream, which the
+board has since run cycle-identical to cxxrtl on today's tree (ADR-0172, amended).
