@@ -781,7 +781,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
-      nano-qspi-window-test nano-stale-build-test \
+      nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \
       nano-memmap-test nano-tt-test \
       stall-sites-test pin-help-text-test formal-ci-coverage-test yosys-script-oneline-test \
       compare-doc-test

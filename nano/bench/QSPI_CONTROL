@@ -1,0 +1,4 @@
+# nano-qspi-timing's zero-wait control, one line per benchmark: name, runs, cycles. Format, provenance and the re-take procedure are in docs/manifests/qspi-control.md.
+# The tree, commit and compiler these were taken on are in ADR-0186's amendment.
+dhrystone 200 415887
+coremark 5 15696013

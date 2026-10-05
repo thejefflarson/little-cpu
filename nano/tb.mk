@@ -102,6 +102,10 @@ nano-qspi-sim: nano/tb/nano_cxxrtl.cc $(NANO_QSPI_RTL)
 nano-qspi-timing: nano-sim
 	@./nano/bench/run_qspi_timing.sh '$(NANO_CFLAGS)'
 
+.PHONY: nano-qspi-control-test
+nano-qspi-control-test: nano-sim
+	@./nano/bench/run_qspi_timing.sh '$(NANO_CFLAGS)' --control-only
+
 .PHONY: nano-qspi-loop-probe
 nano-qspi-loop-probe: rvfi_macros.vh test/monitor.sim.v
 	@./nano/bench/run_qspi_loop_buffer_probe.sh '$(NANO_CFLAGS)'
