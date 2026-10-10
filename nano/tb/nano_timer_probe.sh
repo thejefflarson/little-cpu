@@ -1,5 +1,5 @@
 #!/bin/bash
-# Requires nano_timer_tb.v to go red, for the reason each check was written, when the timer posts MTIP early, never posts it, compares one word, drops the carry, ignores byte strobes, lets a tick carry across a write, or decodes a wider window.
+# Requires nano_timer_tb.v to go red, for the reason each check was written, when the timer posts MTIP early, never posts it, compares one word, misreads mtime's high word, ignores byte strobes, fails to alias a store onto mcycle, lets an mtimecmp store move it, or decodes a wider window.
 # Not hermetic: runs iverilog.
 set -euo pipefail
 
@@ -56,19 +56,21 @@ expect_red() {  # $1 = stem, $2 = what the mutant does, $3 = the failure it must
 }
 
 expect_red early "mtip compares mtime + 1, so it posts a cycle early" "posted early" \
-  's/mtip <= {time_hi, time_lo} >= {cmp_hi, cmp_lo};/mtip <= time_inc >= {cmp_hi, cmp_lo};/'
+  's/mtip <= {time_hi, time_lo} >= {cmp_hi, cmp_lo};/mtip <= {time_hi, time_lo} + 64'"'"'d1 >= {cmp_hi, cmp_lo};/'
 expect_red dead "mtip never posts" "mtip late" \
   's/mtip <= {time_hi, time_lo} >= {cmp_hi, cmp_lo};/mtip <= 1'"'"'b0;/'
 expect_red low_word "mtip compares the low words only" "posted early" \
   's/mtip <= {time_hi, time_lo} >= {cmp_hi, cmp_lo};/mtip <= time_lo >= cmp_lo;/'
-expect_red no_carry "mtime's high word never increments" "mtip late" \
-  's/wr_time_lo ? time_hi : time_inc\[63:32\]/wr_time_lo ? time_hi : time_hi/'
+expect_red high_as_low "the high word of mtime reads back the low word" "mtime high after" \
+  's/2.d1:    mem_rdata = time_hi;/2'"'"'d1:    mem_rdata = time_lo;/'
 expect_red no_strobes "byte strobes are ignored" "after a byte store" \
   's/assign wmask = .*/assign wmask = 32'"'"'hffff_ffff;/'
-expect_red no_suspend "a tick carries across a write to the low word" "carry edge" \
-  's/wr_time_lo ? time_hi : time_inc\[63:32\]/time_inc[63:32]/'
+expect_red no_alias_write "a store to mtime never reaches mcycle" "did not move mcycle" \
+  's/assign mtime_wr = .*/assign mtime_wr = 1'"'"'b0;/'
+expect_red cmp_moves_time "a store to mtimecmp also moves mcycle" "mtime" \
+  's/assign mtime_wr = .*/assign mtime_wr = writing;/'
 expect_red wide_window "the decode ignores address bit 4" "stray stores" \
   's/mem_addr\[31:4\] == BASE\[31:4\]/mem_addr[31:5] == BASE[31:5]/'
 
 echo
-echo "nano_timer_tb.v passes the shipping timer and fails seven mutants for their own reasons."
+echo "nano_timer_tb.v passes the shipping timer and fails eight mutants for their own reasons."

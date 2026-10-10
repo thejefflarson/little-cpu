@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-// Drives nano_timer's bus port and grades `mtip` against a model: early is an error, late by more than a cycle is.
+// Drives nano_timer's bus port beside a stand-in for the core's mcycle (the one counter mtime aliases) and grades `mtip` against a model: early is an error, late by more than a cycle is.
 // Run with iverilog; a failed check prints FAIL, a clean run prints PASS.
 module nano_timer_tb;
   localparam logic [31:0] BASE = 32'h1080_0010;
@@ -11,12 +11,15 @@ module nano_timer_tb;
   logic [31:0] mem_addr = 32'b0, mem_wdata = 32'b0;
   logic [3:0]  mem_wstrb = 4'b0;
   logic [31:0] mem_rdata;
-  logic        mtip;
+  logic        mtip, mtime_wr;
+  logic [63:0] mc = 64'b0;
+  logic        csr_we = 1'b0;
+  logic [63:0] csr_val = 64'b0;
 
   nano_timer #(.BASE(BASE)) dut (
     .clk(clk), .reset(reset),
-    .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_wstrb(mem_wstrb),
-    .mem_rdata(mem_rdata), .mtip(mtip)
+    .mtime(mc), .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_wstrb(mem_wstrb),
+    .mem_rdata(mem_rdata), .mtime_wr(mtime_wr), .mtip(mtip)
   );
 
   int errors = 0;
@@ -40,6 +43,16 @@ module nano_timer_tb;
     return v;
   endfunction
 
+  // The core's side of the alias: a CSR write wins, a bus store merges its bytes into the half mem_addr[2] names, otherwise it ticks.
+  logic [63:0] lane_mask;
+  assign lane_mask = {{8{mem_wstrb[3]}}, {8{mem_wstrb[2]}}, {8{mem_wstrb[1]}}, {8{mem_wstrb[0]}}} << (mem_addr[2] ? 32 : 0);
+  always @(posedge clk) begin
+    if (reset)            mc <= 64'b0;
+    else if (csr_we)      mc <= csr_val;
+    else if (mtime_wr)    mc <= (({mem_wdata, mem_wdata} & lane_mask) | (mc & ~lane_mask));
+    else                  mc <= mc + 64'd1;
+  end
+
   logic        w_hit;
   logic [1:0]  w_word;
   assign w_hit  = mem_addr[31:4] == BASE[31:4] && |mem_wstrb;
@@ -59,7 +72,8 @@ module nano_timer_tb;
       m_time <= 64'b0;
       m_cmp  <= 64'b0;
     end else begin
-      m_time <= (w_hit && w_word == 2'd0) ? put(m_time, 1'b0, mem_wdata, mem_wstrb) :
+      m_time <= csr_we ? csr_val :
+                (w_hit && w_word == 2'd0) ? put(m_time, 1'b0, mem_wdata, mem_wstrb) :
                 (w_hit && w_word == 2'd1) ? put(m_time, 1'b1, mem_wdata, mem_wstrb) :
                 m_time + 64'd1;
       if (w_hit && w_word == 2'd2) m_cmp <= put(m_cmp, 1'b0, mem_wdata, mem_wstrb);
@@ -72,6 +86,13 @@ module nano_timer_tb;
     mem_addr = addr; mem_wdata = data; mem_wstrb = strb;
     @(negedge clk);
     mem_addr = 32'b0; mem_wdata = 32'b0; mem_wstrb = 4'b0;
+  endtask
+
+  task automatic csr_write(input logic [63:0] v);
+    @(negedge clk);
+    csr_we = 1'b1; csr_val = v;
+    @(negedge clk);
+    csr_we = 1'b0;
   endtask
 
   task automatic wr(input logic [1:0] word, input logic [31:0] data);
@@ -211,6 +232,22 @@ module nano_timer_tb;
     if (m_time[63:32] !== 32'h0) fail("the model carried across a write");
     rd_check(2'd1, "mtime high after a low write on the carry edge");
     rd_check(2'd0, "mtime low after the same write");
+
+    // mtime is mcycle: a CSR write moves what the timer window reads and what mtip compares, and a store moves mcycle.
+    csr_write(64'h0000_0007_ffff_ff00);
+    rd_check(2'd1, "mtime high after a CSR write to mcycle");
+    rd_check(2'd0, "mtime low after a CSR write to mcycle");
+    if (mc[63:32] < 32'd7) fail("mcycle did not take the CSR write");
+    set_cmp(64'h0000_0008_0000_0010);
+    idle(3);
+    expect_mtip(1'b0, "mcycle below mtimecmp");
+    csr_write(64'h0000_0009_0000_0000);
+    idle(3);
+    expect_mtip(1'b1, "after a CSR write put mcycle past mtimecmp");
+    set_time(64'h0000_0001_0000_0000);
+    if (mc[63:32] !== 32'd1) fail("a store to mtime did not move mcycle");
+    idle(3);
+    expect_mtip(1'b0, "after a store to mtime pulled mcycle back");
 
     bus_write(BASE + 32'd16, 32'hdead_beef, 4'hf);
     bus_write(BASE - 32'd4, 32'hdead_beef, 4'hf);

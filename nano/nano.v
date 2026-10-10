@@ -15,6 +15,9 @@ module riscv #(
   // Machine external interrupt, level-triggered, synchronized here.
   input  logic        irq_meip,
   input  logic        irq_mtip,
+  // mcycle is also mtime: the bus raises mtime_wr for a store to either word, mem_addr[2] picking which.
+  input  logic        mtime_wr,
+  output logic [63:0] mtime,
   output logic        trap
  `ifdef RISCV_FORMAL
    , `RVFI_OUTPUTS
@@ -95,6 +98,7 @@ module riscv #(
   localparam logic [31:0] CAUSE_MACHINE_EXTERNAL    = 32'h8000_000B;
 
   logic [63:0] mcycle, minstret;
+  assign mtime = mcycle;
   // WARL: mtvec.MODE, mepc[0], mcause's unimplemented codes and mtval are hardwired zero.
   logic [31:0] mscratch;
   logic [29:0] mtvec_base;
@@ -683,6 +687,9 @@ module riscv #(
   assign wr_mcycleh   = csr_wen && csr_addr == CSR_MCYCLEH;
   assign wr_minstret  = csr_wen && csr_addr == CSR_MINSTRET;
   assign wr_minstreth = csr_wen && csr_addr == CSR_MINSTRETH;
+  logic [31:0] mtime_wmask, mtime_store;
+  assign mtime_wmask = {{8{mem_wstrb[3]}}, {8{mem_wstrb[2]}}, {8{mem_wstrb[1]}}, {8{mem_wstrb[0]}}};
+  assign mtime_store = (mem_wdata & mtime_wmask) | ((mem_addr[2] ? mcycle_hi : mcycle_lo) & ~mtime_wmask);
   assign instret = cpu_state == execute_instr && !take_trap;
 
   always_ff @(posedge clk) begin
@@ -706,6 +713,7 @@ module riscv #(
 
       mcycle   <= wr_mcycle   ? {mcycle_hi, csr_new_value} :
                  wr_mcycleh   ? {csr_new_value, mcycle_lo}  :
+                 mtime_wr     ? (mem_addr[2] ? {mtime_store, mcycle_lo} : {mcycle_hi, mtime_store}) :
                                 mcycle + 64'd1;
       minstret <= wr_minstret  ? {minstret_hi, csr_new_value} :
                  wr_minstreth  ? {csr_new_value, minstret_lo}  :

@@ -68,8 +68,8 @@ nano-liberty-setup:
 	fi; \
 	exit $$rc
 
-# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Graded on soft logic plus the register-file macro's fixed 15,744.4 um2 footprint (the SIZE line of its pinned LEF): 79,297.8 um2 with the machine timer, against 69,643.6 without it and 75,082.0 for the flip-flop register file before the macro, with 2,102 um2 of headroom over the figure, against 2,056 before. A ranking between RTL versions, never a fit, which only a flow run with gate-level simulation says.
-override NANO_MAX_UM2 := 81400
+# A ratchet, moved only in a reviewed commit: `NANO_MAX_UM2=nan` would otherwise beat area_report.py's `>` comparison, which is false against any non-finite value. Graded on soft logic plus the register-file macro's fixed 15,744.4 um2 footprint (the SIZE line of its pinned LEF): 75,833.2 um2 with the machine timer aliased onto mcycle, against 69,643.6 without a timer and 79,297.8 for the timer with a counter of its own, with 2,066.8 um2 of headroom over the figure, against 2,102 before. A ranking between RTL versions, never a fit, which only a flow run with gate-level simulation says.
+override NANO_MAX_UM2 := 77900
 
 # The register-file macro `rf_top` (a 32x32 SRAM block, two registered read ports, one write port), fetched from a Tiny Tapeout project that ships it and pinned like the liberty above. The same three files sit at the same digests in MichaelBell/ttsky25b-femtorv-soc's macro/ directory.
 ifneq ($(filter command line environment,$(origin NANO_RF_MACRO_COMMIT)),)

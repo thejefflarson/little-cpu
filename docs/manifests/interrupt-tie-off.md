@@ -37,6 +37,15 @@ nothing arms without all three enable terms, and entry disarms so there is
 no second one. That is the oracle. The `.S` side is `test/asm/mtimer.S` and
 `test/asm/mtimermask.S`.
 
+## nano's one other constant
+
+nano's core also takes `mtime_wr`, the bus's signal that a store landed in `mtime`'s two words, which
+the core merges into `mcycle` (`mtime` is `mcycle`, ADR-0249). No harness has a bus, so every one
+ties it low and the store path into `mcycle` is graded by `nano/tb/nano_timer_tb.v` and
+`nano/asm/mtimealias.S` instead. `check-interrupt-tie-off.py` names it in `ALLOWED_CONSTANTS`,
+the one constant other than the interrupt it lets a harness hold; any other constant input is
+still red.
+
 ## When this goes red
 
 A pin bump that makes another check read `rvfi_intr`, or that adds a check

@@ -43,5 +43,5 @@ SECTIONS {
         __bss_end = .;
     } >ram
 
-    __stack_top = ORIGIN(ram) + LENGTH(ram);
+    __stack_top = ORIGIN(ram) + LENGTH(ram) - 16;
 }

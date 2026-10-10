@@ -53,6 +53,14 @@ CORES = {
     'nano': ('riscv', ('irq_meip', 'irq_mtip')),
 }
 
+# Inputs a harness may hold constant besides the interrupt, each a restriction recorded here:
+# nano's `mtime_wr` is the bus raising a store to `mtime`, and no harness has a bus, so the
+# store never arrives and `mcycle` ticks and takes CSR writes only.
+ALLOWED_CONSTANTS = {
+    'littlecpu': (),
+    'nano': ('mtime_wr',),
+}
+
 # A port connected to a constant, whatever the port.
 CONST_PORT = re.compile(r"^\s*\.(\w+)\(\s*\d*'[bBhHdD][01xXzZ]+\s*\)\s*,?\s*$", re.M)
 
@@ -207,7 +215,7 @@ def main():
         # Every constant a HARNESS file connects, other than the interrupt, is a
         # restriction on the checks that nothing has recorded.
         for name in sorted(declared_harnesses & set(found)):
-            for other in sorted(constants[name] - set(ports)):
+            for other in sorted(constants[name] - set(ports) - set(ALLOWED_CONSTANTS[core])):
                 errors.append(
                     f'{formal_dir}/{name} ties .{other} to a constant, and nothing in '
                     f'{baseline_path} records that restriction.')

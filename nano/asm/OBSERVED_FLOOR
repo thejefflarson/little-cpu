@@ -10,3 +10,4 @@ meip.S         42
 csrimm.S       19
 mtimer.S       125
 mtimerorder.S  144
+mtimealias.S  40

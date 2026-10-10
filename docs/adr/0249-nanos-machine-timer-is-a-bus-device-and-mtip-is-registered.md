@@ -1,6 +1,6 @@
 # ADR-0249: nano's machine timer is a bus device, and MTIP is registered
 
-**Status:** Accepted · 2026-10-04 · amends ADR-0205 (`mip.MTIP` and `mie.MTIE` were read-only zero) and fills the span ADR-0206 reserved at `0x1080_0010`
+**Status:** Accepted · 2026-10-04 · amends ADR-0205 (`mip.MTIP` and `mie.MTIE` were read-only zero) and fills the span ADR-0206 reserved at `0x1080_0010` · amended 2026-10-10: `mtime` is `mcycle`
 
 ## Context
 
@@ -11,6 +11,55 @@ wake itself: no scheduler tick, no timeout, no watchdog unless something off-chi
 
 littlecpu already has this device (`rtl/timer.v`, ADR-0082, ADR-0118). This ADR records what nano's
 version copies, what it does differently, and what it costs.
+
+## Amendment, 2026-10-10: `mtime` is `mcycle`
+
+**The owner chose to alias `mtime` to `mcycle`, so nano has one 64-bit counter, not two.** The version
+above gave the timer a counter of its own. That tree did not route at 4×2. Hardening run
+37228120245 (the timer with its own counter) hit the six-hour limit in detailed routing with about
+38,000 violations. Run 38003370567 (the same timer with its registers loaded through one byte-select
+mask) hit it too, with violations falling from 52,120 to 43,537 and nowhere near zero. An experiment
+branch that also registered `take_trap`'s decode half (run 37372430748) did route, with DRT, Magic
+DRC and LVS at zero and one antenna violation (met1 side-area ratio 430.67 against 400, on the net
+`core.cfunct3[1] | core.cfunct3[0]`), so it never met the "all zero" bar, and it leaned on an unrelated
+change. The owner's rule that `mtime` stays a counter of its own was lifted by the owner after those runs.
+`mtime` is still 64-bit; it is no longer separate storage.
+
+What the hardware does now:
+
+- A load from `mtime` or `mtimeh` returns the core's `mcycle` word. A store to either word merges its
+  byte lanes into the same half of `mcycle`. A CSR write to `mcycle` or `mcycleh` moves `mtime`
+  in the same cycle, since they are one register. A CSR write wins over a bus store in the one cycle
+  both could land, which cannot happen: one instruction executes at a time.
+- `mtimecmp` is still its own 64-bit register in `nano_timer`. `mtip` still registers the
+  comparison, now of `mcycle` against `mtimecmp`, so it posts a cycle late and never early, and
+  ADR-0118's rule is unchanged.
+- `nano_timer` holds no counter and no incrementer. It takes `mcycle` as an input and raises `mtime_wr`
+  for a store to either `mtime` word. The core takes `mtime_wr` as an input and exports `mcycle` as
+  `mtime`; it picks the half from `mem_addr[2]` and the lanes from `mem_wstrb`. Every riscv-formal
+  harness ties `mtime_wr` low, and the platform's timer is outside the oracle's reach anyway.
+
+**Firmware-visible fact: writing `mcycle` moves `mtime`, and so moves every pending timer
+comparison.** Firmware must not write `mcycle` or `mcycleh` while the timer is armed: a write that
+raises the count past `mtimecmp` posts MTIP at once, and one that lowers it postpones the
+interrupt by the difference. A store to `mtime` has the same effect on `mcycle`, so a profiler that
+reads `mcycle` sees it jump. The tick suspension in fact 1 below is unchanged: the cycle of a write
+does not increment.
+
+**nano has no `mcountinhibit`, so the counter never pauses.** `mtime` therefore ticks in every
+state, including while the core waits on memory, as `mcycle` does.
+
+**Area.** `make nano-area` on this tree reads 75,833.2 µm² (soft logic 60,088.9, sequential
+12,719.7, macro 15,744.4), 3,464.6 below the timer with its own counter (79,297.8) and 6,189.6 above
+no timer (69,643.6). The timer's 65 remaining flip-flops are `mtimecmp` and `mtip`. The saving is
+smaller than the 4,817 the Declined note priced, because the stores into `mcycle` need their own merge
+mux. `NANO_MAX_UM2` moves from 81,400 to 77,900, keeping 2,066.8 µm² of headroom (2,102 before).
+
+The fit is still a routed result: the figure on this tree is in the hardening run that follows
+this amendment, recorded here when it finishes.
+
+The sections below describe the first version; where they say `mtime` has its own counter, this amendment
+replaces them.
 
 ## Decision
 
@@ -112,7 +161,7 @@ LVS and antenna at zero, timing per corner and `make nano-gl-test` on its own ne
 
 ## Declined
 
-- **Alias `mtime` to `mcycle`.** The largest lever: `nano_timer` without its counter and incrementer
+- **Alias `mtime` to `mcycle`.** *Taken by the amendment above, after the routing runs it names.* The largest lever: `nano_timer` without its counter and incrementer
   synthesizes to 5,622.9 µm², a saving of at least 4,817 (writes to `mtime` not built, which would
   add a second source on `mcycle`). Declined on conformance: `mcycle` is software-writable, so any
   firmware that clears it for profiling would move `mtime` and with it every pending `mtimecmp`
@@ -129,17 +178,22 @@ LVS and antenna at zero, timing per corner and `make nano-gl-test` on its own ne
   memory systems because the programs spin until an interrupt arrives, so the floors sit under the
   smaller. The dual-leg runs now give each program 10,000 cycles instead of 5,000: the pin-level leg
   spends about 45 cycles per retire.
-- `nano/tb/nano_mtimer_probe.sh` forces seven timer-interrupt mutants red against those programs: the
+- `nano/asm/mtimealias.S` writes `mcycle` and `mcycleh` and reads `mtime` back, then stores to
+  `mtime` and reads `mcycle` back, checking the untouched half each time and the carry across the
+  halves; floor 40 retires.
+- `nano/tb/nano_mtimer_probe.sh` forces ten mutants red against those three programs: the
   cause code, external-over-timer priority, MTIE gating, MTIE's write bit, `mip.MTIP`, a dead
-  comparator and a low-word-only one.
+  comparator, a low-word-only one, a store that never reaches `mcycle`, one that lands in the wrong half,
+  and a window that reads the halves swapped.
 - `nano/tb/nano_timer_tb.v` grades MTIP against a model: early is an error, late by more than one
   cycle is an error, and it covers the 64-bit carry, the wrong-order transient, byte strobes, the
-  suspended tick and the window's edges. `nano/tb/nano_timer_probe.sh` forces seven mutants red,
-  among them MTIP one cycle early.
+  window's edges. A stand-in for the core's `mcycle`, written beside the bench's independent model, takes
+  CSR writes and bus stores, and the model checks both land. `nano/tb/nano_timer_probe.sh` forces eight
+  mutants red, among them MTIP one cycle early and a store that never reaches `mcycle`.
 - `nano/tb/asm/tt_gpio_uart.S` takes a timer interrupt through the chip top at the real address,
   and `nano/tb/nano_tt_timer_probe.sh` forces the top's `irq_mtip` wire and the bus's timer read red.
   The flat-memory testbench has no map, so `nano_testbench.v` places the timer in the RAM window at
-  the linker script's `.mtimer` block, and `nano.lds` asserts that address.
+  the linker script's `.mtimer` block, the last 16 bytes of the RAM window, and `nano.lds` asserts that address. That address moved from `0x0001_0010` with the alias: a store there now writes `mcycle`, and the Dhrystone and CoreMark scripts had data at the old one, so both benchmarks' stacks stop 16 bytes short of the block.
 - `nano/formal/traps.sv` asserts that the first retirement after an interrupt reports one of the two
   interrupt causes, with `traps-mcause-probe.py` showing a wrong timer cause reachable and red.
   `formal/check-interrupt-tie-off.py --core nano` now grades `irq_mtip` beside `irq_meip`.

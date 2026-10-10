@@ -1,15 +1,17 @@
 `default_nettype none
-// `mtip` is a level, held while `mtime >= mtimecmp`, and registered: it posts a cycle late and never early.
+// `mtime` is the core's `mcycle` (stores reach it through `mtime_wr`); `mtip` is a registered level: late, never early.
 // An RV32 `mtimecmp` update is three stores, low all-ones, high, low; any other order posts a spurious interrupt.
 module nano_timer #(
   parameter logic [31:0] BASE = 32'h1080_0010
 ) (
   input  logic        clk,
   input  logic        reset,
+  input  logic [63:0] mtime,
   input  logic [31:0] mem_addr,
   input  logic [31:0] mem_wdata,
   input  logic [3:0]  mem_wstrb,
   output logic [31:0] mem_rdata,
+  output logic        mtime_wr,
   output logic        mtip
 );
   if (|BASE[3:0]) begin : l_base_aligned
@@ -21,36 +23,25 @@ module nano_timer #(
   assign in_range = mem_addr[31:4] == BASE[31:4];
   assign word     = mem_addr[3:2];
 
-  logic [31:0] time_lo, time_hi, cmp_lo, cmp_hi;
+  logic [31:0] cmp_lo, cmp_hi, time_lo, time_hi;
+  assign time_lo = mtime[31:0];
+  assign time_hi = mtime[63:32];
 
-  logic writing, wr_time_lo, wr_time_hi, wr_cmp_lo, wr_cmp_hi;
-  assign writing    = in_range && |mem_wstrb;
-  assign wr_time_lo = writing && word == 2'd0;
-  assign wr_time_hi = writing && word == 2'd1;
-  assign wr_cmp_lo  = writing && word == 2'd2;
-  assign wr_cmp_hi  = writing && word == 2'd3;
+  logic writing;
+  assign writing  = in_range && |mem_wstrb;
+  assign mtime_wr = writing && !word[1];
 
   logic [31:0] wmask;
   assign wmask = {{8{mem_wstrb[3]}}, {8{mem_wstrb[2]}}, {8{mem_wstrb[1]}}, {8{mem_wstrb[0]}}};
 
-  logic [63:0] time_inc;
-  assign time_inc = {time_hi, time_lo} + 64'd1;
-
   always_ff @(posedge clk) begin
     if (reset) begin
-      time_lo <= 32'b0;
-      time_hi <= 32'b0;
-      // Zero posts `mtip` out of reset; harmless because mie.MTIE and mstatus.MIE both reset to zero.
-      cmp_lo  <= 32'b0;
-      cmp_hi  <= 32'b0;
-      mtip    <= 1'b0;
+      cmp_lo <= 32'b0;
+      cmp_hi <= 32'b0;
+      mtip   <= 1'b0;
     end else begin
-      time_lo <= wr_time_lo ? (mem_wdata & wmask) | (time_lo & ~wmask) :
-                 wr_time_hi ? time_lo : time_inc[31:0];
-      time_hi <= wr_time_hi ? (mem_wdata & wmask) | (time_hi & ~wmask) :
-                 wr_time_lo ? time_hi : time_inc[63:32];
-      if (wr_cmp_lo) cmp_lo <= (mem_wdata & wmask) | (cmp_lo & ~wmask);
-      if (wr_cmp_hi) cmp_hi <= (mem_wdata & wmask) | (cmp_hi & ~wmask);
+      if (writing && word == 2'd2) cmp_lo <= (mem_wdata & wmask) | (cmp_lo & ~wmask);
+      if (writing && word == 2'd3) cmp_hi <= (mem_wdata & wmask) | (cmp_hi & ~wmask);
       mtip <= {time_hi, time_lo} >= {cmp_hi, cmp_lo};
     end
   end

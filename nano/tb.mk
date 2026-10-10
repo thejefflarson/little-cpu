@@ -42,7 +42,7 @@ nano-rf-timing-probe: rvfi_macros.vh test/monitor.sim.v
 nano-mtimer-probe: rvfi_macros.vh test/monitor.sim.v
 	@./nano/tb/nano_mtimer_probe.sh '$(NANO_CFLAGS)' '$(NANO_SIM_RTL_SRCS)' '$(NANO_RISCV_FORMAL_MACROS)'
 
-# nano_timer's bus port driven directly: MTIP graded against a model, never early and at most one cycle late. The probe forces seven mutants red first.
+# nano_timer's bus port driven directly: MTIP graded against a model, never early and at most one cycle late. The probe forces eight mutants red first.
 .PHONY: nano-timer-probe
 nano-timer-probe:
 	@./nano/tb/nano_timer_probe.sh

@@ -20,7 +20,8 @@ module tt_um_thejefflarson_nanocpu (
   logic reset;
   assign reset = !rst_n;
 
-  logic        mem_valid, mem_instr, mem_ready, trap, mtip;
+  logic        mem_valid, mem_instr, mem_ready, trap, mtip, mtime_wr;
+  logic [63:0] mtime;
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
 
@@ -36,6 +37,8 @@ module tt_um_thejefflarson_nanocpu (
     .mem_rdata(mem_rdata),
     .irq_meip(ui_in[7]),
     .irq_mtip(mtip),
+    .mtime_wr(mtime_wr),
+    .mtime(mtime),
     .trap(trap)
   );
 
@@ -64,6 +67,8 @@ module tt_um_thejefflarson_nanocpu (
     .uart_tx(uart_tx),
     .gpio_out(gpio_out),
     .gpio_in(ui_in),
+    .mtime(mtime),
+    .mtime_wr(mtime_wr),
     .mtip(mtip)
   );
 

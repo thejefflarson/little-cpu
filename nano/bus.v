@@ -31,7 +31,9 @@ module nano_bus #(
   output logic [6:0] gpio_out,
   input  logic [7:0] gpio_in,
 
-  output logic       mtip
+  input  logic [63:0] mtime,
+  output logic        mtime_wr,
+  output logic        mtip
 );
   localparam logic [31:0] UART_BASE = PSRAM_BASE + PSRAM_BYTES;
   localparam logic [31:0] GPIO_BASE  = UART_BASE + 32'd8;
@@ -99,10 +101,12 @@ module nano_bus #(
   nano_timer #(.BASE(TIMER_BASE)) timer (
     .clk(clk),
     .reset(reset),
+    .mtime(mtime),
     .mem_addr(mem_addr),
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(timer_rdata),
+    .mtime_wr(mtime_wr),
     .mtip(mtip)
   );
 

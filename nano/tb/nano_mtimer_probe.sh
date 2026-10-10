@@ -1,5 +1,5 @@
 #!/bin/bash
-# Requires nano's iverilog leg to fail mtimer.S or mtimerorder.S when the timer interrupt breaks one way at a time: the cause code, external-over-timer priority, mie.MTIE gating or its write path, mip.MTIP, a dead comparator and a low-word-only one.
+# Requires nano's iverilog leg to fail mtimer.S, mtimerorder.S or mtimealias.S when the timer breaks one way at a time: the cause code, external-over-timer priority, mie.MTIE gating or its write path, mip.MTIP, a dead comparator, a low-word-only one, and the mtime/mcycle alias cut in either direction or crossed between halves.
 # Not hermetic: runs the real cross compiler and iverilog.
 set -euo pipefail
 
@@ -80,12 +80,12 @@ expect_red() {  # $1 = stem, $2 = what the mutant does, $3 = nano.v or timer.v, 
     echo "*** the $2 mutant passed the suite." >&2
     exit 1
   fi
-  if ! grep -qE '^mtimer(order)?\.S +(FAIL|X-REACHED|MONITOR-ERROR|TIMEOUT|TRAP)' <<< "$out"; then
+  if ! grep -qE '^mtime(r|rorder|alias)\.S +(FAIL|X-REACHED|MONITOR-ERROR|TIMEOUT|TRAP)' <<< "$out"; then
     echo "$out" | tail -12
-    echo "*** the $2 mutant was refused, but not by mtimer.S or mtimerorder.S failing." >&2
+    echo "*** the $2 mutant was refused, but not by mtimer.S, mtimerorder.S or mtimealias.S failing." >&2
     exit 1
   fi
-  grep -E '^mtimer(order)?\.S ' <<< "$out"
+  grep -E '^mtime(r|rorder|alias)\.S ' <<< "$out"
 }
 
 expect_red cause "the timer interrupt reports cause 3" nano.v \
@@ -102,6 +102,12 @@ expect_red dead "mtip never posts" timer.v \
   's/mtip <= {time_hi, time_lo} >= {cmp_hi, cmp_lo};/mtip <= 1'"'"'b0;/'
 expect_red low_word "mtip compares the low words only" timer.v \
   's/mtip <= {time_hi, time_lo} >= {cmp_hi, cmp_lo};/mtip <= time_lo >= cmp_lo;/'
+expect_red no_store_alias "a store to mtime never reaches mcycle" nano.v \
+  's/mtime_wr     ? (/1'"'"'b0 ? (/'
+expect_red crossed_halves "a store to mtime's low word lands in mcycle's high word" nano.v \
+  's/(mem_addr\[2\] ? {mtime_store, mcycle_lo} : {mcycle_hi, mtime_store})/(mem_addr[2] ? {mcycle_hi, mtime_store} : {mtime_store, mcycle_lo})/'
+expect_red read_swapped "the timer window reads mtime's high word for the low one" timer.v \
+  's/2.d0:    mem_rdata = time_lo;/2'"'"'d0:    mem_rdata = time_hi;/'
 
 echo
-echo "All seven timer-interrupt mutants fail mtimer.S or mtimerorder.S."
+echo "All ten timer mutants fail mtimer.S, mtimerorder.S or mtimealias.S."

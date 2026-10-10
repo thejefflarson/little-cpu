@@ -27,6 +27,7 @@ module rvfi_wrapper (
     .mem_rdata(mem_rdata),
     .irq_meip(1'b0),
     .irq_mtip(1'b0),
+    .mtime_wr(1'b0),
     .trap(trap),
     `RVFI_CONN
   );

@@ -33,6 +33,7 @@ module rvfi_testbench (
     .mem_rdata(mem_rdata),
     .irq_meip(irq_meip),
     .irq_mtip(irq_mtip),
+    .mtime_wr(1'b0),
     .trap(trap),
     .rvfi_dbg_mtvec(dbg_mtvec),
     .rvfi_dbg_mepc(dbg_mepc),
