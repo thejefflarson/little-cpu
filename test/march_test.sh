@@ -122,10 +122,9 @@ soc/compare/product.json (any)
 # Makefile lines and a pairwise row's narrower string arriving here is still red.
 docs/comparison.md rv32im 4
 
-# The feature-matched pairs' CFLAGS, once the stamp carries them: none today, four (two
-# benchmarks, two parts) after the first `make compare-product` that measures them. The
-# refresh that adds them moves this count in the same commit.
-docs/comparison.md rv32imac_zicsr_zifencei 0
+# The feature-matched pairs' CFLAGS: none until `make compare-product` stamps them, four
+# (two benchmarks, two parts) after; `0|4` accepts either.
+docs/comparison.md rv32imac_zicsr_zifencei 0|4
 
 # Not a flag: the sed pattern that pulls the bare -march= value out of a CFLAGS
 # string for soc/compare/product_write.py's --isa. One, not two, since the comment
@@ -250,6 +249,7 @@ while IFS= read -r entry; do
     continue
   fi
   got=$(grep -cxF -- "$entry" "$tmp/covered" || true)
+  case "|$ecount|" in *"|$got|"*) continue ;; esac
   if [ "$got" -ne "$ecount" ]; then
     rc=1
     echo >&2

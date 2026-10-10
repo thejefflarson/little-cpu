@@ -10451,8 +10451,9 @@ probe "a stamp with no feature-matched pair says the section is not stamped yet"
   "The feature-matched section is not stamped yet" "$CMP render --stamp $CMP_STAMP"
 
 d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+grep -v '_imac' "$CMP_FLOOR" > "$d/floor"
 probe "a stamped feature-matched pair with no floor line is red" 1 \
-  "dhrystone_imac: CYCLE_FLOOR has no dhrystone_imac line" "$CMP ratchet --stamp $d/stamp.json --floor $CMP_FLOOR"
+  "dhrystone_imac: CYCLE_FLOOR has no dhrystone_imac line" "$CMP ratchet --stamp $d/stamp.json --floor $d/floor"
 
 d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
 { cat "$CMP_FLOOR"; echo 'dhrystone_imac littlecpu rv32im 1.99'; } > "$d/floor"

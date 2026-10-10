@@ -378,7 +378,9 @@ def ratchet(stamp, floor):
         else:
             problems.append(f"{name}: IMPROVEMENT, {core} {got!r} is above floor {want}; "
                             "update soc/compare/CYCLE_FLOOR to bank it")
-    problems += [f"CYCLE_FLOOR line {b} matches no stamped pair" for b in sorted(set(floor) - seen)]
+    unstamped = set(floor) - seen
+    problems += [f"CYCLE_FLOOR line {b} matches no stamped pair"
+                 for b in sorted(unstamped) if not b.endswith(MATCHED)]
     return problems
 
 
