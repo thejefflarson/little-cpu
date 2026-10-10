@@ -67,7 +67,7 @@ expect_red no_strobes "byte strobes are ignored" "after a byte store" \
   's/assign wmask = .*/assign wmask = 32'"'"'hffff_ffff;/'
 expect_red no_alias_write "a store to mtime never reaches mcycle" "did not move mcycle" \
   's/assign mtime_wr = .*/assign mtime_wr = 1'"'"'b0;/'
-expect_red cmp_moves_time "a store to mtimecmp also moves mcycle" "mtime" \
+expect_red cmp_moves_time "a store to mtimecmp also moves mcycle" "diverged from the mtime model" \
   's/assign mtime_wr = .*/assign mtime_wr = writing;/'
 expect_red wide_window "the decode ignores address bit 4" "stray stores" \
   's/mem_addr\[31:4\] == BASE\[31:4\]/mem_addr[31:5] == BASE[31:5]/'

@@ -53,6 +53,10 @@ module nano_timer_tb;
     else                  mc <= mc + 64'd1;
   end
 
+  always @(negedge clk) begin
+    if (checking && mc !== m_time) fail("mcycle diverged from the mtime model");
+  end
+
   logic        w_hit;
   logic [1:0]  w_word;
   assign w_hit  = mem_addr[31:4] == BASE[31:4] && |mem_wstrb;

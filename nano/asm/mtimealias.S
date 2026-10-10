@@ -56,6 +56,25 @@ RVTEST_CODE_BEGIN
   li a0, 10
   bne a1, a0, fail
 
+  li gp, 6
+  li a0, 0x12345000
+  sw a0, 0(a5)
+  li a0, 0xAA
+  sb a0, 3(a5)                  // one byte lane of mtime low: the others keep the count
+  csrr a1, mcycle
+  srli a1, a1, 12
+  li a2, 0xAA345
+  bne a1, a2, fail
+
+  li gp, 7
+  li a0, 0x01234567
+  sw a0, 4(a5)
+  li a0, 0xBEEF
+  sh a0, 6(a5)                  // the upper half of mtime high
+  csrr a1, mcycleh
+  li a2, 0xBEEF4567
+  bne a1, a2, fail
+
   RVTEST_PASS
 
 fail:

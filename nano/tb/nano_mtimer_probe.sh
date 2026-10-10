@@ -63,7 +63,7 @@ if ! out=$(run_suite "$WORKDIR/shipping.vvp" 2>&1); then
 fi
 echo "$out" | tail -3
 
-expect_red() {  # $1 = stem, $2 = what the mutant does, $3 = nano.v or timer.v, $4 = sed program
+expect_red() {  # $1 = stem, $2 = what the mutant does, $3 = nano.v or timer.v, $4 = sed program, $5 = optional mtimealias.S test number
   local mutant_nano="$REPO/nano/nano.v" mutant_timer="$REPO/nano/timer.v"
   sed "$4" "$REPO/nano/$3" > "$WORKDIR/$1.v"
   if cmp -s "$REPO/nano/$3" "$WORKDIR/$1.v"; then
@@ -86,6 +86,10 @@ expect_red() {  # $1 = stem, $2 = what the mutant does, $3 = nano.v or timer.v, 
     exit 1
   fi
   grep -E '^mtime(r|rorder|alias)\.S ' <<< "$out"
+  if [ -n "${5:-}" ] && ! grep -qE "^mtimealias\.S +FAIL $5( |\$)" <<< "$out"; then
+    echo "*** the $2 mutant was refused, but mtimealias.S did not fail at test $5." >&2
+    exit 1
+  fi
 }
 
 expect_red cause "the timer interrupt reports cause 3" nano.v \
@@ -108,6 +112,12 @@ expect_red crossed_halves "a store to mtime's low word lands in mcycle's high wo
   's/(mem_addr\[2\] ? {mtime_store, mcycle_lo} : {mcycle_hi, mtime_store})/(mem_addr[2] ? {mcycle_hi, mtime_store} : {mtime_store, mcycle_lo})/'
 expect_red read_swapped "the timer window reads mtime's high word for the low one" timer.v \
   's/2.d0:    mem_rdata = time_lo;/2'"'"'d0:    mem_rdata = time_hi;/'
+expect_red wmask_ones "mtime_wmask ignores mem_wstrb, so a byte store clobbers the other lanes" nano.v \
+  's/assign mtime_wmask = .*/assign mtime_wmask = 32'"'"'hffff_ffff;/' 6
+expect_red store_wrong_half "mtime_store merges against the other half of mcycle" nano.v \
+  's/(mem_addr\[2\] ? mcycle_hi : mcycle_lo)/(mem_addr[2] ? mcycle_lo : mcycle_hi)/' 6
+expect_red wmask_lane2 "mtime_wmask's lane 2 reads strobe 0" nano.v \
+  's/{8{mem_wstrb\[2\]}}, {8{mem_wstrb\[1\]}}, {8{mem_wstrb\[0\]}}};/{8{mem_wstrb[0]}}, {8{mem_wstrb[1]}}, {8{mem_wstrb[0]}}};/' 7
 
 echo
-echo "All ten timer mutants fail mtimer.S, mtimerorder.S or mtimealias.S."
+echo "All thirteen timer mutants fail mtimer.S, mtimerorder.S or mtimealias.S."

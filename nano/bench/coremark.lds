@@ -45,4 +45,6 @@ SECTIONS {
     } >ram
 
     __stack_top = ORIGIN(ram) + LENGTH(ram) - 16;
+
+    ASSERT(__bss_end <= __stack_top, "data and bss must end below the testbench timer at the top of ram")
 }

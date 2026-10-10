@@ -205,15 +205,20 @@ aliased design's clean run.
   spends about 45 cycles per retire.
 - `nano/asm/mtimealias.S` writes `mcycle` and `mcycleh` and reads `mtime` back, then stores to
   `mtime` and reads `mcycle` back, checking the untouched half each time and the carry across the
-  halves; floor 40 retires.
-- `nano/tb/nano_mtimer_probe.sh` forces ten mutants red against those three programs: the
+  halves, then an `sb` into `mtime`'s low word and an `sh` into its high word, each followed by a read
+  of `mcycle`/`mcycleh` that requires the other lanes to keep their count (the only grader of the
+  core's byte-lane merge in `nano/nano.v`; a full-word `sw` fills the mask and tests nothing); floor 40 retires.
+- `nano/tb/nano_mtimer_probe.sh` forces thirteen mutants red against those three programs: the
   cause code, external-over-timer priority, MTIE gating, MTIE's write bit, `mip.MTIP`, a dead
   comparator, a low-word-only one, a store that never reaches `mcycle`, one that lands in the wrong half,
-  and a window that reads the halves swapped.
+  a window that reads the halves swapped, and three on the byte-lane merge (mask forced to all ones,
+  merge against the wrong half, one lane's strobe misread), each required to fail `mtimealias.S` at its
+  own test number (6, 6, 7).
 - `nano/tb/nano_timer_tb.v` grades MTIP against a model: early is an error, late by more than one
-  cycle is an error, and it covers the 64-bit carry, the wrong-order transient, byte strobes, the
+  cycle is an error, and it covers the 64-bit carry, the wrong-order transient, byte strobes on `mtimecmp`, the
   window's edges. A stand-in for the core's `mcycle`, written beside the bench's independent model, takes
-  CSR writes and bus stores, and the model checks both land. `nano/tb/nano_timer_probe.sh` forces eight
+  CSR writes and bus stores, and the model checks both land. That stand-in does its own merge, so the bench
+  grades the timer's decode and `mtimecmp`, not the core's byte-lane merge. `nano/tb/nano_timer_probe.sh` forces eight
   mutants red, among them MTIP one cycle early and a store that never reaches `mcycle`.
 - `nano/tb/asm/tt_gpio_uart.S` takes a timer interrupt through the chip top at the real address,
   and `nano/tb/nano_tt_timer_probe.sh` forces the top's `irq_mtip` wire and the bus's timer read red.
