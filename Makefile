@@ -1594,15 +1594,30 @@ COMPARE_CORE_READ := read_verilog $(VEXRISCV_V); \
 COMPARE_CORE_TOP  := VexRiscv
 COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V) vexriscv-pin-check
 COMPARE_CORE_DEPS := $(VEXRISCV_V) vexriscv-pin-check
-else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf),)
+else ifeq ($(COMPARE_CORE),vexriscv_lrsc)
+COMPARE_TOP  := bench_vexriscv_lrsc
+COMPARE_SRCS := soc/compare/bench_vexriscv_lrsc.v rtl/memory.v
+COMPARE_READ := read_verilog $(VEXRISCV_LRSC_V); \
+                read_verilog -sv $(COMPARE_SRCS)
+COMPARE_CORE_READ := read_verilog $(VEXRISCV_LRSC_V); \
+                     hierarchy -top VexRiscvLrsc; delete -port VexRiscvLrsc/rvfi_*
+COMPARE_CORE_TOP  := VexRiscvLrsc
+COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_LRSC_V) vexriscv-pin-check
+COMPARE_CORE_DEPS := $(VEXRISCV_LRSC_V) vexriscv-pin-check
+else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf hazard3_c),)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
-# hazard3_perf is the bench with PERF set; its standalone synthesis takes the same four parameters.
-ifeq ($(COMPARE_CORE),hazard3_perf)
+# hazard3_perf is the bench with PERF set, hazard3_c the same plus WITH_C; each takes the same
+# parameters in its standalone synthesis.
+ifneq ($(filter $(COMPARE_CORE),hazard3_perf hazard3_c),)
 COMPARE_BENCH_CHPARAM := -set PERF 1
 HAZARD3_PERF_CHPARAM := -set EXTENSION_ZIFENCEI 1 -set CSR_COUNTER 1 -set MUL_FAST 1 \
                         -set BRANCH_PREDICTOR 1
+endif
+ifeq ($(COMPARE_CORE),hazard3_c)
+COMPARE_BENCH_CHPARAM += -set WITH_C 1
+HAZARD3_PERF_CHPARAM += -set EXTENSION_C 1
 endif
 COMPARE_CORE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(HAZARD3_SRCS); \
                      $(if $(HAZARD3_PERF_CHPARAM),chparam $(HAZARD3_PERF_CHPARAM) hazard3_cpu_2port; )\
@@ -1668,18 +1683,18 @@ $(BUILD)/compare.$(COMPARE_CORE).asc: $(BUILD)/compare.$(COMPARE_CORE).json $(CO
 	sh soc/pnr_check.sh 'make compare-timing' "$$status" $(BUILD)/compare.$(COMPARE_CORE).pnr.log $@
 
 COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
-                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
-                      soc/compare/bench_tb.v
+                      soc/compare/bench_vexriscv.v soc/compare/bench_vexriscv_lrsc.v \
+                      soc/compare/bench_hazard3.v soc/compare/bench_tb.v
 
-$(BUILD)/compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-pin-check \
-             | $(HAZARD3_DIR) $(BUILD)
+$(BUILD)/compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) $(VEXRISCV_LRSC_V) \
+             vexriscv-pin-check | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
-	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
+	  $(VEXRISCV_V) $(VEXRISCV_LRSC_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_SMOKE_SRCS)
 
 .PHONY: compare-smoke
 compare-smoke: hazard3-config-clone-test $(BUILD)/compare.vvp
-	@vvp $<
+	@vvp $(BUILD)/compare.vvp
 
 COMPARE_DHRY_RUNS   ?= 400
 COMPARE_DHRY_CYCLES ?= 2000000
@@ -1692,6 +1707,8 @@ COMPARE_BENCH_CFLAGS_TAIL := -mabi=ilp32 -O2 -std=c11 -ffreestanding \
                              -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror
 COMPARE_DHRY_VEXC_CFLAGS := -march=rv32imc $(COMPARE_BENCH_CFLAGS_TAIL)
 COMPARE_DHRY_HAZA_CFLAGS := -march=rv32ima $(COMPARE_BENCH_CFLAGS_TAIL)
+# The feature-matched row: the richest ISA littlecpu, VexRiscv (C, LR/SC) and Hazard3 (C, A) share.
+COMPARE_DHRY_IMAC_CFLAGS := -march=rv32imac_zicsr_zifencei $(COMPARE_BENCH_CFLAGS_TAIL)
 
 COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
@@ -1723,6 +1740,28 @@ COMPARE_DHRY_HAZA_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
 $(BUILD)/compare.dhry.haza.vvp: $(COMPARE_DHRY_HAZA_SRCS) | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(HAZARD3_SRCS) $(COMPARE_DHRY_HAZA_SRCS)
+
+COMPARE_DHRY_IMAC_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                          soc/compare/bench_vexriscv_lrsc.v soc/compare/bench_hazard3.v \
+                          soc/compare/dhry_monitor.v soc/compare/dhry_imac_tb.v
+
+$(BUILD)/compare.dhry.imac.vvp: $(COMPARE_DHRY_IMAC_SRCS) $(VEXRISCV_LRSC_V) vexriscv-pin-check \
+                  | $(HAZARD3_DIR) $(BUILD)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(VEXRISCV_LRSC_V) $(HAZARD3_SRCS) $(COMPARE_DHRY_IMAC_SRCS)
+
+.PHONY: compare-dhrystone-matched
+compare-dhrystone-matched: hazard3-config-clone-test $(BUILD)/compare.dhry.imac.vvp
+	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv_lrsc $(BUILD)/compare.vexriscv_lrsc.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c $(BUILD)/compare.hazard3_c.core.log
+	@echo '== the feature-matched row: littlecpu, VexRiscv with LR/SC and Hazard3 with C, all at RV32IMAC =='
+	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
+	  '$(COMPARE_DHRY_IMAC_CFLAGS)' hardware $(BUILD)/compare.dhry.imac.vvp \
+	  littlecpu,vexriscv_lrsc,hazard3_c \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log \
+	  vexriscv_lrsc=$(BUILD)/compare.vexriscv_lrsc.core.log \
+	  hazard3_c=$(BUILD)/compare.hazard3_c.core.log
 
 .PHONY: compare-dhrystone
 compare-dhrystone: hazard3-config-clone-test $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp \
@@ -1779,6 +1818,7 @@ COMPARE_COREMARK_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
 # CoreMark's own image at the same two pairwise ISAs the Dhrystone flags above state.
 COMPARE_COREMARK_VEXC_CFLAGS := -march=rv32imc $(COMPARE_BENCH_CFLAGS_TAIL)
 COMPARE_COREMARK_HAZA_CFLAGS := -march=rv32ima $(COMPARE_BENCH_CFLAGS_TAIL)
+COMPARE_COREMARK_IMAC_CFLAGS := -march=rv32imac_zicsr_zifencei $(COMPARE_BENCH_CFLAGS_TAIL)
 
 COMPARE_COREMARK_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                          soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
@@ -1810,6 +1850,25 @@ COMPARE_COREMARK_HAZA_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
 $(BUILD)/compare.coremark.haza.vvp: $(COMPARE_COREMARK_HAZA_SRCS) | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(HAZARD3_SRCS) $(COMPARE_COREMARK_HAZA_SRCS)
+
+COMPARE_COREMARK_IMAC_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                              soc/compare/bench_vexriscv_lrsc.v soc/compare/bench_hazard3.v \
+                              soc/compare/dhry_monitor.v soc/compare/coremark_imac_tb.v
+
+$(BUILD)/compare.coremark.imac.vvp: $(COMPARE_COREMARK_IMAC_SRCS) $(VEXRISCV_LRSC_V) \
+                       vexriscv-pin-check | $(HAZARD3_DIR) $(BUILD)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(VEXRISCV_LRSC_V) $(HAZARD3_SRCS) $(COMPARE_COREMARK_IMAC_SRCS)
+
+.PHONY: compare-coremark-matched
+compare-coremark-matched: hazard3-config-clone-test $(BUILD)/compare.coremark.imac.vvp
+	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv_lrsc $(BUILD)/compare.vexriscv_lrsc.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c $(BUILD)/compare.hazard3_c.core.log
+	@echo '== the feature-matched row: littlecpu, VexRiscv with LR/SC and Hazard3 with C, all at RV32IMAC =='
+	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
+	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_IMAC_CFLAGS)' $(BUILD)/compare.coremark.imac.vvp \
+	  littlecpu,vexriscv_lrsc,hazard3_c
 
 .PHONY: compare-coremark
 compare-coremark: hazard3-config-clone-test $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp \
@@ -1849,6 +1908,8 @@ COMPARE_ECP5_EXPECT_DSP_littlecpu := 4
 COMPARE_ECP5_EXPECT_DSP_vexriscv  := 4
 COMPARE_ECP5_EXPECT_DSP_hazard3   := 0
 COMPARE_ECP5_EXPECT_DSP_hazard3_perf := 3
+COMPARE_ECP5_EXPECT_DSP_hazard3_c := 3
+COMPARE_ECP5_EXPECT_DSP_vexriscv_lrsc := 4
 COMPARE_ECP5_EXPECT_DSP := $(COMPARE_ECP5_EXPECT_DSP_$(COMPARE_CORE))
 
 $(BUILD)/compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
@@ -1957,7 +2018,8 @@ clean:
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f $(BUILD)/compare.*.json $(BUILD)/compare.*.asc $(BUILD)/compare.*.log $(BUILD)/compare.*.rpt $(BUILD)/compare.vvp
 	rm -f $(BUILD)/compare_ecp5.*.json $(BUILD)/compare_ecp5.*.config $(BUILD)/compare_ecp5.*.log
-	rm -f $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp $(BUILD)/compare.dhry.haza.vvp
+	rm -f $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp $(BUILD)/compare.dhry.haza.vvp \
+	      $(BUILD)/compare.dhry.imac.vvp $(BUILD)/compare.coremark.imac.vvp
 	rm -f $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp $(BUILD)/compare.coremark.vexc.vvp \
 	      $(BUILD)/compare.coremark.haza.vvp
 	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex

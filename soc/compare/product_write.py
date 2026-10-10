@@ -59,8 +59,9 @@ from datetime import datetime, timezone
 
 SCHEMA = "compare-product v2"
 
-# The names run_product.sh measures: a benchmark, with `_ecp5` for the second part.
-PAIR_NAME_RE = re.compile(r"(dhrystone|coremark)(_ecp5)?")
+# The names run_product.sh measures: a benchmark, `_imac` for its feature-matched RV32IMAC
+# pair, and `_ecp5` for the second part.
+PAIR_NAME_RE = re.compile(r"(dhrystone|coremark)(_imac)?(_ecp5)?")
 NOTE = "written by soc/compare/run_product.sh (make compare-product); do not hand-edit"
 BASE_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")

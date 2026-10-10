@@ -647,7 +647,12 @@ rather than rediscovered.
 no C, and the generated VexRiscv has no `AtomicPlugin`, so `COMPARE_DHRY_CFLAGS` and
 `COMPARE_COREMARK_CFLAGS` both build at `rv32im`, and CoreMark runs every core in one
 simulation, `soc/compare/coremark_tb.v` reusing `soc/compare/dhry_monitor.v` for its third DUT
-(ADR-0146 as amended). Both benchmarks are `-O2` under the pinned compiler (the flags
+(ADR-0146 as amended). **A feature-matched RV32IMAC row sits beside it** (ADR-0250): `vexriscv_lrsc`
+is the stock VexRiscv plus `withLrSc` (the pinned no-cache data bus has no AMO option, so it is Zalrsc,
+not all of A) and `hazard3_c` is `hazard3_perf` plus `EXTENSION_C` (a harness choice no Hazard3 example
+ships), all three built at `rv32imac_zicsr_zifencei` by `make compare-dhrystone-matched` and
+`make compare-coremark-matched`. Neither benchmark contains an atomic, so the row prices carrying A and
+C, not using them. Both benchmarks are `-O2` under the pinned compiler (the flags
 `make compare-dhrystone` prints), with `soc/compare/dhry_port.c`'s own byte loops for the string
 routines, linked by the harness's own `soc/compare/dhry.lds` / `coremark.lds` (the
 placed-geometry budget comes from `soc/compare/bench.lds`) and not by `test/bench/bench.lds`. **Hazard3's own two-port top removes the fetch/data contention rather than working around
@@ -926,6 +931,8 @@ make compare-coremark # CoreMark on all THREE cores, one RV32IM image -- VexRisc
                     # generated build has M but no A, the same ceiling Dhrystone
                     # already builds at. COMPARE_COREMARK_MHZ adds the absolute
                     # column. Not a gate, not on CI
+make compare-dhrystone-matched # Dhrystone on littlecpu, VexRiscv with LR/SC and Hazard3 with C,
+make compare-coremark-matched   # CoreMark likewise: one RV32IMAC image per benchmark (ADR-0250)
 make compare-product # both factors of every cross-core pair in one run, stamped into
                     # soc/compare/product.json with the commit, seeds and CFLAGS behind
                     # each number. COMPARE_PRODUCT_SEEDS picks the sweep (twelve by

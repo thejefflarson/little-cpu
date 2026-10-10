@@ -32,7 +32,7 @@ import spinal.core._
  * resetVector is 0 because the harness's ROM is at 0, not 0x80000000.
  */
 object GenLittleCpuCompare extends App {
-  def cpu() = new VexRiscv(
+  def cpu(withLrSc: Boolean = false) = new VexRiscv(
     config = VexRiscvConfig(
       plugins = List(
         new FormalPlugin,
@@ -46,7 +46,8 @@ object GenLittleCpuCompare extends App {
         ),
         new DBusSimplePlugin(
           catchAddressMisaligned = false,
-          catchAccessFault = false
+          catchAccessFault = false,
+          withLrSc = withLrSc
         ),
         new DecoderSimplePlugin(
           catchIllegalInstruction = true
@@ -88,4 +89,19 @@ object GenLittleCpuCompare extends App {
       resetActiveLevel = spinal.core.HIGH
     )
   ).generateVerilog(cpu())
+}
+
+/**
+ * The same build plus LR/SC (Zalrsc), generated as module VexRiscvLrsc so both can be read by
+ * one simulator. The no-cache DBusSimplePlugin has `withLrSc` and no AMO option, and the
+ * repository's pin has no AtomicPlugin, so the AMO half of A is not available in this build.
+ */
+object GenLittleCpuCompareLrsc extends App {
+  SpinalConfig(
+    defaultConfigForClockDomains = ClockDomainConfig(
+      resetKind = spinal.core.SYNC,
+      resetActiveLevel = spinal.core.HIGH
+    ),
+    privateNamespace = true
+  ).generateVerilog(GenLittleCpuCompare.cpu(withLrSc = true).setDefinitionName("VexRiscvLrsc"))
 }

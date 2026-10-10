@@ -3,3 +3,5 @@
 # Hand-edit from the committed stamp; never regenerate from a run. Opponents are not listed.
 dhrystone littlecpu rv32im 0.9949122055269736
 coremark littlecpu rv32im 2.7815870066507746
+dhrystone_imac littlecpu rv32imac_zicsr_zifencei 0.9949122055269736
+coremark_imac littlecpu rv32imac_zicsr_zifencei 2.781602481189413
