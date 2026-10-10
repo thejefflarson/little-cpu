@@ -5,6 +5,7 @@
 // the same three pads, the same program image, the same part and the same seeds.
 module bench_hazard3 #(
   parameter bit PERF = 1'b0,  // 1: the authors' ECP5 build; 0: their iCE40 one (hazard3_builds.txt)
+  parameter bit WITH_C = 1'b0,  // 1 with PERF: hazard3_c, the ECP5 build plus the C extension
   parameter integer ROM_WORDS = 1024,
   parameter integer RAM_WORDS = 16384,
   parameter INIT_ROM = "soc/compare/rom_flat.hex"
@@ -52,7 +53,7 @@ module bench_hazard3 #(
     .CSR_M_TRAP           (1),
     .NUM_IRQS             (1),
     .EXTENSION_A          (1),
-    .EXTENSION_C          (0),
+    .EXTENSION_C          (WITH_C ? 1 : 0),
     .EXTENSION_M          (1),
     .EXTENSION_ZBA        (0),
     .EXTENSION_ZBB        (0),
