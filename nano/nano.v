@@ -119,7 +119,7 @@ module riscv #(
   logic        external_pending, interrupt_pending, take_interrupt;
   logic        load_misaligned, store_misaligned, ls_in_range, load_region_fault,
                store_region_fault;
-  logic        take_trap;
+  logic        take_trap, decode_trap, decode_trap_q;
   logic [31:0] trap_cause_value;
   // mem_addr doubles as the next pc: an instruction ends with its successor's address in it.
   logic [31:0] pc;
@@ -366,7 +366,10 @@ module riscv #(
   assign store_region_fault = (is_store_op || is_cswsp || is_csw) &&
     !store_misaligned && !ls_in_range;
 
-  assign take_trap = !is_valid || is_ecall || is_ebreak ||
+  assign decode_trap = !is_valid || is_ecall || is_ebreak;
+  always_ff @(posedge clk) decode_trap_q <= decode_trap;  // instr holds from fetch_rs1 through execute_instr
+
+  assign take_trap = decode_trap_q ||
     load_misaligned || store_misaligned || load_region_fault || store_region_fault;
 
   always_comb begin
