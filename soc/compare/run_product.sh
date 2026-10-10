@@ -160,7 +160,7 @@ sweep_clock() {  # $1 = part, $2 = core; prints comma-separated ns on stdout
 # One sweep per (core, part) serves both benchmark pairs below.
 for part in $PARTS; do
   echo "== compare-product: clock sweep on $part ($SEEDS) =="
-  for core in littlecpu vexriscv hazard3 hazard3_perf; do
+  for core in littlecpu vexriscv hazard3 hazard3_perf vexriscv_lrsc hazard3_c; do
     echo "-- $core --"
     ns=$(sweep_clock "$part" "$core")
     echo "$ns"
@@ -329,6 +329,82 @@ if [ "$COREMARK_OK" -eq 0 ]; then
   done
 fi
 
+# The feature-matched pairs: the same benchmarks at RV32IMAC against the VexRiscv build with
+# LR/SC and the Hazard3 build with C. littlecpu's clock is the sweep above (the placed
+# design does not depend on the program); its cycle factor is this image's own.
+measure_matched() {  # $1 = dhrystone | coremark
+  bench=$1
+  case $bench in
+    dhrystone)
+      target=compare-dhrystone-matched; tag=DHRY; unit='DMIPS/MHz'
+      count=$DHRY_RUNS; divisor=$DHRY_VAX_RATE
+      cflags=$(make -s print-COMPARE_DHRY_IMAC_CFLAGS) ;;
+    coremark)
+      target=compare-coremark-matched; tag=COREMARK; unit='CoreMark/MHz'
+      count=$(make -s print-COMPARE_COREMARK_ITERATIONS); divisor=1
+      cflags=$(make -s print-COMPARE_COREMARK_IMAC_CFLAGS) ;;
+  esac
+  if ! M_OUT=$(make "$target" 2>&1); then
+    echo "*** run_product.sh: make $target failed." >&2
+    printf '%s\n' "$M_OUT" >&2
+    return 1
+  fi
+  printf '%s\n' "$M_OUT"
+  matched_cycles() {  # $1 = core
+    printf '%s\n' "$M_OUT" | grep "^$tag core=$1 marks=" \
+      | sed -n 's/.* cycles=\([0-9]*\).*/\1/p' | head -1
+  }
+  m_lc=$(matched_cycles littlecpu)
+  m_vx=$(matched_cycles vexriscv_lrsc)
+  m_hz=$(matched_cycles hazard3_c)
+  for value in "$count" "$m_lc" "$m_vx" "$m_hz" "$divisor" "$cflags"; do
+    case $value in
+      ''|*[!0-9.]*)
+        # CFLAGS is text; only the numbers are held to digits.
+        [ "$value" = "$cflags" ] && [ -n "$value" ] && continue
+        echo "*** run_product.sh: the $bench feature-matched run gave '$value'," >&2
+        echo "*** which is not a count." >&2
+        return 1 ;;
+    esac
+  done
+  m_lc_factor=$(cycle_factor "$count" "$m_lc" "$divisor")
+  m_vx_factor=$(cycle_factor "$count" "$m_vx" "$divisor")
+  m_hz_factor=$(cycle_factor "$count" "$m_hz" "$divisor")
+  CYCLE_TOOLS_BLOCK=$(toolchain_block)
+  assert_tree_unmoved
+  m_isa=$(isa_from_cflags "$cflags")
+  for part in $PARTS; do
+    eval "lc_ns=\$NS_${part}_littlecpu"
+    eval "vx_ns=\$NS_${part}_vexriscv_lrsc"
+    eval "hz_ns=\$NS_${part}_hazard3_c"
+    set --
+    case $part in
+      up5k) set -- "$@" --step-mhz "$STEP_MHZ" ;;
+      ecp5) set -- "$@" --field "ecp5_part=$ECP5_PART" \
+                       --field "ecp5_target_mhz=$ECP5_TARGET_MHZ" ;;
+    esac
+    python3 soc/compare/product_write.py "$OUT" "$(pair_name "${bench}_imac" "$part")" --measured \
+      --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
+      --seeds "$SEEDS" --cflags "$cflags" --isa "$m_isa" \
+      --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit "$unit" \
+      --digest "$DIGEST" --tools-block "$TOOLS_BLOCK" --cycle-tools-block "$CYCLE_TOOLS_BLOCK" "$@" \
+      --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv_lrsc=$vx_ns" \
+      --clock-ns "hazard3_c=$hz_ns" \
+      --cycle-factor "littlecpu=$m_lc_factor" --cycle-factor "vexriscv_lrsc=$m_vx_factor" \
+      --cycle-factor "hazard3_c=$m_hz_factor" || return 1
+  done
+}
+
+for matched_bench in dhrystone coremark; do
+  echo
+  echo "== compare-product: $matched_bench, feature-matched (RV32IMAC) =="
+  if ! measure_matched "$matched_bench"; then
+    echo "*** run_product.sh: the feature-matched $matched_bench measurement failed;" >&2
+    echo "*** stopping rather than leaving the stamp half-written." >&2
+    exit 1
+  fi
+done
+
 echo
 echo "== $OUT =="
 set -- --current "compiler=$CC" --current "compiler_version=$(make -s print-RISCV_GCC_VERSION)"
@@ -343,4 +419,10 @@ for part in $PARTS; do
   else
     python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark "$part")" --repo . "$@"
   fi
+  python3 soc/compare/product_check.py "$OUT" "$(pair_name dhrystone_imac "$part")" --repo . \
+    --current "cflags=$(make -s print-COMPARE_DHRY_IMAC_CFLAGS)" --current "rom_words=$ROM_WORDS" \
+    --current "ram_words=$RAM_WORDS" "$@"
+  python3 soc/compare/product_check.py "$OUT" "$(pair_name coremark_imac "$part")" --repo . \
+    --current "cflags=$(make -s print-COMPARE_COREMARK_IMAC_CFLAGS)" \
+    --current "rom_words=$ROM_WORDS" --current "ram_words=$RAM_WORDS" "$@"
 done

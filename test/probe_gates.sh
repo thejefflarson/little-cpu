@@ -5354,6 +5354,17 @@ d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1/MUL
 probe "PERF moving a parameter the authors' builds agree on is red" 1 \
   "PERF moves BRANCH_PREDICTOR" "$HC $d"
 
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1/MUL_FAST 0 1 0/'
+probe "the C build differing from the performance build in a second parameter is red" 1 \
+  "the C build differs from the performance build on EXTENSION_C, MUL_FAST, not on EXTENSION_C alone" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.EXTENSION_C          (WITH_C ? 1 : 0)/.EXTENSION_C          (0)/'
+probe "the C build losing its C extension in the bench is red" 1 \
+  "EXTENSION_C: bench_hazard3.v elaborates area=0 perf=0 perf_c=0, the build file says area=0 perf=0 perf_c=1" \
+  "$HC $d"
+
 d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" \
   's/^pin [0-9a-f]*/pin 0000000000000000000000000000000000000000/'
 probe "a build file pinned to a different Hazard3 than the Makefile is red" 1 \
@@ -5431,6 +5442,19 @@ cp "$REPO/Makefile" "$f"
 mutate "$f" 's#\$(VEXRISCV_V)##g'
 probe "a Makefile naming \$(VEXRISCV_V) nowhere is red, not vacuously clean" 1 \
   "names \$(VEXRISCV_V) nowhere" "$VPT $f"
+
+d=$(new_case); mkdir -p "$d/soc/compare"
+cp "$REPO/Makefile" "$d/Makefile"
+cp "$REPO/soc/compare/bench_vexriscv.v" "$REPO/soc/compare/bench_vexriscv_lrsc.v" "$d/soc/compare/"
+probe "control: the LR/SC build's bench is the stock bench but for the core's module name" 0 \
+  "references to \$(VEXRISCV_V), and no other VexRiscv.v path" "$VPT $d/Makefile"
+
+d=$(new_case); mkdir -p "$d/soc/compare"
+cp "$REPO/Makefile" "$d/Makefile"
+cp "$REPO/soc/compare/bench_vexriscv.v" "$REPO/soc/compare/bench_vexriscv_lrsc.v" "$d/soc/compare/"
+mutate "$d/soc/compare/bench_vexriscv_lrsc.v" 's/\.iBus_cmd_ready(1.b1)/.iBus_cmd_ready(1'"'"'b0)/'
+probe "an LR/SC bench adapter that differs beyond its module name is red" 1 \
+  "differs from bench_vexriscv.v in more" "$VPT $d/Makefile"
 
 begin_group "soc/compare/dhry_fit.py"
 
@@ -10418,6 +10442,26 @@ probe "a pair name product_write.py would never write is refused" 1 \
 d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["coremark"] = "measured"' "$d/stamp.json"
 probe "a pair that is not an object is refused, not skipped" 1 \
   "pair coremark is 'measured'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+probe "a stamped feature-matched pair renders under the RV32IMAC section" 0 \
+  "#### Dhrystone 2.1, RV32IMAC" "$CMP render --stamp $d/stamp.json"
+
+probe "a stamp with no feature-matched pair says the section is not stamped yet" 0 \
+  "The feature-matched section is not stamped yet" "$CMP render --stamp $CMP_STAMP"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+probe "a stamped feature-matched pair with no floor line is red" 1 \
+  "dhrystone_imac: CYCLE_FLOOR has no dhrystone_imac line" "$CMP ratchet --stamp $d/stamp.json --floor $CMP_FLOOR"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+{ cat "$CMP_FLOOR"; echo 'dhrystone_imac littlecpu rv32im 1.99'; } > "$d/floor"
+probe "a feature-matched cycle factor under its floor is a regression" 1 \
+  "dhrystone_imac: REGRESSION" "$CMP ratchet --stamp $d/stamp.json --floor $d/floor"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]; stamp["pairs"]["dhrystone_imac"]["cores"]["hazard3_b"] = stamp["pairs"]["dhrystone"]["cores"]["hazard3"]' "$d/stamp.json"
+probe "a feature-matched core with no configuration label is refused" 1 \
+  "hazard3_b in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
 
 begin_group "test/probes_header_test.py"
 

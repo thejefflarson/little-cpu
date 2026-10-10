@@ -30,7 +30,10 @@ from product_write import PAIR_NAME_RE  # noqa: E402
 
 BENCHMARKS = [("dhrystone", "Dhrystone 2.1"), ("coremark", "CoreMark")]
 PARTS = [("", "iCE40 UP5K"), ("_ecp5", "ECP5 LFE5U-25F")]
-CORE_ORDER = ["littlecpu", "vexriscv", "hazard3", "hazard3_perf"]
+# The feature-matched section's pairs are named <benchmark>_imac[_ecp5]: the same benchmarks
+# at RV32IMAC, against the builds of VexRiscv and Hazard3 that carry C and A.
+MATCHED = "_imac"
+CORE_ORDER = ["littlecpu", "vexriscv", "vexriscv_lrsc", "hazard3", "hazard3_perf", "hazard3_c"]
 # Every row names the build it ran. A core in the stamp with no entry here is refused, so a
 # new opponent cannot be published without stating its configuration (docs/adr/0246).
 CORE_LABELS = {
@@ -38,17 +41,27 @@ CORE_LABELS = {
     "vexriscv": "vexriscv (performance build)",
     "hazard3": "hazard3 (area build)",
     "hazard3_perf": "hazard3_perf (performance build)",
+    "vexriscv_lrsc": "vexriscv_lrsc (performance build plus LR/SC)",
+    "hazard3_c": "hazard3_c (performance build plus C)",
 }
 CORE_NOTES = {
-    "littlecpu": "this core, built at the shared RV32IM subset",
-    "vexriscv": "the generated VexRiscv in the pinned riscv-formal clone, its authors' "
-                "performance configuration (it ships no other): M, no A, no C",
+    "littlecpu": "this core, built at the ISA each section names (RV32IM, then RV32IMAC)",
+    "vexriscv": "the VexRiscv generated from `soc/compare/vexriscv/GenLittleCpuCompare.scala` "
+                "at the pinned SHA, its authors' no-MMU no-cache performance configuration: "
+                "M and C (`compressedGen = true`), no A",
+    "vexriscv_lrsc": "the same VexRiscv with `withLrSc = true` on its data bus (Zalrsc): "
+                     "M, C and LR/SC. The pinned VexRiscv's no-cache data bus has no AMO "
+                     "option and the repository has no atomic plugin, so the nine AMO "
+                     "instructions are not implemented and trap as illegal",
     "hazard3": "Hazard3's two-port build from its iCE40 example (`fpga_icebreaker.v`): "
                "bit-serial multiply, no branch predictor, no counters, no fence.i; its "
                "disclosed bus wait is counted in its cycles",
     "hazard3_perf": "Hazard3's two-port build from its two ECP5 examples "
                     "(`fpga_ulx3s.v`, `fpga_orangecrab_25f.v`): single-cycle multiply, "
                     "branch predictor, counters, fence.i; the same bus adapter and wait",
+    "hazard3_c": "`hazard3_perf` with `EXTENSION_C` on, a harness choice no Hazard3 example "
+                 "ships (the config test grades it as that one difference); A is on in every "
+                 "Hazard3 build",
 }
 # A pair carrying the first of these and not the second is publishing one build of a core
 # that ships two, and says so.
@@ -72,8 +85,11 @@ CAVEATS = [
     "toolchain.** Every row here shares one stamp commit and one tool list.",
     "**Parts are never blended.** The up5k and ECP5 sections answer different questions "
     "and are not averaged or ranked against each other.",
-    "**The comparison is RV32IM**, the widest ISA all the cores share; no pairwise "
-    "wider-ISA row is stamped, so none is rendered.",
+    "**The first two sections are RV32IM**, the ISA the area-build Hazard3 shares with "
+    "VexRiscv's stock build, so littlecpu's A and C hardware sits unused in them. The "
+    "feature-matched section compiles all three cores at RV32IMAC; its VexRiscv carries "
+    "LR/SC and not the AMOs, and neither benchmark contains an atomic instruction, so what "
+    "that section measures is what each core pays for carrying A and C, not their use.",
     "**nanocpu is not in this comparison** and is never quoted beside littlecpu.",
 ]
 
@@ -207,8 +223,8 @@ def provenance(name, pair):
     ]
 
 
-def render_pair(title, pair, out):
-    out += [f"### {title}", ""]
+def render_pair(title, pair, out, level=3):
+    out += [f"{'#' * level} {title}", ""]
     if pair is None or pair["status"] != "measured":
         reason = "no pair stamped" if pair is None else pair.get("reason", "no reason recorded")
         out += [f"Not measured: {reason}.", ""]
@@ -274,12 +290,25 @@ def render(stamp):
         out += [f"## {label}", ""]
         for bench, title in BENCHMARKS:
             render_pair(title, pairs.get(bench + suffix), out)
+    out += ["## Feature-matched (RV32IMAC)", "",
+            "Every core compiled at `rv32imac_zicsr_zifencei`, the richest ISA all three "
+            "carry: littlecpu, VexRiscv with LR/SC (`vexriscv_lrsc`) and Hazard3's "
+            "performance build with C (`hazard3_c`). The first two sections above stay "
+            "RV32IM and are not replaced by this one.", ""]
+    for suffix, label in PARTS:
+        out += [f"### {label}", ""]
+        for bench, title in BENCHMARKS:
+            render_pair(f"{title}, RV32IMAC", pairs.get(bench + MATCHED + suffix), out, level=4)
     out += ["## Caveats that travel with the numbers", ""]
     out += [f"- **{core}**: {note}." for core, note in CORE_NOTES.items()]
     out += [f"- {caveat}" for caveat in CAVEATS]
     unstamped = [title for bench, title in BENCHMARKS
                  if not any("hazard3" in (pairs.get(bench + sfx) or {}).get("cores", {})
                             for sfx, _ in PARTS)]
+    if not any(bench + MATCHED + sfx in pairs for bench, _ in BENCHMARKS for sfx, _ in PARTS):
+        out.append("- **The feature-matched section is not stamped yet**: the committed stamp "
+                   "predates it, and the next `make compare-product` run adds it. The "
+                   "measured figures are in docs/adr/0250.")
     if unstamped:
         out.append(f"- **Hazard3 has no {' or '.join(unstamped)} row** in this stamp.")
     out += ["", "## Stamp provenance", ""]
@@ -314,29 +343,32 @@ def read_floor(path):
 def ratchet(stamp, floor):
     problems = []
     seen = set()
-    for suffix, _ in PARTS:
-        for bench, _ in BENCHMARKS:
-            name = bench + suffix
-            pair = stamp["pairs"].get(name)
-            if pair is None or pair["status"] != "measured":
-                problems.append(f"{name}: no measured pair to grade")
-                continue
-            seen.add(bench)
-            if bench not in floor:
-                problems.append(f"{name}: CYCLE_FLOOR has no {bench} line")
-                continue
-            core, isa, want = floor[bench]
-            got = pair["cores"][core]["cycle_factor"]
-            if pair["target_core"] != core or pair["isa"] != isa:
-                problems.append(f"{name}: stamp is {pair['target_core']} at {pair['isa']}, "
-                                f"floor is {core} at {isa}; a different row is a new floor")
-            elif math.isclose(got, float(want), rel_tol=1e-9):
-                continue
-            elif got < float(want):
-                problems.append(f"{name}: REGRESSION, {core} {got!r} is below floor {want}")
-            else:
-                problems.append(f"{name}: IMPROVEMENT, {core} {got!r} is above floor {want}; "
-                                "update soc/compare/CYCLE_FLOOR to bank it")
+    for matched, suffix, bench in [(m, sfx, b) for m in ("", MATCHED) for sfx, _ in PARTS
+                                   for b, _ in BENCHMARKS]:
+        name = bench + matched + suffix
+        key = bench + matched
+        pair = stamp["pairs"].get(name)
+        if matched and pair is None:
+            continue
+        if pair is None or pair["status"] != "measured":
+            problems.append(f"{name}: no measured pair to grade")
+            continue
+        seen.add(key)
+        if key not in floor:
+            problems.append(f"{name}: CYCLE_FLOOR has no {key} line")
+            continue
+        core, isa, want = floor[key]
+        got = pair["cores"][core]["cycle_factor"]
+        if pair["target_core"] != core or pair["isa"] != isa:
+            problems.append(f"{name}: stamp is {pair['target_core']} at {pair['isa']}, "
+                            f"floor is {core} at {isa}; a different row is a new floor")
+        elif math.isclose(got, float(want), rel_tol=1e-9):
+            continue
+        elif got < float(want):
+            problems.append(f"{name}: REGRESSION, {core} {got!r} is below floor {want}")
+        else:
+            problems.append(f"{name}: IMPROVEMENT, {core} {got!r} is above floor {want}; "
+                            "update soc/compare/CYCLE_FLOOR to bank it")
     problems += [f"CYCLE_FLOOR line {b} matches no stamped pair" for b in sorted(set(floor) - seen)]
     return problems
 

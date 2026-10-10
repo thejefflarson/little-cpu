@@ -253,6 +253,8 @@ a failing assembler is fatal, not a divergence
 a failing objcopy names the region that failed
 a failure reported only by the induction leg is not evidence
 a fault bit that never reaches its own stored word is red
+a feature-matched core with no configuration label is refused
+a feature-matched cycle factor under its floor is a regression
 a feedback path the divider formula does not describe is red
 a field the runner stopped printing is named, not counted as zero
 a field with no value is a malformed line
@@ -661,10 +663,13 @@ a stamp whose base is not a full SHA is refused
 a stamp whose base is not the checked-out commit is refused
 a stamp whose digest is not this tree's is refused
 a stamp whose strings the issue would print unvalidated is refused before publishing
+a stamp with no feature-matched pair says the section is not stamped yet
 a stamp with no measured pair is refused rather than vacuously verified
 a stamp with no table under it is a failed measurement
 a stamp with no tools block is STALE, not read as having nothing to compare
 a stamped benchmark with no floor line is red
+a stamped feature-matched pair renders under the RV32IMAC section
+a stamped feature-matched pair with no floor line is red
 a standalone synthesis of zero cells is named, not divided by
 a stat.json missing area/num_cells/by_type is refused, not read as what is left
 a status sby cannot produce is rejected at format time
@@ -753,6 +758,7 @@ an ABI alias outside x0-x15 (a7 = x17) is caught the same way
 an ECP5 placement read with ice40 names names the part, not a bad log
 an ECP5 stamp carrying up5k's tools is missing its own
 an EXTRA architectural write the model never made is caught
+an LR/SC bench adapter that differs beyond its module name is red
 an RVFI monitor error exits 4
 an SPI base off its own window is red
 an UNREADABLE baseline is refused, not read as an empty one
@@ -1026,6 +1032,7 @@ control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: run_product.sh evals no tool string and splices no variable into python3 -c
 control: the ECP5 arm reads its own fabric's two cell names
+control: the LR/SC build's bench is the stock bench but for the core's module name
 control: the MUL constant-latency assertion fails at its own line
 control: the Zkt-isolation assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
@@ -1200,6 +1207,8 @@ status AGREE with a nonzero exit is a broken harness, not agreement
 still red, but for a DIFFERENT reason: FAIL baselined, ERROR on disk
 storing a never-written register that reports no X leaves the store path unproven
 storing a register this program wrote first is not a store-path control
+the C build differing from the performance build in a second parameter is red
+the C build losing its C extension in the bench is red
 the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycles
 the Dhrystone flags drifting from the suite's ISA is red
 the FORMAL hold-assert naming something other than x_busy is red
