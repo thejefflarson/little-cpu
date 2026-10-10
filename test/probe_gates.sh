@@ -5208,7 +5208,7 @@ gt_fixture() {
   mkdir -p "$d/rtl" "$d/soc/compare"
   cp "$REPO"/rtl/memory.v "$d/rtl/"
   cp "$REPO"/soc/compare/bench_littlecpu.v "$REPO"/soc/compare/bench_vexriscv.v \
-     "$REPO"/soc/compare/bench_hazard3.v \
+     "$REPO"/soc/compare/bench_vexriscv_lrsc.v "$REPO"/soc/compare/bench_hazard3.v \
      "$REPO"/soc/compare/bench.lds "$REPO"/soc/compare/bench.S "$d/soc/compare/"
   cp "$REPO"/Makefile "$d/"
   printf '%s' "$d"
@@ -5337,7 +5337,7 @@ probe "control: the shipping bench and build file agree" 0 \
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.MUL_FAST             (PERF ? 1 : 0)/.MUL_FAST             (0)/'
 probe "the performance build losing its single-cycle multiply is red" 1 \
-  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0, the authors' builds are area=0 perf=1" \
+  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0 perf_c=0, the build file says area=0 perf=1 perf_c=1" \
   "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
@@ -10459,9 +10459,17 @@ d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]
 probe "a feature-matched cycle factor under its floor is a regression" 1 \
   "dhrystone_imac: REGRESSION" "$CMP ratchet --stamp $d/stamp.json --floor $d/floor"
 
-d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]; stamp["pairs"]["dhrystone_imac"]["cores"]["hazard3_b"] = stamp["pairs"]["dhrystone"]["cores"]["hazard3"]' "$d/stamp.json"
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]; stamp["pairs"]["dhrystone_imac"]["cores"]["hazard3_b"] = stamp["pairs"]["dhrystone"]["cores"]["vexriscv"]' "$d/stamp.json"
 probe "a feature-matched core with no configuration label is refused" 1 \
   "hazard3_b in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["out_of_comparison"] = "hazard3_c 11.50 to 11.90 MHz"' "$d/stamp.json"
+probe "a pair naming a core that missed the step says it is out of the comparison" 0 \
+  "hazard3_c 11.50 to 11.90 MHz, worst to best placement" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["out_of_comparison"] = "hazard3_c 11.5 to 11.9 MHz [x](http://x)"' "$d/stamp.json"
+probe "an out-of-comparison note carrying markup is refused" 1 \
+  "dhrystone.out_of_comparison is" "$CMP render --stamp $d/stamp.json"
 
 begin_group "test/probes_header_test.py"
 

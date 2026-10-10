@@ -1,6 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// VexRiscv with LR/SC (VexRiscvLrsc) in the same harness as soc/compare/bench_littlecpu.v: same ROM depth, the same
+// VexRiscv in the same harness as soc/compare/bench_littlecpu.v: same ROM depth, the same
 // rtl/memory.v at the same base and depth, the same three pads, the same program image,
 // the same part and the same seeds.
 module bench_vexriscv_lrsc #(

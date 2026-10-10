@@ -448,6 +448,7 @@ a pair carrying both Hazard3 builds still renders the area build under its name
 a pair measured for the first time is news on its own, with no --current at all
 a pair name product_write.py would never write is refused
 a pair name run_product.sh does not measure is refused
+a pair naming a core that missed the step says it is out of the comparison
 a pair publishing one build of a two-build core says the other is not stamped
 a pair that is not an object is refused, not skipped
 a paired_sweep.sh that drops --paired is caught
@@ -838,6 +839,7 @@ an objcopy that refuses names the region it refused for
 an open issue from anyone but the bot suppressing a refresh is red
 an orphaned base on a digest-bearing stamp is not news, the digest still matching
 an orphaned base on a legacy stamp recovers --require-news as news rather than refusing the run
+an out-of-comparison note carrying markup is refused
 an svlint install inside the checkout is red on its own
 an uncommitted Makefile, which the base diff never watched, makes the digest STALE
 an unconditional port connected only inside an ifdef is red

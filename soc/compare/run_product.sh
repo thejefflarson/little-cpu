@@ -136,7 +136,11 @@ sweep_clock() {  # $1 = part, $2 = core; prints comma-separated ns on stdout
       ecp5) out=$(make compare-timing COMPARE_PART=ecp5 COMPARE_CORE="$core" \
                      ECP5_SEED="$arg" 2>&1) && rc=0 || rc=$? ;;
     esac
-    if [ "$rc" -ne 0 ]; then
+    # A placement under up5k's 12 MHz step still has a measured clock, and the stamp keeps it.
+    if [ "$rc" -ne 0 ] && [ "$part" = up5k ] \
+       && printf '%s\n' "$out" | grep -q 'MHz is under the [0-9.]* MHz step'; then
+      echo "-- $core seed '$seed' is under the up5k step; the clock is kept" >&2
+    elif [ "$rc" -ne 0 ]; then
       echo "*** run_product.sh: $core seed '$seed' failed to place on $part; the" >&2
       echo "*** run stops here. That is a failed placement, not a fast design." >&2
       printf '%s\n' "$out" >&2
@@ -329,9 +333,16 @@ if [ "$COREMARK_OK" -eq 0 ]; then
   done
 fi
 
-# The feature-matched pairs: the same benchmarks at RV32IMAC against the VexRiscv build with
-# LR/SC and the Hazard3 build with C. littlecpu's clock is the sweep above (the placed
-# design does not depend on the program); its cycle factor is this image's own.
+under_step() {  # $1 = comma-separated ns: true when the worst placement misses the step
+  python3 -c 'import sys; sys.exit(0 if 1000 / max(float(v) for v in sys.argv[2].split(",")) < float(sys.argv[1]) else 1)' \
+    "$STEP_MHZ" "$1"
+}
+
+mhz_range() {  # $1 = comma-separated ns
+  python3 -c 'import sys; ns = [float(v) for v in sys.argv[1].split(",")]; print("%.2f to %.2f MHz" % (1000 / max(ns), 1000 / min(ns)))' "$1"
+}
+
+# The feature-matched pairs reuse the clock sweeps above; only the cycle factors are new.
 measure_matched() {  # $1 = dhrystone | coremark
   bench=$1
   case $bench in
@@ -357,11 +368,9 @@ measure_matched() {  # $1 = dhrystone | coremark
   m_lc=$(matched_cycles littlecpu)
   m_vx=$(matched_cycles vexriscv_lrsc)
   m_hz=$(matched_cycles hazard3_c)
-  for value in "$count" "$m_lc" "$m_vx" "$m_hz" "$divisor" "$cflags"; do
+  for value in "$count" "$m_lc" "$m_vx" "$m_hz" "$divisor"; do
     case $value in
       ''|*[!0-9.]*)
-        # CFLAGS is text; only the numbers are held to digits.
-        [ "$value" = "$cflags" ] && [ -n "$value" ] && continue
         echo "*** run_product.sh: the $bench feature-matched run gave '$value'," >&2
         echo "*** which is not a count." >&2
         return 1 ;;
@@ -374,24 +383,30 @@ measure_matched() {  # $1 = dhrystone | coremark
   assert_tree_unmoved
   m_isa=$(isa_from_cflags "$cflags")
   for part in $PARTS; do
-    eval "lc_ns=\$NS_${part}_littlecpu"
-    eval "vx_ns=\$NS_${part}_vexriscv_lrsc"
-    eval "hz_ns=\$NS_${part}_hazard3_c"
     set --
     case $part in
       up5k) set -- "$@" --step-mhz "$STEP_MHZ" ;;
       ecp5) set -- "$@" --field "ecp5_part=$ECP5_PART" \
                        --field "ecp5_target_mhz=$ECP5_TARGET_MHZ" ;;
     esac
+    # A core under the up5k step is out of that comparison: it leaves the pair, which says so.
+    out_of=""
+    for entry in "littlecpu:$m_lc_factor" "vexriscv_lrsc:$m_vx_factor" "hazard3_c:$m_hz_factor"; do
+      core=${entry%%:*}
+      eval "ns=\$NS_${part}_${core}"
+      if [ "$part" = up5k ] && under_step "$ns"; then
+        out_of="${out_of:+$out_of; }$core $(mhz_range "$ns")"
+        continue
+      fi
+      set -- "$@" --clock-ns "$core=$ns" --cycle-factor "$core=${entry#*:}"
+    done
+    [ -z "$out_of" ] || set -- "$@" --field "out_of_comparison=$out_of"
     python3 soc/compare/product_write.py "$OUT" "$(pair_name "${bench}_imac" "$part")" --measured \
       --target-core littlecpu --base "$BASE" --dirty "$DIRTY" --date "$DATE" \
       --seeds "$SEEDS" --cflags "$cflags" --isa "$m_isa" \
       --rom-words "$ROM_WORDS" --ram-words "$RAM_WORDS" --unit "$unit" \
-      --digest "$DIGEST" --tools-block "$TOOLS_BLOCK" --cycle-tools-block "$CYCLE_TOOLS_BLOCK" "$@" \
-      --clock-ns "littlecpu=$lc_ns" --clock-ns "vexriscv_lrsc=$vx_ns" \
-      --clock-ns "hazard3_c=$hz_ns" \
-      --cycle-factor "littlecpu=$m_lc_factor" --cycle-factor "vexriscv_lrsc=$m_vx_factor" \
-      --cycle-factor "hazard3_c=$m_hz_factor" || return 1
+      --digest "$DIGEST" --tools-block "$TOOLS_BLOCK" --cycle-tools-block "$CYCLE_TOOLS_BLOCK" \
+      "$@" || return 1
   done
 }
 

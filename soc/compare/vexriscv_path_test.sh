@@ -26,9 +26,7 @@ if [ -n "$bad" ]; then
   exit 1
 fi
 
-# bench_vexriscv_lrsc.v is bench_vexriscv.v with the core's module name changed, and nothing
-# else: a second adapter that quietly differed would make the LR/SC build's cycles a
-# measurement of a different machine.
+# The LR/SC build's adapter is the stock one with the core's module name changed and nothing else.
 BENCH_DIR=$(dirname "$MK")/soc/compare
 if ! diff <(sed -e 's/bench_vexriscv_lrsc/bench_vexriscv/' -e 's/VexRiscvLrsc/VexRiscv/' \
               "$BENCH_DIR/bench_vexriscv_lrsc.v") \

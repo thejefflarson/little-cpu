@@ -85,8 +85,9 @@ CAVEATS = [
     "toolchain.** Every row here shares one stamp commit and one tool list.",
     "**Parts are never blended.** The up5k and ECP5 sections answer different questions "
     "and are not averaged or ranked against each other.",
-    "**The first two sections are RV32IM**, the ISA the area-build Hazard3 shares with "
-    "VexRiscv's stock build, so littlecpu's A and C hardware sits unused in them. The "
+    "**The first two sections are RV32IM**, the widest ISA their columns share (the Hazard3 "
+    "builds there have no C, the stock VexRiscv has no A), so littlecpu's A and C hardware "
+    "sits unused in them. The "
     "feature-matched section compiles all three cores at RV32IMAC; its VexRiscv carries "
     "LR/SC and not the AMOs, and neither benchmark contains an atomic instruction, so what "
     "that section measures is what each core pays for carrying A and C, not their use.",
@@ -106,6 +107,7 @@ FIELD_PATTERNS = {
     "cflags": r"[A-Za-z0-9 =_.,+/:-]+",
     "reason": r"[A-Za-z0-9 .,;:'()/_+-]+",
     "target_core": r"[a-z0-9_]+",
+    "out_of_comparison": r"[a-z0-9_]+ [0-9.]+ to [0-9.]+ MHz(; [a-z0-9_]+ [0-9.]+ to [0-9.]+ MHz)*",
 }
 TOOL_NAME_PATTERN = r"[A-Za-z0-9_.-]+"
 TOOL_VERSION_PATTERN = r"[A-Za-z0-9 .,+()_/:\"'-]+"
@@ -197,6 +199,9 @@ def validate(stamp):
                 malformed(f"{name}.tools.{tool}", version)
             require(f"{name}.tools.{tool}", tool_version(version), TOOL_VERSION_PATTERN)
         if measured:
+            if "out_of_comparison" in pair:
+                require(f"{name}.out_of_comparison", pair["out_of_comparison"],
+                        FIELD_PATTERNS["out_of_comparison"])
             validate_measured(name, pair)
 
 
@@ -232,9 +237,9 @@ def render_pair(title, pair, out, level=3):
     unit, step, target = pair["unit"], pair.get("step_mhz"), pair["target_core"]
     score = unit.split("/")[0]
     if step:
-        out.append(f"Cycles alone: every core quantises to the {f(step)} MHz step, so the "
-                   "product is the cycle factor at one shared clock. The placed clock is "
-                   "graded pass/fail against the step and shown for provenance.")
+        out.append(f"Cycles alone: every core that clears the {f(step)} MHz step quantises to "
+                   "it, so the product is the cycle factor at one shared clock. The placed "
+                   "clock is graded pass/fail against the step and shown for provenance.")
         header = f"| core | {unit} | placed clock MHz worst / median / best | {score} at {f(step)} MHz | vs {target} |"
         sep = "|---|---:|---|---:|---:|"
     else:
@@ -262,6 +267,10 @@ def render_pair(title, pair, out, level=3):
         else:
             row += f" {f(prod['worst'])} | {f(prod['median'])} | {ratio} |"
         out.append(row)
+    if pair.get("out_of_comparison"):
+        out += ["", f"Out of this comparison, placed under the {f(step)} MHz step (the part's "
+                "next step down is 6 MHz, so a core there does not score a fraction, it is "
+                f"out): {pair['out_of_comparison']}, worst to best placement."]
     for core, sibling in SIBLING_BUILDS.items():
         if core in pair["cores"] and sibling not in pair["cores"]:
             out += ["", f"Not stamped: `{sibling}` is absent from this pair, so `{core}` "

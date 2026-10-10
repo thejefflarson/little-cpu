@@ -1608,8 +1608,8 @@ else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf hazard3_c),)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
-# hazard3_perf is the bench with PERF set; its standalone synthesis takes the same four
-# parameters. hazard3_c adds C to that build, in the bench and in the standalone synthesis.
+# hazard3_perf is the bench with PERF set, hazard3_c the same plus WITH_C; each takes the same
+# parameters in its standalone synthesis.
 ifneq ($(filter $(COMPARE_CORE),hazard3_perf hazard3_c),)
 COMPARE_BENCH_CHPARAM := -set PERF 1
 HAZARD3_PERF_CHPARAM := -set EXTENSION_ZIFENCEI 1 -set CSR_COUNTER 1 -set MUL_FAST 1 \
@@ -1707,11 +1707,8 @@ COMPARE_BENCH_CFLAGS_TAIL := -mabi=ilp32 -O2 -std=c11 -ffreestanding \
                              -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror
 COMPARE_DHRY_VEXC_CFLAGS := -march=rv32imc $(COMPARE_BENCH_CFLAGS_TAIL)
 COMPARE_DHRY_HAZA_CFLAGS := -march=rv32ima $(COMPARE_BENCH_CFLAGS_TAIL)
-# The feature-matched row: the richest ISA littlecpu, VexRiscv (C, LR/SC) and Hazard3 (C, A)
-# all carry, so the A and C instructions each core pays for in hardware are the ones its
-# image may use.
-COMPARE_MATCHED_ISA := rv32imac_zicsr_zifencei
-COMPARE_DHRY_IMAC_CFLAGS := -march=$(COMPARE_MATCHED_ISA) $(COMPARE_BENCH_CFLAGS_TAIL)
+# The feature-matched row: the richest ISA littlecpu, VexRiscv (C, LR/SC) and Hazard3 (C, A) share.
+COMPARE_DHRY_IMAC_CFLAGS := -march=rv32imac_zicsr_zifencei $(COMPARE_BENCH_CFLAGS_TAIL)
 
 COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
@@ -1821,7 +1818,7 @@ COMPARE_COREMARK_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
 # CoreMark's own image at the same two pairwise ISAs the Dhrystone flags above state.
 COMPARE_COREMARK_VEXC_CFLAGS := -march=rv32imc $(COMPARE_BENCH_CFLAGS_TAIL)
 COMPARE_COREMARK_HAZA_CFLAGS := -march=rv32ima $(COMPARE_BENCH_CFLAGS_TAIL)
-COMPARE_COREMARK_IMAC_CFLAGS := -march=$(COMPARE_MATCHED_ISA) $(COMPARE_BENCH_CFLAGS_TAIL)
+COMPARE_COREMARK_IMAC_CFLAGS := -march=rv32imac_zicsr_zifencei $(COMPARE_BENCH_CFLAGS_TAIL)
 
 COMPARE_COREMARK_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                          soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
