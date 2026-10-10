@@ -55,8 +55,36 @@ no timer (69,643.6). The timer's 65 remaining flip-flops are `mtimecmp` and `mti
 smaller than the 4,817 the Declined note priced, because the stores into `mcycle` need their own merge
 mux. `NANO_MAX_UM2` moves from 81,400 to 77,900, keeping 2,066.8 µm² of headroom (2,102 before).
 
-The fit is still a routed result: the figure on this tree is in the hardening run that follows
-this amendment, recorded here when it finishes.
+**This is a clean fit.** Hardening run 38046468060 (head 62543f5) at 4×2, AREA 2, full flow, on the tree this
+amendment describes:
+
+| | this tree (run 38046468060) | ADR-0248 baseline, no timer |
+|---|---|---|
+| detailed-routing DRC, Magic DRC, LVS | 0, 0, 0 | 0, 0, 0 |
+| antenna | 0 nets, 0 pins | 0 |
+| gate-level simulation (`nano-gl-test`, own routed netlist) | success | success |
+| utilization | 63.8% (standard cells 59.6%) | 58.7% |
+| wirelength | 440,269 | |
+| worst setup slack, tt (nom / min / max) | +0.96 / +1.17 / +0.79 ns | +1.74 ns |
+| worst setup slack, ff | +3.98 / +4.14 / +3.88 ns | |
+| worst setup slack, ss | −10.09 / −9.51 / −10.62 ns, 509 violations at max_ss | −10.11 ns at max_ss |
+| hold, worst | +0.10 ns | |
+| max_ss slew / cap violations | 4,331 / 30 | |
+
+Against ADR-0248: max_ss is 0.5 ns worse (−10.62 against −10.11), and the tt worst slack is 0.95 ns
+tighter (+0.79 against +1.74). Both sit inside the slow-corner miss ADR-0248 accepted, and nominal and
+fast still close.
+
+Two harness decisions the owner accepted with the alias:
+
+- **`mtime_wr` is an allowed constant in the formal tie-off.** Every riscv-formal harness ties it low
+  because none has a bus to raise it; the store path into `mcycle` is graded by `nano_timer_tb.v` and
+  `mtimealias.S`. `formal/check-interrupt-tie-off.py` names it in `ALLOWED_CONSTANTS`, the only constant
+  besides the interrupt a harness may hold, and `docs/manifests/interrupt-tie-off.md` records why.
+- **The testbench timer is at `0x0001_3ff0`**, the last 16 bytes of the RAM window. A store to the timer
+  now writes `mcycle`, and at the old `0x0001_0010` the CoreMark and Dhrystone data stores landed on it
+  and corrupted the cycle counter (`nano-qspi-control-test` failed with verdict 3). `nano.lds` pins
+  `.mtimer` there and sets `__stack_top` to it; `dhry.lds` and `coremark.lds` stop their stacks 16 bytes short.
 
 The sections below describe the first version; where they say `mtime` has its own counter, this amendment
 replaces them.
@@ -151,13 +179,10 @@ flip-flops are 2,765 µm² of the delta, and the 64-bit incrementer, the 64-bit 
 multiplexer on every register bit and the read multiplexer are the other 6,889. `NANO_MAX_UM2` moves
 from 71,700 to 81,400, keeping the 2,102 µm² of headroom the last step left (2,056).
 
-**This does not say the design fits.** The fit is a routed result and none was run. The tile is about
-18,100 µm² (the macro's 15,744 µm² is 87% of one, ADR-0225), so 4×2 is about 145,000 µm², and +9,654
-µm² is about 6.7 points of instance utilization on the last hardening run's 58.7%, if the flow
-reproduces the local delta, which it has not for an earlier change (ADR-0219: −10k locally and about
-−2.5k in the flow). What failed to route before was routing demand at 84.7% and 88.3%, and nano
-routed at 54 to 57%. A hardening run at 4×2 on this tree decides, and "done" for it is routed, DRC,
-LVS and antenna at zero, timing per corner and `make nano-gl-test` on its own netlist.
+**The first version's fit was not claimed, and did not come.** The tile is about 18,100 µm² (the macro's
+15,744 µm² is 87% of one, ADR-0225), so 4×2 is about 145,000 µm². The timer with its own counter added
+9,654 µm² locally, and its two hardening runs never finished routing; the amendment above records the
+aliased design's clean run.
 
 ## Declined
 
