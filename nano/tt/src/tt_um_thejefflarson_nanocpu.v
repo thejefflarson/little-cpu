@@ -1,5 +1,5 @@
 `default_nettype none
-// The chip top: `riscv` plus the QSPI, UART and GPIO peripherals nano/bus.v routes to.
+// The chip top: `riscv` plus the QSPI, UART, GPIO and timer peripherals nano/bus.v routes to.
 module tt_um_thejefflarson_nanocpu (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -20,7 +20,8 @@ module tt_um_thejefflarson_nanocpu (
   logic reset;
   assign reset = !rst_n;
 
-  logic        mem_valid, mem_instr, mem_ready, trap;
+  logic        mem_valid, mem_instr, mem_ready, trap, mtip, mtime_wr;
+  logic [63:0] mtime;
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
 
@@ -35,6 +36,9 @@ module tt_um_thejefflarson_nanocpu (
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
     .irq_meip(ui_in[7]),
+    .irq_mtip(mtip),
+    .mtime_wr(mtime_wr),
+    .mtime(mtime),
     .trap(trap)
   );
 
@@ -62,7 +66,10 @@ module tt_um_thejefflarson_nanocpu (
     .sio_in(uio_in[7:4]),
     .uart_tx(uart_tx),
     .gpio_out(gpio_out),
-    .gpio_in(ui_in)
+    .gpio_in(ui_in),
+    .mtime(mtime),
+    .mtime_wr(mtime_wr),
+    .mtip(mtip)
   );
 
   assign uio_out = {sio_out, spare_cs_n, psram_cs_n, flash_cs_n, sck};

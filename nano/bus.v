@@ -1,7 +1,7 @@
 `default_nettype none
 // The core's own region check refuses anything outside this window before it arrives, so
-// what is left is which sub-region answers. The reserved span reads zero and drops a
-// write, the way an unimplemented CSR does.
+// what is left is which sub-region answers. The span between the window's top and the
+// last device reads zero and drops a write, the way an unimplemented CSR does.
 module nano_bus #(
   parameter logic [31:0] PSRAM_BASE  = 32'h1000_0000,
   parameter logic [31:0] PSRAM_BYTES = 32'h0080_0000,
@@ -29,10 +29,15 @@ module nano_bus #(
 
   output logic       uart_tx,
   output logic [6:0] gpio_out,
-  input  logic [7:0] gpio_in
+  input  logic [7:0] gpio_in,
+
+  input  logic [63:0] mtime,
+  output logic        mtime_wr,
+  output logic        mtip
 );
   localparam logic [31:0] UART_BASE = PSRAM_BASE + PSRAM_BYTES;
-  localparam logic [31:0] GPIO_BASE = UART_BASE + 32'd8;
+  localparam logic [31:0] GPIO_BASE  = UART_BASE + 32'd8;
+  localparam logic [31:0] TIMER_BASE = GPIO_BASE + 32'd8;
 
   if ($clog2(PSRAM_BYTES) < 1 || (32'd1 << $clog2(PSRAM_BYTES)) != PSRAM_BYTES) begin : l_psram_bytes_pow2
     $fatal(1, "nano_bus: PSRAM_BYTES must be a power of two");
@@ -92,15 +97,30 @@ module nano_bus #(
     .pin_out(gpio_out)
   );
 
-  logic uart_sel, gpio_sel;
-  assign uart_sel = !mem_instr && mem_addr[31:3] == UART_BASE[31:3];
-  assign gpio_sel = !mem_instr && mem_addr[31:3] == GPIO_BASE[31:3];
+  logic [31:0] timer_rdata;
+  nano_timer #(.BASE(TIMER_BASE)) timer (
+    .clk(clk),
+    .reset(reset),
+    .mtime(mtime),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(timer_rdata),
+    .mtime_wr(mtime_wr),
+    .mtip(mtip)
+  );
+
+  logic uart_sel, gpio_sel, timer_sel;
+  assign uart_sel  = !mem_instr && mem_addr[31:3] == UART_BASE[31:3];
+  assign gpio_sel  = !mem_instr && mem_addr[31:3] == GPIO_BASE[31:3];
+  assign timer_sel = !mem_instr && mem_addr[31:4] == TIMER_BASE[31:4];
 
   assign mem_ready = (mem_instr || psram_sel) ? ctrl_mem_ready : mem_valid;
   assign mem_rdata = mem_instr ? ctrl_mem_rdata :
                       psram_sel ? ctrl_mem_rdata :
                       uart_sel  ? uart_rdata :
-                      gpio_sel  ? gpio_rdata : 32'b0;
+                      gpio_sel  ? gpio_rdata :
+                      timer_sel ? timer_rdata : 32'b0;
 endmodule
 
 `default_nettype wire

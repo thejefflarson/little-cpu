@@ -36,7 +36,7 @@ build_sim() {  # tag, loop kind, loop window -> $tmp/nano-qspi-sim.<tag>
   yosys -p "read_verilog -sv $(printf -- '-D %s ' $NANO_RISCV_FORMAL_MACROS) \
     -D NANO_QSPI_TIMING -D NANO_QSPI_PREFETCH_DEPTH=2 -D NANO_QSPI_LOOP_KIND=$kind \
     -D NANO_QSPI_LOOP_WINDOW=$window -D NANO_QSPI_PREAMBLE_CYCLES=24 \
-    \"$REPO/rvfi_macros.vh\" \"$REPO/nano/nano.v\" \"$QSPI_MEM_V\" \
+    \"$REPO/rvfi_macros.vh\" \"$REPO/nano/nano.v\" \"$REPO/nano/timer.v\" \"$QSPI_MEM_V\" \
     \"$REPO/soc/compare/dhry_monitor.v\" \"$REPO/nano/tb/nano_testbench.v\" \
     \"$REPO/test/monitor.sim.v\"; hierarchy -top nano_testbench; write_cxxrtl \"$tmp/$tag.rtl.cc\"" \
     > "$tmp/$tag.yosys.log" 2>&1 || { tail -60 "$tmp/$tag.yosys.log" >&2; exit 1; }

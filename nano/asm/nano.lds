@@ -35,5 +35,12 @@ SECTIONS {
         . = ALIGN(4);
     } >ram
 
-    __stack_top = ORIGIN(ram) + LENGTH(ram);
+    .mtimer ORIGIN(ram) + LENGTH(ram) - 16 : {
+        __mtimer = .;
+        . += 16;
+    } >ram
+
+    __stack_top = __mtimer;
+
+    ASSERT(__mtimer == 0x00013ff0, "nano_testbench.v hardcodes the timer's address")
 }

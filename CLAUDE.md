@@ -978,13 +978,18 @@ make nano-timing    # area AND delay from one delay-oriented synthesis run, both
                     # instrument like `make cycles`. Prints its own limits and the
                     # dated, stale correlation against the last real flow run. Not on
                     # `make test`'s path, the same standing as `make nano-area`
-make nano-test      # nano/asm's six hand-written x0-x15 programs under BOTH sim legs --
+make nano-test      # nano/asm's hand-written x0-x15 programs under BOTH sim legs --
                     # nano-sim (cxxrtl) and nano/tb/nano_icarus.vvp (iverilog, wrapped by
                     # nano_sim_icarus.sh behind nano-sim's own CLI) -- graded against
                     # nano/asm/EXPECTED_FAIL / OBSERVED_FLOOR and required to agree with
                     # each other program by program (nano_dual_leg_test.sh). A real-tool
                     # prerequisite, nano_x_probe.sh, forces the iverilog leg to catch an X
-                    # a skipped memory-zeroing loop leaves behind. On `make test`'s path
+                    # a skipped memory-zeroing loop leaves behind; nano_mtimer_probe.sh forces
+                    # seven timer-interrupt mutants red against mtimer.S and mtimerorder.S.
+                    # On `make test`'s path
+make nano-timer-test # nano/timer.v's bus port driven by nano/tb/nano_timer_tb.v, MTIP graded
+                    # against a model (never early, at most one cycle late); the probe forces
+                    # seven mutants red first. On `make test`'s path
 make nano-startup-test # the shared nano/bench/start.S initializes gp before any
                     # gp-relative reference runs; PASS/FAIL over tohost. On `make test`'s path
 make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,
@@ -1031,8 +1036,8 @@ make -C nano/formal components_qspi  # nano_qspi_ctrl's three invariants (CS0/CS
                     # parcels at [fetch_pc, fetch_pc+N)) by k-induction; qspi-probe is
                     # its forced-red prerequisite
 make -C nano/formal components_traps # nano's trap entry and interrupt path: the only harness
-                    # that leaves irq_meip free, with traps-region-probe and
-                    # traps-tval-probe as forced-red prerequisites
+                    # that leaves irq_meip and irq_mtip free, with traps-region-probe,
+                    # traps-tval-probe and traps-mcause-probe as forced-red prerequisites
 make -C nano/formal ill_e # RV32E's register-naming restriction, read off nano's own RVFI report
 make -C nano/formal ill_e_cover # its anti-vacuity control: reachable on the correct core, tied
                     # to ill_e's depth by cover-depth-tie.py, behind ill-e-cover-probe, which

@@ -37,6 +37,15 @@ nothing arms without all three enable terms, and entry disarms so there is
 no second one. That is the oracle. The `.S` side is `test/asm/mtimer.S` and
 `test/asm/mtimermask.S`.
 
+## nano's one other constant
+
+nano's core also takes `mtime_wr`, the bus's signal that a store landed in `mtime`'s two words, which
+the core merges into `mcycle` (`mtime` is `mcycle`, ADR-0249). No harness has a bus, so every one
+ties it low and the store path into `mcycle` is graded by `nano/tb/nano_timer_tb.v` and
+`nano/asm/mtimealias.S` instead. `check-interrupt-tie-off.py` names it in `ALLOWED_CONSTANTS`,
+the one constant other than the interrupt it lets a harness hold; any other constant input is
+still red.
+
 ## When this goes red
 
 A pin bump that makes another check read `rvfi_intr`, or that adds a check
@@ -65,19 +74,20 @@ two that act on it, and what they do is stop expecting pc continuity.
 ## nano
 
 `nano/formal/INTERRUPT_TIE_OFF` is the same declaration for nano's harnesses, graded by the same
-script with `--core nano`, which swaps the module (`riscv`) and the tied port (`.irq_meip(1'b0)`).
+script with `--core nano`, which swaps the module (`riscv`) and the tied ports: both interrupt inputs,
+`.irq_meip(1'b0)` and `.irq_mtip(1'b0)`, and a harness missing either is red.
 Two things differ from littlecpu's file:
 
 ```
 FREE      <path>         a file in nano/formal/ that instantiates riscv and leaves
-                         irq_meip free on purpose. It must NOT tie the input off:
+                         irq_meip and irq_mtip free on purpose. It must tie NEITHER off:
                          nano/formal/traps.sv is the oracle for trap entry and the
                          interrupt path, so it is graded as carefully as the files
                          that must not see one.
 ```
 
 `--core nano` also sweeps every `HARNESS` file's instantiation for an input held at a constant
-other than `irq_meip`. Any such input is a restriction on the generated checks that nothing
+other than the two interrupt inputs. Any such input is a restriction on the generated checks that nothing
 recorded, and is red. `nano/formal/memreq.sby` proves over `riscv` as the top with every input
 free, the interrupt included, and so needs no line.
 

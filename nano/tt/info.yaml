@@ -2,7 +2,7 @@ project:
   title:        "nanocpu"
   author:       "Jeff Larson"
   discord:      ""
-  description:  "A RISC-V core (nano/nano.v) with a QSPI flash/PSRAM front end, a transmit-only UART and GPIO"
+  description:  "A RISC-V core (nano/nano.v) with a QSPI flash/PSRAM front end, a transmit-only UART, GPIO and a machine timer"
   language:     "SystemVerilog"
   clock_hz:     64000000
   tiles: "4x2"
@@ -12,6 +12,7 @@ project:
     - "../../bus.v"
     - "../../uart.v"
     - "../../gpio.v"
+    - "../../timer.v"
     - "../../qspi.v"
     - "../../nano.v"
 
