@@ -73,8 +73,8 @@ constant exists.
 Pin constraints for `soc/board_icesugar_pro.v` on a MuseLab iCESugar-Pro. Same die as
 soc/littlesoc.lpf's, different package and a different board, so no pin is shared with it:
 the oscillator is P6 here and P3 there, and both are real facts about their own module.
-Four pins are located -- the clock pad, the two LEDs and the UART's transmit line -- and
-nothing else on the board is reached, so this file needs no `--lpf-allow-unconstrained`.
+Seven pins are located -- the clock pad, the two LEDs, the UART's transmit line and the
+configuration flash's chip select, MOSI and MISO -- and nothing else on the board is reached, so this file needs no `--lpf-allow-unconstrained`.
 
 THERE IS A `FREQUENCY` LINE HERE, and soc/littlesoc.lpf's tripwire against one does not
 apply to this file. The two flows ask different questions. `make ecp5-timing` measures the
@@ -93,6 +93,20 @@ because a datasheet's worst case was being quoted to argue the UART could not wo
 such argument has been made about this part. Everything downstream is derived from this
 number, the UART's divisor included, so it is the one place where a wrong figure would be
 invisible in every log and obvious on the wire.
+
+THE FLASH PINS (W25Q256JV, 32 MB) are N8 (chip select, the part's `CSSPIN` ball), T8 (MOSI,
+`D0`) and T7 (MISO, `D1`). Two sources agree: the MuseLab schematic
+`schematic/iCESugar-Pro-v1.3.pdf` in github.com/wuxx/icesugar-pro (nets `FLASH_CS`,
+`FLASH_MOSI`, `FLASH_MISO`, on the LFE5U-25F's `PB15A/CSSPIN`, `PB11B/D0/MOSI` and
+`PB11A/D1/MISO` pads), and that repo's `doc/LFE5U-25F-5BG256-Pinout.csv`, which lists the same
+three pad names at N8, T8 and T7. The board confirmed them: the JEDEC ID read back is `EF4019`
+and the SFDP signature reads "SFDP". The clock is not a user pad. It is `CCLK` (ball N9), and
+after configuration it is driven only through the `USRMCLK` primitive, which
+`soc/board_icesugar_pro.v` instantiates, so the LPF locates no clock pin for it. The controller
+produces a 15 MHz `sck` at the 30 MHz core clock (one low and one high core cycle per bit); the
+W25Q256JV's datasheet maximum for these two commands was not read for this change (the
+vendor's headline figure for the fast-read class is 133 MHz, an unchecked recollection), so
+the only measured fact is that the board read both correctly at 15 MHz.
 
 ## `soc/compare/bench_hx8k.pcf` -- The cross-core bench on ice40 hx8k
 

@@ -274,6 +274,9 @@ a file-located frontend warning with no bare-prefixed echo is red
 a fixed /tmp/ scratch name in a script is red, and located
 a fixed /tmp/ scratch name in the Makefile is red, and located
 a fixture that opens its body on the head line is still inspected
+a flash grader that accepts a capture holding only debugger chatter is red
+a flash grader that accepts any FLASH line whatever its id is red
+a flash grader that does not require the SFDP signature is red
 a floating tool is recorded and never graded, so a new yosys is not STALE
 a floor line matching no stamped pair is red
 a floor line that is neither a number nor EXCLUDED is named

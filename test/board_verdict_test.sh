@@ -105,6 +105,14 @@ dual_verdict "$WORK/dual_chatter" 16 >/dev/null 2>&1 && { echo "FAIL: dual chatt
 printf 'DUAL c0=16 c1=16\n@cdone:0\n' > "$WORK/dual_old"
 dual_verdict "$WORK/dual_old" 0 >/dev/null 2>&1 && { echo "FAIL: dual stale two-hart line accepted for a held run" >&2; fail=1; }
 
+printf '@cdone:0\nFLASH id=EF40\nFLASH id=EF4019 sfdp=SFDP\nFLASH id=EF4019 sfdp=SF' > "$WORK/flash_ok"
+flash_verdict "$WORK/flash_ok" EF4019 >/dev/null 2>&1 || { echo "FAIL: a good flash capture was refused" >&2; fail=1; }
+flash_verdict "$WORK/flash_ok" EF4018 >/dev/null 2>&1 && { echo "FAIL: flash wrong id accepted" >&2; fail=1; }
+printf 'FLASH id=EF4019 sfdp=SFDQ\n' > "$WORK/flash_nosig"
+flash_verdict "$WORK/flash_nosig" EF4019 >/dev/null 2>&1 && { echo "FAIL: flash missing signature accepted" >&2; fail=1; }
+printf '@cdone:0\n\xff\xfe\n' > "$WORK/flash_chatter"
+flash_verdict "$WORK/flash_chatter" EF4019 >/dev/null 2>&1 && { echo "FAIL: flash chatter-only capture accepted" >&2; fail=1; }
+
 mkdir "$WORK/stubs"
 cat > "$WORK/stubs/otool" <<'STUB'
 #!/bin/bash
