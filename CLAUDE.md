@@ -307,12 +307,19 @@ WAIT forever); the 32nd repeat of the previous corrected bit in a row (a repetit
 also catches a period-2 emitted pattern); and an adaptive proportion over 512-sample windows, dead
 when one value fills 410 (NIST SP 800-90B 4.4.2, a claimed 0.5 bit per sample at 2^-20). BIST lasts
 until 1,024 raw samples have passed all four, and words produced before then are discarded.
-`soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
-(~10 kHz, a hard macro costing no cell); an `entropy_raw` held low, as the iCESugar-Pro board file
-and every formal harness hold it, reads DEAD, which is spec-honest. **Zkr is in the ISA
-string**, `_zkr` at all seven sites `test/march_test.sh` grades, and no board has measured the raw
-intervals: the sample bits, the fold depth and the claimed 0.5 bit per sample are unmeasured
-guesses until a board capture settles them. `mseccfg` (0x747) and `mseccfgh` (0x757) read zero and
+**Two boards have a Zkr source and one of them is measured.** The iCESugar-Pro is measured: its
+`soc/icesugar_pro_entropy.v` divides `OSCG` (DIV 128, 2.435 MHz) by 2^8 in fabric, 3,154 core
+cycles per edge at 30 MHz, and the raw intervals captured over the UART (`soc/entropy_assess.py`,
+24 frames of 4,096) estimate 0.63 to 0.78 bit of min-entropy per sample, above the 0.5 the cutoff
+assumes, with 0 of 192 adaptive-proportion windows tripping and a flat folded stream (ADR-0252);
+`test/entropy_geometry_test.py` holds the period between 3,000 cycles and 80% of the edge timeout,
+and a divide of 2^7 measured 0.28 and tripped the proportion test, so the period is not a free
+parameter. The UPduino's `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
+(~10 kHz, a hard macro costing no cell) and has **no capture yet**: its sample bits, fold depth and
+claimed 0.5 bit per sample are unmeasured, and `soc/entropy_assess.py` is the method that settles
+them. An `entropy_raw` held low, as every formal harness and the dual top hold it, reads DEAD,
+which is spec-honest. **Zkr is in the ISA string**, `_zkr` at all seven sites `test/march_test.sh`
+grades. `mseccfg` (0x747) and `mseccfgh` (0x757) read zero and
 ignore writes: Zkr adds the SSEED and USEED fields, which the Zkr text allows to be read-only zero,
 and M-mode access to `seed` is unconditional. Both addresses are implemented because the privileged
 spec lists `mseccfgh` as the RV32 upper half of `mseccfg`. Simulation
@@ -895,6 +902,11 @@ make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks
 make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write leaves the
                     # part at `@cdone:0`, unconfigured, until it is physically power-cycled
 make icesugar-read  # read that board's UART for a bounded window
+soc/entropy_capture.sh TAG OSC_DIV FAB_LOG2 CORE_PAD # build a core-less capture of OSCG's raw edge
+                    # intervals for one setting; load it with openFPGALoader, then
+                    # `soc/entropy_assess.py read` and `assess` collect and grade the frames.
+                    # `make icesugar-prog ICESUGAR_PROG=soc/seed_probe.S` prints the seed CSR's
+                    # status changes and words. Needs the board, so off `make test` and CI
 make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.
                     # Needs the board, so off `make test` and off CI, like suite-board
 make icesugar-suite-board # the .S suite on that board, in batches: place once, swap ROM contents

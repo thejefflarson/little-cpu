@@ -788,6 +788,8 @@ an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
 an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
+an edge period that an oscillator 20% slow would push past the timeout is red
+an edge period too short for the jitter to fill is red
 an empty --current value is refused, not compared as though it were the field's value
 an empty .asc is no placement
 an empty CoreMark image is named rather than reported as fitting easily
@@ -1074,6 +1076,7 @@ control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping bench and build file agree
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
+control: the shipping entropy source sits between the jitter floor and the edge timeout
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping executor reaches x_busy only through its one gate
 control: the shipping fetchqueue passes its own bench
@@ -1271,6 +1274,7 @@ the deep-recursion notice alone is allowlisted
 the default text window is the part's, not the harness's
 the defect this exists for: a core clocked from the pad, not the PLL
 the defect this exists for: a summary line re-deriving the mode from inputs.
+the defect this exists for: the seed source tied low on the board
 the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence
