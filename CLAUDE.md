@@ -1160,20 +1160,22 @@ The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's 
 digit-perfect, and Dhrystone on the part matched cxxrtl to the cycle (ADR-0130). `make suite-board`
 and `make dhrystone-board` run the suite and Dhrystone there; neither is graded on CI, because a
 board is not always plugged in. **The same source runs on a second part**: a MuseLab
-iCESugar-Pro (ECP5 LFE5U-25F) reports Dhrystone at **0.775 DMIPS/MHz, 19.4 DMIPS at 25 MHz** over
-`make icesugar-dhrystone`, **cycle-identical to cxxrtl on the same binary** (ADR-0163). **That
-bitstream now clocks the core from an `EHXPLLL` at 30 MHz rather than from the 25 MHz pad**, which
+iCESugar-Pro (ECP5 LFE5U-25F) ran Dhrystone over `make icesugar-dhrystone` on 2026-10-05 at
+**0.942 DMIPS/MHz, 28.3 DMIPS at 30.000 MHz** (the clock wall-clock timed to 0.02%), **cycle-identical
+to cxxrtl**: 12,080,025 cycles and 9,200,026 instructions
+at 20,000 runs on the board and under `make dhrystone DHRY_RUNS=20000 DHRY_CYCLES=20000000`
+(ADR-0163, ADR-0172). **That bitstream clocks the core from an `EHXPLLL` at 30 MHz rather than from the 25 MHz pad**, which
 is spendable on this part and would not be on the up5k, whose clock is a step function
 (ADR-0172): the frequency is picked under the WORST of twelve paired seeds on the shipping top and
 under `make ecp5-timing`'s own worst of twelve, and `--freq` is gone from the recipe so nextpnr
 derives the core domain from the PLL's dividers and a missed period is an ERROR rather than a
 slow board. **`CLOCK_HZ` is `rtl/uart.v`'s baud divisor, so the clock and that parameter must move
 together or the board's only output is garbage**; the frequency is stated in four places and
-`test/pll_clock_test.py` recomputes them from the pad and the dividers. The board ran it on 2026-10-05:
-**0.942 DMIPS/MHz, 28.3 DMIPS at 30.000 MHz** (wall-clock timed to 0.02%),
-cycle-identical to cxxrtl at 12,080,025 cycles over 20,000 runs (ADR-0172, amended). Sharing
-`DHRY_CFLAGS` does not make a board figure and a simulated one comparable: `dhrystone-rom` also
-defines `DHRY_UART` and `make dhrystone` does not, which moves `.text` and costs a cycle a run.
+`test/pll_clock_test.py` recomputes them from the pad and the dividers. `dhrystone-rom` also
+defines `DHRY_UART` and `make dhrystone` does not, which grows `.text` by 84 bytes (3,640 to 3,724)
+and costs no cycles: the UART calls sit in the report code outside the two `mcycle` reads, and the
+timed run measures 12,080,025 cycles with the define and without it (simulated with
+`DHRY_UART` pointed at RAM, since the cxxrtl runner has no UART).
 `DHRY_BOARD_EXTRA_DEFINES` names that one difference in one place, and
 `test/dhry_board_parity_test.sh` compiles both builds' translation units and requires the two files
 `DHRY_UART` never touches to come out byte-identical, so a second, undocumented divergence is
