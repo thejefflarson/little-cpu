@@ -47,7 +47,7 @@ done
 
 # Greedy pack, largest first, so a big program never strands a batch. The size estimate only orders the programs: whether
 # a batch fits is the linker's answer, since alignment, the dispatch table and the driver cost more than the objects' sizes.
-fits() { ./test/board/build_batch.sh "$OUT/trial" "$@" > "$OUT/trial.log" 2>&1; }
+fits() { BATCH_ID=$((batches+1)) ./test/board/build_batch.sh "$OUT/trial" "$@" > "$OUT/trial.log" 2>&1; }
 
 batches=0; cur=""; linkfail=0
 : > "$OUT/plan"
