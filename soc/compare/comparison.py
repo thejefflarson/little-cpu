@@ -34,7 +34,7 @@ PARTS = [("", "iCE40 UP5K"), ("_ecp5", "ECP5 LFE5U-25F")]
 # at RV32IMAC, against the builds of VexRiscv and Hazard3 that carry C and A.
 MATCHED = "_imac"
 CORE_ORDER = ["littlecpu", "vexriscv", "vexriscv_lrsc", "hazard3", "hazard3_perf", "hazard3_c",
-              "hazard3_c_nobp"]
+              "hazard3_c_fit"]
 # Every row names the build it ran. A core in the stamp with no entry here is refused, so a
 # new opponent cannot be published without stating its configuration (docs/adr/0246).
 CORE_LABELS = {
@@ -44,7 +44,7 @@ CORE_LABELS = {
     "hazard3_perf": "hazard3_perf (performance build)",
     "vexriscv_lrsc": "vexriscv_lrsc (performance build plus LR/SC)",
     "hazard3_c": "hazard3_c (performance build plus C)",
-    "hazard3_c_nobp": "hazard3_c_nobp (performance build plus C, no branch predictor)",
+    "hazard3_c_fit": "hazard3_c_fit (performance build plus C, cut to fit the up5k)",
 }
 CORE_NOTES = {
     "littlecpu": "this core, built at the ISA each section names (RV32IM, then RV32IMAC)",
@@ -64,9 +64,10 @@ CORE_NOTES = {
     "hazard3_c": "`hazard3_perf` with `EXTENSION_C` on, a harness choice no Hazard3 example "
                  "ships (the config test grades it as that one difference); A is on in every "
                  "Hazard3 build",
-    "hazard3_c_nobp": "`hazard3_c` with `BRANCH_PREDICTOR` off, the one change to it that "
-                      "moves the up5k clock most (docs/adr/0251); A, C, M and Zifencei and the "
-                      "single-cycle multiply stay on",
+    "hazard3_c_fit": "`hazard3_c` cut until the up5k's 12 MHz step is met at every placement of "
+                     "twelve: no Zifencei (`EXTENSION_ZIFENCEI` 0) and `mtvec` fixed to direct "
+                     "mode (`MTVEC_WMASK` `0xfffffffc`); A, C, M, the branch predictor, "
+                     "counters and the single-cycle multiply stay on (docs/adr/0251)",
 }
 # A pair carrying the first of these and not the second is publishing one build of a core
 # that ships two, and says so.
@@ -305,11 +306,12 @@ def render(stamp):
         for bench, title in BENCHMARKS:
             render_pair(title, pairs.get(bench + suffix), out)
     out += ["## Feature-matched (RV32IMAC)", "",
-            "Every core compiled at `rv32imac_zicsr_zifencei`, the richest ISA they "
-            "share: littlecpu, VexRiscv with LR/SC (`vexriscv_lrsc`), Hazard3's "
-            "performance build with C (`hazard3_c`) and that build without its branch predictor "
-            "(`hazard3_c_nobp`). The first two sections above stay RV32IM and are not "
-            "replaced by this one.", ""]
+            "One image per benchmark, compiled at `rv32imac_zicsr_zifencei`, the richest ISA "
+            "littlecpu, VexRiscv with LR/SC (`vexriscv_lrsc`) and Hazard3's performance build "
+            "with C (`hazard3_c`) share. The fourth core, `hazard3_c_fit`, was cut to fit the "
+            "up5k and has no Zifencei; neither benchmark executes `fence.i`, and the image's "
+            "text is byte-identical when compiled at `rv32imac_zicsr` (docs/adr/0251). The "
+            "first two sections above stay RV32IM and are not replaced by this one.", ""]
     for suffix, label in PARTS:
         out += [f"### {label}", ""]
         for bench, title in BENCHMARKS:

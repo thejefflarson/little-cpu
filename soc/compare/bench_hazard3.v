@@ -6,7 +6,7 @@
 module bench_hazard3 #(
   parameter bit PERF = 1'b0,  // 1: the authors' ECP5 build; 0: their iCE40 one (hazard3_builds.txt)
   parameter bit WITH_C = 1'b0,  // 1 with PERF: hazard3_c, the ECP5 build plus the C extension
-  parameter bit NO_BP = 1'b0,  // 1 with PERF and WITH_C: hazard3_c_nobp, hazard3_c without its branch predictor
+  parameter bit FIT = 1'b0,  // 1 with PERF and WITH_C: hazard3_c_fit, hazard3_c cut to fit the up5k's step
   parameter integer ROM_WORDS = 1024,
   parameter integer RAM_WORDS = 16384,
   parameter INIT_ROM = "soc/compare/rom_flat.hex"
@@ -61,7 +61,7 @@ module bench_hazard3 #(
     .EXTENSION_ZBC        (0),
     .EXTENSION_ZBS        (0),
     .EXTENSION_ZBKB       (0),
-    .EXTENSION_ZIFENCEI   (PERF ? 1 : 0),
+    .EXTENSION_ZIFENCEI   (PERF && !FIT ? 1 : 0),
     .EXTENSION_XH3BEXTM   (0),
     .EXTENSION_XH3PMPM    (0),
     .EXTENSION_XH3POWER   (0),
@@ -70,13 +70,14 @@ module bench_hazard3 #(
     .PMP_REGIONS          (0),
     .BREAKPOINT_TRIGGERS  (0),
     .IRQ_PRIORITY_BITS    (0),
+    .MTVEC_WMASK          (FIT ? 32'hfffffffc : 32'hfffffffd),
     .REDUCED_BYPASS       (0),
     .MULDIV_UNROLL        (1),
     .MUL_FAST             (PERF ? 1 : 0),
     .MUL_FASTER           (0),
     .MULH_FAST            (0),
     .FAST_BRANCHCMP       (1),
-    .BRANCH_PREDICTOR     (PERF && !NO_BP ? 1 : 0)
+    .BRANCH_PREDICTOR     (PERF ? 1 : 0)
   ) core (
     .clk           (clk),
     .clk_always_on (clk),

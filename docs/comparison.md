@@ -60,7 +60,7 @@ Cycle factor: ratcheted for `littlecpu` only (`soc/compare/CYCLE_FLOOR`); the ot
 
 ## Feature-matched (RV32IMAC)
 
-Every core compiled at `rv32imac_zicsr_zifencei`, the richest ISA they share: littlecpu, VexRiscv with LR/SC (`vexriscv_lrsc`), Hazard3's performance build with C (`hazard3_c`) and that build without its branch predictor (`hazard3_c_nobp`). The first two sections above stay RV32IM and are not replaced by this one.
+One image per benchmark, compiled at `rv32imac_zicsr_zifencei`, the richest ISA littlecpu, VexRiscv with LR/SC (`vexriscv_lrsc`) and Hazard3's performance build with C (`hazard3_c`) share. The fourth core, `hazard3_c_fit`, was cut to fit the up5k and has no Zifencei; neither benchmark executes `fence.i`, and the image's text is byte-identical when compiled at `rv32imac_zicsr` (docs/adr/0251). The first two sections above stay RV32IM and are not replaced by this one.
 
 ### iCE40 UP5K
 
@@ -90,7 +90,7 @@ Not measured: no pair stamped.
 - **hazard3**: Hazard3's two-port build from its iCE40 example (`fpga_icebreaker.v`): bit-serial multiply, no branch predictor, no counters, no fence.i; its disclosed bus wait is counted in its cycles.
 - **hazard3_perf**: Hazard3's two-port build from its two ECP5 examples (`fpga_ulx3s.v`, `fpga_orangecrab_25f.v`): single-cycle multiply, branch predictor, counters, fence.i; the same bus adapter and wait.
 - **hazard3_c**: `hazard3_perf` with `EXTENSION_C` on, a harness choice no Hazard3 example ships (the config test grades it as that one difference); A is on in every Hazard3 build.
-- **hazard3_c_nobp**: `hazard3_c` with `BRANCH_PREDICTOR` off, the one change to it that moves the up5k clock most (docs/adr/0251); A, C, M and Zifencei and the single-cycle multiply stay on.
+- **hazard3_c_fit**: `hazard3_c` cut until the up5k's 12 MHz step is met at every placement of twelve: no Zifencei (`EXTENSION_ZIFENCEI` 0) and `mtvec` fixed to direct mode (`MTVEC_WMASK` `0xfffffffc`); A, C, M, the branch predictor, counters and the single-cycle multiply stay on (docs/adr/0251).
 - **Hazard3's ECP5 clock** carries a standing flag: the same RTL read 33.26 MHz in one session and 48.50 in a later one, and the unpinned nextpnr-ecp5 is the likely, unconfirmed cause. Read it as measured and inherit the flag.
 - **One standard for every opponent** (docs/adr/0246): each core runs the configuration its authors ship for a part with room, and a core that ships a small-part build as well gets that build as its own named column. No ratio here is against an unnamed build, and an ISA choice (C, A, M) is the harness row's, never an opponent's tuning.
 - **CoreMark's cycles are simulated at a larger map than the clock is placed at**: its text does not fit the up5k's placed ROM, so the cycle half and the clock half come from different geometries. Dhrystone fits, and nothing in its rows is distorted by memory size. Each row's simulated geometry is on its provenance line.

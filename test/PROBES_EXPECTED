@@ -1253,6 +1253,8 @@ the comment class lands nowhere if its own file is gone
 the compensation going missing is caught after every rule
 the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
+the cut-to-fit build differing from the C build in a third parameter is red
+the cut-to-fit build keeping Zifencei in the bench is red
 the cxxrtl leg failing its own baseline is red before any comparison
 the cxxrtl runner's kRamBase drifting is red
 the deep-recursion notice alone is allowlisted
@@ -1286,8 +1288,6 @@ the module file moving away takes the check with it, loudly
 the monitor generator's -i swept along with them is red as well
 the mutated core proving is red
 the nano liberty install directory inside the checkout is red on its own
-the no-predictor build differing from the C build in a second parameter is red
-the no-predictor build keeping its predictor in the bench is red
 the other direction for a .c: the glob has to see it too
 the other direction: a .S that landed without a manifest line
 the other direction: a program no pairing claims to catch anything

@@ -1,7 +1,7 @@
 # The four builds of Hazard3 the comparison harness runs. Two are the Hazard3 authors' own;
 # the others are this harness's choice.
 # Columns: parameter, area build, performance build, performance build plus C, that build
-# without its branch predictor. A parameter the example file leaves unset is written at the
+# cut to fit the up5k's step. A parameter the example file leaves unset is written at the
 # core's own default, so a column is the build as elaborated.
 #   area: example_soc/fpga/fpga_icebreaker.v        (the iCE40 example)
 #   perf: example_soc/fpga/fpga_ulx3s.v and fpga_orangecrab_25f.v (the two ECP5 examples,
@@ -10,9 +10,10 @@
 #         EXTENSION_C turned on so the core carries the C extension littlecpu and VexRiscv
 #         carry; the config test requires it to differ from the performance column in that
 #         one parameter and no other.
-#   nobp (hazard3_c_nobp): NO shipped example sets it either. It is the perf_c column with the
-#         branch predictor off, the one change to perf_c that moves the up5k clock most; the
-#         config test requires it to differ from perf_c in that one parameter and no other.
+#   fit (hazard3_c_fit): NO shipped example sets it either. It is the perf_c column without
+#         Zifencei (EXTENSION_ZIFENCEI 0) and with mtvec fixed to direct mode (MTVEC_WMASK
+#         0xfffffffc, written in decimal like the other columns); the config test requires it to
+#         differ from perf_c in those two parameters and no other.
 # soc/compare/hazard3_config_test.py grades bench_hazard3.v against this file, and the area
 # and performance columns against the pinned clone's examples whenever the clone is present.
 pin 8af992930f71a69b0e06c38734c1094f41a05ca0
@@ -24,7 +25,7 @@ EXTENSION_ZBB 0 0 0 0
 EXTENSION_ZBC 0 0 0 0
 EXTENSION_ZBS 0 0 0 0
 EXTENSION_ZBKB 0 0 0 0
-EXTENSION_ZIFENCEI 0 1 1 1
+EXTENSION_ZIFENCEI 0 1 1 0
 EXTENSION_XH3BEXTM 0 0 0 0
 EXTENSION_XH3PMPM 0 0 0 0
 EXTENSION_XH3POWER 0 0 0 0
@@ -41,4 +42,5 @@ MUL_FAST 0 1 1 1
 MUL_FASTER 0 0 0 0
 MULH_FAST 0 0 0 0
 FAST_BRANCHCMP 1 1 1 1
-BRANCH_PREDICTOR 0 1 1 0
+BRANCH_PREDICTOR 0 1 1 1
+MTVEC_WMASK 4294967293 4294967293 4294967293 4294967292

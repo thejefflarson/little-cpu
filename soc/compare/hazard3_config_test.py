@@ -3,22 +3,22 @@
 
 The harness runs Hazard3 in four named configurations: `hazard3` (the area build, from the
 iCE40 example), `hazard3_perf` (the performance build, from the two ECP5 examples),
-`hazard3_c` (the performance build plus the C extension) and `hazard3_c_nobp` (that build
-with its branch predictor off). The first two are builds its authors shipped; the others are harness
+`hazard3_c` (the performance build plus the C extension) and `hazard3_c_fit` (that build
+without Zifencei and with `mtvec` fixed to direct mode, cut to clear the up5k's 12 MHz step). The first two are builds its authors shipped; the others are harness
 choices that NO shipped example sets, which is why each is graded as the previous column
 plus exactly its named differences rather than against an example. That claim is three
 files agreeing, and this script checks each hop:
 
   1. soc/compare/bench_hazard3.v elaborates, at PERF=0, PERF=1, PERF=1 WITH_C=1 and
-     PERF=1 WITH_C=1 NO_BP=1, the values in soc/compare/hazard3_builds.txt, for every
+     PERF=1 WITH_C=1 FIT=1, the values in soc/compare/hazard3_builds.txt, for every
      parameter the file lists and no other.
   2. The parameters the bench lets PERF move are exactly the ones the area and performance
      columns differ on, the ones it lets WITH_C move are exactly the ones the performance
-     and C columns differ on, and the ones it lets NO_BP move are exactly the ones the C and
-     nobp columns differ on, so no switch can be a no-op or move something the columns
+     and C columns differ on, and the ones it lets FIT move are exactly the ones the C and
+     fit columns differ on, so no switch can be a no-op or move something the columns
      agree on.
-  3. The C column differs from the performance column in EXTENSION_C alone, and the nobp
-     column from the C column in BRANCH_PREDICTOR alone.
+  3. The C column differs from the performance column in EXTENSION_C alone, and the fit
+     column from the C column in EXTENSION_ZIFENCEI and MTVEC_WMASK alone.
   4. The file names the Hazard3 SHA soc/compare/hazard3_pin.mk pins.
   5. When the pinned clone is present, the area and performance columns are what the
      clone's example files say, an unset parameter read at the core's own default.
@@ -39,13 +39,13 @@ NOT_A_BUILD_CHOICE = {"RESET_VECTOR", "MTVEC_INIT", "NUM_IRQS"}
 # The one parameter hazard3_c changes from the performance build.
 C_BUILD_DIFFERENCE = {"EXTENSION_C"}
 
-# The one parameter hazard3_c_nobp changes from hazard3_c.
-NOBP_BUILD_DIFFERENCE = {"BRANCH_PREDICTOR"}
+# The one parameter hazard3_c_fit changes from hazard3_c.
+FIT_BUILD_DIFFERENCE = {"EXTENSION_ZIFENCEI", "MTVEC_WMASK"}
 
 # The bench's switches in column order after the area build; each is only ever set together
 # with the ones before it, so a switch is on from its own column onward.
-SWITCHES = ("PERF", "WITH_C", "NO_BP")
-COLUMNS = ("area", "perf", "perf_c", "nobp")
+SWITCHES = ("PERF", "WITH_C", "FIT")
+COLUMNS = ("area", "perf", "perf_c", "fit")
 
 NUMBER = r"\d+(?:'h[0-9a-fA-F]+)?"
 
@@ -103,7 +103,7 @@ def read_builds(path):
 
 
 def read_bench(path):
-    """Parameter -> (area, perf, perf+C, nobp) values as bench_hazard3.v's core instance
+    """Parameter -> (area, perf, perf+C, fit) values as bench_hazard3.v's core instance
     states it, and the parameters each switch moves."""
     text = read_verilog(path)
     match = re.search(r"hazard3_cpu_2port\s*#\((.*?)\)\s*core\s*\(", text, re.S)
@@ -114,22 +114,22 @@ def read_bench(path):
     for name, value in re.findall(r"\.(\w+)\s*\(([^()]*)\)", match.group(1)):
         value = value.strip()
         choice = re.fullmatch(
-            rf"(PERF && !NO_BP|PERF|WITH_C|NO_BP)\s*\?\s*({NUMBER})\s*:\s*({NUMBER})", value)
+            rf"(PERF && !FIT|PERF|WITH_C|FIT)\s*\?\s*({NUMBER})\s*:\s*({NUMBER})", value)
         if re.fullmatch(NUMBER, value):
             bench[name] = (number(value),) * len(COLUMNS)
         elif choice:
             cond, on, off = choice.group(1), number(choice.group(2)), number(choice.group(3))
-            if cond == "PERF && !NO_BP":
+            if cond == "PERF && !FIT":
                 bench[name] = (off, on, on, off)
                 moved["PERF"].add(name)
-                moved["NO_BP"].add(name)
+                moved["FIT"].add(name)
             else:
                 first_on = 1 + SWITCHES.index(cond)
                 bench[name] = tuple(on if i >= first_on else off for i in range(len(COLUMNS)))
                 moved[cond].add(name)
         elif name not in NOT_A_BUILD_CHOICE:
             fail(f"{path}: {name} is '{value}', which this check cannot read as a "
-                 "number or a PERF, WITH_C or NO_BP choice")
+                 "number or a PERF, WITH_C or FIT choice")
     for switch in moved:
         if not re.search(rf"parameter\s+bit\s+{switch}\b", text):
             fail(f"{path} has no {switch} parameter")
@@ -224,15 +224,15 @@ def main():
         red("WITH_C moves " + (", ".join(sorted(moved["WITH_C"])) or "nothing") +
             " in bench_hazard3.v; the C build differs from the performance build on " +
             (", ".join(sorted(c_differ)) or "nothing"))
-    nobp_differ = columns_differ(builds, 2, 3)
-    if nobp_differ != NOBP_BUILD_DIFFERENCE:
-        red("the nobp build differs from the C build on " +
-            (", ".join(sorted(nobp_differ)) or "nothing") + ", not on " +
-            ", ".join(sorted(NOBP_BUILD_DIFFERENCE)) + " alone")
-    if moved["NO_BP"] != nobp_differ:
-        red("NO_BP moves " + (", ".join(sorted(moved["NO_BP"])) or "nothing") +
-            " in bench_hazard3.v; the nobp build differs from the C build on " +
-            (", ".join(sorted(nobp_differ)) or "nothing"))
+    fit_differ = columns_differ(builds, 2, 3)
+    if fit_differ != FIT_BUILD_DIFFERENCE:
+        red("the fit build differs from the C build on " +
+            (", ".join(sorted(fit_differ)) or "nothing") + ", not on " +
+            ", ".join(sorted(FIT_BUILD_DIFFERENCE)) + " alone")
+    if moved["FIT"] != fit_differ:
+        red("FIT moves " + (", ".join(sorted(moved["FIT"])) or "nothing") +
+            " in bench_hazard3.v; the fit build differs from the C build on " +
+            (", ".join(sorted(fit_differ)) or "nothing"))
 
     clone = here / "hazard3"
     if (clone / "example_soc").is_dir():
@@ -251,7 +251,7 @@ def main():
             if perfs[0][name] != want_perf:
                 red(f"{name}: hazard3_builds.txt perf={want_perf}, "
                     f"fpga_{PERF_EXAMPLES[0]}.v says {perfs[0][name]}")
-        note = ("and the pinned clone's examples (hazard3_c and hazard3_c_nobp are harness "
+        note = ("and the pinned clone's examples (hazard3_c and hazard3_c_fit are harness "
                 "choices no example sets: checked as the previous column plus their named "
                 "differences)")
     elif require_clone:

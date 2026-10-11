@@ -31,7 +31,7 @@ module bench_tb;
   bench_hazard3 #(.PERF(1'b1), .WITH_C(1'b1)) dut_hzc (
     .clk(clk), .led0_n(hzc_led0_n), .led1_n(hzc_led1_n)
   );
-  bench_hazard3 #(.PERF(1'b1), .WITH_C(1'b1), .NO_BP(1'b1)) dut_hzu (
+  bench_hazard3 #(.PERF(1'b1), .WITH_C(1'b1), .FIT(1'b1)) dut_hzu (
     .clk(clk), .led0_n(hzu_led0_n), .led1_n(hzu_led1_n)
   );
 

@@ -45,7 +45,7 @@ module dhry_imac_tb;
     .RAM_WORDS(RAM_WORDS),
     .PERF(1'b1),
     .WITH_C(1'b1),
-    .NO_BP(1'b1),
+    .FIT(1'b1),
     .INIT_ROM("soc/compare/dhry_flat.hex")
   ) dut_hzu (
     .clk(clk), .led0_n(hzu_led0_n), .led1_n(hzu_led1_n)
@@ -141,12 +141,12 @@ module dhry_imac_tb;
     report("littlecpu", ours_marks, ours_begin, ours_end, ours_verdict, ours_writes);
     report("vexriscv_lrsc", vex_marks, vex_begin, vex_end, vex_verdict, vex_writes);
     report("hazard3_c", hzc_marks, hzc_begin, hzc_end, hzc_verdict, hzc_writes);
-    report("hazard3_c_nobp", hzu_marks, hzu_begin, hzu_end, hzu_verdict, hzu_writes);
+    report("hazard3_c_fit", hzu_marks, hzu_begin, hzu_end, hzu_verdict, hzu_writes);
     $display("DHRY core=hazard3_c wait_cycles=%0d", hzc_wait_cycles);
-    $display("DHRY core=hazard3_c_nobp wait_cycles=%0d", hzu_wait_cycles);
+    $display("DHRY core=hazard3_c_fit wait_cycles=%0d", hzu_wait_cycles);
     $display("DHRY ramdiff core=vexriscv_lrsc diff=%0d of=%0d words", differing_vex, RAM_WORDS);
     $display("DHRY ramdiff core=hazard3_c diff=%0d of=%0d words", differing_hzc, RAM_WORDS);
-    $display("DHRY ramdiff core=hazard3_c_nobp diff=%0d of=%0d words", differing_hzu, RAM_WORDS);
+    $display("DHRY ramdiff core=hazard3_c_fit diff=%0d of=%0d words", differing_hzu, RAM_WORDS);
     $finish;
   end
 endmodule
