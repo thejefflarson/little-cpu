@@ -12,10 +12,12 @@ INSTALL=${3:-$HERE/../soc/install_board_tools.sh}
 
 # The accept cases need scratch whose every ancestor passes the walk; Linux's /tmp is world-writable, so it never does.
 base=""
+scan=$(mktemp -d); printf "#!/bin/sh\nprintf 'user::rwx\\n'\n" > "$scan/getfacl"; chmod 755 "$scan/getfacl"
 for cand in "${TMPDIR:-/tmp}" "$HERE/../build" "$HOME"; do
   mkdir -p "$cand" 2>/dev/null || continue
-  if (. "$HERE/../soc/board_verdict.sh"; check_path_chain "$cand" "$(id -u)") >/dev/null 2>&1; then base=$cand; break; fi
+  if (PATH=$scan:$PATH; . "$HERE/../soc/board_verdict.sh"; check_path_chain "$cand" "$(id -u)") >/dev/null 2>&1; then base=$cand; break; fi
 done
+rm -rf "$scan"
 [ -n "$base" ] || { echo "error: no scratch candidate has an ancestry the root-binary walk accepts" >&2; exit 1; }
 WORK=$(mktemp -d "$base/board_verdict.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
