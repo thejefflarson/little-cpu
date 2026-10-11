@@ -107,7 +107,11 @@ while read -r progs; do
   loaded=""
   for attempt in 1 2 3; do
     if python3 soc/bounded.py "$LOAD_S" "$LOADER" -c cmsisdap --vid "$VID" --pid "$PID" -m build/icesugar.bit \
-         >"$OUT/load.log" 2>&1; then loaded=yes; break; fi
+         >"$OUT/load.log" 2>&1; then
+      loaded=yes
+      if mount | grep -q ' on /Volumes/iCELink ('; then diskutil eject /Volumes/iCELink >/dev/null || true; fi
+      break
+    fi
     sleep 2
   done
   if [ -z "$loaded" ]; then

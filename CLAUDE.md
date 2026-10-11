@@ -657,8 +657,8 @@ simulation, `soc/compare/coremark_tb.v` reusing `soc/compare/dhry_monitor.v` for
 (ADR-0146 as amended). **A feature-matched RV32IMAC row sits beside it** (ADR-0250): `vexriscv_lrsc`
 is the stock VexRiscv plus `withLrSc` (the pinned no-cache data bus has no AMO option, so it is Zalrsc,
 not all of A) and `hazard3_c` is `hazard3_perf` plus `EXTENSION_C` (a harness choice no Hazard3 example
-ships), all three built at `rv32imac_zicsr_zifencei` by `make compare-dhrystone-matched` and
-`make compare-coremark-matched`. Neither benchmark contains an atomic, so the row prices carrying A and
+ships; `hazard3_c_fit` is that without Zifencei and with `mtvec` fixed to direct mode, the cut that clears the up5k's 12 MHz step at all twelve seeds and at sixteen high-entropy ones, ADR-0251). Each benchmark is one image at the ISA `rv32imac_zicsr_zifencei`, built by `make compare-dhrystone-matched` and
+`make compare-coremark-matched`; its text is byte-identical at `rv32imac_zicsr` and `rv32imc_zicsr`, and `hazard3_c_fit` omits Zifencei, which the binary never executes. Neither benchmark contains an atomic, so the row prices carrying A and
 C, not using them. Both benchmarks are `-O2` under the pinned compiler (the flags
 `make compare-dhrystone` prints), with `soc/compare/dhry_port.c`'s own byte loops for the string
 routines, linked by the harness's own `soc/compare/dhry.lds` / `coremark.lds` (the
@@ -1235,8 +1235,8 @@ two 32-bit banks, and at 16 bits wide a fetch window is four SPRAMs, the whole p
 `test/asm/rvc.S`, at 12 256 bytes, still cannot run on silicon, and `soc/run_suite_board.sh`
 batches.
 
-**The configuration flash has a read-only controller, `rtl/spiflash.v`, and its own pins are not
-wired to this board** (ADR-0135). Eight bytes at `0x0002_0028`: a data register whose read gives
+**The configuration flash has a read-only controller, `rtl/spiflash.v`. The iCESugar-Pro wires it
+and the UPduino does not yet** (ADR-0135). Eight bytes at `0x0002_0028`: a data register whose read gives
 `busy` in bit 8 above the byte the last exchange shifted in, and a write-only control register
 whose bit 0 is the chip select; it is a mode-0 shift register that knows no commands. `busy` sits
 beside the byte rather than in a register software writes because the reference model has plain
@@ -1249,7 +1249,13 @@ predicate answers "is the flash's driver off", not "is a host there" — `icepro
 high for most of a session — so it cannot grant the on-chip controller its own pins.
 `soc/pin_lockout.v` was built for that, ships bounded and graded standalone, and is not wired;
 `sck`, `mosi` and `cs_n` are tied off. Reaching the flash's data path owes a real-board measurement
-of that contention window first.
+of that contention window first. The iCESugar-Pro has no such sharing: `soc/board_icesugar_pro.v`
+connects chip select, MOSI and MISO to the W25Q256JV's pins and reaches the clock through
+`USRMCLK`, the only route to the configuration clock pad after configuration (pins and their
+sources: `docs/pin-constraints.md`). `make icesugar-flash-id` loads `soc/flash_id.S` over JTAG,
+which reads the JEDEC ID (`0x9F`) and the SFDP header (`0x5A`) and prints both, and grades the
+UART for ID `EF4019` and the signature "SFDP". The controller toggles `sck` once per two core
+clocks, so 15 MHz at the board's 30 MHz.
 
 **A transmit-only UART is the only observable output a flashed bitstream has** — eight bytes at
 `0x0002_0020`, above the timer's reservation because the four words between belong to a second

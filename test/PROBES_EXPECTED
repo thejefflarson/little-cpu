@@ -281,6 +281,9 @@ a file-located frontend warning with no bare-prefixed echo is red
 a fixed /tmp/ scratch name in a script is red, and located
 a fixed /tmp/ scratch name in the Makefile is red, and located
 a fixture that opens its body on the head line is still inspected
+a flash grader that accepts a capture holding only debugger chatter is red
+a flash grader that accepts any FLASH line whatever its id is red
+a flash grader that does not require the SFDP signature is red
 a floating tool is recorded and never graded, so a new yosys is not STALE
 a floor line matching no stamped pair is red
 a floor line that is neither a number nor EXCLUDED is named
@@ -1279,6 +1282,8 @@ the comment class lands nowhere if its own file is gone
 the compensation going missing is caught after every rule
 the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
+the cut-to-fit build differing from the C build in a third parameter is red
+the cut-to-fit build keeping Zifencei in the bench is red
 the cxxrtl leg failing its own baseline is red before any comparison
 the cxxrtl runner's kRamBase drifting is red
 the deep-recursion notice alone is allowlisted
