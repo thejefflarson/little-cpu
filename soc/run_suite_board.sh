@@ -105,7 +105,7 @@ while read -r progs; do
   echo "   programs:$(for p in $progs; do printf ' %s' "$(basename "$p" .S)"; done)"
 
   t0=$SECONDS
-  if ! ./test/board/build_batch.sh "$OUT/b$i" $progs > "$OUT/link.log" 2>&1; then
+  if ! BATCH_ID=$i ./test/board/build_batch.sh "$OUT/b$i" $progs > "$OUT/link.log" 2>&1; then
     echo "   LINK FAILED:"; sed 's/^/      /' "$OUT/link.log" | tail -12; continue
   fi
   echo "   link:  $(tail -1 "$OUT/link.log")  [$((SECONDS-t0))s]"
@@ -141,15 +141,13 @@ while read -r progs; do
     printf '%s' "$raw" > "$RAWDIR/batch$i.attempt$attempt.txt"
     nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n' | display_safe)
     block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
+    block_tag_ok "$block" "$i" "$want" || block=""
     got=$(printf '%s' "$block" | grep -c '^[0-9]' || true)
     echo "   read:  ${nbytes:-0} bytes, $got of $want verdicts (attempt $attempt) [$((SECONDS-t0))s]"
     [ "$got" -ge "$want" ] && break
   done
 
-  if [ -z "$block" ]; then
-    echo "   (nothing before a '.' marker -- parsing the whole capture)"
-    block=$(printf '%s' "$raw")
-  fi
+  [ -n "$block" ] || echo "   (no replay tagged for this batch -- every program below reads as NO REPORT)"
 
   if [ -n "${SHOW_RAW:-}" ]; then
     echo "   ---- raw capture ----"; printf '%s' "$raw" | display_safe | sed 's/^/      /'

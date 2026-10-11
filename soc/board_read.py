@@ -44,6 +44,7 @@ def open_port(pattern):
         )
         attrs[0] = attrs[1] = attrs[3] = 0
         termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        termios.tcflush(fd, termios.TCIFLUSH)
     except termios.error:
         os.close(fd)
         return None

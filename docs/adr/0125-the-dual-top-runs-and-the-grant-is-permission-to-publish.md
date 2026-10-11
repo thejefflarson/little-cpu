@@ -172,3 +172,27 @@ Still open and deliberately out of scope here: the torture programs and their mu
 `DUAL_MIN_MHZ` gate and the ECP5 seed spread this design would need before one could exist, a
 hermetic probe of `test/dual_smoke.sh`'s own five comparisons, and any release protocol that lets a
 parked hart run C.
+
+## Amendment, 2026-10-11: the dual top on the iCESugar-Pro
+
+The dual top had only two LEDs, so nothing on a board could say whether the second hart ran.
+`rtl/littledual.v` now carries the existing `rtl/uart.v` on the shared bus (`uart_tx`, `CLOCK_HZ`),
+`rtl/littledualsoc.v` takes `ROM_WORDS`, `CLOCK_HZ` and `HART1_HELD`, and `soc/dual_hello.S` has
+hart 0 release hart 1, each hart count 16 increments into its own shared-RAM word, and hart 0
+print `DUAL c0=<n> c1=<n>` forever. `make icesugar-dual-run ICESUGAR_DUAL_ROM_WORDS=<n>
+ICESUGAR_DUAL_HELD=<0|1>` builds the dual behind the 30 MHz PLL (ADR-0172), loads SRAM over JTAG
+and reads the UART for five seconds. The dual placed at 35.0 to 39.1 MHz against the 30 MHz
+constraint in the four builds.
+
+| ROM_WORDS | hart 1 | UART, steady state on the part | placed Fmax |
+|---|---|---|---|
+| 2048 | running | `DUAL c0=16 c1=16` | 35.00 MHz |
+| 2048 | held in reset | `DUAL c0=16 c1=0` | 39.13 MHz |
+| 1024 | running | `DUAL c0=16 c1=16` | 35.80 MHz |
+| 1024 | held in reset | `DUAL c0=16 c1=0` | 38.66 MHz |
+
+**All four cases configure and run, including ROM_WORDS 2048, and the second hart's work shows up
+exactly when it is not held.** The earlier runs where the dual configured and then went dark at
+2048 words while 1024 ran all predate ADR-0163's block RAM reset fix; the same defect is the
+explanation that fits, and the 2048 case no longer reproduces it. Each capture's first lines come
+from the previously loaded design, which keeps printing until the new load lands.

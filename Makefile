@@ -604,6 +604,14 @@ makefile-target-test:
 pll-clock-test:
 	@python3 ./test/pll_clock_test.py
 
+.PHONY: entropy-geometry-test
+entropy-geometry-test:
+	@python3 ./test/entropy_geometry_test.py
+
+.PHONY: entropy-assess-test
+entropy-assess-test:
+	@python3 ./test/entropy_assess_test.py
+
 .PHONY: ill-e-wiring-test
 ill-e-wiring-test:
 	@python3 ./test/ill_e_wiring_test.py
@@ -778,7 +786,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
+      pll-clock-test entropy-geometry-test entropy-assess-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \
@@ -1093,7 +1101,7 @@ ICESUGAR_PACKAGE := CABGA256
 ICESUGAR_SPEED   := 6
 ICESUGAR_PART    := LFE5U-25F-6BG256C
 ICESUGAR_TOP     := icesugar_pro_top
-ICESUGAR_SRCS    := $(SOC_SRCS) soc/icesugar_pro_pll.v soc/board_icesugar_pro.v
+ICESUGAR_SRCS    := $(SOC_SRCS) soc/icesugar_pro_pll.v soc/icesugar_pro_entropy.v soc/board_icesugar_pro.v
 ICESUGAR_PROG    ?= soc/blink.S
 
 ICESUGAR_ROM     ?= soc-rom
@@ -1162,6 +1170,7 @@ icesugar-dhrystone:
 	  --out $(BUILD)/icesugar_dhrystone.txt
 
 ICESUGAR_COREMARK_ROM_WORDS := 4096
+ICESUGAR_SUITE_ROM_WORDS := 4096
 
 .PHONY: icesugar-coremark
 icesugar-coremark:
@@ -1173,6 +1182,35 @@ icesugar-coremark:
 	@$(MAKE) --no-print-directory icesugar-prog
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out icesugar_coremark.txt
+
+ICESUGAR_DUAL_ROM_WORDS ?= 2048
+ICESUGAR_DUAL_HELD      ?= 0
+ICESUGAR_DUAL_SRCS      := $(DUAL_RTL_SRCS) rtl/littledualsoc.v soc/icesugar_pro_pll.v soc/board_icesugar_pro_dual.v
+ICESUGAR_DUAL_TAG       := rom$(ICESUGAR_DUAL_ROM_WORDS)_held$(ICESUGAR_DUAL_HELD)
+
+$(BUILD)/icesugar_dual.json: $(ICESUGAR_DUAL_SRCS) soc/icesugar_pro.lpf | $(BUILD)
+	@$(MAKE) --no-print-directory soc-rom SOC_PROG=soc/dual_hello.S SOC_ROM_WORDS=$(ICESUGAR_DUAL_ROM_WORDS)
+	@yosys -p 'read_verilog -sv $(ICESUGAR_DUAL_SRCS); chparam -set ROM_WORDS $(ICESUGAR_DUAL_ROM_WORDS) littledualsoc; chparam -set HART1_HELD $(ICESUGAR_DUAL_HELD) littledualsoc; synth_ecp5 -top icesugar_pro_dual_top -json $@' \
+	  > $(BUILD)/icesugar_dual.synth.log 2>&1 || { tail -40 $(BUILD)/icesugar_dual.synth.log; exit 1; }
+	@python3 soc/bram_reset_check.py $@ --gate 'make icesugar-dual-run'
+
+$(BUILD)/icesugar_dual.config: $(BUILD)/icesugar_dual.json
+	@rm -f $@
+	@nextpnr-ecp5 $(ICESUGAR_DEVICE) --package $(ICESUGAR_PACKAGE) --speed $(ICESUGAR_SPEED) \
+	  --json $< --lpf soc/icesugar_pro.lpf \
+	  --textcfg $@ > $(BUILD)/icesugar_dual.pnr.log 2>&1 || { tail -30 $(BUILD)/icesugar_dual.pnr.log; exit 1; }
+
+$(BUILD)/icesugar_dual.bit: $(BUILD)/icesugar_dual.config
+	@ecppack $< $@
+
+.PHONY: icesugar-dual-run
+icesugar-dual-run:
+	@rm -f $(BUILD)/icesugar_dual.json $(BUILD)/icesugar_dual.config $(BUILD)/icesugar_dual.bit
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar_dual.bit
+	@grep -E 'Max frequency for clock' $(BUILD)/icesugar_dual.pnr.log | tail -1
+	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) -m $(BUILD)/icesugar_dual.bit
+	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt
+	@bash -c '. soc/board_verdict.sh && dual_verdict "$$0" "$$1"' $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt $(if $(filter 1,$(ICESUGAR_DUAL_HELD)),0,16)
 
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
@@ -1223,6 +1261,13 @@ suite-board: $(BUILD)/ftread
 	@echo 'iceprog and ftread run under ICEPROG_SUDO, as `make prog` does. Roughly ten minutes.'
 	@echo
 	@ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/run_suite_board.sh $(if $(ICEPROG_SUDO),--iceprog '$(BOARD_ICEPROG)' --ftread '$(BOARD_FTREAD)',--ftread '$(abspath $(BUILD))/ftread')
+
+.PHONY: icesugar-suite-board
+icesugar-suite-board:
+	@echo 'Runs the .S suite on the iCESugar-Pro, in batches: SRAM over JTAG, never the flash,'
+	@echo 'no sudo, at 16 KB of ROM so rvc.S runs. SHOW_RAW=1 prints each raw capture; results land in build/suite_icesugar_results.txt.'
+	@echo
+	@ROM_WORDS=$(ICESUGAR_SUITE_ROM_WORDS) ./soc/run_suite_icesugar.sh
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 

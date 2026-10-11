@@ -127,6 +127,7 @@ a baseline funct3 that is not three binary digits is named
 a baseline line with no predicate behind it is red too
 a baseline opcode that is not seven binary digits is named
 a baselined program that diverges SOMEWHERE ELSE is red
+a baselined program with no report matching its baseline is red
 a baselined test that starts failing a DIFFERENT way is red
 a baselined upstream file that stopped mentioning it is red
 a bench in test/ that make does not run is named
@@ -246,6 +247,8 @@ a document with one number edited by hand is red
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
 a dual directory that is not there is the failure this exists to see
+a dual grader that accepts a capture holding only debugger chatter is red
+a dual grader that accepts any DUAL line whatever its c1 is red
 a duplicated manifest line would make comm non-symmetric
 a failed extraction of the base ref stops the sweep
 a failing assembler is ASSEMBLE-ERROR
@@ -443,6 +446,7 @@ a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-entry hit rate above the unbounded stack's is red
 a one-field baseline line is rejected before the suite runs
+a packer that trusts its size estimate over the linker is red
 a pad frequency that is not whole hertz cannot be compared exactly
 a pair carrying both Hazard3 builds still renders the area build under its name
 a pair measured for the first time is news on its own, with no --current at all
@@ -535,6 +539,8 @@ a renamed task stops rather than probing some other design
 a renamed task stops this probe rather than moving its control
 a repetition count that counts a phantom bit at reset is red
 a repetition count that misses the first bit of a run is red
+a replay block left over from another batch is read as this batch's is red
+a replay parser that reads the cut tail instead of the last whole block is red
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
@@ -585,6 +591,7 @@ a respelled wait bound stops rather than pinning nothing
 a respelled wait bound stops rather than pinning nothing
 a respelled word arm stops the same way
 a respelled zeroing loop stops rather than mutating nothing
+a results line that reads a missing verdict as a pass is red
 a retire count below the floor is graded BELOW-FLOOR, not silently PASS
 a retire count too long for the shell's integers is NO-COUNTS
 a retried response gated on a stale, registered req_valid is red
@@ -781,6 +788,8 @@ an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
 an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
+an edge period that an oscillator 20% slow would push past the timeout is red
+an edge period too short for the jitter to fill is red
 an empty --current value is refused, not compared as though it were the field's value
 an empty .asc is no placement
 an empty CoreMark image is named rather than reported as fitting easily
@@ -817,6 +826,7 @@ an exemption naming no program is red, not a program quietly excused
 an exit of 1 with no timing verdict behind it is fatal
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
+an iCESugar suite summary line that skips the display filter is red
 an ignored opponent clone gaining an uncommitted change refuses to stamp
 an ignored opponent clone moving to another commit refuses to stamp
 an ill_e cover that cannot go red is not a control
@@ -894,6 +904,7 @@ board.lds putting the stack back at the top of ram is red
 boot.lds putting .data back at ram's origin is red
 boot.lds putting the stack back at the top of ram is red
 buffering words during the start-up window is red
+build_batch.sh not passing the ROM size to the linker is red
 check is run only when the shards and the baseline collector are both there
 check-sources actually refusing on a mismatch is red even if the text still warns
 cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red
@@ -1033,6 +1044,7 @@ control: paired_sweep.sh hands the summary --paired
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: run_product.sh evals no tool string and splices no variable into python3 -c
+control: rvc.S links and fits a 16 KB board ROM
 control: the ECP5 arm reads its own fabric's two cell names
 control: the LR/SC build's bench is the stock bench but for the core's module name
 control: the MUL constant-latency assertion fails at its own line
@@ -1055,6 +1067,7 @@ control: the locality counters are reported under the table
 control: the measured CoreMark image reports the shortfall it has
 control: the measured image reports the shortfall it has
 control: the note a delta is read against carries the part too
+control: the packer keeps rvc.S out of a batch it overflows
 control: the pc hop reaches the pc bin, by the declared net's bits
 control: the shipping Makefile agrees with check-sources' warn-not-fail exit
 control: the shipping Makefile defines no target twice
@@ -1063,6 +1076,7 @@ control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping bench and build file agree
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
+control: the shipping entropy source sits between the jitter floor and the edge timeout
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping executor reaches x_busy only through its one gate
 control: the shipping fetchqueue passes its own bench
@@ -1199,6 +1213,7 @@ runner exit 4 is MONITOR-ERROR, carrying the monitor's code
 runner exit 5 is TRAP-TO-ZERO, not a timeout with no cause
 runner exit 6 is MONITOR-SILENT: the oracle never looked
 running the generator from the wrong directory is refused, not done
+rvc.S in an 8 KB board ROM is red
 sby's trailing engine numbers are not part of the status
 sections.lds putting .data back at ram's origin is red
 sed --in-place is a raw edit exactly like sed -i
@@ -1261,6 +1276,7 @@ the deep-recursion notice alone is allowlisted
 the default text window is the part's, not the harness's
 the defect this exists for: a core clocked from the pad, not the PLL
 the defect this exists for: a summary line re-deriving the mode from inputs.
+the defect this exists for: the seed source tied low on the board
 the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence

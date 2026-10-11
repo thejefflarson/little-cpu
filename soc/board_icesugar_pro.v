@@ -12,7 +12,7 @@ module icesugar_pro_top (
   localparam integer CORE_HZ = 30_000_000;
 
   logic spi_sck, spi_mosi, spi_cs_n;
-  logic clk_core, pll_locked;
+  logic clk_core, pll_locked, entropy_raw;
 
   icesugar_pro_pll pll (
     .clk_pad(clk_pin),
@@ -20,10 +20,12 @@ module icesugar_pro_top (
     .locked(pll_locked)
   );
 
+  icesugar_pro_entropy entropy (.raw(entropy_raw));
+
   littlesoc #(.CLOCK_HZ(CORE_HZ)) soc (
     .clk(clk_core),
     .btn_n(pll_locked),
-    .entropy_raw(1'b0),
+    .entropy_raw(entropy_raw),
     .ledr_n(led_r_n),
     .ledg_n(led_g_n),
     .uart_tx(uart_tx),

@@ -66,6 +66,45 @@ if [ -n "$unfiltered" ]; then
   fail=1
 fi
 
+ICE_SUITE=${4:-$HERE/../soc/run_suite_icesugar.sh}
+unfiltered=$(grep -E "$display_pat" "$ICE_SUITE" | grep -v display_safe || true)
+if [ -n "$unfiltered" ]; then
+  echo "FAIL: UART text reaches the terminal unfiltered in $ICE_SUITE: $unfiltered" >&2
+  fail=1
+fi
+
+# A replay as the CDC line delivers it: the debugger's chatter, a replay cut mid-line at the start, two whole replays, a cut tail.
+capture=$'@cdone:0\n1 1\n.\n0 1\n1 7\n2 1\n.\n0 1\n1 7\n2 1\n.\n0 1\n1'
+block=$(printf '%s' "$capture" | uart_last_block)
+[ "$block" = $'0 1\n1 7\n2 1' ] || { echo "FAIL: last block parsed as '$block'" >&2; fail=1; }
+[ -z "$(printf '0 1\n1 7\n' | uart_last_block)" ] || { echo "FAIL: a capture with no replay marker produced a block" >&2; fail=1; }
+[ "$(block_verdict "$block" 1)" = 7 ] || { echo "FAIL: block_verdict did not find index 1" >&2; fail=1; }
+[ -z "$(block_verdict "$block" 3)" ] || { echo "FAIL: block_verdict invented index 3" >&2; fail=1; }
+[ "$(result_line a.S 1)" = "a.S PASS" ] || { echo "FAIL: verdict 1 is not a pass" >&2; fail=1; }
+[ "$(result_line a.S 7)" = "a.S FAIL 3" ] || { echo "FAIL: verdict 7 is not a fail at test 3" >&2; fail=1; }
+[ "$(result_line a.S '')" = "a.S MISSING" ] || { echo "FAIL: no verdict is not MISSING" >&2; fail=1; }
+[ "$(result_line a.S zz)" = "a.S PARSE-ERROR" ] || { echo "FAIL: a non-number verdict is not a parse error" >&2; fail=1; }
+
+[ "$(block_tag_ok $'B3 11\n0 1\n' 3 11 && echo y)" = y ] || { echo "FAIL: a matching batch tag was refused" >&2; fail=1; }
+block_tag_ok $'B2 11\n0 1\n' 3 11 && { echo "FAIL: stale batch tag accepted" >&2; fail=1; }
+block_tag_ok $'0 1\n1 1\n' 3 2 && { echo "FAIL: an untagged block accepted" >&2; fail=1; }
+[ "$(baseline_class a.S 'FAIL 3' a.S)" = ok ] || { echo "FAIL: a baselined FAIL did not match" >&2; fail=1; }
+for s in MISSING PARSE-ERROR LOAD-FAILED SWAP-FAILED LINK-FAILED; do
+  [ "$(baseline_class a.S "$s" a.S)" = unexpected ] || { echo "FAIL: baselined $s matched the baseline" >&2; fail=1; }
+done
+[ "$(baseline_class a.S PASS a.S)" = unexpected-pass ] || { echo "FAIL: a baselined pass was not flagged" >&2; fail=1; }
+[ "$(baseline_class b.S 'FAIL 3' a.S)" = unexpected ] || { echo "FAIL: an unbaselined FAIL was not flagged" >&2; fail=1; }
+
+printf '@cdone:0\nDUAL c0=1\xff\nDUAL c0=16 c1=16\nDUAL c0=16 c1=16\nDUAL c0=1' > "$WORK/dual_ok"
+dual_verdict "$WORK/dual_ok" 16 >/dev/null 2>&1 || { echo "FAIL: a two-hart capture was refused" >&2; fail=1; }
+printf 'DUAL c0=16 c1=0\n' > "$WORK/dual_held"
+dual_verdict "$WORK/dual_held" 0 >/dev/null 2>&1 || { echo "FAIL: a held-hart capture was refused" >&2; fail=1; }
+dual_verdict "$WORK/dual_held" 16 >/dev/null 2>&1 && { echo "FAIL: dual wrong c1 accepted" >&2; fail=1; }
+printf '@cdone:0\n\xff\xfe\n' > "$WORK/dual_chatter"
+dual_verdict "$WORK/dual_chatter" 16 >/dev/null 2>&1 && { echo "FAIL: dual chatter-only capture accepted" >&2; fail=1; }
+printf 'DUAL c0=16 c1=16\n@cdone:0\n' > "$WORK/dual_old"
+dual_verdict "$WORK/dual_old" 0 >/dev/null 2>&1 && { echo "FAIL: dual stale two-hart line accepted for a held run" >&2; fail=1; }
+
 mkdir "$WORK/stubs"
 cat > "$WORK/stubs/otool" <<'STUB'
 #!/bin/bash

@@ -307,12 +307,19 @@ WAIT forever); the 32nd repeat of the previous corrected bit in a row (a repetit
 also catches a period-2 emitted pattern); and an adaptive proportion over 512-sample windows, dead
 when one value fills 410 (NIST SP 800-90B 4.4.2, a claimed 0.5 bit per sample at 2^-20). BIST lasts
 until 1,024 raw samples have passed all four, and words produced before then are discarded.
-`soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
-(~10 kHz, a hard macro costing no cell); an `entropy_raw` held low, as the iCESugar-Pro board file
-and every formal harness hold it, reads DEAD, which is spec-honest. **Zkr is in the ISA
-string**, `_zkr` at all seven sites `test/march_test.sh` grades, and no board has measured the raw
-intervals: the sample bits, the fold depth and the claimed 0.5 bit per sample are unmeasured
-guesses until a board capture settles them. `mseccfg` (0x747) and `mseccfgh` (0x757) read zero and
+**Two boards have a Zkr source and one of them is measured.** The iCESugar-Pro is measured: its
+`soc/icesugar_pro_entropy.v` divides `OSCG` (DIV 128, 2.435 MHz) by 2^8 in fabric, 3,154 core
+cycles per edge at 30 MHz, and the raw intervals captured over the UART (`soc/entropy_assess.py`,
+24 frames of 4,096) estimate 0.63 to 0.78 bit of min-entropy per sample, above the 0.5 the cutoff
+assumes, with 0 of 192 adaptive-proportion windows tripping and a flat folded stream (ADR-0252);
+`test/entropy_geometry_test.py` holds the period between 3,000 cycles and 80% of the edge timeout,
+and a divide of 2^7 measured 0.28 and tripped the proportion test, so the period is not a free
+parameter. The UPduino's `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
+(~10 kHz, a hard macro costing no cell) and has **no capture yet**: its sample bits, fold depth and
+claimed 0.5 bit per sample are unmeasured, and `soc/entropy_assess.py` is the method that settles
+them. An `entropy_raw` held low, as every formal harness and the dual top hold it, reads DEAD,
+which is spec-honest. **Zkr is in the ISA string**, `_zkr` at all seven sites `test/march_test.sh`
+grades. `mseccfg` (0x747) and `mseccfgh` (0x757) read zero and
 ignore writes: Zkr adds the SSEED and USEED fields, which the Zkr text allows to be read-only zero,
 and M-mode access to `seed` is unconditional. Both addresses are implemented because the privileged
 spec lists `mseccfgh` as the RV32 upper half of `mseccfg`. Simulation
@@ -895,13 +902,25 @@ make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks
 make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write leaves the
                     # part at `@cdone:0`, unconfigured, until it is physically power-cycled
 make icesugar-read  # read that board's UART for a bounded window
+soc/entropy_capture.sh TAG OSC_DIV FAB_LOG2 CORE_PAD # build a core-less capture of OSCG's raw edge
+                    # intervals for one setting; load it with openFPGALoader, then
+                    # `soc/entropy_assess.py read` and `assess` collect and grade the frames.
+                    # `make icesugar-prog ICESUGAR_PROG=soc/seed_probe.S` prints the seed CSR's
+                    # status changes and words. Needs the board, so off `make test` and CI
 make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.
                     # Needs the board, so off `make test` and off CI, like suite-board
+make icesugar-suite-board # the .S suite on that board, in batches: place once, swap ROM contents
+                    # with ecpbram, load SRAM over JTAG, read the CDC UART. No sudo. Off
+                    # `make test` and CI; SHOW_RAW=1 prints each capture. Links at 4096 words
+                    # (16 KB), so rvc.S runs; the up5k's suite-board stays at 8 KB (ADR-0163)
 make icesugar-coremark # the same for CoreMark, at SOC_ROM_WORDS=4096: 16 KB of ROM, which
                     # this part has the spare block RAM for and the up5k does not.
                     # `make coremark-rom-ecp5` builds that image alone
 make dual-smoke     # two harts, one text storage, one arbiter, under cxxrtl; one program run
                     # both ways. Off `make test` and CI. `make dual-elaborate` is iverilog's look
+make icesugar-dual-run # the dual top on the iCESugar-Pro behind the 30 MHz PLL, SRAM over JTAG, UART
+                    # read back. ICESUGAR_DUAL_ROM_WORDS and ICESUGAR_DUAL_HELD (hart 1 in reset)
+                    # pick the case; off `make test` and CI (ADR-0125)
 make dual-ecp5-timing # the dual top placed, ECP5 only; three censuses GATE, the frequency
                     # PUBLISHES, nothing merges with an up5k number
 make ecp5-timing    # the SoC on ECP5 at a declared corner; three censuses GATE, the
@@ -1160,19 +1179,22 @@ The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's 
 digit-perfect, and Dhrystone on the part matched cxxrtl to the cycle (ADR-0130). `make suite-board`
 and `make dhrystone-board` run the suite and Dhrystone there; neither is graded on CI, because a
 board is not always plugged in. **The same source runs on a second part**: a MuseLab
-iCESugar-Pro (ECP5 LFE5U-25F) reports Dhrystone at **0.775 DMIPS/MHz, 19.4 DMIPS at 25 MHz** over
-`make icesugar-dhrystone`, **cycle-identical to cxxrtl on the same binary** (ADR-0163). **That
-bitstream now clocks the core from an `EHXPLLL` at 30 MHz rather than from the 25 MHz pad**, which
+iCESugar-Pro (ECP5 LFE5U-25F) ran Dhrystone over `make icesugar-dhrystone` on 2026-10-05 at
+**0.942 DMIPS/MHz, 28.3 DMIPS at 30.000 MHz** (the clock wall-clock timed to 0.02%), **cycle-identical
+to cxxrtl**: 12,080,025 cycles and 9,200,026 instructions
+at 20,000 runs on the board and under `make dhrystone DHRY_RUNS=20000 DHRY_CYCLES=20000000`
+(ADR-0163, ADR-0172). **That bitstream clocks the core from an `EHXPLLL` at 30 MHz rather than from the 25 MHz pad**, which
 is spendable on this part and would not be on the up5k, whose clock is a step function
 (ADR-0172): the frequency is picked under the WORST of twelve paired seeds on the shipping top and
 under `make ecp5-timing`'s own worst of twelve, and `--freq` is gone from the recipe so nextpnr
 derives the core domain from the PLL's dividers and a missed period is an ERROR rather than a
 slow board. **`CLOCK_HZ` is `rtl/uart.v`'s baud divisor, so the clock and that parameter must move
 together or the board's only output is garbage**; the frequency is stated in four places and
-`test/pll_clock_test.py` recomputes them from the pad and the dividers. Predicted 23.3 DMIPS at an
-unchanged 0.775 DMIPS/MHz, and **no board has run it**. Sharing
-`DHRY_CFLAGS` does not make a board figure and a simulated one comparable: `dhrystone-rom` also
-defines `DHRY_UART` and `make dhrystone` does not, which moves `.text` and costs a cycle a run.
+`test/pll_clock_test.py` recomputes them from the pad and the dividers. `dhrystone-rom` also
+defines `DHRY_UART` and `make dhrystone` does not, which grows `.text` by 84 bytes (3,640 to 3,724)
+and costs no cycles: the UART calls sit in the report code outside the two `mcycle` reads, and the
+timed run measures 12,080,025 cycles with the define and without it (simulated with
+`DHRY_UART` pointed at RAM, since the cxxrtl runner has no UART).
 `DHRY_BOARD_EXTRA_DEFINES` names that one difference in one place, and
 `test/dhry_board_parity_test.sh` compiles both builds' translation units and requires the two files
 `DHRY_UART` never touches to come out byte-identical, so a second, undocumented divergence is

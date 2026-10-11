@@ -4251,6 +4251,62 @@ d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LEN
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
+begin_group "the board suite's ROM size"
+
+rom_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test/board" "$d/test/asm" "$d/soc"
+  cp "$REPO"/test/board/board.lds "$REPO"/test/board/board_suite.S "$REPO"/test/board/build_batch.sh "$d/test/board/"
+  cp "$REPO"/test/asm/*.S "$REPO"/test/asm/*.h "$d/test/asm/"
+  cp "$REPO"/soc/rom_banks.py "$d/soc/"
+  cp "$REPO"/Makefile "$d/"
+  printf '%s' "$d"
+}
+
+rom_batch() {  # $1 = fixture dir, $2 = ROM words
+  ROM_WORDS=$2 "$1/test/board/build_batch.sh" "$1/out" test/asm/rvc.S
+}
+
+d=$(rom_fixture)
+probe "control: rvc.S links and fits a 16 KB board ROM" 0 \
+  "of 16384" "rom_batch $d 4096"
+
+d=$(rom_fixture)
+probe "rvc.S in an 8 KB board ROM is red" 1 \
+  "will not fit in region" "rom_batch $d 2048"
+
+d=$(rom_fixture); mutate "$d/test/board/build_batch.sh" 's/ -Wl,--defsym=ROM_BYTES=\$ROM_BYTES//'
+probe "build_batch.sh not passing the ROM size to the linker is red" 1 \
+  "will not fit in region" "rom_batch $d 4096"
+
+pack_fixture() {
+  local d; d=$(rom_fixture)
+  mkdir -p "$d/soc" "$d/test/asm.all"
+  mv "$d"/test/asm/*.S "$d/test/asm.all/"
+  cp "$d/test/asm.all/rvc.S" "$d/test/asm.all/amominmax.S" "$d/test/asm/"
+  cp "$REPO"/soc/board_verdict.sh "$REPO"/soc/run_suite_icesugar.sh "$d/soc/"
+  printf '%s' "$d"
+}
+
+pack_apart() {  # $1 = fixture dir; green only when rvc.S and amominmax.S land in separate batches
+  local plan
+  plan=$(cd "$1" && PLAN_ONLY=1 ROM_WORDS=4096 ./soc/run_suite_icesugar.sh | grep '^ ')
+  if [ "$(printf '%s\n' "$plan" | wc -l | tr -d ' ')" -eq 2 ]; then
+    echo "rvc.S and amominmax.S packed apart"
+  else
+    echo "rvc.S and amominmax.S share a batch the linker rejects:$plan"
+    return 1
+  fi
+}
+
+d=$(pack_fixture)
+probe "control: the packer keeps rvc.S out of a batch it overflows" 0 \
+  "packed apart" "pack_apart $d"
+
+d=$(pack_fixture); mutate "$d/soc/run_suite_icesugar.sh" 's/^fits() {.*/fits() { return 0; }/'
+probe "a packer that trusts its size estimate over the linker is red" 1 \
+  "share a batch the linker rejects" "pack_apart $d"
+
 begin_group "nano/asm/nano.lds's timer window ASSERT"
 
 nano_lds_fixture() {
@@ -4361,6 +4417,41 @@ d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/^  check_deps "\$real" "\$owner" || return 1$/  :/'
 probe "a root-binary check that skips the libraries it loads is red" 1 \
   "world-writable library dependency: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/run_suite_icesugar.sh" "$d/run_suite_icesugar.sh"
+mutate "$d/run_suite_icesugar.sh" 's/display_safe | tr /tr /'
+probe "an iCESugar suite summary line that skips the display filter is red" 1 \
+  "UART text reaches the terminal unfiltered" "$BV $REPO/soc/board_verdict.sh $REPO/soc/run_suite_board.sh $REPO/soc/install_board_tools.sh $d/run_suite_icesugar.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/printf "%s", a\[n-1\]/printf "%s", a[n]/'
+probe "a replay parser that reads the cut tail instead of the last whole block is red" 1 \
+  "last block parsed as" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/echo "\$name MISSING"/echo "$name PASS"/'
+probe "a results line that reads a missing verdict as a pass is red" 1 \
+  "no verdict is not MISSING" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "s/^block_tag_ok() { .*/block_tag_ok() { true; }/"
+probe "a replay block left over from another batch is read as this batch's is red" 1 \
+  "stale batch tag accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/    \*) echo unexpected;;/    *) if [ -n "$hit" ]; then echo ok; else echo unexpected; fi;;/'
+probe "a baselined program with no report matching its baseline is red" 1 \
+  "matched the baseline" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "DUAL c0=16 c1=\$2" \]; then/if [ -n "$last" ]; then/'
+probe "a dual grader that accepts any DUAL line whatever its c1 is red" 1 \
+  "dual wrong c1 accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "DUAL c0=16 c1=\$2" \]; then/if [ "$last" = "DUAL c0=16 c1=$2" ] || [ -z "$last" ]; then/'
+probe "a dual grader that accepts a capture holding only debugger chatter is red" 1 \
+  "dual chatter-only capture accepted" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/      queue+=("\$real")/      :/'
@@ -9809,6 +9900,37 @@ d=$(pllc_fixture)
 mutate_remove "$d/soc/icesugar_pro_pll.v"
 probe "a missing PLL file is refused rather than read as agreement" 1 \
   "cannot grade a missing one" "$PLLC $d"
+
+begin_group "test/entropy_geometry_test.py"
+
+EGEO="python3 $HERE/entropy_geometry_test.py"
+
+egeo_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/rtl" "$d/test"
+  cp "$REPO/soc/icesugar_pro_entropy.v" "$REPO/soc/board_icesugar_pro.v" "$d/soc/"
+  cp "$REPO/rtl/trng.v" "$d/rtl/"
+  printf '%s' "$d"
+}
+
+d=$(egeo_fixture)
+probe "control: the shipping entropy source sits between the jitter floor and the edge timeout" 0 \
+  "core cycles per edge" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 8/DIV_LOG2 = 7/'
+probe "an edge period too short for the jitter to fill is red" 1 \
+  "under the 3000 at which the measured min-entropy reached 0.5" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 8/DIV_LOG2 = 9/'
+probe "an edge period that an oscillator 20% slow would push past the timeout is red" 1 \
+  "edge timeout; an oscillator" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/board_icesugar_pro.v" "s/\\.entropy_raw(entropy_raw)/.entropy_raw(1'b0)/"
+probe "the defect this exists for: the seed source tied low on the board" 1 \
+  "seed reads DEAD" "$EGEO $d"
 
 begin_group "test/pin_bump_token_test.py"
 
