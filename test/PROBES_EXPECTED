@@ -247,6 +247,8 @@ a document with one number edited by hand is red
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
 a dual directory that is not there is the failure this exists to see
+a dual grader that accepts a capture holding only debugger chatter is red
+a dual grader that accepts any DUAL line whatever its c1 is red
 a duplicated manifest line would make comm non-symmetric
 a failed extraction of the base ref stops the sweep
 a failing assembler is ASSEMBLE-ERROR

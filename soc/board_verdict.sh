@@ -42,6 +42,15 @@ result_line() {
   esac
 }
 
+# Grades a dual-hart UART capture $1: its last complete "DUAL" line must read c0=16 and c1=$2 (16 with hart 1 running, 0 held).
+dual_verdict() {
+  local last
+  last=$(display_safe < "$1" | grep -E '^DUAL c0=[0-9]+ c1=[0-9]+$' | tail -n 1 || true)
+  if [ "$last" = "DUAL c0=16 c1=$2" ]; then echo "dual: $last"; return 0; fi
+  echo "dual: wanted 'DUAL c0=16 c1=$2', last complete line was '${last:-none}'" >&2
+  return 1
+}
+
 native_magic() { LC_ALL=C od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
 
 resolve_path() {

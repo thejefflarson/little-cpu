@@ -4388,6 +4388,16 @@ probe "a baselined program with no report matching its baseline is red" 1 \
   "matched the baseline" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "DUAL c0=16 c1=\$2" \]; then/if [ -n "$last" ]; then/'
+probe "a dual grader that accepts any DUAL line whatever its c1 is red" 1 \
+  "dual wrong c1 accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "DUAL c0=16 c1=\$2" \]; then/if [ "$last" = "DUAL c0=16 c1=$2" ] || [ -z "$last" ]; then/'
+probe "a dual grader that accepts a capture holding only debugger chatter is red" 1 \
+  "dual chatter-only capture accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/      queue+=("\$real")/      :/'
 probe "a root-binary check that stops at the first library hop is red" 1 \
   "library two hops down: got accept" "$BV $d/board_verdict.sh"

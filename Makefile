@@ -1201,6 +1201,7 @@ icesugar-dual-run:
 	@grep -E 'Max frequency for clock' $(BUILD)/icesugar_dual.pnr.log | tail -1
 	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) -m $(BUILD)/icesugar_dual.bit
 	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt
+	@bash -c '. soc/board_verdict.sh && dual_verdict "$$0" "$$1"' $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt $(if $(filter 1,$(ICESUGAR_DUAL_HELD)),0,16)
 
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 

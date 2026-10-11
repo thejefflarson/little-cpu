@@ -95,6 +95,16 @@ done
 [ "$(baseline_class a.S PASS a.S)" = unexpected-pass ] || { echo "FAIL: a baselined pass was not flagged" >&2; fail=1; }
 [ "$(baseline_class b.S 'FAIL 3' a.S)" = unexpected ] || { echo "FAIL: an unbaselined FAIL was not flagged" >&2; fail=1; }
 
+printf '@cdone:0\nDUAL c0=1\xff\nDUAL c0=16 c1=16\nDUAL c0=16 c1=16\nDUAL c0=1' > "$WORK/dual_ok"
+dual_verdict "$WORK/dual_ok" 16 >/dev/null 2>&1 || { echo "FAIL: a two-hart capture was refused" >&2; fail=1; }
+printf 'DUAL c0=16 c1=0\n' > "$WORK/dual_held"
+dual_verdict "$WORK/dual_held" 0 >/dev/null 2>&1 || { echo "FAIL: a held-hart capture was refused" >&2; fail=1; }
+dual_verdict "$WORK/dual_held" 16 >/dev/null 2>&1 && { echo "FAIL: dual wrong c1 accepted" >&2; fail=1; }
+printf '@cdone:0\n\xff\xfe\n' > "$WORK/dual_chatter"
+dual_verdict "$WORK/dual_chatter" 16 >/dev/null 2>&1 && { echo "FAIL: dual chatter-only capture accepted" >&2; fail=1; }
+printf 'DUAL c0=16 c1=16\n@cdone:0\n' > "$WORK/dual_old"
+dual_verdict "$WORK/dual_old" 0 >/dev/null 2>&1 && { echo "FAIL: dual stale two-hart line accepted for a held run" >&2; fail=1; }
+
 mkdir "$WORK/stubs"
 cat > "$WORK/stubs/otool" <<'STUB'
 #!/bin/bash
