@@ -4522,6 +4522,16 @@ mutate "$d/board_verdict.sh" 's/^    return 2$/    return 1/'
 probe "a path walk that reads an unreadable ACL as no ACL is red" 1 \
   "a host without getfacl passed the root-binary check" "$BV $d/board_verdict.sh"
 
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "/^    printf '%s\\\\n' \"\$out\" | grep -q '\\^user::' || return 2\$/d"
+probe "a path walk that accepts a getfacl that printed nothing is red" 1 \
+  "a getfacl that prints nothing passed the root-binary check" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^    \[ "\$rc" -le 1 \] && return "\$rc"$/    return $((rc != 0))/'
+probe "a path walk that reads a failed Darwin ACL read as no ACL is red" 1 \
+  "an ACL read that fails with EACCES passed the root-binary check" "$BV $d/board_verdict.sh"
+
 begin_group "test/exec_mode_test.py"
 
 EM="python3 $HERE/exec_mode_test.py"

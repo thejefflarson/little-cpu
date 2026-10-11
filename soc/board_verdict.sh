@@ -67,13 +67,31 @@ owner_mode() {
   echo "$st"
 }
 
+ACL_PROBE_PY='
+import ctypes, ctypes.util, errno, sys
+libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+libc.acl_get_link_np.restype = ctypes.c_void_p
+libc.acl_get_link_np.argtypes = [ctypes.c_char_p, ctypes.c_int]
+libc.acl_to_text.restype = ctypes.c_void_p
+libc.acl_to_text.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+acl = libc.acl_get_link_np(sys.argv[1].encode(), 0x100)
+if not acl:
+    sys.exit(1 if ctypes.get_errno() == errno.ENOENT else 2)
+text = libc.acl_to_text(acl, None)
+if not text:
+    sys.exit(2)
+sys.exit(0 if b":allow:" in ctypes.string_at(text) else 1)
+'
+
 acl_grants() {
-  local out
+  local out rc=0
   if [ "$(uname -s)" = Darwin ]; then
-    out=$(ls -lde "$1" 2>/dev/null) || return 2
-    printf '%s\n' "$out" | tail -n +2 | grep -q ' allow '
+    python3 -I -c "$ACL_PROBE_PY" "$1" 2>/dev/null || rc=$?
+    [ "$rc" -le 1 ] && return "$rc"
+    return 2
   elif command -v getfacl >/dev/null 2>&1; then
     out=$(getfacl -cp "$1" 2>/dev/null) || return 2
+    printf '%s\n' "$out" | grep -q '^user::' || return 2
     printf '%s\n' "$out" | grep -Eq '^(user|group):[^:]+:.w'
   else
     echo "error: getfacl is not installed, so the ACL on $1 cannot be read; install the acl package" >&2
