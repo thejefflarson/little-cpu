@@ -650,8 +650,8 @@ simulation, `soc/compare/coremark_tb.v` reusing `soc/compare/dhry_monitor.v` for
 (ADR-0146 as amended). **A feature-matched RV32IMAC row sits beside it** (ADR-0250): `vexriscv_lrsc`
 is the stock VexRiscv plus `withLrSc` (the pinned no-cache data bus has no AMO option, so it is Zalrsc,
 not all of A) and `hazard3_c` is `hazard3_perf` plus `EXTENSION_C` (a harness choice no Hazard3 example
-ships; `hazard3_c_fit` is that without Zifencei and with `mtvec` fixed to direct mode, the cut that clears the up5k's 12 MHz step at all twelve seeds, ADR-0251), all built at
-`rv32imac_zicsr_zifencei` by `make compare-dhrystone-matched` and `make compare-coremark-matched`. Neither benchmark contains an atomic, so the row prices carrying A and
+ships; `hazard3_c_fit` is that without Zifencei and with `mtvec` fixed to direct mode, the cut that clears the up5k's 12 MHz step at all twelve seeds and at sixteen high-entropy ones, ADR-0251). Each benchmark is one image at the ISA `rv32imac_zicsr_zifencei`, built by `make compare-dhrystone-matched` and
+`make compare-coremark-matched`; its text is byte-identical at `rv32imac_zicsr` and `rv32imc_zicsr`, and `hazard3_c_fit` omits Zifencei, which the binary never executes. Neither benchmark contains an atomic, so the row prices carrying A and
 C, not using them. Both benchmarks are `-O2` under the pinned compiler (the flags
 `make compare-dhrystone` prints), with `soc/compare/dhry_port.c`'s own byte loops for the string
 routines, linked by the harness's own `soc/compare/dhry.lds` / `coremark.lds` (the

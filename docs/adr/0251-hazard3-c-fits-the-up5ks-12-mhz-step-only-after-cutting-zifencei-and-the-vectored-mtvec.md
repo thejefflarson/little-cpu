@@ -131,6 +131,20 @@ littlecpu's and `vexriscv_lrsc`'s clocks are ADR-0250's, same toolchain, not re-
 and 106.17 (0.994x and 1.041x); at the median 40.54 and 118.68 against 39.44 and 110.26 (1.028x and
 1.076x).
 
+The twelve-seed verdict rests on the tail (worst 12.13, 0.13 MHz over the step), so it was re-taken at
+sixteen high-entropy seeds (a seeded draw, none in 1 to 16: 1057243201 745345665 1065623204 726864694
+600004657 118787756 86910193 770116510 1031656204 80851806 1481527226 32444773 1515826877 1859401094
+1636872853 1442583671), the sample the repo asks for when a verdict is a tail, paired with the
+`hazard3_c` control in the same session on the same toolchain:
+
+| core | up5k MHz, 16 high-entropy seeds | under 12.00 |
+|---|---|---|
+| hazard3_c (control) | 11.04 / 11.63 / 11.86 | 16 of 16 |
+| **hazard3_c_fit** | **12.18 / 12.33 / 12.49** | **0 of 16** |
+
+All sixteen clear, with a worst placement 0.18 MHz over the step, so "no Zifencei, no predictor" (the
+named fallback) was not taken up and no build that cuts A was needed.
+
 Standing flags: the Hazard3 ECP5 clock inherits the unpinned-nextpnr flag in CLAUDE.md; CoreMark's
 cycles are simulated at 16 KB of ROM against a 4 KB placed one; Hazard3's disclosed bus wait (28,805
 and 14,176 cycles) is in every row. The ECP5 sweep ran for `hazard3_c_fit` only.
@@ -144,9 +158,9 @@ and 14,176 cycles) is in every row. The ECP5 sweep ran for `hazard3_c_fit` only.
   (two worst paths read, both from predictor-off placements: decompressor output, decode, the
   branch-target adder, the fetch address, the stall logic; two paths are a sample, not a census).
   Zifencei is the cheapest extension to give back.
-- The clearance is 0.13 MHz at the worst placement, and the same cut without the `mtvec` mask misses at
-  6 of 12. It is a twelve-seed verdict on this tree and toolchain, not a guarantee under a different
-  yosys or nextpnr; the weekly stamp re-takes it.
+- The clearance is 0.13 MHz at the worst of twelve placements and 0.18 MHz at the worst of sixteen
+  high-entropy ones; the same cut without the `mtvec` mask misses at 6 of 12. It is a verdict on this tree
+  and toolchain, not a guarantee under a different yosys or nextpnr; the weekly stamp re-takes it.
 
 ## Consequences
 
@@ -156,5 +170,4 @@ and 14,176 cycles) is in every row. The ECP5 sweep ran for `hazard3_c_fit` only.
   changes only in generated text.
 - New graded comparisons and forced-red probes in `test/probe_gates.sh`: the cut build's differences
   from `hazard3_c`, and the bench's `FIT` moving Zifencei.
-- Not tried: a read-only `mtvec`, `MULDIV_UNROLL` above 1, a sixteen-seed draw of `hazard3_c_fit`
-  (ADR-0113 asks for sixteen when a verdict rests on a tail), and any change to the bench's bus adapter.
+- Not tried: a read-only `mtvec`, `MULDIV_UNROLL` above 1, and any change to the bench's bus adapter.
