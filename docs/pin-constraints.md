@@ -104,8 +104,9 @@ and the SFDP signature reads "SFDP". The clock is not a user pad. It is `CCLK` (
 after configuration it is driven only through the `USRMCLK` primitive, which
 `soc/board_icesugar_pro.v` instantiates, so the LPF locates no clock pin for it. The controller
 produces a 15 MHz `sck` at the 30 MHz core clock (one low and one high core cycle per bit); the
-W25Q256JV's rated maximum for the commands used is not checked against its datasheet here, and
-the board read both commands correctly at 15 MHz.
+W25Q256JV's datasheet maximum for these two commands was not read for this change (the
+vendor's headline figure for the fast-read class is 133 MHz, an unchecked recollection), so
+the only measured fact is that the board read both correctly at 15 MHz.
 
 ## `soc/compare/bench_hx8k.pcf` -- The cross-core bench on ice40 hx8k
 

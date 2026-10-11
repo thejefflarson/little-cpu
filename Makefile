@@ -1147,11 +1147,13 @@ ICESUGAR_LOADER  ?= openFPGALoader
 ICESUGAR_VID     ?= 0x1d50
 ICESUGAR_PID     ?= 0x602b
 ICESUGAR_READ_S  ?= 30
+ICESUGAR_EJECT    = @if mount | grep -q /Volumes/iCELink; then diskutil eject /Volumes/iCELink >/dev/null; fi
 
 .PHONY: icesugar-prog
 icesugar-prog: $(BUILD)/icesugar.bit
 	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) \
 	  -m $(BUILD)/icesugar.bit
+	$(ICESUGAR_EJECT)
 	@echo
 	@echo 'Loaded into SRAM; the design is running. Read it with'
 	@echo '`make icesugar-read`, or power-cycle the board to go back to flash.'
@@ -1209,6 +1211,7 @@ icesugar-dual-run:
 	@$(MAKE) --no-print-directory $(BUILD)/icesugar_dual.bit
 	@grep -E 'Max frequency for clock' $(BUILD)/icesugar_dual.pnr.log | tail -1
 	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) -m $(BUILD)/icesugar_dual.bit
+	$(ICESUGAR_EJECT)
 	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt
 	@bash -c '. soc/board_verdict.sh && dual_verdict "$$0" "$$1"' $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt $(if $(filter 1,$(ICESUGAR_DUAL_HELD)),0,16)
 
@@ -1219,6 +1222,7 @@ icesugar-flash-id:
 	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
 	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_PROG=soc/flash_id.S
 	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) -m $(BUILD)/icesugar.bit
+	$(ICESUGAR_EJECT)
 	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_flash_id.txt
 	@bash -c '. soc/board_verdict.sh && flash_verdict "$$0" "$$1"' $(BUILD)/icesugar_flash_id.txt $(ICESUGAR_FLASH_ID)
 

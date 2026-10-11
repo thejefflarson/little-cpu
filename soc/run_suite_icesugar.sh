@@ -105,7 +105,7 @@ while read -r progs; do
 
   loaded=""
   for attempt in 1 2 3; do
-    if "$LOADER" -c cmsisdap --vid "$VID" --pid "$PID" -m build/icesugar.bit >"$OUT/load.log" 2>&1; then loaded=yes; break; fi
+    if "$LOADER" -c cmsisdap --vid "$VID" --pid "$PID" -m build/icesugar.bit >"$OUT/load.log" 2>&1; then loaded=yes; mount | grep -q /Volumes/iCELink && diskutil eject /Volumes/iCELink >/dev/null; break; fi
     sleep 2
   done
   if [ -z "$loaded" ]; then
