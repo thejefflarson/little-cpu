@@ -1649,18 +1649,24 @@ COMPARE_CORE_READ := read_verilog $(VEXRISCV_LRSC_V); \
 COMPARE_CORE_TOP  := VexRiscvLrsc
 COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_LRSC_V) vexriscv-pin-check
 COMPARE_CORE_DEPS := $(VEXRISCV_LRSC_V) vexriscv-pin-check
-else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf hazard3_c),)
+else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf hazard3_c hazard3_c_fit),)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
-# hazard3_perf is the bench with PERF set, hazard3_c the same plus WITH_C; each takes the same
-# parameters in its standalone synthesis.
-ifneq ($(filter $(COMPARE_CORE),hazard3_perf hazard3_c),)
+# hazard3_perf is the bench with PERF set, hazard3_c the same plus WITH_C, hazard3_c_fit that
+# plus FIT; each takes the same parameters in its standalone synthesis. 4294967292 is
+# MTVEC_WMASK 32'hfffffffc.
+ifneq ($(filter $(COMPARE_CORE),hazard3_perf hazard3_c hazard3_c_fit),)
 COMPARE_BENCH_CHPARAM := -set PERF 1
-HAZARD3_PERF_CHPARAM := -set EXTENSION_ZIFENCEI 1 -set CSR_COUNTER 1 -set MUL_FAST 1 \
-                        -set BRANCH_PREDICTOR 1
+HAZARD3_PERF_CHPARAM := -set CSR_COUNTER 1 -set MUL_FAST 1 -set BRANCH_PREDICTOR 1
+ifeq ($(COMPARE_CORE),hazard3_c_fit)
+COMPARE_BENCH_CHPARAM += -set FIT 1
+HAZARD3_PERF_CHPARAM += -set EXTENSION_ZIFENCEI 0 -set MTVEC_WMASK 4294967292
+else
+HAZARD3_PERF_CHPARAM += -set EXTENSION_ZIFENCEI 1
 endif
-ifeq ($(COMPARE_CORE),hazard3_c)
+endif
+ifneq ($(filter $(COMPARE_CORE),hazard3_c hazard3_c_fit),)
 COMPARE_BENCH_CHPARAM += -set WITH_C 1
 HAZARD3_PERF_CHPARAM += -set EXTENSION_C 1
 endif
@@ -1800,13 +1806,15 @@ compare-dhrystone-matched: hazard3-config-clone-test $(BUILD)/compare.dhry.imac.
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv_lrsc $(BUILD)/compare.vexriscv_lrsc.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c $(BUILD)/compare.hazard3_c.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c_fit $(BUILD)/compare.hazard3_c_fit.core.log
 	@echo '== the feature-matched row: littlecpu, VexRiscv with LR/SC and Hazard3 with C, all at RV32IMAC =='
 	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
 	  '$(COMPARE_DHRY_IMAC_CFLAGS)' hardware $(BUILD)/compare.dhry.imac.vvp \
-	  littlecpu,vexriscv_lrsc,hazard3_c \
+	  littlecpu,vexriscv_lrsc,hazard3_c,hazard3_c_fit \
 	  littlecpu=$(BUILD)/compare.littlecpu.core.log \
 	  vexriscv_lrsc=$(BUILD)/compare.vexriscv_lrsc.core.log \
-	  hazard3_c=$(BUILD)/compare.hazard3_c.core.log
+	  hazard3_c=$(BUILD)/compare.hazard3_c.core.log \
+	  hazard3_c_fit=$(BUILD)/compare.hazard3_c_fit.core.log
 
 .PHONY: compare-dhrystone
 compare-dhrystone: hazard3-config-clone-test $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp \
@@ -1910,10 +1918,11 @@ compare-coremark-matched: hazard3-config-clone-test $(BUILD)/compare.coremark.im
 	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv_lrsc $(BUILD)/compare.vexriscv_lrsc.core.log
 	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c $(BUILD)/compare.hazard3_c.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c_fit $(BUILD)/compare.hazard3_c_fit.core.log
 	@echo '== the feature-matched row: littlecpu, VexRiscv with LR/SC and Hazard3 with C, all at RV32IMAC =='
 	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
 	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_IMAC_CFLAGS)' $(BUILD)/compare.coremark.imac.vvp \
-	  littlecpu,vexriscv_lrsc,hazard3_c
+	  littlecpu,vexriscv_lrsc,hazard3_c,hazard3_c_fit
 
 .PHONY: compare-coremark
 compare-coremark: hazard3-config-clone-test $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp \
@@ -1954,6 +1963,7 @@ COMPARE_ECP5_EXPECT_DSP_vexriscv  := 4
 COMPARE_ECP5_EXPECT_DSP_hazard3   := 0
 COMPARE_ECP5_EXPECT_DSP_hazard3_perf := 3
 COMPARE_ECP5_EXPECT_DSP_hazard3_c := 3
+COMPARE_ECP5_EXPECT_DSP_hazard3_c_fit := 3
 COMPARE_ECP5_EXPECT_DSP_vexriscv_lrsc := 4
 COMPARE_ECP5_EXPECT_DSP := $(COMPARE_ECP5_EXPECT_DSP_$(COMPARE_CORE))
 

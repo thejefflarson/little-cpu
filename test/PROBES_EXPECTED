@@ -1268,6 +1268,8 @@ the comment class lands nowhere if its own file is gone
 the compensation going missing is caught after every rule
 the core hitting its cycle budget is INCONCLUSIVE too
 the core's copy of the RAM base drifting from the RAM is red
+the cut-to-fit build differing from the C build in a third parameter is red
+the cut-to-fit build keeping Zifencei in the bench is red
 the cxxrtl leg failing its own baseline is red before any comparison
 the cxxrtl runner's kRamBase drifting is red
 the deep-recursion notice alone is allowlisted
