@@ -77,7 +77,7 @@ while read -r progs; do
   echo "   programs:$(for p in $progs; do printf ' %s' "$(basename "$p" .S)"; done)"
 
   t0=$SECONDS
-  if ! ./test/board/build_batch.sh "$OUT/b$i" $progs > "$OUT/link.log" 2>&1; then
+  if ! BATCH_ID=$i ./test/board/build_batch.sh "$OUT/b$i" $progs > "$OUT/link.log" 2>&1; then
     echo "   LINK FAILED:"; sed 's/^/      /' "$OUT/link.log" | tail -12
     for p in $progs; do echo "$(basename "$p") LINK-FAILED" >> "$RESULTS"; missing=$((missing+1)); done
     continue
@@ -108,6 +108,7 @@ while read -r progs; do
     python3 soc/board_read.py --seconds "$READ_S" --out "$RAWDIR/batch$i.attempt$attempt.txt" >/dev/null 2>&1
     raw=$(cat "$RAWDIR/batch$i.attempt$attempt.txt" 2>/dev/null)
     block=$(printf '%s' "$raw" | uart_last_block)
+    block_tag_ok "$block" "$i" "$want" || block=""
     got=$(printf '%s' "$block" | grep -c '^[0-9]' || true)
     echo "   read:  $got of $want verdicts (attempt $attempt)"
     [ "$got" -ge "$want" ] && break
@@ -146,12 +147,10 @@ expected=$(grep -v '^#' test/EXPECTED_FAIL 2>/dev/null | awk 'NF{print $1}' | so
 unexpected=""; unexpected_pass=""
 while read -r name status; do
   [ -z "$name" ] && continue
-  baselined=$(printf '%s\n' "$expected" | grep -Fx -- "$name" || true)
-  if [ "$status" = PASS ]; then
-    [ -n "$baselined" ] && unexpected_pass="$unexpected_pass $name"
-  elif [ -z "$baselined" ]; then
-    unexpected="$unexpected $name"
-  fi
+  case $(baseline_class "$name" "$status" "$expected") in
+    unexpected-pass) unexpected_pass="$unexpected_pass $name";;
+    unexpected) unexpected="$unexpected $name";;
+  esac
 done < "$RESULTS"
 never_ran=""
 for n in $(awk '/\.S[[:space:]]/{print $1}' test/OBSERVED_FLOOR); do

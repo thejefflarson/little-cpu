@@ -106,6 +106,14 @@ board_next:
 
 all_done:
 all_done_loop:
+  la    s6, board_tag
+12:
+  lbu   a0, 0(s6)
+  beqz  a0, 13f
+  jal   ra, put_wire               /* names the batch this replay belongs to */
+  addi  s6, s6, 1
+  j     12b
+13:
   la    s0, board_console
   la    s1, board_console_len
   lw    s1, 0(s1)

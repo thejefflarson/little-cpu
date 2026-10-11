@@ -4378,6 +4378,16 @@ probe "a results line that reads a missing verdict as a pass is red" 1 \
   "no verdict is not MISSING" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "s/^block_tag_ok() { .*/block_tag_ok() { true; }/"
+probe "a replay block left over from another batch is read as this batch's is red" 1 \
+  "stale batch tag accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/    \*) echo unexpected;;/    *) if [ -n "$hit" ]; then echo ok; else echo unexpected; fi;;/'
+probe "a baselined program with no report matching its baseline is red" 1 \
+  "matched the baseline" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/      queue+=("\$real")/      :/'
 probe "a root-binary check that stops at the first library hop is red" 1 \
   "library two hops down: got accept" "$BV $d/board_verdict.sh"

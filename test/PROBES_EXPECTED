@@ -127,6 +127,7 @@ a baseline funct3 that is not three binary digits is named
 a baseline line with no predicate behind it is red too
 a baseline opcode that is not seven binary digits is named
 a baselined program that diverges SOMEWHERE ELSE is red
+a baselined program with no report matching its baseline is red
 a baselined test that starts failing a DIFFERENT way is red
 a baselined upstream file that stopped mentioning it is red
 a bench in test/ that make does not run is named
@@ -535,6 +536,7 @@ a renamed task stops rather than probing some other design
 a renamed task stops this probe rather than moving its control
 a repetition count that counts a phantom bit at reset is red
 a repetition count that misses the first bit of a run is red
+a replay block left over from another batch is read as this batch's is red
 a replay parser that reads the cut tail instead of the last whole block is red
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed

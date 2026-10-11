@@ -32,6 +32,10 @@ done
   echo 'board_table:'
   for n in $(seq 0 $((i-1))); do echo "  .word p${n}__start"; done
   echo '  .align 2'
+  echo '  .globl board_tag'
+  echo 'board_tag:'
+  echo "  .asciz \"B${BATCH_ID:-0} $i\\n\""
+  echo '  .align 2'
   echo '  .globl board_count'
   echo 'board_count:'
   echo "  .word $i"
