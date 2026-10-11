@@ -1224,6 +1224,13 @@ suite-board: $(BUILD)/ftread
 	@echo
 	@ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/run_suite_board.sh $(if $(ICEPROG_SUDO),--iceprog '$(BOARD_ICEPROG)' --ftread '$(BOARD_FTREAD)',--ftread '$(abspath $(BUILD))/ftread')
 
+.PHONY: icesugar-suite-board
+icesugar-suite-board:
+	@echo 'Runs the .S suite on the iCESugar-Pro, in batches: SRAM over JTAG, never the flash,'
+	@echo 'no sudo. SHOW_RAW=1 prints each raw capture; results land in build/suite_icesugar_results.txt.'
+	@echo
+	@./soc/run_suite_icesugar.sh
+
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
 # The one deliberate difference between this image and `make dhrystone`'s: a board has

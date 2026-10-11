@@ -11,6 +11,37 @@ grade_verdict() {
 
 display_safe() { LC_ALL=C tr -cd '[:print:]\n'; }
 
+# The last complete block of a UART replay: the driver ends each replay with a "." line, so the text before the final one.
+uart_last_block() { awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{printf "%s", a[n-1]}'; }
+
+# Block $1 must open with the driver's "B<batch $2> <programs $3>" tag, so a buffered replay from an earlier batch is refused.
+block_tag_ok() { [ "$(printf '%s\n' "$1" | head -n 1)" = "B$2 $3" ]; }
+
+block_verdict() { printf '%s\n' "$1" | awk -v k="$2" '$1==k{print $2; exit}'; }
+
+# ok, unexpected or unexpected-pass for program $1's result $2 against baseline names $3; a baselined program matches only a numbered FAIL.
+baseline_class() {
+  local name=$1 status=$2 baselined=$3 hit
+  hit=$(printf '%s\n' "$baselined" | grep -Fx -- "$name" || true)
+  case $status in
+    PASS) if [ -n "$hit" ]; then echo unexpected-pass; else echo ok; fi;;
+    "FAIL "[0-9]*) if [ -n "$hit" ]; then echo ok; else echo unexpected; fi;;
+    *) echo unexpected;;
+  esac
+}
+
+# One results line, "name PASS|FAIL <n>|PARSE-ERROR|MISSING", from a program's name and its verdict (empty if none arrived).
+result_line() {
+  local name=$1 v=${2-} g
+  if [ -z "$v" ]; then echo "$name MISSING"; return 0; fi
+  g=$(grade_verdict "$v")
+  case $g in
+    PASS) echo "$name PASS";;
+    PARSE) echo "$name PARSE-ERROR";;
+    *) echo "$name $g";;
+  esac
+}
+
 native_magic() { LC_ALL=C od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
 
 resolve_path() {

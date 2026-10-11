@@ -250,6 +250,21 @@ simulator returns the board's number to the cycle. `DHRY_BOARD_CFLAGS`'s comment
 claimed sharing `DHRY_CFLAGS` made the two comparable; it is necessary and not
 sufficient, and the Makefile now says so beside the define that breaks it.
 
+## The `.S` suite on the part, 2026-10-05
+
+`make icesugar-suite-board` runs the suite on this board the way `make suite-board`
+does on the UPduino: it places `icesugar_pro_top` once with placeholder ROM
+contents, then per batch swaps the linked batch into the placed configuration
+with `ecpbram`, repacks, loads SRAM over JTAG and reads the CDC UART with
+`soc/board_read.py`. Every program the `.S` suite holds except `rvc.S` (12,256
+bytes against the 8 KB ROM) ran, in 8 batches of 8 to 11 programs, on `origin/main`
+13e24b38 at 30 MHz: **79 of 79 reported a pass**, none failed, none went silent.
+Nothing in `test/EXPECTED_FAIL` exists to be contradicted, and no program in
+`test/OBSERVED_FLOOR` failed to run. The timer-interrupt programs, the atomics
+and the self-modifying-text programs are among the 79. A program that
+passed under simulation and failed on silicon would have been the finding; there
+was none.
+
 ## What this does not settle
 
 Whether the fault is yosys emitting an output
