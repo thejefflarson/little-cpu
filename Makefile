@@ -37,6 +37,7 @@ sim: test/cxxrtl.cc test/rtl.cc
 
 include mk/toolchain.mk
 
+include mk/nist90b.mk
 include nano/nano.mk
 include nano/tb.mk
 
@@ -558,7 +559,7 @@ compare-product-schedule-publish-test:
 .PHONY: tool-cache-test
 tool-cache-test:
 	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)' \
-	  '$(NANO_LIBERTY_DIR)' '$(RISCV_GCC_DIR)'
+	  '$(NANO_LIBERTY_DIR)' '$(RISCV_GCC_DIR)' '$(NIST_90B_DIR)'
 
 .PHONY: riscv-gcc-pin-test
 riscv-gcc-pin-test:
@@ -790,7 +791,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test entropy-geometry-test entropy-assess-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
+      pll-clock-test entropy-geometry-test entropy-assess-test entropy-stream-test nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \

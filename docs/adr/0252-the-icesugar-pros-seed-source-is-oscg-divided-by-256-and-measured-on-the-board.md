@@ -97,3 +97,81 @@ at 37.15 MHz worst, 38.8 median and 40.34 best against its 30 MHz constraint, no
 - The folded output was only looked at on 2,545 bits. A conditioned-output test (90B 4.3, or
   dieharder) over megabits is not done.
 - The SB_LFOSC capture on the UPduino is not taken; nothing here transfers to it.
+
+## Amendment: NIST's tool on a million consecutive samples (2026-10-11)
+
+Measured on the same board (iCESugar-Pro, LFE5U-25F-6BG256C, openFPGALoader over the CMSIS-DAP,
+SRAM only) on 2026-10-11, tree at `main` c454c8e5 plus this change. **NIST's reference tool puts
+the shipped setting at 0.4994 bit of min-entropy per sample, under the 0.5 `rtl/trng.v` assumes,
+and the 25 MHz-pad worst case at 0.4134.** The repo's own estimators above (median 0.71) were
+optimistic for this source. No health test was changed.
+
+**The tool.** `usnistgov/SP800-90B_EntropyAssessment` at commit
+`68ed165fd7a3eeef26b87a546ba23f338e82a3f3` (tag v1.1.8; its binaries print `noniid 1.1.7`),
+tarball SHA-256 `067946993b73de947c435c48d811f5f9b2ce9084d8408512f263515816e19582`, pinned in
+`mk/nist90b.mk` with the command-line override refused, installed by `make nist90b-setup` into
+`~/.cache/little-cpu/sp800-90b` and built there (`ea_non_iid`, `ea_restart`) with clang++ and
+Homebrew's libomp, jsoncpp, libdivsufsort and openssl@3 on macOS arm64.
+
+**Why a new capture.** The interval capture above cannot give consecutive samples. It fills 4,096
+intervals in 0.43 s, then sends them in 0.71 s at 115200 baud while about 6,800 edges pass
+unrecorded, and 16-bit intervals at 9.5 kHz need 19 kB/s on a line that carries 11.5 kB/s.
+`soc/entropy_stream_icesugar_pro.v` and `soc/entropy_bit_framer.v` stream only the bit `rtl/trng.v`
+reads, `ticks[1] ^ ticks[0]` of every edge's interval, from the same `OSCG`, fabric divide and
+3-flop synchroniser. A frame is 64 sample bits behind a 16-bit sequence number and a 16-bit sum:
+14 bytes, 1.2 ms of line time per 6.7 ms of edges, so a frame is always sent before the next
+completes, and if one were not the sequence number would still advance. A run is consecutive
+exactly when the sequence numbers advance by one; `soc/entropy_stream.py` discards a run at any
+gap. `test/entropy_stream_test.py` simulates the framer against the intervals and forces each loss
+red: edges faster than the UART, a flipped byte, a skipped number, a wrong sample bit.
+
+**ea_non_iid, 1,000,000 consecutive samples, one bit each** (so H_bitstring is not produced: the
+sample is the bitstring), the final run of each setting:
+
+| estimator | OSCG / 2^8, 30 MHz PLL core (shipped) | same, core on the 25 MHz pad |
+|---|---|---|
+| most common value | 0.973558 | 0.993922 |
+| collision | **0.499409** | 0.445219 |
+| Markov | 0.762291 | 0.723553 |
+| compression | 0.507934 | **0.413438** |
+| t-tuple | 0.601708 | 0.511482 |
+| longest repeated substring | 0.918066 | 0.819853 |
+| MultiMCW prediction | 0.720606 | 0.661168 |
+| lag prediction | 0.742791 | 0.679895 |
+| MultiMMC prediction | 0.742791 | 0.677693 |
+| LZ78Y prediction | 0.742790 | 0.679895 |
+| **H_original** | **0.499409** | **0.413438** |
+
+The shipped setting sits on the line: two earlier 1M captures of the same design read 0.500299 and
+0.503930, so the figure is 0.5 within a spread of about 0.004, and the collision estimate sets it
+each time. The 25 MHz-pad setting is under 0.5 by NIST's estimate by far more than that spread, the
+direction ADR-0252's own estimators gave (0.49 worst run).
+
+**Restart test.** 1,000 restarts of 1,000 samples, each restart a fresh JTAG load of the capture
+bitstream (`openFPGALoader -m`, SRAM) with the first 1,000 samples after the load kept; a load takes
+4.4 s because `ecppack --compress` shrinks the stream bitstream to 105 KB. Shipped setting:
+`ea_restart` passed its sanity check (largest count of one value in a row or column 632, cutoff
+770) and its validation test, with H_r 0.502356, H_c 0.832244 and H_I 0.499409, so
+min(H_r, H_c, H_I) is 0.499409. The restart rows are no worse than the continuous run: the column
+estimates (0.83 to 0.999) show no first-sample pattern across restarts. The pad setting's matrix
+was not completed (see below).
+
+**What a JTAG reload resets.** It erases and rewrites the FPGA's configuration SRAM: every fabric
+flip-flop returns to its initial value, the PLL is reconfigured and re-locks, and the capture
+starts again at sequence 0 with its first edge discarded. It does not reset what a power cycle
+would: the die and board temperature, the supply rails, the 25 MHz crystal, and the debugger.
+Whether the erase also stops `OSCG`'s ring, or only its configuration bit, was not observed, so
+the restart rows test the start-up of the design and not a cold start of the oscillator.
+
+**What the board needs.** The claim of 0.5 bit per sample is not supported with margin by NIST's
+tool. Not done here, and not a health-test change: raise the margin in the source (a faster core
+clock quantises the same jitter more finely, as the pad run's slower clock lost 0.09 bit; the
+placed core clock closes at 37.15 MHz worst, ADR-0252, so the 30 MHz PLL is not the ceiling) or
+claim less than 0.5, which raises the proportion-test cutoff and is the owner's call. Either needs
+a new `make entropy-nist` run, which `test/nist90b_grade_test.py` grades against the 0.5 floor.
+
+**Reproducing.** `make entropy-nist-pll` and `make entropy-nist-pad` build the capture, load it,
+capture, run both tools and grade them (`soc/entropy_nist.py`, `soc/nist90b_grade.py`); they exit
+nonzero when the report is under 0.5, as the shipped setting's is. About 85 minutes each, off
+`make test`. `ENTROPY_NIST_LOCK` names a directory held around each board access and
+`ENTROPY_NIST_RESUME=1` continues a partly filled matrix.
