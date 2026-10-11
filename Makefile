@@ -604,6 +604,14 @@ makefile-target-test:
 pll-clock-test:
 	@python3 ./test/pll_clock_test.py
 
+.PHONY: entropy-geometry-test
+entropy-geometry-test:
+	@python3 ./test/entropy_geometry_test.py
+
+.PHONY: entropy-assess-test
+entropy-assess-test:
+	@python3 ./test/entropy_assess_test.py
+
 .PHONY: ill-e-wiring-test
 ill-e-wiring-test:
 	@python3 ./test/ill_e_wiring_test.py
@@ -778,7 +786,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
+      pll-clock-test entropy-geometry-test entropy-assess-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \
@@ -1093,7 +1101,7 @@ ICESUGAR_PACKAGE := CABGA256
 ICESUGAR_SPEED   := 6
 ICESUGAR_PART    := LFE5U-25F-6BG256C
 ICESUGAR_TOP     := icesugar_pro_top
-ICESUGAR_SRCS    := $(SOC_SRCS) soc/icesugar_pro_pll.v soc/board_icesugar_pro.v
+ICESUGAR_SRCS    := $(SOC_SRCS) soc/icesugar_pro_pll.v soc/icesugar_pro_entropy.v soc/board_icesugar_pro.v
 ICESUGAR_PROG    ?= soc/blink.S
 
 ICESUGAR_ROM     ?= soc-rom

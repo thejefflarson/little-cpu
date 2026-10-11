@@ -9890,6 +9890,37 @@ mutate_remove "$d/soc/icesugar_pro_pll.v"
 probe "a missing PLL file is refused rather than read as agreement" 1 \
   "cannot grade a missing one" "$PLLC $d"
 
+begin_group "test/entropy_geometry_test.py"
+
+EGEO="python3 $HERE/entropy_geometry_test.py"
+
+egeo_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/rtl" "$d/test"
+  cp "$REPO/soc/icesugar_pro_entropy.v" "$REPO/soc/board_icesugar_pro.v" "$d/soc/"
+  cp "$REPO/rtl/trng.v" "$d/rtl/"
+  printf '%s' "$d"
+}
+
+d=$(egeo_fixture)
+probe "control: the shipping entropy source sits between the jitter floor and the edge timeout" 0 \
+  "core cycles per edge" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 8/DIV_LOG2 = 7/'
+probe "an edge period too short for the jitter to fill is red" 1 \
+  "under the 3000 at which the measured min-entropy reached 0.5" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 8/DIV_LOG2 = 9/'
+probe "an edge period that an oscillator 20% slow would push past the timeout is red" 1 \
+  "edge timeout; an oscillator" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/board_icesugar_pro.v" "s/\\.entropy_raw(entropy_raw)/.entropy_raw(1'b0)/"
+probe "the defect this exists for: the seed source tied low on the board" 1 \
+  "seed reads DEAD" "$EGEO $d"
+
 begin_group "test/pin_bump_token_test.py"
 
 # The workflow's shape is the control: the step that runs upstream code must hold no
