@@ -139,3 +139,33 @@ disagree.
 **Hold reset with a counter instead of `LOCK`.** `littlesoc`'s power-on counter is
 already that counter, and it counts the PLL's own edges — of which there are none
 before lock and unreliable ones during it. Reading `LOCK` costs a wire.
+
+## Amendment, 2026-10-05: the board ran it
+
+`make icesugar-dhrystone` on the iCESugar-Pro, loaded into SRAM over JTAG, at
+`origin/main` 13e24b38. The table above predicted the pre-refactor tree's cycle
+count; the re-prediction is `make dhrystone DHRY_RUNS=20000 DHRY_CYCLES=20000000`
+under cxxrtl on today's tree.
+
+| 20,000 runs | cxxrtl | the part |
+|---|---|---|
+| cycles | 12,080,025 | **12,080,025** |
+| instructions | 9,200,026 | **9,200,026** |
+| CPI | 1.31 | 1.31 |
+| cycles per Dhrystone | 604 | 604 |
+| DMIPS/MHz | 0.942 | **0.942** |
+| self-check | PASS | PASS |
+
+**The simulator and the part agree to the cycle**, as ADR-0130 and ADR-0163 found
+before the fetch refactor. At 30 MHz that is 1,655.6 x 30 / 1757 = **28.3 DMIPS**
+(the 23.3 predicted was 0.775 x 30, and 0.775 is the pre-refactor figure).
+The UART report arrived clean at 115200, so `CLOCK_HZ` and the clock agree.
+
+**The core runs at 30.000 MHz, by a wall clock.** `soc/clock_check.S` waits 150,000,000
+`mcycle` ticks, prints `T`, and repeats; the host stamped each `T`. Four
+consecutive intervals read 4.9992, 5.0003, 4.9995 and 5.0002 s, against 5.000 s
+at exactly 30 MHz, so the clock is within 0.02% of the PLL's arithmetic and the
+board's oscillator is the 25 MHz MuseLab states. Run it with
+`make icesugar-prog ICESUGAR_PROG=soc/clock_check.S` after deleting
+`build/icesugar.{json,config,bit}` (the bitstream does not depend on the ROM hex,
+so a stale one is loaded otherwise).
