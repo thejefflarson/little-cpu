@@ -4454,6 +4454,21 @@ probe "a dual grader that accepts a capture holding only debugger chatter is red
   "dual chatter-only capture accepted" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ -n "$last" ]; then/'
+probe "a flash grader that accepts any FLASH line whatever its id is red" 1 \
+  "flash wrong id accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ "${last% sfdp=*}" = "FLASH id=$2" ]; then/'
+probe "a flash grader that does not require the SFDP signature is red" 1 \
+  "flash missing signature accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ "$last" = "FLASH id=$2 sfdp=SFDP" ] || [ -z "$last" ]; then/'
+probe "a flash grader that accepts a capture holding only debugger chatter is red" 1 \
+  "flash chatter-only capture accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/      queue+=("\$real")/      :/'
 probe "a root-binary check that stops at the first library hop is red" 1 \
   "library two hops down: got accept" "$BV $d/board_verdict.sh"

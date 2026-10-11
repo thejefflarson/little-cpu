@@ -1228,8 +1228,8 @@ two 32-bit banks, and at 16 bits wide a fetch window is four SPRAMs, the whole p
 `test/asm/rvc.S`, at 12 256 bytes, still cannot run on silicon, and `soc/run_suite_board.sh`
 batches.
 
-**The configuration flash has a read-only controller, `rtl/spiflash.v`, and its own pins are not
-wired to this board** (ADR-0135). Eight bytes at `0x0002_0028`: a data register whose read gives
+**The configuration flash has a read-only controller, `rtl/spiflash.v`. The iCESugar-Pro wires it
+and the UPduino does not yet** (ADR-0135). Eight bytes at `0x0002_0028`: a data register whose read gives
 `busy` in bit 8 above the byte the last exchange shifted in, and a write-only control register
 whose bit 0 is the chip select; it is a mode-0 shift register that knows no commands. `busy` sits
 beside the byte rather than in a register software writes because the reference model has plain
@@ -1242,7 +1242,13 @@ predicate answers "is the flash's driver off", not "is a host there" — `icepro
 high for most of a session — so it cannot grant the on-chip controller its own pins.
 `soc/pin_lockout.v` was built for that, ships bounded and graded standalone, and is not wired;
 `sck`, `mosi` and `cs_n` are tied off. Reaching the flash's data path owes a real-board measurement
-of that contention window first.
+of that contention window first. The iCESugar-Pro has no such sharing: `soc/board_icesugar_pro.v`
+connects chip select, MOSI and MISO to the W25Q256JV's pins and reaches the clock through
+`USRMCLK`, the only route to the configuration clock pad after configuration (pins and their
+sources: `docs/pin-constraints.md`). `make icesugar-flash-id` loads `soc/flash_id.S` over JTAG,
+which reads the JEDEC ID (`0x9F`) and the SFDP header (`0x5A`) and prints both, and grades the
+UART for ID `EF4019` and the signature "SFDP". The controller toggles `sck` once per two core
+clocks, so 15 MHz at the board's 30 MHz.
 
 **A transmit-only UART is the only observable output a flashed bitstream has** — eight bytes at
 `0x0002_0020`, above the timer's reservation because the four words between belong to a second

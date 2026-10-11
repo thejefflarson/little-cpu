@@ -1212,6 +1212,16 @@ icesugar-dual-run:
 	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt
 	@bash -c '. soc/board_verdict.sh && dual_verdict "$$0" "$$1"' $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt $(if $(filter 1,$(ICESUGAR_DUAL_HELD)),0,16)
 
+ICESUGAR_FLASH_ID ?= EF4019
+
+.PHONY: icesugar-flash-id
+icesugar-flash-id:
+	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_PROG=soc/flash_id.S
+	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) -m $(BUILD)/icesugar.bit
+	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_flash_id.txt
+	@bash -c '. soc/board_verdict.sh && flash_verdict "$$0" "$$1"' $(BUILD)/icesugar_flash_id.txt $(ICESUGAR_FLASH_ID)
+
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
 .PHONY: ecp5-timing-toolchain
