@@ -901,10 +901,17 @@ make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks
                     # domain from the PLL's dividers, and missing it is an ERROR
 make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write leaves the
                     # part at `@cdone:0`, unconfigured, until it is physically power-cycled
-make icesugar-read  # read that board's UART for a bounded window
+make icesugar-read  # read that board's UART for a bounded window. The port is the iCELink found by
+                    # USB VID/PID (`--port` overrides; zero or several matches are refused), bytes
+                    # reach the terminal escaped, and the loader runs under `soc/bounded.py`
+                    # (ICESUGAR_LOAD_S, 90) so a stalled transfer is LOAD-FAILED, not a hang
+make icesugar-clock-check # load soc/clock_check.S, time its `T` lines on the host and fail when
+                    # the mean interval is outside ICESUGAR_CLOCK_PPM (1000) of the board's CORE_HZ;
+                    # 30.0035 MHz, +116 ppm over 11 intervals when taken. Needs the board
 soc/entropy_capture.sh TAG OSC_DIV FAB_LOG2 CORE_PAD # build a core-less capture of OSCG's raw edge
                     # intervals for one setting; load it with openFPGALoader, then
-                    # `soc/entropy_assess.py read` and `assess` collect and grade the frames.
+                    # `soc/entropy_assess.py read` and `assess` collect and grade the frames; each frame ends
+                    # in a 16-bit sum of its intervals, and a frame whose sum differs is dropped and counted.
                     # `make icesugar-prog ICESUGAR_PROG=soc/seed_probe.S` prints the seed CSR's
                     # status changes and words. Needs the board, so off `make test` and CI
 make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.

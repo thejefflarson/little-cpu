@@ -14,6 +14,12 @@ so the only things left worth writing down are the ones that cost a run here.
     re-enumerates and the descriptor goes stale. Read as idle it spins on a dead
     fd for the whole window and reports silence from a board that was talking.
     Counted and reopened instead.
+  * The port is the iCELink's, resolved by the USB VID/PID the loader is pinned to
+    (soc/board_port.py). Zero or several matches are refused rather than the first
+    one opened, and a reopen after re-enumeration goes through the same lookup.
+  * Bytes reach the terminal escaped, every one that is not printable ASCII, `\\n` or
+    `\\t`: the UART is the program's, and an ESC sequence in it would otherwise retitle
+    the window, rewrite earlier output or set the clipboard. `--out` keeps the raw bytes.
   * The iCELink writes its own chatter onto this line (`@cdone:0`, an overflow
     notice). It is the debugger's, not the core's, and is left in rather than
     filtered: a transcript that quietly drops bytes is the wrong tool for
@@ -27,13 +33,35 @@ import sys
 import termios
 import time
 
+import board_port
 
-def open_port(pattern):
-    ports = sorted(glob.glob(pattern))
-    if not ports:
+escape_display = board_port.escape_display
+
+
+def stamped_lines(buf, tail, arrived):
+    """(`seconds<TAB>line` for each line completed since offset tail, the new tail)."""
+    lines = []
+    while (end := buf.find(b"\n", tail)) >= 0:
+        lines.append("%.4f\t%s" % (arrived, escape_display(buf[tail:end].rstrip(b"\r"))))
+        tail = end + 1
+    return lines, tail
+
+
+def candidates(override):
+    return sorted(glob.glob(override)) if override else board_port.find_ports()
+
+
+def refusal(nodes, override):
+    if len(nodes) == 1:
         return None
+    want = board_port.show(override) if override else "USB %04x:%04x" % (board_port.VID, board_port.PID)
+    return "%d serial nodes match %s%s; name the one to read with --port" % (
+        len(nodes), want, " (%s)" % ", ".join(map(board_port.show, nodes)) if nodes else "")
+
+
+def open_port(path):
     try:
-        fd = os.open(ports[0], os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+        fd = os.open(path, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
     except OSError:
         return None
     try:
@@ -54,21 +82,36 @@ def open_port(pattern):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=float, default=30.0)
-    parser.add_argument("--port", default="/dev/cu.usbmodem*")
+    parser.add_argument("--port", help="a serial node or glob, instead of the iCELink found by VID/PID")
+    parser.add_argument("--stamps", help="write `seconds<TAB>line` for each line, stamped as it arrived")
     parser.add_argument("--out", help="write the transcript here as it arrives")
     parser.add_argument("--until", help="stop early once this text has arrived")
     args = parser.parse_args()
 
+    nodes = candidates(args.port)
+    if refusal(nodes, args.port):
+        sys.exit("*** " + refusal(nodes, args.port))
+    node = nodes[0]
+    print("board_read: reading %s" % board_port.show(node), flush=True)
+
     buf = bytearray()
-    fd = open_port(args.port)
+    fd = open_port(node)
     eofs = 0
-    started = time.time()
-    while time.time() - started < args.seconds:
+    lines, tail = [], 0
+    started = time.monotonic()
+    while time.monotonic() - started < args.seconds:
         if fd is None:
-            fd = open_port(args.port)
+            nodes = candidates(args.port)
+            if len(nodes) > 1:
+                sys.exit("*** " + refusal(nodes, args.port))
+            again = nodes[0] if nodes else None
+            fd = open_port(again) if again else None
             if fd is None:
                 time.sleep(0.1)
                 continue
+            if again != node:
+                print("board_read: the board re-enumerated as %s" % board_port.show(again), flush=True)
+                node = again
             eofs = 0
         try:
             chunk = os.read(fd, 4096)
@@ -83,10 +126,16 @@ def main():
             continue
         if chunk:
             eofs = 0
+            arrived = time.monotonic() - started
             buf.extend(chunk)
             if args.out:
                 with open(args.out, "wb") as handle:
                     handle.write(bytes(buf))
+            if args.stamps:
+                fresh, tail = stamped_lines(buf, tail, arrived)
+                lines += fresh
+                with open(args.stamps, "w") as handle:
+                    handle.write("".join(line + "\n" for line in lines))
             if args.until and args.until.encode() in buf:
                 break
         else:
@@ -98,10 +147,10 @@ def main():
     if fd is not None:
         os.close(fd)
 
-    sys.stdout.write(bytes(buf).decode("ascii", "replace"))
+    sys.stdout.write(escape_display(buf))
     sys.stdout.write("\n")
     if not buf:
-        print("*** nothing arrived on %s in %.0fs." % (args.port, args.seconds))
+        print("*** nothing arrived on %s in %.0fs." % (board_port.show(node), args.seconds))
         print("*** The board is configured by `make icesugar-prog`, which loads")
         print("*** SRAM over JTAG and starts the design immediately. Writing the")
         print("*** flash instead leaves the part unconfigured until it is")

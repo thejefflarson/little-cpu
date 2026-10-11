@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Capture and assess the raw edge intervals of an on-chip oscillator.
 
-  entropy_assess.py read   --out run.txt [--frames N] [--port GLOB]   read N frames over the UART
+  entropy_assess.py read   --out run.txt [--frames N] [--port NODE]   read N frames over the UART
   entropy_assess.py assess run.txt [run2.txt ...]                      assess captured intervals
 
-A frame is 0xA5 0x5A and 4,096 little-endian 16-bit intervals, in core-clock cycles between rising
-edges of the synchronised oscillator (soc/entropy_capture_icesugar_pro.v). The same method serves
-any board whose capture streams that frame: the UPduino's SB_LFOSC owes the same measurement.
+A frame is 0xA5 0x5A, 4,096 little-endian 16-bit intervals, in core-clock cycles between rising
+edges of the synchronised oscillator, and the 16-bit little-endian sum of those intervals
+(soc/entropy_capture_icesugar_pro.v). A frame whose sum does not match is dropped and counted.
+The same method serves any board whose capture streams that frame: the UPduino's SB_LFOSC owes
+the same measurement.
 
 The assessment follows NIST SP 800-90B section 6.3 for a non-IID source, on the one-bit sample
 rtl/trng.v actually uses, ticks[1] ^ ticks[0] of the interval (ticks is interval - 1 at the edge):
@@ -26,6 +28,7 @@ import time
 
 SAMPLES = 4096
 HEADER = b"\xa5\x5a"
+FRAME_BYTES = len(HEADER) + 2 * SAMPLES + 2
 APT_WINDOW, APT_CUTOFF = 512, 410
 
 
@@ -34,13 +37,41 @@ def sample_bit(interval):
     return (ticks >> 1 & 1) ^ (ticks & 1)
 
 
+def extract_frames(buf):
+    """Frames whose trailer matches, removed from buf; the count of markers followed by a bad frame.
+
+    A bad frame is skipped one marker at a time, so a marker found inside data or after a capture
+    started mid-stream cannot swallow the real frame behind it.
+    """
+    frames, dropped = [], 0
+    while True:
+        at = buf.find(HEADER)
+        if at < 0 or len(buf) < at + FRAME_BYTES:
+            del buf[: at if at >= 0 else max(len(buf) - 1, 0)]
+            return frames, dropped
+        body = buf[at + 2 : at + 2 + 2 * SAMPLES]
+        words = [body[i] | body[i + 1] << 8 for i in range(0, len(body), 2)]
+        trailer = buf[at + 2 + 2 * SAMPLES] | buf[at + 3 + 2 * SAMPLES] << 8
+        if sum(words) & 0xFFFF == trailer:
+            frames.append(words)
+            del buf[: at + FRAME_BYTES]
+        else:
+            dropped += 1
+            del buf[: at + 2]
+
+
 def read_frames(port, frames, seconds):
     import termios
 
-    ports = sorted(glob.glob(port))
-    if not ports:
-        sys.exit("*** no serial port matches %s" % port)
-    fd = os.open(ports[0], os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    import board_port
+
+    nodes = sorted(glob.glob(port)) if port else board_port.find_ports()
+    if len(nodes) != 1:
+        sys.exit("*** %d serial nodes match %s%s; name the one to read with --port"
+                 % (len(nodes), board_port.show(port) if port else "USB %04x:%04x" % (board_port.VID, board_port.PID),
+                    " (%s)" % ", ".join(map(board_port.show, nodes)) if nodes else ""))
+    print("entropy_assess: reading %s" % board_port.show(nodes[0]), flush=True)
+    fd = os.open(nodes[0], os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
     attrs = termios.tcgetattr(fd)
     attrs[4] = attrs[5] = termios.B115200
     attrs[2] = (attrs[2] | termios.CS8 | termios.CREAD | termios.CLOCAL) & ~(
@@ -50,7 +81,7 @@ def read_frames(port, frames, seconds):
     termios.tcsetattr(fd, termios.TCSANOW, attrs)
     termios.tcflush(fd, termios.TCIFLUSH)
     buf = bytearray()
-    out = []
+    out, dropped = [], 0
     deadline = time.time() + seconds
     while time.time() < deadline and len(out) < frames:
         try:
@@ -60,15 +91,13 @@ def read_frames(port, frames, seconds):
             continue
         if chunk:
             buf.extend(chunk)
-        while len(out) < frames:
-            at = buf.find(HEADER)
-            if at < 0 or len(buf) < at + 2 + 2 * SAMPLES:
-                break
-            body = buf[at + 2 : at + 2 + 2 * SAMPLES]
-            del buf[: at + 2 + 2 * SAMPLES]
-            out.append([body[i] | body[i + 1] << 8 for i in range(0, len(body), 2)])
+        good, bad = extract_frames(buf)
+        out += good
+        dropped += bad
     os.close(fd)
-    return out
+    if dropped:
+        print("entropy_assess: dropped %d frame(s) whose trailer did not match" % dropped)
+    return out[:frames]
 
 
 def load(paths):
@@ -248,7 +277,7 @@ def main():
     rd.add_argument("--out", required=True)
     rd.add_argument("--frames", type=int, default=4)
     rd.add_argument("--seconds", type=float, default=20.0)
-    rd.add_argument("--port", default="/dev/cu.usbmodem*")
+    rd.add_argument("--port", help="a serial node or glob, instead of the iCELink found by VID/PID")
     asp = sub.add_parser("assess")
     asp.add_argument("files", nargs="+")
     args = parser.parse_args()

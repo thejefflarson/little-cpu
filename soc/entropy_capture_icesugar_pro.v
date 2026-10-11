@@ -3,8 +3,9 @@
 // Streams the raw edge intervals of OSCG out of the UART: the capture the entropy assessment of
 // rtl/trng.v reads. It has no core. An interval is the number of `clk` cycles between two rising
 // edges of the oscillator after the synchroniser, which is what rtl/trng.v counts. Each frame is
-// 0xA5 0x5A then 4,096 little-endian 16-bit intervals (0xFFFF saturates), and the loop then
-// captures a fresh run, so a frame is never stitched from two.
+// 0xA5 0x5A, 4,096 little-endian 16-bit intervals (0xFFFF saturates) and a little-endian 16-bit
+// sum of those intervals, and the loop then captures a fresh run, so a frame is never stitched
+// from two. The sum is what lets a reader tell a frame from bytes that merely follow a marker.
 module entropy_capture_icesugar_pro #(
   parameter integer OSC_DIV  = 128,  // OSCG divider, 2..128
   parameter integer FAB_LOG2 = 8,    // fabric divide-by-2^FAB_LOG2, at least 1
@@ -50,8 +51,9 @@ module entropy_capture_icesugar_pro #(
   logic [11:0] idx = '0;
   logic [15:0] cnt = 16'd1;
   logic        have_prev = 1'b0;
+  logic [15:0] sum = '0;
 
-  typedef enum logic [2:0] {CAP, HDR0, HDR1, FETCH, LO, HI} state_t;
+  typedef enum logic [2:0] {CAP, HDR0, HDR1, FETCH, LO, HI, TRL, TRH} state_t;
   state_t state = CAP;
 
   always_ff @(posedge clk) ram_q <= ram[idx];
@@ -97,6 +99,7 @@ module entropy_capture_icesugar_pro #(
         end
         HDR0: if (!tx_busy) begin
           shift <= {1'b1, 8'hA5, 1'b0}; bits_left <= 4'd10; baud <= '0;
+          sum   <= '0;
           state <= HDR1;
         end
         HDR1: if (!tx_busy) begin
@@ -106,6 +109,7 @@ module entropy_capture_icesugar_pro #(
         FETCH: state <= LO;
         LO: if (!tx_busy) begin
           shift <= {1'b1, ram_q[7:0], 1'b0}; bits_left <= 4'd10; baud <= '0;
+          sum   <= sum + ram_q;
           state <= HI;
         end
         HI: if (!tx_busy) begin
@@ -114,10 +118,18 @@ module entropy_capture_icesugar_pro #(
           if (idx == 12'(SAMPLES - 1)) begin
             idx       <= '0;
             have_prev <= 1'b0;
-            state     <= CAP;
+            state     <= TRL;
           end else begin
             state <= FETCH;
           end
+        end
+        TRL: if (!tx_busy) begin
+          shift <= {1'b1, sum[7:0], 1'b0}; bits_left <= 4'd10; baud <= '0;
+          state <= TRH;
+        end
+        TRH: if (!tx_busy) begin
+          shift <= {1'b1, sum[15:8], 1'b0}; bits_left <= 4'd10; baud <= '0;
+          state <= CAP;
         end
         default: state <= CAP;
       endcase
