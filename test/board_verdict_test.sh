@@ -190,6 +190,26 @@ printf '%s\n' "$(cd -P "$WORK/a" && pwd -P)" > "$STUB_ACL"
 expect_at refuse "an ancestor whose ACL grants what its mode does not" "$WORK/a/b/tool"
 : > "$STUB_ACL"
 
+# An ACL read that fails must refuse: no getfacl on a non-Darwin host, or getfacl or ls -lde exiting nonzero.
+bare=$WORK/bare; mkdir "$bare"
+for t in stat dirname basename tail grep tr od id; do ln -s "$(command -v $t)" "$bare/$t"; done
+printf '#!/bin/bash\necho Linux\n' > "$bare/uname"; chmod 755 "$bare/uname"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: a host without getfacl passed the root-binary check" >&2; fail=1
+fi
+grep -q 'getfacl is not installed' "$WORK/err" || { echo "FAIL: the missing-getfacl refusal does not name the tool" >&2; fail=1; }
+printf '#!/bin/bash\nexit 1\n' > "$bare/getfacl"; chmod 755 "$bare/getfacl"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: a getfacl that exits nonzero passed the root-binary check" >&2; fail=1
+fi
+grep -q 'cannot read the ACL' "$WORK/err" || { echo "FAIL: a failing getfacl was not reported as unreadable" >&2; fail=1; }
+printf '#!/bin/bash\necho Darwin\n' > "$bare/uname"
+printf '#!/bin/bash\nexit 1\n' > "$bare/ls"; chmod 755 "$bare/ls"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: an ls -lde that exits nonzero passed the root-binary check" >&2; fail=1
+fi
+grep -q 'cannot read the ACL' "$WORK/err" || { echo "FAIL: a failing ls -lde was not reported as unreadable" >&2; fail=1; }
+
 printf '\177ELF' > "$WORK/lib/libx.dylib"; printf '\177ELF' > "$WORK/lib/liby.dylib"
 chmod 755 "$WORK/lib/libx.dylib" "$WORK/lib/liby.dylib"
 printf '/usr/lib/libSystem.B.dylib\n/System/Library/Frameworks/IOKit.framework/IOKit\n%s\n' "$WORK/lib/libx.dylib" > "$STUB_DEPS/tool.deps"

@@ -4490,7 +4490,7 @@ probe "a path walk that word-splits a directory name is red" 1 \
   "a path with a space and a glob character in it: got refuse" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
-mutate "$d/board_verdict.sh" 's/^    if acl_grants "\$cur"; then$/    if false; then/'
+mutate "$d/board_verdict.sh" 's/^    acl_grants "\$cur" \&\& acl=0 || acl=\$?$/    acl=1/'
 probe "a path walk that reads only the mode bits, not the ACL, is red" 1 \
   "an ancestor whose ACL grants what its mode does not: got accept" "$BV $d/board_verdict.sh"
 
@@ -4516,6 +4516,11 @@ d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/^        case \$dir in \/\*) ;; \*) echo/        case $dir in *) ;; NEVERMATCH) echo/'
 probe "a RUNPATH relative to the caller's directory is red" 1 \
   "a relative RUNPATH: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^    return 2$/    return 1/'
+probe "a path walk that reads an unreadable ACL as no ACL is red" 1 \
+  "a host without getfacl passed the root-binary check" "$BV $d/board_verdict.sh"
 
 begin_group "test/exec_mode_test.py"
 

@@ -471,6 +471,7 @@ a part with no icetime walk reads NA rather than a fabricated zero
 a partial pin missing required fields is not a pin
 a path that does not reconcile blames the script, not the design
 a path walk that reads only the mode bits, not the ACL, is red
+a path walk that reads an unreadable ACL as no ACL is red
 a path walk that trusts a symlinked ancestor unresolved is red
 a path walk that word-splits a directory name is red
 a path with no LUT level at all reports zero rather than dividing by it
