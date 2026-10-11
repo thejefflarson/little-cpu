@@ -169,3 +169,25 @@ board's oscillator is the 25 MHz MuseLab states. Run it with
 `make icesugar-prog ICESUGAR_PROG=soc/clock_check.S` after deleting
 `build/icesugar.{json,config,bit}` (the bitstream does not depend on the ROM hex,
 so a stale one is loaded otherwise).
+
+## Amendment, 2026-10-11: the clock check is graded, and the loader is bounded
+
+`make icesugar-clock-check` turns the measurement above into a pass/fail. It loads
+`soc/clock_check.S`, stamps each `T` on the host for 60 s, takes the mean interval
+from the first `T` to the last, and fails when that mean is more than
+**1000 ppm** from `CORE_HZ`. On the board it read 30.0035 MHz, +116 ppm, over 11
+intervals.
+
+The tolerance is set by the instrument, not the oscillator. The host's stamp is
+the time the USB read returned, and that latency jitters: the mean read about
+400 ppm off at a 30 s window and about 120 ppm at 60 s. 1000 ppm clears the 60 s
+reading by a factor of eight. The bugs this check exists for are a wrong PLL
+divider or a wrong pad, and each of those is off by thousands of ppm or more
+(25 MHz against 30 is -167,000 ppm), so the bound still fails every one of them.
+A tighter grade needs a longer window, not a smaller number.
+
+Every `openFPGALoader` call in the iCESugar flow runs under `soc/bounded.py` with a
+**90 s** limit (`ICESUGAR_LOAD_S`). A load takes about 10 s; a stalled CMSIS-DAP
+transfer never returns, and macOS has no `timeout(1)`. The limit is nine times a
+normal load, so it fires only on a stall, and a stall is reported as LOAD-FAILED
+rather than hanging the script around it.
