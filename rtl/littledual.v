@@ -5,11 +5,13 @@
 module littledual #(
   parameter integer ROM_WORDS = 2048,
   parameter INIT_EVEN = "",
-  parameter INIT_ODD  = ""
+  parameter INIT_ODD  = "",
+  parameter integer CLOCK_HZ = 12_000_000
 ) (
   input  logic       clk,
   input  logic [1:0] reset,
-  output logic [1:0] trap
+  output logic [1:0] trap,
+  output logic       uart_tx
  `ifdef RISCV_FORMAL
   ,
   output logic [1:0]   rvfi_valid,
@@ -52,7 +54,7 @@ module littledual #(
   logic [31:0] mem_addr, mem_wdata, mem_rdata;
   logic [3:0]  mem_wstrb;
   logic        mem_ren, mem_reservable;
-  logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata;
+  logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
   assign mem_addr  = hart_mem_addr[31:0] | hart_mem_addr[63:32];
   assign mem_wstrb = hart_mem_wstrb[3:0] | hart_mem_wstrb[7:4];
   assign mem_ren   = hart_mem_ren[0]     | hart_mem_ren[1];
@@ -62,7 +64,7 @@ module littledual #(
   // store with no strobe raised to say so.
   assign mem_wdata = |hart_mem_wstrb[3:0] ? hart_mem_wdata[31:0]
                                           : hart_mem_wdata[63:32];
-  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata;
+  assign mem_rdata = imem_mem_rdata | dmem_mem_rdata | timer_mem_rdata | uart_mem_rdata;
 
  `ifdef RISCV_FORMAL
   for (genvar h = 0; h < NHARTS; h++) begin : l_probe
@@ -197,5 +199,15 @@ module littledual #(
     .mem_wstrb(mem_wstrb),
     .mem_rdata(timer_mem_rdata),
     .mtip(irq_timer)
+  );
+
+  uart #(.CLOCK_HZ(CLOCK_HZ)) tty (
+    .clk(clk),
+    .reset(&reset),
+    .mem_addr(mem_addr),
+    .mem_wdata(mem_wdata),
+    .mem_wstrb(mem_wstrb),
+    .mem_rdata(uart_mem_rdata),
+    .tx(uart_tx)
   );
 endmodule // littledual

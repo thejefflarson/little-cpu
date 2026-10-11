@@ -905,6 +905,9 @@ make icesugar-coremark # the same for CoreMark, at SOC_ROM_WORDS=4096: 16 KB of 
                     # `make coremark-rom-ecp5` builds that image alone
 make dual-smoke     # two harts, one text storage, one arbiter, under cxxrtl; one program run
                     # both ways. Off `make test` and CI. `make dual-elaborate` is iverilog's look
+make icesugar-dual-run # the dual top on the iCESugar-Pro behind the 30 MHz PLL, SRAM over JTAG, UART
+                    # read back. ICESUGAR_DUAL_ROM_WORDS and ICESUGAR_DUAL_HELD (hart 1 in reset)
+                    # pick the case; off `make test` and CI (ADR-0125)
 make dual-ecp5-timing # the dual top placed, ECP5 only; three censuses GATE, the frequency
                     # PUBLISHES, nothing merges with an up5k number
 make ecp5-timing    # the SoC on ECP5 at a declared corner; three censuses GATE, the
