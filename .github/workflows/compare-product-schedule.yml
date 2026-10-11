@@ -101,10 +101,22 @@ jobs:
             echo "*** check none of them for staleness." >&2
             exit 1
           fi
+          DHRY_IMAC_CFLAGS=$(make -s print-COMPARE_DHRY_IMAC_CFLAGS)
+          COREMARK_IMAC_CFLAGS=$(make -s print-COMPARE_COREMARK_IMAC_CFLAGS)
           current_args=()
           while IFS= read -r pair; do
             [ -n "$pair" ] || continue
             case "$pair" in
+              dhrystone_imac|dhrystone_imac_*)
+                current_args+=(--current "$pair:cflags=$DHRY_IMAC_CFLAGS" \
+                               --current "$pair:rom_words=$ROM_WORDS" \
+                               --current "$pair:ram_words=$RAM_WORDS" \
+                               --current "$pair:compiler=riscv-none-elf-gcc" \
+                               --current "$pair:compiler_version=$GCC_VERSION") ;;
+              coremark_imac|coremark_imac_*)
+                current_args+=(--current "$pair:cflags=$COREMARK_IMAC_CFLAGS" \
+                               --current "$pair:compiler=riscv-none-elf-gcc" \
+                               --current "$pair:compiler_version=$GCC_VERSION") ;;
               dhrystone|dhrystone_*)
                 current_args+=(--current "$pair:cflags=$DHRY_CFLAGS" \
                                --current "$pair:rom_words=$ROM_WORDS" \

@@ -403,3 +403,121 @@ with `grep -F`, and the QSPI `write_cxxrtl` path is quoted.
 **Declined.** The divide ahead of invariant 1 (above). The pin-level target's own unquoted
 `write_cxxrtl` is outside this model and is left for the change that owns `nano/tb.mk`'s
 dependency edges.
+
+## Amendment (2026-10-04): the sweep is re-baselined, and the CAM now leads at both window sizes
+
+**Every row below was measured on one stamp**: `main` at 64806a5, `make nano-qspi-timing` run
+whole, xPack riscv-none-elf-gcc 15.2.0 at `-march=rv32ec_zicsr -mabi=ilp32e -O2`, yosys 0.68+48,
+Apple clang 21.0.0, 200 Dhrystone runs and 5 CoreMark iterations. The published table above
+cannot be re-taken: it was measured at `-march=rv32emc` with hardware multiply and divide, on a
+core with all its states and a flop register file, under a compiler since replaced. It is kept
+as the record of that stamp and is superseded by this one.
+
+**The control is a declared constant now, graded.** `nano/bench/QSPI_CONTROL` holds the two
+zero-wait cycle counts and `nano/bench/qspi_control_check.sh` compares a fresh zero-wait run to
+it; the format and the re-take procedure are in `docs/manifests/qspi-control.md`. The counts on
+this stamp are 415,887 Dhrystone cycles (200 runs, 2,079.4 a run, 0.274 DMIPS/MHz) and
+15,696,013 CoreMark cycles (5 iterations, 3,139,202.6 each, 0.319 CoreMark/MHz), both from
+`make nano-dhrystone` and `make nano-coremark` against `nano/tb/nano_memory.v`. They stay
+constants, not a value read from a fresh run, because a control that re-derives itself from the
+run it grades can never disagree with it. `make nano-qspi-control-test` runs the real control
+on `make test`'s path, so a change that moves nano's timing fails in its own PR instead of at
+the next sweep, and the checker's probes in `test/probe_gates.sh` are its forced-red direction
+(an off-by-one count, a log with no `BENCH` line, a run-count disagreement, a missing, doubled or
+non-numeric control line). `run_qspi_timing.sh --control-only` is that run, and the sweep now
+runs its configurations side by side: run serially, 30 minutes covered fewer than three of the
+eight configurations, CoreMark being up to a hundred million cycles a row in this model.
+
+**Why the CoreMark control went from 9.24M to 15.70M cycles: the ISA, not the iteration count,
+the register file or a defect.** Measured by running the current benchmark scripts against nano
+simulators built from four older trees, one `nano-sim` each; CoreMark at one iteration,
+Dhrystone at 200 runs:
+
+| Core tree | Image `-march` | CoreMark cycles/iter | Dhrystone cycles |
+|---|---|---|---|
+| ADR-0182's figures, gcc 16.2.0 | rv32emc | 1,848,480 | 505,295 |
+| `3b64723^` (the last core with M), gcc 15.2.0 | rv32emc | 1,860,436 | 503,300 |
+| `db4a0da` (ADR-0182's own commit; the core still has M, but this image never uses it) | rv32ec | 3,899,404 | 499,700 |
+| `e6dd90c^` (after Tier 1-3, before the `rf_top` macro) | rv32ec | 3,139,311 | 415,887 |
+| `main` at 64806a5 (this stamp) | rv32ec | 3,139,311 | 415,887 |
+
+Linearity: CoreMark at 1, 2 and 5 iterations reads 3,139,311, 6,278,747 and 15,696,013 cycles,
+3,139,311 / 3,139,373.5 / 3,139,202.6 each, so the count is not the iteration count. The
+compiler is a null on the same ISA (+0.65% CoreMark, -0.39% Dhrystone, rows one and two). The
+`rf_top` macro costs no cycle (rows four and five are equal to the cycle). Two things moved it:
+dropping the M extension (commit `3b64723`, 2026-09-18, five days after ADR-0182's figures)
+makes CoreMark's matrix and CRC multiplies run through libgcc's `__mulsi3`, which is a factor of
+2.1 on CoreMark (1,848,480 to 3,899,404 per iteration, row one to row three) and costs
+Dhrystone nothing (505,295 to 499,700 cycles, 1.1% fewer); and the Tier 1-3 cuts (states removed from `nano.v`) lowered both counts by 19.5%
+and 16.8% (rows three to four). The remaining difference between row one and row three is
+mostly the ISA. The three rows were taken on three trees, so the two steps are a measured
+decomposition and not a controlled single-variable one. CoreMark's own self-check reads
+`verdict=1` in every run.
+
+**The re-taken table**, one stamp, 200 Dhrystone runs and 5 CoreMark iterations (percentage
+columns: Dhrystone / CoreMark; every row satisfies the exactly-one-reason and fetch/retire
+identities, graded per cycle by `nano_cxxrtl.cc` and re-derived by `qspi_timing_report.py`).
+The Dhrystone cycles-per-run column reproduces, to the digit, the `main` column the previous
+amendment took with the old constants substituted in a scratch script.
+
+| Configuration | Dhry cycles/run | DMIPS/MHz | DMIPS@64MHz | CoreMark cycles/iter | CoreMark/MHz | CoreMark@64MHz | execute% | parcel wait% | redirect preamble% | loop hit% | handshake% | PSRAM wait% |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| no-overlap (depth 0) | 20,806.7 | 0.0274 | 1.75 | 20,663,861.0 | 0.0484 | 3.10 | 6.81 / 11.01 | 24.26 / 34.99 | 29.31 / 28.62 | 0.00 / 0.00 | 2.27 / 3.67 | 37.35 / 21.71 |
+| FIFO depth 2 | 20,232.6 | 0.0281 | 1.80 | 19,298,987.0 | 0.0518 | 3.32 | 7.00 / 11.79 | 22.11 / 30.40 | 30.15 / 30.64 | 0.00 / 0.00 | 2.33 / 3.93 | 38.41 / 23.24 |
+| FIFO depth 4 | 20,200.6 | 0.0282 | 1.80 | 19,154,454.2 | 0.0522 | 3.34 | 7.01 / 11.88 | 21.98 / 29.87 | 30.19 / 30.88 | 0.00 / 0.00 | 2.34 / 3.96 | 38.47 / 23.42 |
+| FIFO 2 + tagged-block loop 8 | 19,512.6 | 0.0292 | 1.87 | 17,744,929.8 | 0.0564 | 3.61 | 7.26 / 12.82 | 22.18 / 28.82 | 28.31 / 28.81 | 0.28 / 0.56 | 2.14 / 3.71 | 39.83 / 25.28 |
+| FIFO 2 + CAM loop 8 | 16,782.6 | 0.0339 | 2.17 | 13,949,379.0 | 0.0717 | 4.59 | 8.44 / 16.31 | 18.14 / 22.91 | 24.30 / 23.19 | 0.89 / 2.84 | 1.92 / 2.60 | 46.31 / 32.15 |
+| FIFO 2 + tagged-block loop 16 | 14,485.6 | 0.0393 | 2.51 | 17,380,281.8 | 0.0575 | 3.68 | 9.78 / 13.09 | 13.64 / 28.51 | 19.67 / 28.23 | 1.79 / 0.65 | 1.47 / 3.71 | 53.65 / 25.81 |
+| FIFO 2 + CAM loop 16 | 14,465.6 | 0.0393 | 2.52 | 13,628,254.8 | 0.0734 | 4.70 | 9.79 / 16.69 | 13.55 / 22.43 | 19.67 / 22.40 | 1.80 / 3.00 | 1.46 / 2.57 | 53.73 / 32.91 |
+| FIFO 2 + CAM loop 16 + QPI (20-cycle preamble) | 13,957.3 | 0.0408 | 2.61 | 13,093,707.6 | 0.0764 | 4.89 | 10.15 / 17.38 | 14.04 / 23.35 | 16.74 / 19.23 | 1.87 / 3.12 | 1.51 / 2.67 | 55.68 / 34.26 |
+
+Effective MIPS at 64 MHz, from the whole-run retire counts (105,987 Dhrystone, 3,810,704
+CoreMark, identical in every row because the image is) over each row's measured-region cycles;
+the whole-run counts include setup, so each figure slightly overstates the region's own rate:
+
+| Configuration | Dhrystone MIPS@64MHz | CoreMark MIPS@64MHz |
+|---|---|---|
+| no-overlap | 1.63 | 2.36 |
+| FIFO depth 2 | 1.68 | 2.53 |
+| FIFO depth 4 | 1.68 | 2.55 |
+| FIFO 2 + tagged-block loop 8 | 1.74 | 2.75 |
+| FIFO 2 + CAM loop 8 | 2.02 | 3.50 |
+| FIFO 2 + tagged-block loop 16 | 2.34 | 2.81 |
+| FIFO 2 + CAM loop 16 | 2.34 | 3.58 |
+| FIFO 2 + CAM loop 16 + QPI | 2.43 | 3.73 |
+
+The sweep picks `fifo2-cam16` for the QPI row by 4,000 Dhrystone cycles over `fifo2-tagged16`
+(0.14% of the tagged block's), where the published run's margin was 4.8%.
+
+**The shape decision: the order reversed, and the decision is revised.** The published
+conclusion, that the tagged block leads at 8 parcels and the CAM at 16, does not hold. The CAM
+now leads at both sizes on both benchmarks. At 8 parcels the tagged block takes 16.3% more
+Dhrystone cycles and 27.2% more CoreMark cycles (19,512.6 against 16,782.6, and 17,744,929.8
+against 13,949,379.0). At 16 it takes 0.1% more Dhrystone cycles (a tie) and 27.5% more CoreMark
+cycles. The tagged block gains almost nothing from doubling its window on CoreMark (2.1%); the CAM
+gains 2.3% there and 13.8% on Dhrystone. The shapes were published as "within about 5% of each
+other at either size," so the choice rested on area; at a 16 to 27% gap on three of the four
+comparisons it no longer does. **Decision: the loop buffer to build is the last-N-parcels CAM.**
+On Dhrystone, the one benchmark whose image did not change ISA, the tagged block's 8-parcel row
+went from 16,290.5 to 19,512.6 cycles a run (+19.8%) and its loop-hit rate from 1.21% to 0.28%,
+while the CAM's went from 16,940.5 to 16,782.6 (-0.9%) at an unchanged 0.89%: the block lost hits
+and the CAM did not. The cause is not measured. The candidate is that an
+aligned block only hits a loop whose body sits inside one block, and the soft-multiply code and
+the re-layout from the compiler and ISA change moved loops across block edges; a CAM has no
+alignment to lose. Neither the size (8 against 16 parcels: 13.8% of Dhrystone's cycles and 2.3%
+of CoreMark's, for double the comparators) nor the area cost of a CAM against the brief's
+shared tag is settled by this table, and both stay a judgement for the front end's design; the
+shape question, which this ADR's title exists to answer, is closed in the CAM's favour on this
+stamp. The ADR's other findings stand: FIFO depth alone moves DMIPS/MHz 0.0281 to 0.0282 (+0.2%)
+and CoreMark/MHz 0.0518 to 0.0522 (+0.8%), and the loop buffer is the lever (against FIFO 2
+alone, the 8-parcel CAM gains 20.6% DMIPS/MHz and 38.4% CoreMark/MHz, the 16-parcel CAM
+39.9% and 41.6%). QPI's shorter preamble adds 3.6% DMIPS/MHz and 4.1% CoreMark/MHz to
+`fifo2-cam16`. The brief's ~2 MIPS estimate is reached by the 8-parcel CAM
+(2.02 Dhrystone, 3.50 CoreMark) and not before; the 8-parcel tagged block (1.74, 2.75) does not
+reach it on Dhrystone.
+
+**A decision is only as good as its stamp.** The tagged block's 8-parcel Dhrystone result moved by 20%
+on a toolchain, ISA and core change that left the CAM's within 1%, which is the shape of a result
+that depends on code layout. A different image (a different compiler, or the firmware nano ships)
+can move it again, so the CAM's lead is a measurement of these two benchmarks at this stamp and
+is re-taken, with this table, whenever `QSPI_CONTROL` is.

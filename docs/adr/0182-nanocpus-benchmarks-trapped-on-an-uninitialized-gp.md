@@ -104,3 +104,24 @@ With the divider fixed (ADR-0181) and `gp` initialised, both benchmarks run to c
 The stamp these figures carry: riscv64-elf-gcc 16.2.0 at `-march=rv32emc -mabi=ilp32e -O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns`, measured by `make nano-dhrystone` and `make nano-coremark` against `nano/tb/nano_memory.v`, a behavioural, zero-wait, 20,480-word (80 KB) flat memory.
 
 What they are not. They are not the Tiny Tapeout figure: on the chip code comes from QSPI flash, whose fetch latency the brief expects to dominate, and no QSPI front end exists yet. The CoreMark figure is not an official score, since five iterations in simulation is a verdict-checked measurement and an official run must last at least ten seconds. And neither is comparable to littlecpu's figures, which come from a different design with a different memory system.
+
+## Amendment · 2026-10-04 · the published figures are stale; the current ones
+
+The table above was measured at `-march=rv32emc` on a core with hardware multiply and divide. It
+does not reproduce on `main` at 64806a5: nano is RV32EC now, the Tier 1-3 cuts removed states
+from `nano.v`, and the pinned xPack gcc 15.2.0 replaced 16.2.0. Same benchmarks, same flags
+otherwise (`-O2 -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns`), same
+`nano/tb/nano_memory.v`, at `-march=rv32ec_zicsr -mabi=ilp32e`:
+
+| Benchmark | Cycles | Per unit | Figure |
+| -- | -- | -- | -- |
+| Dhrystone, 200 runs | 415,887 | 2,079.4 cycles per run | **0.274 DMIPS/MHz** |
+| CoreMark, 5 iterations | 15,696,013 | 3,139,202.6 cycles per iteration | **0.319 CoreMark/MHz** |
+
+CoreMark fell from 0.541 to 0.319 because dropping M turned its multiplies into libgcc calls
+(about 2.1 times the cycles); Dhrystone rose from 0.225 to 0.274 because the Tier 1-3 cuts
+shortened the instruction path (16.8% fewer cycles). The compiler moved neither by more than
+0.7%, and the `rf_top` register-file macro moved neither by a cycle; ADR-0186's re-baseline amendment
+holds the four-tree measurement behind both statements. The two counts are now the zero-wait
+control in `nano/bench/QSPI_CONTROL`, graded on `make test` by `make nano-qspi-control-test`
+(`docs/manifests/qspi-control.md`), so a later move shows up in the change that causes it.

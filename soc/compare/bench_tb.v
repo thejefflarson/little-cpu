@@ -10,7 +10,8 @@ module bench_tb;
   logic clk = 1'b0;
   always #5 clk = ~clk;
 
-  logic ours_led0_n, ours_led1_n, vex_led0_n, vex_led1_n, haz_led0_n, haz_led1_n, hzp_led0_n, hzp_led1_n;
+  logic ours_led0_n, ours_led1_n, vex_led0_n, vex_led1_n, haz_led0_n, haz_led1_n, hzp_led0_n, hzp_led1_n,
+        vlr_led0_n, vlr_led1_n, hzc_led0_n, hzc_led1_n;
 
   bench_littlecpu dut_ours (
     .clk(clk), .led0_n(ours_led0_n), .led1_n(ours_led1_n)
@@ -24,12 +25,20 @@ module bench_tb;
   bench_hazard3 #(.PERF(1'b1)) dut_hzp (
     .clk(clk), .led0_n(hzp_led0_n), .led1_n(hzp_led1_n)
   );
+  bench_vexriscv_lrsc dut_vlr (
+    .clk(clk), .led0_n(vlr_led0_n), .led1_n(vlr_led1_n)
+  );
+  bench_hazard3 #(.PERF(1'b1), .WITH_C(1'b1)) dut_hzc (
+    .clk(clk), .led0_n(hzc_led0_n), .led1_n(hzc_led1_n)
+  );
 
   logic [31:0] ours_seen[0:63];
   logic [31:0] vex_seen[0:63];
   logic [31:0] haz_seen[0:63];
   logic [31:0] hzp_seen[0:63];
-  int          ours_n = 0, vex_n = 0, haz_n = 0, hzp_n = 0;
+  logic [31:0] vlr_seen[0:63];
+  logic [31:0] hzc_seen[0:63];
+  int          ours_n = 0, vex_n = 0, haz_n = 0, hzp_n = 0, vlr_n = 0, hzc_n = 0;
 
   always_ff @(posedge clk) begin
     if (dut_ours.mem_wstrb == 4'b1111 && dut_ours.mem_addr == PUBLISH
@@ -51,6 +60,16 @@ module bench_tb;
         && hzp_n < 64) begin
       hzp_seen[hzp_n] <= dut_hzp.d_hwdata;
       hzp_n           <= hzp_n + 1;
+    end
+    if (dut_vlr.mem_wstrb == 4'b1111 && dut_vlr.dbus_cmd_address == PUBLISH
+        && vlr_n < 64) begin
+      vlr_seen[vlr_n] <= dut_vlr.dbus_cmd_data;
+      vlr_n           <= vlr_n + 1;
+    end
+    if (dut_hzc.dmem_wstrb_mux == 4'b1111 && dut_hzc.dmem_addr_mux == PUBLISH
+        && hzc_n < 64) begin
+      hzc_seen[hzc_n] <= dut_hzc.d_hwdata;
+      hzc_n           <= hzc_n + 1;
     end
   end
 
@@ -88,6 +107,21 @@ module bench_tb;
       errors = errors + 1;
     end
 
+    if (vlr_n < WANT) begin
+      $display("FAIL: VexRiscv (LR/SC build) published %0d values in %0d cycles, wanted %0d.",
+               vlr_n, CYCLES, WANT);
+      $display("      The bus adapter in soc/compare/bench_vexriscv_lrsc.v is wrong,");
+      $display("      or the core is stuck.");
+      errors = errors + 1;
+    end
+    if (hzc_n < WANT) begin
+      $display("FAIL: Hazard3 (performance build with C) published %0d values in %0d cycles, wanted %0d.",
+               hzc_n, CYCLES, WANT);
+      $display("      The bus adapter in soc/compare/bench_hazard3.v is wrong,");
+      $display("      or the core is stuck.");
+      errors = errors + 1;
+    end
+
     for (i = 0; i < WANT; i = i + 1) begin
       if (i < ours_n && i < vex_n && ours_seen[i] !== vex_seen[i]) begin
         $display("FAIL: publication %0d differs: littlecpu %08x, VexRiscv %08x.",
@@ -98,6 +132,18 @@ module bench_tb;
       if (i < ours_n && i < haz_n && ours_seen[i] !== haz_seen[i]) begin
         $display("FAIL: publication %0d differs: littlecpu %08x, Hazard3 %08x.",
                  i, ours_seen[i], haz_seen[i]);
+        $display("      One harness is not presenting the same machine to its core.");
+        errors = errors + 1;
+      end
+      if (i < ours_n && i < vlr_n && ours_seen[i] !== vlr_seen[i]) begin
+        $display("FAIL: publication %0d differs: littlecpu %08x, VexRiscv (LR/SC build) %08x.",
+                 i, ours_seen[i], vlr_seen[i]);
+        $display("      One harness is not presenting the same machine to its core.");
+        errors = errors + 1;
+      end
+      if (i < ours_n && i < hzc_n && ours_seen[i] !== hzc_seen[i]) begin
+        $display("FAIL: publication %0d differs: littlecpu %08x, Hazard3 (performance build with C) %08x.",
+                 i, ours_seen[i], hzc_seen[i]);
         $display("      One harness is not presenting the same machine to its core.");
         errors = errors + 1;
       end
@@ -119,7 +165,7 @@ module bench_tb;
     end
 
     if (errors == 0) begin
-      $display("bench_tb: %0d published values, littlecpu, VexRiscv and both Hazard3 builds agree; first %08x, last matched %08x",
+      $display("bench_tb: %0d published values, littlecpu, both VexRiscv builds and all three Hazard3 builds agree; first %08x, last matched %08x",
                WANT, ours_seen[0], ours_seen[WANT-1]);
       $display("PASS");
     end else begin

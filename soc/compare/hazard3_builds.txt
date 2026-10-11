@@ -1,35 +1,41 @@
-# The two builds of Hazard3 the comparison harness runs, as the Hazard3 authors state them.
-# Columns: parameter, area build, performance build. A parameter the example file leaves
-# unset is written at the core's own default, so a column is the build as elaborated.
+# The three builds of Hazard3 the comparison harness runs. Two are the Hazard3 authors' own;
+# the third is this harness's choice.
+# Columns: parameter, area build, performance build, performance build plus C. A parameter the
+# example file leaves unset is written at the core's own default, so a column is the build as
+# elaborated.
 #   area: example_soc/fpga/fpga_icebreaker.v        (the iCE40 example)
 #   perf: example_soc/fpga/fpga_ulx3s.v and fpga_orangecrab_25f.v (the two ECP5 examples,
 #         which agree on every parameter below)
-# soc/compare/hazard3_config_test.py grades bench_hazard3.v against this file, and this
-# file against the pinned clone's examples whenever the clone is present.
+#   perf_c (hazard3_c): NO shipped example sets it. It is the performance column with
+#         EXTENSION_C turned on so the core carries the C extension littlecpu and VexRiscv
+#         carry; the config test requires it to differ from the performance column in that
+#         one parameter and no other.
+# soc/compare/hazard3_config_test.py grades bench_hazard3.v against this file, and the area
+# and performance columns against the pinned clone's examples whenever the clone is present.
 pin 8af992930f71a69b0e06c38734c1094f41a05ca0
-EXTENSION_A 1 1
-EXTENSION_C 0 0
-EXTENSION_M 1 1
-EXTENSION_ZBA 0 0
-EXTENSION_ZBB 0 0
-EXTENSION_ZBC 0 0
-EXTENSION_ZBS 0 0
-EXTENSION_ZBKB 0 0
-EXTENSION_ZIFENCEI 0 1
-EXTENSION_XH3BEXTM 0 0
-EXTENSION_XH3PMPM 0 0
-EXTENSION_XH3POWER 0 0
-CSR_M_MANDATORY 1 1
-CSR_M_TRAP 1 1
-CSR_COUNTER 0 1
-U_MODE 0 0
-PMP_REGIONS 0 0
-BREAKPOINT_TRIGGERS 0 0
-IRQ_PRIORITY_BITS 0 0
-REDUCED_BYPASS 0 0
-MULDIV_UNROLL 1 1
-MUL_FAST 0 1
-MUL_FASTER 0 0
-MULH_FAST 0 0
-FAST_BRANCHCMP 1 1
-BRANCH_PREDICTOR 0 1
+EXTENSION_A 1 1 1
+EXTENSION_C 0 0 1
+EXTENSION_M 1 1 1
+EXTENSION_ZBA 0 0 0
+EXTENSION_ZBB 0 0 0
+EXTENSION_ZBC 0 0 0
+EXTENSION_ZBS 0 0 0
+EXTENSION_ZBKB 0 0 0
+EXTENSION_ZIFENCEI 0 1 1
+EXTENSION_XH3BEXTM 0 0 0
+EXTENSION_XH3PMPM 0 0 0
+EXTENSION_XH3POWER 0 0 0
+CSR_M_MANDATORY 1 1 1
+CSR_M_TRAP 1 1 1
+CSR_COUNTER 0 1 1
+U_MODE 0 0 0
+PMP_REGIONS 0 0 0
+BREAKPOINT_TRIGGERS 0 0 0
+IRQ_PRIORITY_BITS 0 0 0
+REDUCED_BYPASS 0 0 0
+MULDIV_UNROLL 1 1 1
+MUL_FAST 0 1 1
+MUL_FASTER 0 0 0
+MULH_FAST 0 0 0
+FAST_BRANCHCMP 1 1 1
+BRANCH_PREDICTOR 0 1 1

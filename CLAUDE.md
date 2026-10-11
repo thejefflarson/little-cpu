@@ -647,7 +647,12 @@ rather than rediscovered.
 no C, and the generated VexRiscv has no `AtomicPlugin`, so `COMPARE_DHRY_CFLAGS` and
 `COMPARE_COREMARK_CFLAGS` both build at `rv32im`, and CoreMark runs every core in one
 simulation, `soc/compare/coremark_tb.v` reusing `soc/compare/dhry_monitor.v` for its third DUT
-(ADR-0146 as amended). Both benchmarks are `-O2` under the pinned compiler (the flags
+(ADR-0146 as amended). **A feature-matched RV32IMAC row sits beside it** (ADR-0250): `vexriscv_lrsc`
+is the stock VexRiscv plus `withLrSc` (the pinned no-cache data bus has no AMO option, so it is Zalrsc,
+not all of A) and `hazard3_c` is `hazard3_perf` plus `EXTENSION_C` (a harness choice no Hazard3 example
+ships), all three built at `rv32imac_zicsr_zifencei` by `make compare-dhrystone-matched` and
+`make compare-coremark-matched`. Neither benchmark contains an atomic, so the row prices carrying A and
+C, not using them. Both benchmarks are `-O2` under the pinned compiler (the flags
 `make compare-dhrystone` prints), with `soc/compare/dhry_port.c`'s own byte loops for the string
 routines, linked by the harness's own `soc/compare/dhry.lds` / `coremark.lds` (the
 placed-geometry budget comes from `soc/compare/bench.lds`) and not by `test/bench/bench.lds`. **Hazard3's own two-port top removes the fetch/data contention rather than working around
@@ -836,8 +841,8 @@ make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches
                     # compare-product-schedule-publish, stall-sites, pin-help-text,
                     # formal-ci-coverage, yosys-script-oneline, tmp-path)
                     # + window-test, imem-share-test, board-elaborate, mutation-probe,
-                    # dual-build, nano-test, nano-startup-test, nano-littlecpu-test and
-                    # nano-qspi-loop-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
+                    # dual-build, nano-test, nano-startup-test, nano-littlecpu-test,
+                    # nano-qspi-loop-test and nano-qspi-control-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
                     # with STALL_REPORT=1 so the cycle-accounting identity runs on every
                     # call, not only `make cycles`
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
@@ -929,6 +934,8 @@ make compare-coremark # CoreMark on all THREE cores, one RV32IM image -- VexRisc
                     # generated build has M but no A, the same ceiling Dhrystone
                     # already builds at. COMPARE_COREMARK_MHZ adds the absolute
                     # column. Not a gate, not on CI
+make compare-dhrystone-matched # Dhrystone on littlecpu, VexRiscv with LR/SC and Hazard3 with C,
+make compare-coremark-matched   # CoreMark likewise: one RV32IMAC image per benchmark (ADR-0250)
 make compare-product # both factors of every cross-core pair in one run, stamped into
                     # soc/compare/product.json with the commit, seeds and CFLAGS behind
                     # each number. COMPARE_PRODUCT_SEEDS picks the sweep (twelve by
@@ -981,13 +988,18 @@ make nano-timing    # area AND delay from one delay-oriented synthesis run, both
                     # instrument like `make cycles`. Prints its own limits and the
                     # dated, stale correlation against the last real flow run. Not on
                     # `make test`'s path, the same standing as `make nano-area`
-make nano-test      # nano/asm's six hand-written x0-x15 programs under BOTH sim legs --
+make nano-test      # nano/asm's hand-written x0-x15 programs under BOTH sim legs --
                     # nano-sim (cxxrtl) and nano/tb/nano_icarus.vvp (iverilog, wrapped by
                     # nano_sim_icarus.sh behind nano-sim's own CLI) -- graded against
                     # nano/asm/EXPECTED_FAIL / OBSERVED_FLOOR and required to agree with
                     # each other program by program (nano_dual_leg_test.sh). A real-tool
                     # prerequisite, nano_x_probe.sh, forces the iverilog leg to catch an X
-                    # a skipped memory-zeroing loop leaves behind. On `make test`'s path
+                    # a skipped memory-zeroing loop leaves behind; nano_mtimer_probe.sh forces
+                    # seven timer-interrupt mutants red against mtimer.S and mtimerorder.S.
+                    # On `make test`'s path
+make nano-timer-test # nano/timer.v's bus port driven by nano/tb/nano_timer_tb.v, MTIP graded
+                    # against a model (never early, at most one cycle late); the probe forces
+                    # seven mutants red first. On `make test`'s path
 make nano-startup-test # the shared nano/bench/start.S initializes gp before any
                     # gp-relative reference runs; PASS/FAIL over tohost. On `make test`'s path
 make nano-dhrystone # Dhrystone on nanocpu under nano-sim --bench, core-only, zero-wait-state,
@@ -1002,8 +1014,13 @@ make nano-qspi-sim  # nano-sim built against nano/tb/nano_qspi_memory.v instead 
 make nano-qspi-timing # sweeps that model's configurations against Dhrystone and CoreMark,
                     # reporting cycles, DMIPS/MHz or CoreMark/MHz at an assumed 64 MHz,
                     # and the {execute, parcel wait, redirect preamble, loop hit, handshake,
-                    # PSRAM wait} bucket split. Reporting only, no ratchet, like `make cycles`.
-                    # Not on `make test`'s path
+                    # PSRAM wait} bucket split. Reporting only, no ratchet, like `make cycles`;
+                    # its zero-wait control is graded against nano/bench/QSPI_CONTROL, the one
+                    # place those cycle counts are stated. Not on `make test`'s path
+make nano-qspi-control-test # that control alone, both benchmarks on the shipping nano-sim, so a
+                    # nano timing change moves QSPI_CONTROL in the commit that moved it
+                    # (docs/manifests/qspi-control.md); qspi_control_check.sh's probes are
+                    # its forced-red direction. On `make test`'s path
 make nano-qspi-loop-test # the loop buffer's three invariants, each able to fail: a branch-free
                     # program costs the same cycles with the loop buffer on or off; a loop
                     # resident in it pays no marginal preamble/wait and exactly two hits an
@@ -1029,8 +1046,8 @@ make -C nano/formal components_qspi  # nano_qspi_ctrl's three invariants (CS0/CS
                     # parcels at [fetch_pc, fetch_pc+N)) by k-induction; qspi-probe is
                     # its forced-red prerequisite
 make -C nano/formal components_traps # nano's trap entry and interrupt path: the only harness
-                    # that leaves irq_meip free, with traps-region-probe and
-                    # traps-tval-probe as forced-red prerequisites
+                    # that leaves irq_meip and irq_mtip free, with traps-region-probe,
+                    # traps-tval-probe and traps-mcause-probe as forced-red prerequisites
 make -C nano/formal ill_e # RV32E's register-naming restriction, read off nano's own RVFI report
 make -C nano/formal ill_e_cover # its anti-vacuity control: reachable on the correct core, tied
                     # to ill_e's depth by cover-depth-tie.py, behind ill-e-cover-probe, which

@@ -37,7 +37,7 @@ jobs:
             exit 1
           fi
           cat /tmp/yosys-elaborate.log
-          if grep -E '^Warning:' /tmp/yosys-elaborate.log | grep -vE 'Deep recursion in AST simplifier' > /tmp/promoted.log; then
+          if grep -E '(^|: )Warning: ' /tmp/yosys-elaborate.log | grep -vE 'Deep recursion in AST simplifier' > /tmp/promoted.log; then
             echo "::error::promoted yosys warning(s) -- CLAUDE.md: elaboration warnings are errors"
             cat /tmp/promoted.log
             exit 1

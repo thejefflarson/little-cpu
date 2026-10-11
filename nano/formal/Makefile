@@ -64,7 +64,7 @@ ill_e_cover: ill_e_cover.sby ill_e.sv ../nano.v ill-e-cover-probe ../../formal/c
 
 .PHONY: components_traps
 components_traps: traps.sby traps.sv ../nano.v traps-region-probe traps-tval-probe \
-                  | $(RISCV_FORMAL_DIR)
+                  traps-mcause-probe | $(RISCV_FORMAL_DIR)
 	rm -rf traps
 	sby -f traps.sby
 
@@ -74,6 +74,10 @@ traps-region-probe: traps-region-probe.py probe_common.py traps.sv ../nano.v | $
 
 .PHONY: traps-tval-probe
 traps-tval-probe: traps-tval-probe.py probe_common.py traps.sv ../nano.v | $(RISCV_FORMAL_DIR)
+	python3 $<
+
+.PHONY: traps-mcause-probe
+traps-mcause-probe: traps-mcause-probe.py probe_common.py traps.sv ../nano.v | $(RISCV_FORMAL_DIR)
 	python3 $<
 
 dmemcheck_cover: dmemcheck_cover.sby dmemcheck.sv ../nano.v dmemcheck-cover-probe | $(RISCV_FORMAL_DIR)
@@ -145,7 +149,7 @@ clean:
 	rm -rf checks complete complete_cover dmemcheck imemcheck fg-probe fg-probe.cfg
 	rm -rf complete-cover-probe ill_e ill_e_cover ill-e-probe
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
-	rm -rf qspi qspi-probe traps region-probe tval-probe
+	rm -rf qspi qspi-probe traps region-probe tval-probe mcause-probe
 	rm -rf memreq memreq-probe nonperturbation-probe
 
 .PHONY: all clean
