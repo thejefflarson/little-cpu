@@ -9921,6 +9921,83 @@ mutate "$d/soc/board_icesugar_pro.v" "s/\\.entropy_raw(entropy_raw)/.entropy_raw
 probe "the defect this exists for: the seed source tied low on the board" 1 \
   "seed reads DEAD" "$EGEO $d"
 
+begin_group "test/board_tools_test.py"
+
+BTOOLS="python3 $HERE/board_tools_test.py"
+
+btools_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO"/soc/board_port.py "$REPO"/soc/board_read.py "$REPO"/soc/bounded.py "$REPO"/soc/clock_grade.py \
+     "$REPO"/soc/entropy_assess.py "$REPO"/soc/entropy_capture.sh "$REPO"/soc/run_suite_icesugar.sh "$d/soc/"
+  cp "$REPO/Makefile" "$d/"
+  printf '%s' "$d"
+}
+
+d=$(btools_fixture)
+probe "control: the board tooling agrees with its known-answer inputs" 0 \
+  "board-tools:" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/board_port.py" 's/node.get("idProduct") == pid/True/'
+probe "a device with the board's VID and another PID taken for the board is red" 1 \
+  "another PID is not the board" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/board_read.py" 's/    if len(nodes) == 1:/    if nodes:/'
+probe "the reader accepting several matching nodes is red" 1 \
+  "several nodes are refused" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/board_read.py" 's/chr(b) if b in KEEP else/chr(b) if True else/'
+probe "a control byte reaching the terminal unescaped is red" 1 \
+  "does not reach the terminal as an escape byte" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/bounded.py" 's/        return TIMED_OUT/        return 0/'
+probe "a loader that outlives its limit and reports success is red" 1 \
+  "outlives its limit exits 124" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/Makefile" 's|python3 soc/bounded.py \$(ICESUGAR_LOAD_S) ||'
+probe "the Makefile running the loader with no time limit is red" 1 \
+  "Makefile runs the loader only under soc/bounded.py" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/run_suite_icesugar.sh" 's|python3 soc/bounded.py "\$LOAD_S" ||'
+probe "the suite runner running the loader with no time limit is red" 1 \
+  "run_suite_icesugar.sh runs the loader only under soc/bounded.py" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/clock_grade.py" 's/ok = abs(error) <= tol_ppm/ok = True/'
+probe "a clock grader that passes a 25 MHz core against an expected 30 is red" 1 \
+  "out of tolerance" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/clock_grade.py" 's/if count - 1 < min_intervals:/if count < 2:/'
+probe "a clock graded from too few T lines is red" 1 \
+  "too few T lines are refused" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/entropy_assess.py" 's/if sum(words) & 0xFFFF == trailer:/if True:/'
+probe "a capture frame with a wrong trailer accepted is red" 1 \
+  "wrong trailer is dropped and counted" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/entropy_assess.py" 's/    if len(nodes) != 1:/    if not nodes:/'
+probe "the entropy reader accepting several matching nodes is red" 1 \
+  "refuses when several nodes match" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/entropy_capture.sh" 's/\*\[!A-Za-z0-9_-\]\*) echo/NEVERMATCH) echo/'
+probe "a capture tag with a shell metacharacter accepted is red" 1 \
+  "refuses ['t;x'" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/entropy_capture.sh" 's/\*\[!0-9\]\*) echo "error: \${v%%/NEVERMATCH) echo "error: ${v%%/'
+probe "a capture divider with a yosys command separator accepted is red" 1 \
+  "refuses ['t', '1;x'" "$BTOOLS $d"
+
 begin_group "test/pin_bump_token_test.py"
 
 # The workflow's shape is the control: the step that runs upstream code must hold no

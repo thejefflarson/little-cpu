@@ -146,6 +146,9 @@ a build-file line this cannot read stops rather than being skipped
 a caller that needs the figures rather than the prose is refused
 a canonical form that stopped forgiving the class is red
 a capitalised spelling is the same word and is caught too
+a capture divider with a yosys command separator accepted is red
+a capture frame with a wrong trailer accepted is red
+a capture tag with a shell metacharacter accepted is red
 a carry hop is counted apart from a LUT level
 a casing keyword the table does not define stops rather than guessing
 a cause proof going red somewhere else is not evidence either
@@ -174,6 +177,8 @@ a classification naming a port the netlist has never seen is red
 a clock factor and a cycle factor measured with different tools are not a product
 a clock figure that is not a number is refused
 a clock for a core nobody graded is named rather than ignored
+a clock graded from too few T lines is red
+a clock grader that passes a 25 MHz core against an expected 30 is red
 a clock sample count that is not one per seed is refused
 a clock turns the CoreMark per-MHz figure into an absolute one
 a clock turns the per-MHz figure into an absolute one
@@ -195,6 +200,7 @@ a connection by position stops rather than being half-read
 a connection to a port littlecpu no longer has is red
 a constraint file that describes a different oscillator is red
 a constraint that is not the declared one is a different measurement
+a control byte reaching the terminal unescaped is red
 a copy wrapped across lines is caught, not read as two harmless ones
 a core folded away on ECP5 is red against the same floor
 a core in the stamp with no configuration label is refused, not skipped
@@ -234,6 +240,7 @@ a depth one below the floor is red, naming F and G
 a design entry missing area/num_cells/by_type is refused, not read as what is left
 a design that MET the target has measured the target
 a design whose Makefile is gone is exit-nonzero, not skipped
+a device with the board's VID and another PID taken for the board is red
 a different ISA in the generated comparison is red, and located
 a different release of the same compiler version is STALE when the stamp records the release
 a different riscv-none-elf-gcc earlier on PATH is red, not silently used
@@ -338,6 +345,7 @@ a linker script promising RAM the harness does not have is red
 a linker script that moves ram off the decoded base is red
 a linker script the Makefile does not link and nothing else names is red
 a littlecpu harness whose core port moved stops rather than tying nothing
+a loader that outlives its limit and reports success is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
@@ -1052,6 +1060,7 @@ control: the Zkt-isolation assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
 control: the authors' examples agree with the build file
 control: the block RAM is named at the end of the path it sits at
+control: the board tooling agrees with its known-answer inputs
 control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
 control: the committed document matches a fresh render of the committed stamp
@@ -1230,6 +1239,7 @@ the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycle
 the Dhrystone flags drifting from the suite's ISA is red
 the FORMAL hold-assert naming something other than x_busy is red
 the Makefile and test/cosim.py drifting apart is red
+the Makefile running the loader with no time limit is red
 the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
 the ROM image built to a different size than the ROM is red
 the RTL moving away takes the X probe with it, loudly
@@ -1278,6 +1288,7 @@ the defect this exists for: the seed source tied low on the board
 the digest is over the sources, so it does not move when only the tools do
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence
+the entropy reader accepting several matching nodes is red
 the exemption does not extend to a write of the WRONG register
 the files the stamp itself feeds are excluded, so it never goes stale on its own output
 the free harness with no line in the baseline is red
@@ -1314,6 +1325,7 @@ the proof going red somewhere else is not evidence
 the proof's copy of the RAM base drifting from the RAM is red
 the publish step with no GH_TOKEN at all is red
 the quiet one: objcopy exits 0 having written no bytes
+the reader accepting several matching nodes is red
 the reference model hitting its budget is INCONCLUSIVE, not a finding
 the refusal is the part, not the four tool mismatches it also produces
 the refusal names the cell and the port, not just a count
@@ -1332,6 +1344,7 @@ the sby script moving away takes the probe with it, loudly
 the second header is scanned too, not just test_macros.h
 the shipping build itself reporting an X on the load path is red before any mutant runs
 the stale ISA name coming back in a formal harness comment is red
+the suite runner running the loader with no time limit is red
 the suite's shape is asserted before a single program is assembled
 the third core's ROM drifting behind the other two is red
 the timer address the programs arm is checked against the timer

@@ -612,6 +612,10 @@ entropy-geometry-test:
 entropy-assess-test:
 	@python3 ./test/entropy_assess_test.py
 
+.PHONY: board-tools-test
+board-tools-test:
+	@python3 ./test/board_tools_test.py
+
 .PHONY: ill-e-wiring-test
 ill-e-wiring-test:
 	@python3 ./test/ill_e_wiring_test.py
@@ -786,7 +790,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test entropy-geometry-test entropy-assess-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
+      pll-clock-test entropy-geometry-test entropy-assess-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \
@@ -1147,11 +1151,14 @@ ICESUGAR_LOADER  ?= openFPGALoader
 ICESUGAR_VID     ?= 0x1d50
 ICESUGAR_PID     ?= 0x602b
 ICESUGAR_READ_S  ?= 30
+ICESUGAR_LOAD_S  ?= 90
+ICESUGAR_LOAD    = python3 soc/bounded.py $(ICESUGAR_LOAD_S) $(ICESUGAR_LOADER) -c cmsisdap \
+                   --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID)
+ICESUGAR_LOAD_FAILED = echo 'LOAD-FAILED: the loader failed or stalled past $(ICESUGAR_LOAD_S)s'; exit 1
 
 .PHONY: icesugar-prog
 icesugar-prog: $(BUILD)/icesugar.bit
-	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) \
-	  -m $(BUILD)/icesugar.bit
+	@$(ICESUGAR_LOAD) -m $(BUILD)/icesugar.bit || { $(ICESUGAR_LOAD_FAILED); }
 	@echo
 	@echo 'Loaded into SRAM; the design is running. Read it with'
 	@echo '`make icesugar-read`, or power-cycle the board to go back to flash.'
@@ -1168,6 +1175,20 @@ icesugar-dhrystone:
 	@$(MAKE) --no-print-directory icesugar-prog
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out $(BUILD)/icesugar_dhrystone.txt
+
+ICESUGAR_CLOCK_HZ  ?= $(shell sed -n 's/.*CORE_HZ = \([0-9_]*\);.*/\1/p' soc/board_icesugar_pro.v | tr -d _)
+ICESUGAR_CLOCK_S   ?= 60
+ICESUGAR_CLOCK_PPM ?= 1000
+
+.PHONY: icesugar-clock-check
+icesugar-clock-check:
+	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_ROM=soc-rom ICESUGAR_PROG=soc/clock_check.S
+	@$(MAKE) --no-print-directory icesugar-prog
+	@python3 soc/board_read.py --seconds $(ICESUGAR_CLOCK_S) --out $(BUILD)/icesugar_clock.txt \
+	  --stamps $(BUILD)/icesugar_clock_stamps.txt > /dev/null
+	@python3 soc/clock_grade.py $(BUILD)/icesugar_clock_stamps.txt --clock-hz $(ICESUGAR_CLOCK_HZ) \
+	  --tol-ppm $(ICESUGAR_CLOCK_PPM)
 
 ICESUGAR_COREMARK_ROM_WORDS := 4096
 ICESUGAR_SUITE_ROM_WORDS := 4096
@@ -1208,7 +1229,7 @@ icesugar-dual-run:
 	@rm -f $(BUILD)/icesugar_dual.json $(BUILD)/icesugar_dual.config $(BUILD)/icesugar_dual.bit
 	@$(MAKE) --no-print-directory $(BUILD)/icesugar_dual.bit
 	@grep -E 'Max frequency for clock' $(BUILD)/icesugar_dual.pnr.log | tail -1
-	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) -m $(BUILD)/icesugar_dual.bit
+	@$(ICESUGAR_LOAD) -m $(BUILD)/icesugar_dual.bit || { $(ICESUGAR_LOAD_FAILED); }
 	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt
 	@bash -c '. soc/board_verdict.sh && dual_verdict "$$0" "$$1"' $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt $(if $(filter 1,$(ICESUGAR_DUAL_HELD)),0,16)
 

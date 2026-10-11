@@ -8,6 +8,7 @@ cd "$ROOT"
 LOADER=${ICESUGAR_LOADER:-openFPGALoader}
 VID=${ICESUGAR_VID:-0x1d50}
 PID=${ICESUGAR_PID:-0x602b}
+LOAD_S=${ICESUGAR_LOAD_S:-90}
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/little-cpu
 export PATH="$CACHE/riscv-gcc/bin:$CACHE/oss-cad-suite/bin:$PATH"
 
@@ -105,7 +106,8 @@ while read -r progs; do
 
   loaded=""
   for attempt in 1 2 3; do
-    if "$LOADER" -c cmsisdap --vid "$VID" --pid "$PID" -m build/icesugar.bit >"$OUT/load.log" 2>&1; then loaded=yes; break; fi
+    if python3 soc/bounded.py "$LOAD_S" "$LOADER" -c cmsisdap --vid "$VID" --pid "$PID" -m build/icesugar.bit \
+         >"$OUT/load.log" 2>&1; then loaded=yes; break; fi
     sleep 2
   done
   if [ -z "$loaded" ]; then
@@ -116,7 +118,9 @@ while read -r progs; do
   echo "   load:  SRAM over JTAG  [$((SECONDS-t0))s]"
 
   for attempt in 1 2 3; do
-    python3 soc/board_read.py --seconds "$READ_S" --out "$RAWDIR/batch$i.attempt$attempt.txt" >/dev/null 2>&1
+    python3 soc/board_read.py --seconds "$READ_S" --out "$RAWDIR/batch$i.attempt$attempt.txt" >"$OUT/read.log" 2>&1
+    [ "$attempt" = 1 ] && echo "   port:  $(grep -m1 '^board_read: ' "$OUT/read.log" | display_safe)"
+    grep -q '^\*\*\* .*serial nodes' "$OUT/read.log" && display_safe < "$OUT/read.log" | sed 's/^/      /'
     raw=$(cat "$RAWDIR/batch$i.attempt$attempt.txt" 2>/dev/null)
     block=$(printf '%s' "$raw" | uart_last_block)
     block_tag_ok "$block" "$i" "$want" || block=""
