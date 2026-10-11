@@ -180,3 +180,9 @@ not carry `ill-e-probe.py`'s further self-test section (a `test/probe_gates.sh`-
 meta-test that plants a broken probe script itself and requires *that* to fail); this
 is a deliberate, time-boxed cut rather than a gap nobody noticed, left for a follow-up
 if the pattern is judged worth the extra machinery.
+
+## Amendments
+
+- ADR-0249 restores the machine timer: `mip.MTIP` is the timer's comparison, `mie.MTIE` is writable,
+  and the timer interrupt is cause `0x8000_0007`. The paragraphs above that call `MTIP` and `MTIE`
+  read-only zero describe the tree before it.

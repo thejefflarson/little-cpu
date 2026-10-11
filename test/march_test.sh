@@ -98,6 +98,11 @@ Makefile rv32imc 2
 # Hazard3's iCE40 build has A but no C.
 Makefile rv32ima 2
 
+# COMPARE_DHRY_IMAC_CFLAGS and COMPARE_COREMARK_IMAC_CFLAGS: the feature-matched rows,
+# littlecpu, VexRiscv with LR/SC and Hazard3 with C, at the richest ISA all three carry --
+# littlecpu's own string without its Zkt claim, since no other core has it.
+Makefile rv32imac_zicsr_zifencei 2
+
 # Not a flag at all: a grep pattern that finds the `-march=` in the command line
 # the Dhrystone runner PRINTS, so the flags travel with the number. It has no
 # ISA after it, which is what the `(empty)` says. One, not two, since the comment
@@ -116,6 +121,10 @@ soc/compare/product.json (any)
 # above, once per part. Counted rather than (any), so the ISA moves with those two
 # Makefile lines and a pairwise row's narrower string arriving here is still red.
 docs/comparison.md rv32im 4
+
+# The feature-matched pairs' CFLAGS: none until `make compare-product` stamps them, four
+# (two benchmarks, two parts) after; `0|4` accepts either.
+docs/comparison.md rv32imac_zicsr_zifencei 0|4
 
 # Not a flag: the sed pattern that pulls the bare -march= value out of a CFLAGS
 # string for soc/compare/product_write.py's --isa. One, not two, since the comment
@@ -240,6 +249,7 @@ while IFS= read -r entry; do
     continue
   fi
   got=$(grep -cxF -- "$entry" "$tmp/covered" || true)
+  case "|$ecount|" in *"|$got|"*) continue ;; esac
   if [ "$got" -ne "$ecount" ]; then
     rc=1
     echo >&2

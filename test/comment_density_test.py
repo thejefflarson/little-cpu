@@ -57,6 +57,7 @@ HASH_MANIFESTS = {
     "nano/asm/OBSERVED_FLOOR",
     "nano/asm/LITTLECPU_FLOOR",
     "nano/asm/LITTLECPU_EXPECTED_FAIL",
+    "nano/bench/QSPI_CONTROL",
 }
 
 EXCLUDE_PREFIXES = (

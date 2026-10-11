@@ -1100,6 +1100,51 @@ d=$(nano_xp_fixture 1); rm "$d/nano/nano.v"
 probe "the RTL moving away takes the X probe with it, loudly" 2 \
   "nano/nano.v is missing from" "$(xp "$d")"
 
+begin_group "nano/tb/nano_elaborate_strict.sh"
+
+NES="$REPO/nano/tb/nano_elaborate_strict.sh"
+
+d=$(new_case)
+printf 'module m(input a, output b);\n  assign b = a;\nendmodule\n' > "$d/clean.v"
+printf 'module m(input a, output b);\n  assign b = a & implicit_net;\nendmodule\n' > "$d/implicit.v"
+NES_TAIL="hierarchy -top m; proc; opt_clean; check"
+
+probe "control: a clean module elaborates with zero promoted warnings" 0 \
+  "zero promoted warnings" "$NES $d/clean.log 'read_verilog -sv $d/clean.v; $NES_TAIL'"
+
+probe "an implicit net, which yosys check reports as undriven, is red and shown" 1 \
+  "has no driver" "$NES $d/implicit.log 'read_verilog -sv $d/implicit.v; $NES_TAIL'"
+
+probe "a yosys that fails outright is red before warnings are graded" 1 \
+  "yosys failed before its warnings were graded" \
+  "$NES $d/missing.log 'read_verilog -sv $d/absent.v; $NES_TAIL'"
+
+printf 'module m(output [3:0] b);\n  assign b = 4'"'"'d17;\nendmodule\n' > "$d/literal.v"
+probe "a file-located frontend warning with no bare-prefixed echo is red" 1 \
+  "Literal has a width" "$NES $d/literal.log 'read_verilog -sv $d/literal.v; $NES_TAIL'"
+
+mkdir -p "$tmp/bin-nes"
+cat > "$tmp/bin-nes/yosys" <<'STUB'
+#!/bin/sh
+echo "Warning: Deep recursion in AST simplifier."
+echo "Warning: ${STUB_NES_EXTRA:-Deep recursion in AST simplifier.}"
+STUB
+chmod +x "$tmp/bin-nes/yosys"
+
+probe "the deep-recursion notice alone is allowlisted" 0 "zero promoted warnings" \
+  "PATH='$tmp/bin-nes:/usr/bin:/bin' $NES $d/stub.log x"
+
+probe "any other warning beside the allowlisted one is still red" 1 \
+  "Width mismatch" \
+  "STUB_NES_EXTRA='Width mismatch' PATH='$tmp/bin-nes:/usr/bin:/bin' $NES $d/stub2.log x"
+
+cat > "$tmp/bin-nes/yosys" <<'STUB'
+#!/bin/sh
+echo "x.v:3: Warning: Range select out of bounds"
+STUB
+probe "a stubbed file:line warning is red" 1 "Range select out of bounds" \
+  "PATH='$tmp/bin-nes:/usr/bin:/bin' $NES $d/stub3.log x"
+
 begin_group "nano/tb/nano_sim_icarus.sh"
 
 nsi_fixture() {
@@ -1170,6 +1215,54 @@ probe "output this script does not recognize is exit 3, not guessed at" 3 \
   "unrecognized nano_icarus.vvp output" \
   "STUB_ICARUS_OUTPUT_FILE=$tmp/nsi-unrecognized.out $(nsi "$d")"
 
+make_nsi_args_stub() {  # $1 = bin dir; a vvp that reports its own arguments
+  mkdir -p "$1"
+  cat > "$1/vvp" <<'STUB'
+#!/bin/sh
+echo "vvp args: $*"
+printf 'PASS\nRETIRES 7\n'
+STUB
+  chmod +x "$1/vvp"
+}
+make_nsi_args_stub "$tmp/bin-nsi-args"
+
+d=$(nsi_fixture)
+probe "--vcd <path> reaches vvp as +VCD=<path>" 0 "+VCD=waves.vcd" \
+  "PATH='$tmp/bin-nsi-args:$tmp/bin-none:/usr/bin:/bin' $d/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100 --vcd waves.vcd"
+
+d=$(nsi_fixture)
+probe "a run without --vcd passes vvp no +VCD" 0 "no +VCD passed" \
+  "out=\$(PATH='$tmp/bin-nsi-args:$tmp/bin-none:/usr/bin:/bin' $d/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100) || exit 1; case \"\$out\" in *VCD*) echo \"\$out\"; exit 1 ;; *) echo 'no +VCD passed' ;; esac"
+
+d=$(nsi_fixture)
+probe "--vcd with no path is a usage error, exit 3, not a program FAIL" 3 "--vcd needs a path" \
+  "$d/nano/tb/nano_sim_icarus.sh --rom r --ram m --cycles 100 --vcd"
+
+begin_group "nano/tb/nano_vcd_probe.sh"
+
+nvp_fixture() {  # $1 = body of a stand-in wrapper
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/tb"
+  cp "$REPO/nano/tb/nano_vcd_probe.sh" "$d/nano/tb/"
+  printf '#!/bin/bash\n%s\n' "$1" > "$d/nano/tb/wrapper.sh"
+  chmod +x "$d/nano/tb/wrapper.sh"
+  printf '%s' "$d"
+}
+
+NVP_NAMED='while [ "$#" -gt 0 ]; do if [ "$1" = --vcd ]; then echo dump > "$2"; fi; shift; done'
+
+d=$(nvp_fixture "$NVP_NAMED")
+probe "control: a wrapper that dumps only when named is green" 0 \
+  "no --vcd writes no waveform" "$d/nano/tb/nano_vcd_probe.sh $d/nano/tb/wrapper.sh"
+
+d=$(nvp_fixture "$NVP_NAMED; echo dump > stray.vcd")
+probe "a wrapper that dumps with no --vcd is red" 1 \
+  "a run without --vcd wrote a waveform" "$d/nano/tb/nano_vcd_probe.sh $d/nano/tb/wrapper.sh"
+
+d=$(nvp_fixture "true")
+probe "a wrapper that ignores --vcd is red" 1 \
+  "did not write that file" "$d/nano/tb/nano_vcd_probe.sh $d/nano/tb/wrapper.sh"
+
 begin_group "nano/bench/qspi_timing_report.py"
 
 qtr_fixture() {
@@ -1214,6 +1307,39 @@ probe "a QSPI timing row labelled with another build's preamble is refused" 1 \
 probe "a QSPI timing log whose served fetches differ from its retires is refused" 1 \
   "FETCH/RETIRE MISMATCH" "$QTR '$d/extra_retire.log' $QTR_ROW"
 
+begin_group "nano/bench/qspi_control_check.sh"
+
+d=$(new_case)
+printf 'BENCH marks=2 cycles=1000 verdict=1 writes=5\n' > "$d/match.log"
+printf 'BENCH marks=2 cycles=1001 verdict=1 writes=5\n' > "$d/off_by_one.log"
+printf 'no benchmark line here\n' > "$d/no_bench.log"
+printf 'dhrystone 200 1000\ncoremark 5 2000\n' > "$d/control"
+printf 'dhrystone 200 1000\n' > "$d/control_no_coremark"
+printf 'dhrystone 200 1000\ndhrystone 200 1001\ncoremark 5 2000\n' > "$d/control_doubled"
+printf 'dhrystone 200 lots\ncoremark 5 2000\n' > "$d/control_malformed"
+QCC="'$REPO/nano/bench/qspi_control_check.sh'"
+
+probe "control: a zero-wait log that matches QSPI_CONTROL passes" 0 "" \
+  "$QCC '$d/match.log' dhrystone 200 '$d/control'"
+
+probe "a zero-wait log one cycle off QSPI_CONTROL is refused" 1 \
+  "read 1001 cycles, not the 1000" "$QCC '$d/off_by_one.log' dhrystone 200 '$d/control'"
+
+probe "a zero-wait log with no BENCH line is refused, not read as zero" 1 \
+  "that run did not happen" "$QCC '$d/no_bench.log' dhrystone 200 '$d/control'"
+
+probe "a QSPI_CONTROL line recorded at another run count is refused" 1 \
+  "this sweep runs 5" "$QCC '$d/match.log' dhrystone 5 '$d/control'"
+
+probe "a QSPI_CONTROL with no line for the benchmark is refused" 1 \
+  "must hold exactly one 'coremark" "$QCC '$d/match.log' coremark 5 '$d/control_no_coremark'"
+
+probe "a QSPI_CONTROL with two lines for one benchmark is refused" 1 \
+  "must hold exactly one 'dhrystone" "$QCC '$d/match.log' dhrystone 200 '$d/control_doubled'"
+
+probe "a QSPI_CONTROL line with a non-numeric cycle count is refused" 1 \
+  "malformed dhrystone line" "$QCC '$d/match.log' dhrystone 200 '$d/control_malformed'"
+
 begin_group "nano_qspi_memory.v's own accounting identity (real build)"
 
 NANO_QSPI_ACCOUNTING_CC=""
@@ -1228,7 +1354,7 @@ fi
 accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's reason_* lines, or "" for the control; $2 = an optional second one
     local d; d=$(new_case)
     mkdir -p "$d/nano/tb" "$d/nano/asm" "$d/nano/bench" "$d/soc/compare" "$d/test/asm"
-    cp "$REPO/nano/nano.v" "$d/nano/"
+    cp "$REPO/nano/nano.v" "$REPO/nano/timer.v" "$d/nano/"
     cp "$REPO/nano/tb/nano_qspi_memory.v" "$REPO/nano/tb/nano_testbench.v" \
       "$REPO/nano/tb/nano_cxxrtl.cc" "$d/nano/tb/"
     cp "$REPO/soc/compare/dhry_monitor.v" "$d/soc/compare/"
@@ -1248,7 +1374,7 @@ accounting_fixture() {  # $1 = a sed expression mutating nano_qspi_memory.v's re
     local d=$1
     (
       cd "$d" || exit 1
-      yosys -p "read_verilog -sv -D RISCV_FORMAL -D RISCV_FORMAL_COMPRESSED -D RISCV_FORMAL_ALIGNED_MEM -D RISCV_FORMAL_NRET=1 -D RISCV_FORMAL_XLEN=32 -D RISCV_FORMAL_ILEN=32 -D NANO_QSPI_TIMING -D NANO_QSPI_PREFETCH_DEPTH=2 -D NANO_QSPI_LOOP_KIND=0 -D NANO_QSPI_LOOP_WINDOW=0 -D NANO_QSPI_PREAMBLE_CYCLES=24 rvfi_macros.vh nano/nano.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v nano/tb/nano_testbench.v test/monitor.sim.v; hierarchy -top nano_testbench; write_cxxrtl nano/tb/nano_qspi_rtl.cc" \
+      yosys -p "read_verilog -sv -D RISCV_FORMAL -D RISCV_FORMAL_COMPRESSED -D RISCV_FORMAL_ALIGNED_MEM -D RISCV_FORMAL_NRET=1 -D RISCV_FORMAL_XLEN=32 -D RISCV_FORMAL_ILEN=32 -D NANO_QSPI_TIMING -D NANO_QSPI_PREFETCH_DEPTH=2 -D NANO_QSPI_LOOP_KIND=0 -D NANO_QSPI_LOOP_WINDOW=0 -D NANO_QSPI_PREAMBLE_CYCLES=24 rvfi_macros.vh nano/nano.v nano/timer.v nano/tb/nano_qspi_memory.v soc/compare/dhry_monitor.v nano/tb/nano_testbench.v test/monitor.sim.v; hierarchy -top nano_testbench; write_cxxrtl nano/tb/nano_qspi_rtl.cc" \
         > yosys.log 2>&1 || { cat yosys.log >&2; exit 1; }
       clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror -DNANO_RTL_INCLUDE='"nano_qspi_rtl.cc"' \
         -isystem "$(yosys-config --datdir)/include/backends/cxxrtl/runtime" nano/tb/nano_cxxrtl.cc \
@@ -4125,6 +4251,29 @@ d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LEN
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
+begin_group "nano/asm/nano.lds's timer window ASSERT"
+
+nano_lds_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/asm"
+  cp "$REPO"/nano/asm/nano.lds "$d/nano/asm/"
+  printf '  .section .text.init,"ax",@progbits\n  .globl _start\n_start:\n  nop\n' > "$d/stub.S"
+  printf '%s' "$d"
+}
+
+nano_lds_link() {  # $1 = fixture dir
+  "$LAYOUT_CC" -march=rv32ec_zicsr -mabi=ilp32e -nostdlib -T "$1/nano/asm/nano.lds" "$1/stub.S" \
+    -o "$1/out.elf"
+}
+
+d=$(nano_lds_fixture)
+probe "control: nano.lds puts the timer block where nano_testbench.v hardcodes it" 0 \
+  "nano.lds links" "nano_lds_link $d && echo 'nano.lds links'"
+
+d=$(nano_lds_fixture); mutate "$d/nano/asm/nano.lds" 's/__mtimer = \.;/. += 4; __mtimer = .;/'
+probe "the timer block moving off nano_testbench.v's address is red" 1 \
+  "nano_testbench.v hardcodes the timer's address" "nano_lds_link $d"
+
 begin_group "test/dhry_board_parity_test.sh"
 
 if ! command -v riscv-none-elf-gcc > /dev/null 2>&1; then
@@ -4846,9 +4995,17 @@ d=$(itn_fixture); mutate "$d/formal/ill_e.sv" "s/\.irq_meip(1'b0),/.irq_meip(irq
 probe "a nano harness that stopped tying the input off is red" 1 \
   "does not connect .irq_meip" "$(itns "$d")"
 
+d=$(itn_fixture); mutate "$d/formal/ill_e.sv" "s/\.irq_mtip(1'b0),/.irq_mtip(irq_free),/"
+probe "a nano harness that stopped tying the timer input off is red" 1 \
+  "does not connect .irq_mtip" "$(itns "$d")"
+
 d=$(itn_fixture); mutate "$d/formal/traps.sv" "s/\.irq_meip(irq_meip),/.irq_meip(1'b0),/"
 probe "the free trap harness tied low would grade no interrupt entry, and is red" 1 \
   "names it FREE" "$(itns "$d")"
+
+d=$(itn_fixture); mutate "$d/formal/traps.sv" "s/\.irq_mtip(irq_mtip),/.irq_mtip(1'b0),/"
+probe "the free trap harness with only the timer input tied low is red too" 1 \
+  "ties .irq_mtip(1'b0)" "$(itns "$d")"
 
 d=$(itn_fixture); mutate "$d/BASELINE" '/^FREE traps.sv$/d'
 probe "the free harness with no line in the baseline is red" 1 \
@@ -5051,7 +5208,7 @@ gt_fixture() {
   mkdir -p "$d/rtl" "$d/soc/compare"
   cp "$REPO"/rtl/memory.v "$d/rtl/"
   cp "$REPO"/soc/compare/bench_littlecpu.v "$REPO"/soc/compare/bench_vexriscv.v \
-     "$REPO"/soc/compare/bench_hazard3.v \
+     "$REPO"/soc/compare/bench_vexriscv_lrsc.v "$REPO"/soc/compare/bench_hazard3.v \
      "$REPO"/soc/compare/bench.lds "$REPO"/soc/compare/bench.S "$d/soc/compare/"
   cp "$REPO"/Makefile "$d/"
   printf '%s' "$d"
@@ -5180,7 +5337,7 @@ probe "control: the shipping bench and build file agree" 0 \
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.MUL_FAST             (PERF ? 1 : 0)/.MUL_FAST             (0)/'
 probe "the performance build losing its single-cycle multiply is red" 1 \
-  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0, the authors' builds are area=0 perf=1" \
+  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0 perf_c=0, the build file says area=0 perf=1 perf_c=1" \
   "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
@@ -5196,6 +5353,17 @@ probe "a parameter the bench sets and the build file does not list is red" 1 \
 d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1/MUL_FAST 0 0/'
 probe "PERF moving a parameter the authors' builds agree on is red" 1 \
   "PERF moves BRANCH_PREDICTOR" "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1/MUL_FAST 0 1 0/'
+probe "the C build differing from the performance build in a second parameter is red" 1 \
+  "the C build differs from the performance build on EXTENSION_C, MUL_FAST, not on EXTENSION_C alone" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.EXTENSION_C          (WITH_C ? 1 : 0)/.EXTENSION_C          (0)/'
+probe "the C build losing its C extension in the bench is red" 1 \
+  "EXTENSION_C: bench_hazard3.v elaborates area=0 perf=0 perf_c=0, the build file says area=0 perf=0 perf_c=1" \
+  "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" \
   's/^pin [0-9a-f]*/pin 0000000000000000000000000000000000000000/'
@@ -5274,6 +5442,19 @@ cp "$REPO/Makefile" "$f"
 mutate "$f" 's#\$(VEXRISCV_V)##g'
 probe "a Makefile naming \$(VEXRISCV_V) nowhere is red, not vacuously clean" 1 \
   "names \$(VEXRISCV_V) nowhere" "$VPT $f"
+
+d=$(new_case); mkdir -p "$d/soc/compare"
+cp "$REPO/Makefile" "$d/Makefile"
+cp "$REPO/soc/compare/bench_vexriscv.v" "$REPO/soc/compare/bench_vexriscv_lrsc.v" "$d/soc/compare/"
+probe "control: the LR/SC build's bench is the stock bench but for the core's module name" 0 \
+  "references to \$(VEXRISCV_V), and no other VexRiscv.v path" "$VPT $d/Makefile"
+
+d=$(new_case); mkdir -p "$d/soc/compare"
+cp "$REPO/Makefile" "$d/Makefile"
+cp "$REPO/soc/compare/bench_vexriscv.v" "$REPO/soc/compare/bench_vexriscv_lrsc.v" "$d/soc/compare/"
+mutate "$d/soc/compare/bench_vexriscv_lrsc.v" 's/\.iBus_cmd_ready(1.b1)/.iBus_cmd_ready(1'"'"'b0)/'
+probe "an LR/SC bench adapter that differs beyond its module name is red" 1 \
+  "differs from bench_vexriscv.v in more" "$VPT $d/Makefile"
 
 begin_group "soc/compare/dhry_fit.py"
 
@@ -10261,6 +10442,35 @@ probe "a pair name product_write.py would never write is refused" 1 \
 d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["coremark"] = "measured"' "$d/stamp.json"
 probe "a pair that is not an object is refused, not skipped" 1 \
   "pair coremark is 'measured'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+probe "a stamped feature-matched pair renders under the RV32IMAC section" 0 \
+  "#### Dhrystone 2.1, RV32IMAC" "$CMP render --stamp $d/stamp.json"
+
+probe "a stamp with no feature-matched pair says the section is not stamped yet" 0 \
+  "The feature-matched section is not stamped yet" "$CMP render --stamp $CMP_STAMP"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+grep -v '_imac' "$CMP_FLOOR" > "$d/floor"
+probe "a stamped feature-matched pair with no floor line is red" 1 \
+  "dhrystone_imac: CYCLE_FLOOR has no dhrystone_imac line" "$CMP ratchet --stamp $d/stamp.json --floor $d/floor"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+{ cat "$CMP_FLOOR"; echo 'dhrystone_imac littlecpu rv32im 1.99'; } > "$d/floor"
+probe "a feature-matched cycle factor under its floor is a regression" 1 \
+  "dhrystone_imac: REGRESSION" "$CMP ratchet --stamp $d/stamp.json --floor $d/floor"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]; stamp["pairs"]["dhrystone_imac"]["cores"]["hazard3_b"] = stamp["pairs"]["dhrystone"]["cores"]["vexriscv"]' "$d/stamp.json"
+probe "a feature-matched core with no configuration label is refused" 1 \
+  "hazard3_b in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["out_of_comparison"] = "hazard3_c 11.50 to 11.90 MHz"' "$d/stamp.json"
+probe "a pair naming a core that missed the step says it is out of the comparison" 0 \
+  "hazard3_c 11.50 to 11.90 MHz, worst to best placement" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["out_of_comparison"] = "hazard3_c 11.5 to 11.9 MHz [x](http://x)"' "$d/stamp.json"
+probe "an out-of-comparison note carrying markup is refused" 1 \
+  "dhrystone.out_of_comparison is" "$CMP render --stamp $d/stamp.json"
 
 begin_group "test/probes_header_test.py"
 

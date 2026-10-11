@@ -1,10 +1,13 @@
 #!/bin/bash
 # Sweeps nano's QSPI timing model (nano/tb/nano_qspi_memory.v) over one nano-qspi-sim per
-# configuration against Dhrystone and CoreMark. Reporting only, no ratchet, except that the zero-wait control must reproduce ADR-0182's own cycle counts exactly.
+# configuration against Dhrystone and CoreMark. Reporting only, no ratchet, except that the zero-wait control must reproduce nano/bench/QSPI_CONTROL's cycle counts exactly. --control-only stops after it.
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "usage: run_qspi_timing.sh <nano-march-cflags>" >&2
+CONTROL_ONLY=0
+if [ "$#" -eq 2 ] && [ "$2" = "--control-only" ]; then
+  CONTROL_ONLY=1
+elif [ "$#" -ne 1 ]; then
+  echo "usage: run_qspi_timing.sh <nano-march-cflags> [--control-only]" >&2
   exit 1
 fi
 
@@ -15,8 +18,7 @@ DHRY_RUNS=200
 COREMARK_ITERATIONS=5
 DHRY_CYCLE_LIMIT=600000000
 COREMARK_CYCLE_LIMIT=2500000000
-CONTROL_DHRY_CYCLES=505295
-CONTROL_COREMARK_CYCLES=9242400
+CONTROL_FILE=$HERE/QSPI_CONTROL
 
 CONFIG_NAMES=(no-overlap fifo2 fifo4 fifo2-tagged8 fifo2-cam8 fifo2-tagged16 fifo2-cam16)
 CONFIG_DEPTHS=(0 2 4 2 2 2 2)
@@ -46,27 +48,18 @@ bench_cycles() {  # a log -> the cycles on its first BENCH line; no such line is
   printf '%s' "$cycles"
 }
 
-control_dhry_cycles=$(bench_cycles "$tmp/control-dhry.log") || exit 1
-if [ "$control_dhry_cycles" != "$CONTROL_DHRY_CYCLES" ]; then
-  echo "error: control Dhrystone ($DHRY_RUNS runs) read $control_dhry_cycles cycles," \
-    "not ADR-0182's $CONTROL_DHRY_CYCLES -- the zero-wait model no longer reproduces it." >&2
-  exit 1
-fi
+"$HERE/qspi_control_check.sh" "$tmp/control-dhry.log" dhrystone "$DHRY_RUNS" "$CONTROL_FILE" || exit 1
 grep -E '^(cycles|DMIPS/MHz)' "$tmp/control-dhry.log"
 
-"$REPO/nano/bench/run_coremark.sh" "$REPO/nano-sim" "$COREMARK_ITERATIONS" 20000000 "$CFLAGS" \
+"$REPO/nano/bench/run_coremark.sh" "$REPO/nano-sim" "$COREMARK_ITERATIONS" 30000000 "$CFLAGS" \
   > "$tmp/control-cm.log" 2>&1 || { cat "$tmp/control-cm.log" >&2; exit 1; }
 keep_log "$tmp/control-cm.log" control-coremark.log
-control_cm_cycles=$(bench_cycles "$tmp/control-cm.log") || exit 1
-if [ "$control_cm_cycles" != "$CONTROL_COREMARK_CYCLES" ]; then
-  echo "error: control CoreMark ($COREMARK_ITERATIONS iterations) read $control_cm_cycles" \
-    "cycles, not ADR-0182's $CONTROL_COREMARK_CYCLES." >&2
-  exit 1
-fi
+"$HERE/qspi_control_check.sh" "$tmp/control-cm.log" coremark "$COREMARK_ITERATIONS" "$CONTROL_FILE" || exit 1
 grep -E '^(cycles|CoreMark/MHz)' "$tmp/control-cm.log"
 echo
+[ "$CONTROL_ONLY" -eq 0 ] || exit 0
 
-run_config() {  # name, depth, kind, window, preamble -> both report rows, DHRY_CYCLES_OUT
+run_config() {  # name, depth, kind, window, preamble -> both report rows on stdout, Dhrystone cycles in $tmp/<name>.dhry_cycles
   local name=$1 depth=$2 kind=$3 window=$4 preamble=$5
   echo "building $name (depth=$depth kind=$kind window=$window preamble=$preamble)..." >&2
   make -C "$REPO" nano-qspi-sim NANO_QSPI_TAG="$name" NANO_QSPI_PREFETCH_DEPTH="$depth" \
@@ -83,7 +76,7 @@ run_config() {  # name, depth, kind, window, preamble -> both report rows, DHRY_
   python3 "$HERE/qspi_timing_report.py" "$tmp/$name.dhry.log" --config "$name" \
     --kind dhrystone --runs "$DHRY_RUNS" --depth "$depth" --loop-kind "$kind" \
     --loop-window "$window" --preamble "$preamble" || exit 1
-  DHRY_CYCLES_OUT=$(bench_cycles "$tmp/$name.dhry.log") || exit 1
+  bench_cycles "$tmp/$name.dhry.log" > "$tmp/$name.dhry_cycles" || exit 1
 
   NANO_BENCH_MEMORY="$memory" "$REPO/nano/bench/run_coremark.sh" "$sim" "$COREMARK_ITERATIONS" "$COREMARK_CYCLE_LIMIT" "$CFLAGS" \
     > "$tmp/$name.cm.log" 2>&1 || { tail -60 "$tmp/$name.cm.log" >&2; exit 1; }
@@ -95,13 +88,31 @@ run_config() {  # name, depth, kind, window, preamble -> both report rows, DHRY_
 }
 
 echo -e "config\tkind\tcycles\tper_unit\tmetric\tabsolute\texecute%\tparcel_wait%\tredirect_preamble%\tloop_hit%\thandshake%\tpsram_wait%"
+
+# CoreMark is a hundred million cycles a configuration in this model, so the configurations run
+# side by side; every row is printed in table order once all of them have finished.
+make -C "$REPO" rvfi_macros.vh test/monitor.sim.v > "$tmp/prereq.build.log" 2>&1 \
+  || { tail -60 "$tmp/prereq.build.log" >&2; exit 1; }
+pids=()
+for i in "${!CONFIG_NAMES[@]}"; do
+  run_config "${CONFIG_NAMES[$i]}" "${CONFIG_DEPTHS[$i]}" "${CONFIG_KINDS[$i]}" "${CONFIG_WINDOWS[$i]}" 24 \
+    > "$tmp/${CONFIG_NAMES[$i]}.rows" &
+  pids+=($!)
+done
+failed=0
+for pid in "${pids[@]}"; do
+  wait "$pid" || failed=1
+done
+[ "$failed" -eq 0 ] || { echo "error: a configuration failed above; no table was printed." >&2; exit 1; }
+
 best_name="" best_depth="" best_kind="" best_window="" best_cycles=""
 for i in "${!CONFIG_NAMES[@]}"; do
   name=${CONFIG_NAMES[$i]}
-  run_config "$name" "${CONFIG_DEPTHS[$i]}" "${CONFIG_KINDS[$i]}" "${CONFIG_WINDOWS[$i]}" 24
-  if [ -z "$best_cycles" ] || [ "$DHRY_CYCLES_OUT" -lt "$best_cycles" ]; then
+  cat "$tmp/$name.rows"
+  cycles=$(cat "$tmp/$name.dhry_cycles")
+  if [ -z "$best_cycles" ] || [ "$cycles" -lt "$best_cycles" ]; then
     best_name=$name best_depth=${CONFIG_DEPTHS[$i]} best_kind=${CONFIG_KINDS[$i]}
-    best_window=${CONFIG_WINDOWS[$i]} best_cycles=$DHRY_CYCLES_OUT
+    best_window=${CONFIG_WINDOWS[$i]} best_cycles=$cycles
   fi
 done
 

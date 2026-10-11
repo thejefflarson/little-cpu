@@ -10,7 +10,8 @@ module rvfi_testbench (
   output logic [31:0] mem_wdata,
   output logic [3:0]  mem_wstrb,
   input  logic [31:0] mem_rdata,
-  input  logic        irq_meip
+  input  logic        irq_meip,
+  input  logic        irq_mtip
 );
   logic reset = 1;
   always_ff @(posedge clk)
@@ -31,6 +32,8 @@ module rvfi_testbench (
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
     .irq_meip(irq_meip),
+    .irq_mtip(irq_mtip),
+    .mtime_wr(1'b0),
     .trap(trap),
     .rvfi_dbg_mtvec(dbg_mtvec),
     .rvfi_dbg_mepc(dbg_mepc),
@@ -92,6 +95,7 @@ module rvfi_testbench (
   localparam logic [31:0] CAUSE_STORE_MIS    = 32'd6;
   localparam logic [31:0] CAUSE_STORE_FAULT  = 32'd7;
   localparam logic [31:0] CAUSE_ECALL_M      = 32'd11;
+  localparam logic [31:0] CAUSE_TIMER_IRQ    = 32'h8000_0007;
   localparam logic [31:0] CAUSE_EXTERNAL_IRQ = 32'h8000_000B;
 
   // Illegal instruction is left to ill_e.sv/complete.sv, not re-derived here.
@@ -138,6 +142,13 @@ module rvfi_testbench (
     assert(rvfi_pc_rdata == shadow_mtvec);
   end
 
+  // A CSR instruction or a trap in the handler's first retirement may already have moved mcause when it reports.
+  wire handler_first_plain = live && rvfi_intr && !rvfi_trap &&
+    !(insn_uncompressed && insn_opcode == 5'b11100);
+  always_comb if (handler_first_plain) begin
+    assert(dbg_mcause == CAUSE_TIMER_IRQ || dbg_mcause == CAUSE_EXTERNAL_IRQ);
+  end
+
   always_comb if (live && !rvfi_trap && is_mret) begin
     assert(rvfi_pc_wdata == dbg_mepc);
     assert(dbg_mstatus[7] == 1'b1);
@@ -146,5 +157,7 @@ module rvfi_testbench (
   cover property (live && rvfi_trap && load_region_fault);
   cover property (live && rvfi_trap && store_region_fault);
   cover property (live && rvfi_intr);
+  cover property (handler_first_plain && dbg_mcause == CAUSE_TIMER_IRQ);
+  cover property (handler_first_plain && dbg_mcause == CAUSE_EXTERNAL_IRQ);
   cover property (live && is_mret && !rvfi_trap);
 endmodule
