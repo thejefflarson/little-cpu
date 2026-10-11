@@ -1147,7 +1147,7 @@ ICESUGAR_LOADER  ?= openFPGALoader
 ICESUGAR_VID     ?= 0x1d50
 ICESUGAR_PID     ?= 0x602b
 ICESUGAR_READ_S  ?= 30
-ICESUGAR_EJECT    = @if mount | grep -q /Volumes/iCELink; then diskutil eject /Volumes/iCELink >/dev/null; fi
+ICESUGAR_EJECT    = @if mount | grep -q ' on /Volumes/iCELink ('; then diskutil eject /Volumes/iCELink >/dev/null || true; fi
 
 .PHONY: icesugar-prog
 icesugar-prog: $(BUILD)/icesugar.bit
