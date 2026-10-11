@@ -17,7 +17,11 @@ DRIVER_BYTES=$(riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=i
                && riscv-none-elf-size build/.drv.$$.o | awk 'NR==2{print $1+$2}')
 rm -f build/.drv.$$.o
 : "${DRIVER_BYTES:=512}"
-BUDGET=${BUDGET:-$(( 8192 - DRIVER_BYTES - 600 ))}
+ROM_WORDS=${ROM_WORDS:-4096}
+export ROM_WORDS
+ROM_BYTES=$(( ROM_WORDS * 4 ))
+BANK_WORDS=$(( ROM_WORDS / 2 ))
+BUDGET=${BUDGET:-$(( ROM_BYTES - DRIVER_BYTES - 600 ))}
 READ_S=${READ_S:-3}
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteice.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
@@ -27,10 +31,11 @@ RESULTS=${RESULTS:-build/suite_icesugar_results.txt}
 RAWDIR=${RAWDIR:-build/suite_icesugar_raw}
 rm -rf "$RAWDIR"; mkdir -p "$RAWDIR"
 
-# rvc.S is 12256 bytes and does not fit an 8192-byte ROM even alone.
-SKIP="rvc.S"
+# The ECP5 has block RAM for a 16 KB ROM, so rvc.S (12256 bytes) fits; a smaller ROM_WORDS skips what no longer does.
+SKIP=""
+[ "$ROM_BYTES" -lt 12800 ] && SKIP="rvc.S"
 
-echo "== driver is ${DRIVER_BYTES} bytes; budgeting ${BUDGET} per batch of the 8192-byte ROM"
+echo "== driver is ${DRIVER_BYTES} bytes; budgeting ${BUDGET} per batch of the ${ROM_BYTES}-byte ROM"
 sizes=""
 for f in test/asm/*.S; do
   b=$(basename "$f")
@@ -56,12 +61,12 @@ echo "== $batches batches"
 
 echo
 echo "== placing once (the design does not change between batches)"
-ecpbram -g "$OUT/ph_even.hex" -w 32 -d 1024 -s 1
-ecpbram -g "$OUT/ph_odd.hex" -w 32 -d 1024 -s 2
+ecpbram -g "$OUT/ph_even.hex" -w 32 -d "$BANK_WORDS" -s 1
+ecpbram -g "$OUT/ph_odd.hex" -w 32 -d "$BANK_WORDS" -s 2
 cp "$OUT/ph_even.hex" soc/rom_even.hex
 cp "$OUT/ph_odd.hex" soc/rom_odd.hex
 rm -f build/icesugar.json build/icesugar.config build/icesugar.bit
-if ! make build/icesugar.config ICESUGAR_ROM=noop-rom >"$OUT/place.log" 2>&1; then
+if ! make build/icesugar.config ICESUGAR_ROM=noop-rom SOC_ROM_WORDS="$ROM_WORDS" >"$OUT/place.log" 2>&1; then
   echo "PLACE FAILED:"; tail -15 "$OUT/place.log" | sed 's/^/   /'; exit 1
 fi
 cp build/icesugar.config "$OUT/base.config"

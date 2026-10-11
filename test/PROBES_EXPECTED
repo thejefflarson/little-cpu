@@ -901,6 +901,7 @@ board.lds putting the stack back at the top of ram is red
 boot.lds putting .data back at ram's origin is red
 boot.lds putting the stack back at the top of ram is red
 buffering words during the start-up window is red
+build_batch.sh not passing the ROM size to the linker is red
 check is run only when the shards and the baseline collector are both there
 check-sources actually refusing on a mismatch is red even if the text still warns
 cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red
@@ -1040,6 +1041,7 @@ control: paired_sweep.sh hands the summary --paired
 control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: run_product.sh evals no tool string and splices no variable into python3 -c
+control: rvc.S links and fits a 16 KB board ROM
 control: the ECP5 arm reads its own fabric's two cell names
 control: the LR/SC build's bench is the stock bench but for the core's module name
 control: the MUL constant-latency assertion fails at its own line
@@ -1206,6 +1208,7 @@ runner exit 4 is MONITOR-ERROR, carrying the monitor's code
 runner exit 5 is TRAP-TO-ZERO, not a timeout with no cause
 runner exit 6 is MONITOR-SILENT: the oracle never looked
 running the generator from the wrong directory is refused, not done
+rvc.S in an 8 KB board ROM is red
 sby's trailing engine numbers are not part of the status
 sections.lds putting .data back at ram's origin is red
 sed --in-place is a raw edit exactly like sed -i

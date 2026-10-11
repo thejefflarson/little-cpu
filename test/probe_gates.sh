@@ -4251,6 +4251,34 @@ d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LEN
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
+begin_group "the board suite's ROM size"
+
+rom_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test/board" "$d/test/asm" "$d/soc"
+  cp "$REPO"/test/board/board.lds "$REPO"/test/board/board_suite.S "$REPO"/test/board/build_batch.sh "$d/test/board/"
+  cp "$REPO"/test/asm/*.S "$REPO"/test/asm/*.h "$d/test/asm/"
+  cp "$REPO"/soc/rom_banks.py "$d/soc/"
+  cp "$REPO"/Makefile "$d/"
+  printf '%s' "$d"
+}
+
+rom_batch() {  # $1 = fixture dir, $2 = ROM words
+  ROM_WORDS=$2 "$1/test/board/build_batch.sh" "$1/out" test/asm/rvc.S
+}
+
+d=$(rom_fixture)
+probe "control: rvc.S links and fits a 16 KB board ROM" 0 \
+  "of 16384" "rom_batch $d 4096"
+
+d=$(rom_fixture)
+probe "rvc.S in an 8 KB board ROM is red" 1 \
+  "will not fit in region" "rom_batch $d 2048"
+
+d=$(rom_fixture); mutate "$d/test/board/build_batch.sh" 's/ -Wl,--defsym=ROM_BYTES=\$ROM_BYTES//'
+probe "build_batch.sh not passing the ROM size to the linker is red" 1 \
+  "will not fit in region" "rom_batch $d 4096"
+
 begin_group "nano/asm/nano.lds's timer window ASSERT"
 
 nano_lds_fixture() {

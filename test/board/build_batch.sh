@@ -6,6 +6,7 @@ OUT=$1; shift
 ROM_WORDS=${ROM_WORDS:-$(awk -F'= *' '/^SOC_ROM_WORDS/{print $2; exit}' "$(dirname "$0")/../../Makefile" | tr -d ' ')}
 : "${ROM_WORDS:=2048}"
 mkdir -p "$OUT"
+ROM_BYTES=$(( ROM_WORDS * 4 ))
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 
@@ -18,7 +19,7 @@ objs=(); names=(); i=0
 for prog in "$@"; do
   base=$(basename "$prog")
   $CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -DBOARD_SUITE \
-      -DTEXT_PAST=$(( ROM_WORDS * 4 )) \
+      -DTEXT_PAST=$ROM_BYTES \
       -I "$ROOT/test/asm" -c -o "$OUT/p$i.o" "$prog"
   $OBJCOPY --prefix-symbols="p${i}_" "$OUT/p$i.o"
   $OBJCOPY --redefine-sym "p${i}_board_next=board_next" "$OUT/p$i.o"
@@ -43,17 +44,17 @@ done
 $CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -c -o "$OUT/table.o" "$OUT/table.S"
 
 $CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -DBOARD_SUITE \
-    -I "$ROOT/test/asm" -T "$HERE/board.lds" -o "$OUT/batch.elf" \
+    -I "$ROOT/test/asm" -T "$HERE/board.lds" -Wl,--defsym=ROM_BYTES=$ROM_BYTES -o "$OUT/batch.elf" \
     "$HERE/board_suite.S" "$OUT/table.o" "${objs[@]}"
 
 bytes=$(${CC%gcc}size "$OUT/batch.elf" | awk 'NR==2{print $1+$2}')
-if [ "$bytes" -gt 8192 ]; then
-  echo "error: batch is $bytes bytes and the ROM is 8192." >&2
+if [ "$bytes" -gt "$ROM_BYTES" ]; then
+  echo "error: batch is $bytes bytes and the ROM is $ROM_BYTES." >&2
   exit 1
 fi
 
 $OBJCOPY -O verilog --verilog-data-width=4 -j .text -j .data "$OUT/batch.elf" "$OUT/rom.hex"
 python3 "$ROOT/soc/rom_banks.py" "$OUT/rom.hex" "$ROOT/soc/rom_even.hex" "$ROOT/soc/rom_odd.hex" \
-  --rom-words 2048 >/dev/null
+  --rom-words "$ROM_WORDS" >/dev/null
 printf '%s\n' "${names[@]}" > "$OUT/names.txt"
-echo "batch: $i programs, $bytes bytes of 8192"
+echo "batch: $i programs, $bytes bytes of $ROM_BYTES"
