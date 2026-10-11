@@ -56,6 +56,11 @@ def check(root):
     expect("two boards are two nodes, left for the caller to refuse",
            len(bp.find_ports(tree=[board, usb(bp.VID, bp.PID, "/dev/cu.usbmodem103")])) == 2)
 
+    hostile = ["/dev/cu.usbmodem\x1b]0;pwned\x07", "/dev/cu.usbmodem\udcff2"]
+    said = (br.refusal(hostile, None) or "") + bp.show(hostile[0]) + bp.show(hostile[1])
+    expect("an escape byte in a node name does not reach the refusal message",
+           "\x1b" not in said and "\x07" not in said and "\\x1b" in said)
+    expect("a node name that is not valid UTF-8 is shown, not an error", "\\xff" in bp.show(hostile[1]))
     expect("one node is accepted", br.refusal(["/dev/cu.usbmodem102"], None) is None)
     expect("no node is refused", br.refusal([], None) is not None)
     expect("several nodes are refused", br.refusal(["/dev/a", "/dev/b"], None) is not None)
@@ -112,12 +117,12 @@ def check(root):
 
     saved = bp.find_ports
     try:
-        bp.find_ports = lambda *a, **k: ["/dev/cu.usbmodem1", "/dev/cu.usbmodem2"]
+        bp.find_ports = lambda *a, **k: ["/dev/cu.usbmodem1\x1b[2J", "/dev/cu.usbmodem2"]
         try:
             ea.read_frames(None, 1, 0.1)
             expect("the entropy reader refuses when several nodes match", False)
         except SystemExit as stop:
-            expect("the entropy reader refuses when several nodes match", "2 serial nodes" in str(stop))
+            expect("the entropy reader refuses when several nodes match", "2 serial nodes" in str(stop) and "\x1b" not in str(stop))
         except Exception:
             expect("the entropy reader refuses when several nodes match", False)
     finally:

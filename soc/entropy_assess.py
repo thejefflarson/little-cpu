@@ -68,9 +68,9 @@ def read_frames(port, frames, seconds):
     nodes = sorted(glob.glob(port)) if port else board_port.find_ports()
     if len(nodes) != 1:
         sys.exit("*** %d serial nodes match %s%s; name the one to read with --port"
-                 % (len(nodes), port or "USB %04x:%04x" % (board_port.VID, board_port.PID),
-                    " (%s)" % ", ".join(nodes) if nodes else ""))
-    print("entropy_assess: reading %s" % nodes[0], flush=True)
+                 % (len(nodes), board_port.show(port) if port else "USB %04x:%04x" % (board_port.VID, board_port.PID),
+                    " (%s)" % ", ".join(map(board_port.show, nodes)) if nodes else ""))
+    print("entropy_assess: reading %s" % board_port.show(nodes[0]), flush=True)
     fd = os.open(nodes[0], os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
     attrs = termios.tcgetattr(fd)
     attrs[4] = attrs[5] = termios.B115200

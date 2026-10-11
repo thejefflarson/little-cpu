@@ -441,6 +441,7 @@ a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
 a nextpnr that cannot place fails the recipe, stale .asc beside it
 a nextpnr that died early is NOT graded on the last run's pair
+a node name with an escape byte printed raw is red
 a non-.S program cannot carry a real floor; this runner only globs .S
 a non-comparable CSR value is exempted -- and every exemption printed
 a non-finite --max-um2 is refused before the ratchet compares anything

@@ -9949,9 +9949,14 @@ probe "the reader accepting several matching nodes is red" 1 \
   "several nodes are refused" "$BTOOLS $d"
 
 d=$(btools_fixture)
-mutate "$d/soc/board_read.py" 's/chr(b) if b in KEEP else/chr(b) if True else/'
+mutate "$d/soc/board_port.py" 's/chr(b) if b in KEEP else/chr(b) if True else/'
 probe "a control byte reaching the terminal unescaped is red" 1 \
   "does not reach the terminal as an escape byte" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/board_port.py" 's/    return escape_display(name.encode("utf-8", "surrogateescape"))/    return name/'
+probe "a node name with an escape byte printed raw is red" 1 \
+  "escape byte in a node name does not reach the refusal message" "$BTOOLS $d"
 
 d=$(btools_fixture)
 mutate "$d/soc/bounded.py" 's/        return TIMED_OUT/        return 0/'

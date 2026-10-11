@@ -35,11 +35,7 @@ import time
 
 import board_port
 
-KEEP = frozenset(b"\n\t") | frozenset(range(0x20, 0x7F))
-
-
-def escape_display(data):
-    return "".join(chr(b) if b in KEEP else "\\x%02x" % b for b in data)
+escape_display = board_port.escape_display
 
 
 def stamped_lines(buf, tail, arrived):
@@ -58,9 +54,9 @@ def candidates(override):
 def refusal(nodes, override):
     if len(nodes) == 1:
         return None
-    want = override or "USB %04x:%04x" % (board_port.VID, board_port.PID)
+    want = board_port.show(override) if override else "USB %04x:%04x" % (board_port.VID, board_port.PID)
     return "%d serial nodes match %s%s; name the one to read with --port" % (
-        len(nodes), want, " (%s)" % ", ".join(nodes) if nodes else "")
+        len(nodes), want, " (%s)" % ", ".join(map(board_port.show, nodes)) if nodes else "")
 
 
 def open_port(path):
@@ -96,7 +92,7 @@ def main():
     if refusal(nodes, args.port):
         sys.exit("*** " + refusal(nodes, args.port))
     node = nodes[0]
-    print("board_read: reading %s" % node, flush=True)
+    print("board_read: reading %s" % board_port.show(node), flush=True)
 
     buf = bytearray()
     fd = open_port(node)
@@ -114,7 +110,7 @@ def main():
                 time.sleep(0.1)
                 continue
             if again != node:
-                print("board_read: the board re-enumerated as %s" % again, flush=True)
+                print("board_read: the board re-enumerated as %s" % board_port.show(again), flush=True)
                 node = again
             eofs = 0
         try:
@@ -154,7 +150,7 @@ def main():
     sys.stdout.write(escape_display(buf))
     sys.stdout.write("\n")
     if not buf:
-        print("*** nothing arrived on %s in %.0fs." % (node, args.seconds))
+        print("*** nothing arrived on %s in %.0fs." % (board_port.show(node), args.seconds))
         print("*** The board is configured by `make icesugar-prog`, which loads")
         print("*** SRAM over JTAG and starts the design immediately. Writing the")
         print("*** flash instead leaves the part unconfigured until it is")

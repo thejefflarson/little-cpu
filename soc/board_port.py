@@ -12,6 +12,16 @@ import subprocess
 import sys
 
 VID, PID = 0x1D50, 0x602B
+KEEP = frozenset(b"\n\t") | frozenset(range(0x20, 0x7F))
+
+
+def escape_display(data):
+    return "".join(chr(b) if b in KEEP else "\\x%02x" % b for b in data)
+
+
+def show(name):
+    """A node name safe to print: it can carry the device's own serial-number text."""
+    return escape_display(name.encode("utf-8", "surrogateescape"))
 
 
 def callout_nodes(tree, vid, pid, inside=False):
