@@ -51,6 +51,14 @@ dual_verdict() {
   return 1
 }
 
+flash_verdict() {
+  local last
+  last=$(display_safe < "$1" | grep -E '^FLASH id=[0-9A-F]{6} sfdp=.{4}$' | tail -n 1 || true)
+  if [ "$last" = "FLASH id=$2 sfdp=SFDP" ]; then echo "flash: $last"; return 0; fi
+  echo "flash: wanted 'FLASH id=$2 sfdp=SFDP', last complete line was '${last:-none}'" >&2
+  return 1
+}
+
 native_magic() { LC_ALL=C od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'; }
 
 resolve_path() {

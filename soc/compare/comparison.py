@@ -33,7 +33,8 @@ PARTS = [("", "iCE40 UP5K"), ("_ecp5", "ECP5 LFE5U-25F")]
 # The feature-matched section's pairs are named <benchmark>_imac[_ecp5]: the same benchmarks
 # at RV32IMAC, against the builds of VexRiscv and Hazard3 that carry C and A.
 MATCHED = "_imac"
-CORE_ORDER = ["littlecpu", "vexriscv", "vexriscv_lrsc", "hazard3", "hazard3_perf", "hazard3_c"]
+CORE_ORDER = ["littlecpu", "vexriscv", "vexriscv_lrsc", "hazard3", "hazard3_perf", "hazard3_c",
+              "hazard3_c_fit"]
 # Every row names the build it ran. A core in the stamp with no entry here is refused, so a
 # new opponent cannot be published without stating its configuration (docs/adr/0246).
 CORE_LABELS = {
@@ -43,6 +44,7 @@ CORE_LABELS = {
     "hazard3_perf": "hazard3_perf (performance build)",
     "vexriscv_lrsc": "vexriscv_lrsc (performance build plus LR/SC)",
     "hazard3_c": "hazard3_c (performance build plus C)",
+    "hazard3_c_fit": "hazard3_c_fit (performance build plus C, cut to fit the up5k)",
 }
 CORE_NOTES = {
     "littlecpu": "this core, built at the ISA each section names (RV32IM, then RV32IMAC)",
@@ -62,6 +64,10 @@ CORE_NOTES = {
     "hazard3_c": "`hazard3_perf` with `EXTENSION_C` on, a harness choice no Hazard3 example "
                  "ships (the config test grades it as that one difference); A is on in every "
                  "Hazard3 build",
+    "hazard3_c_fit": "`hazard3_c` cut until the up5k's 12 MHz step is met at every placement of "
+                     "twelve: no Zifencei (`EXTENSION_ZIFENCEI` 0) and `mtvec` fixed to direct "
+                     "mode (`MTVEC_WMASK` `0xfffffffc`); A, C, M, the branch predictor, "
+                     "counters and the single-cycle multiply stay on (docs/adr/0251)",
 }
 # A pair carrying the first of these and not the second is publishing one build of a core
 # that ships two, and says so.
@@ -88,7 +94,7 @@ CAVEATS = [
     "**The first two sections are RV32IM**, the widest ISA their columns share (the Hazard3 "
     "builds there have no C, the stock VexRiscv has no A), so littlecpu's A and C hardware "
     "sits unused in them. The "
-    "feature-matched section compiles all three cores at RV32IMAC; its VexRiscv carries "
+    "feature-matched section compiles every core at RV32IMAC; its VexRiscv carries "
     "LR/SC and not the AMOs, and neither benchmark contains an atomic instruction, so what "
     "that section measures is what each core pays for carrying A and C, not their use.",
     "**nanocpu is not in this comparison** and is never quoted beside littlecpu.",
@@ -300,10 +306,12 @@ def render(stamp):
         for bench, title in BENCHMARKS:
             render_pair(title, pairs.get(bench + suffix), out)
     out += ["## Feature-matched (RV32IMAC)", "",
-            "Every core compiled at `rv32imac_zicsr_zifencei`, the richest ISA all three "
-            "carry: littlecpu, VexRiscv with LR/SC (`vexriscv_lrsc`) and Hazard3's "
-            "performance build with C (`hazard3_c`). The first two sections above stay "
-            "RV32IM and are not replaced by this one.", ""]
+            "One image per benchmark, compiled at `rv32imac_zicsr_zifencei`, the richest ISA "
+            "littlecpu, VexRiscv with LR/SC (`vexriscv_lrsc`) and Hazard3's performance build "
+            "with C (`hazard3_c`) share. The fourth core, `hazard3_c_fit`, was cut to fit the "
+            "up5k and has no Zifencei; neither benchmark executes `fence.i`, and the image's "
+            "text is byte-identical when compiled at `rv32imac_zicsr` (docs/adr/0251). The "
+            "first two sections above stay RV32IM and are not replaced by this one.", ""]
     for suffix, label in PARTS:
         out += [f"### {label}", ""]
         for bench, title in BENCHMARKS:
@@ -317,7 +325,7 @@ def render(stamp):
     if not any(bench + MATCHED + sfx in pairs for bench, _ in BENCHMARKS for sfx, _ in PARTS):
         out.append("- **The feature-matched section is not stamped yet**: the committed stamp "
                    "predates it, and the next `make compare-product` run adds it. The "
-                   "measured figures are in docs/adr/0250.")
+                   "measured figures are in docs/adr/0250 and docs/adr/0251.")
     if unstamped:
         out.append(f"- **Hazard3 has no {' or '.join(unstamped)} row** in this stamp.")
     out += ["", "## Stamp provenance", ""]

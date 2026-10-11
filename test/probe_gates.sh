@@ -4454,6 +4454,21 @@ probe "a dual grader that accepts a capture holding only debugger chatter is red
   "dual chatter-only capture accepted" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ -n "$last" ]; then/'
+probe "a flash grader that accepts any FLASH line whatever its id is red" 1 \
+  "flash wrong id accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ "${last% sfdp=*}" = "FLASH id=$2" ]; then/'
+probe "a flash grader that does not require the SFDP signature is red" 1 \
+  "flash missing signature accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ "$last" = "FLASH id=$2 sfdp=SFDP" ] || [ -z "$last" ]; then/'
+probe "a flash grader that accepts a capture holding only debugger chatter is red" 1 \
+  "flash chatter-only capture accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/      queue+=("\$real")/      :/'
 probe "a root-binary check that stops at the first library hop is red" 1 \
   "library two hops down: got accept" "$BV $d/board_verdict.sh"
@@ -5438,12 +5453,12 @@ hc_clone() {
 
 d=$(hc_fixture)
 probe "control: the shipping bench and build file agree" 0 \
-  "26 parameters agree between bench_hazard3.v, hazard3_builds.txt" "$HC $d"
+  "27 parameters agree between bench_hazard3.v, hazard3_builds.txt" "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.MUL_FAST             (PERF ? 1 : 0)/.MUL_FAST             (0)/'
 probe "the performance build losing its single-cycle multiply is red" 1 \
-  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0 perf_c=0, the build file says area=0 perf=1 perf_c=1" \
+  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0 perf_c=0 fit=0, the build file says area=0 perf=1 perf_c=1 fit=1" \
   "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
@@ -5460,7 +5475,7 @@ d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1/MUL
 probe "PERF moving a parameter the authors' builds agree on is red" 1 \
   "PERF moves BRANCH_PREDICTOR" "$HC $d"
 
-d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1/MUL_FAST 0 1 0/'
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1 1/MUL_FAST 0 1 0 1/'
 probe "the C build differing from the performance build in a second parameter is red" 1 \
   "the C build differs from the performance build on EXTENSION_C, MUL_FAST, not on EXTENSION_C alone" \
   "$HC $d"
@@ -5468,7 +5483,18 @@ probe "the C build differing from the performance build in a second parameter is
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.EXTENSION_C          (WITH_C ? 1 : 0)/.EXTENSION_C          (0)/'
 probe "the C build losing its C extension in the bench is red" 1 \
-  "EXTENSION_C: bench_hazard3.v elaborates area=0 perf=0 perf_c=0, the build file says area=0 perf=0 perf_c=1" \
+  "EXTENSION_C: bench_hazard3.v elaborates area=0 perf=0 perf_c=0 fit=0, the build file says area=0 perf=0 perf_c=1 fit=1" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1 1/MUL_FAST 0 1 1 0/'
+probe "the cut-to-fit build differing from the C build in a third parameter is red" 1 \
+  "the fit build differs from the C build on EXTENSION_ZIFENCEI, MTVEC_WMASK, MUL_FAST, not on EXTENSION_ZIFENCEI, MTVEC_WMASK alone" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.EXTENSION_ZIFENCEI   (PERF && !FIT ? 1 : 0)/.EXTENSION_ZIFENCEI   (PERF ? 1 : 0)/'
+probe "the cut-to-fit build keeping Zifencei in the bench is red" 1 \
+  "EXTENSION_ZIFENCEI: bench_hazard3.v elaborates area=0 perf=1 perf_c=1 fit=1, the build file says area=0 perf=1 perf_c=1 fit=0" \
   "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" \
@@ -5522,7 +5548,7 @@ probe "a commented-out setting beside the live one does not override it" 0 \
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.PMP_REGIONS          (0),/.PMP_REGIONS          (0), \/\/ .PMP_GRAIN (0),/'
 probe "a commented-out bench parameter is not read as set" 0 \
-  "26 parameters agree" "$HC $d"
+  "27 parameters agree" "$HC $d"
 
 d=$(hc_fixture)
 probe "--require-clone with no clone present is red, not a skipped leg" 1 \
