@@ -446,6 +446,7 @@ a not-yet-measured pair is reported, not graded as stale
 a one-bit constant is a different digest
 a one-entry hit rate above the unbounded stack's is red
 a one-field baseline line is rejected before the suite runs
+a packer that trusts its size estimate over the linker is red
 a pad frequency that is not whole hertz cannot be compared exactly
 a pair carrying both Hazard3 builds still renders the area build under its name
 a pair measured for the first time is news on its own, with no --current at all
@@ -1064,6 +1065,7 @@ control: the locality counters are reported under the table
 control: the measured CoreMark image reports the shortfall it has
 control: the measured image reports the shortfall it has
 control: the note a delta is read against carries the part too
+control: the packer keeps rvc.S out of a batch it overflows
 control: the pc hop reaches the pc bin, by the declared net's bits
 control: the shipping Makefile agrees with check-sources' warn-not-fail exit
 control: the shipping Makefile defines no target twice

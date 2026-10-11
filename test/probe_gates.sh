@@ -4279,6 +4279,34 @@ d=$(rom_fixture); mutate "$d/test/board/build_batch.sh" 's/ -Wl,--defsym=ROM_BYT
 probe "build_batch.sh not passing the ROM size to the linker is red" 1 \
   "will not fit in region" "rom_batch $d 4096"
 
+pack_fixture() {
+  local d; d=$(rom_fixture)
+  mkdir -p "$d/soc" "$d/test/asm.all"
+  mv "$d"/test/asm/*.S "$d/test/asm.all/"
+  cp "$d/test/asm.all/rvc.S" "$d/test/asm.all/amominmax.S" "$d/test/asm/"
+  cp "$REPO"/soc/board_verdict.sh "$REPO"/soc/run_suite_icesugar.sh "$d/soc/"
+  printf '%s' "$d"
+}
+
+pack_apart() {  # $1 = fixture dir; green only when rvc.S and amominmax.S land in separate batches
+  local plan
+  plan=$(cd "$1" && PLAN_ONLY=1 ROM_WORDS=4096 ./soc/run_suite_icesugar.sh | grep '^ ')
+  if [ "$(printf '%s\n' "$plan" | wc -l | tr -d ' ')" -eq 2 ]; then
+    echo "rvc.S and amominmax.S packed apart"
+  else
+    echo "rvc.S and amominmax.S share a batch the linker rejects:$plan"
+    return 1
+  fi
+}
+
+d=$(pack_fixture)
+probe "control: the packer keeps rvc.S out of a batch it overflows" 0 \
+  "packed apart" "pack_apart $d"
+
+d=$(pack_fixture); mutate "$d/soc/run_suite_icesugar.sh" 's/^fits() {.*/fits() { return 0; }/'
+probe "a packer that trusts its size estimate over the linker is red" 1 \
+  "share a batch the linker rejects" "pack_apart $d"
+
 begin_group "nano/asm/nano.lds's timer window ASSERT"
 
 nano_lds_fixture() {

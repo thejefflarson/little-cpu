@@ -21,7 +21,6 @@ ROM_WORDS=${ROM_WORDS:-4096}
 export ROM_WORDS
 ROM_BYTES=$(( ROM_WORDS * 4 ))
 BANK_WORDS=$(( ROM_WORDS / 2 ))
-BUDGET=${BUDGET:-$(( ROM_BYTES - DRIVER_BYTES - 600 ))}
 READ_S=${READ_S:-3}
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteice.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
@@ -35,7 +34,7 @@ rm -rf "$RAWDIR"; mkdir -p "$RAWDIR"
 SKIP=""
 [ "$ROM_BYTES" -lt 12800 ] && SKIP="rvc.S"
 
-echo "== driver is ${DRIVER_BYTES} bytes; budgeting ${BUDGET} per batch of the ${ROM_BYTES}-byte ROM"
+echo "== driver is ${DRIVER_BYTES} bytes; packing batches by trial link into the ${ROM_BYTES}-byte ROM"
 sizes=""
 for f in test/asm/*.S; do
   b=$(basename "$f")
@@ -46,17 +45,24 @@ for f in test/asm/*.S; do
   sizes="$sizes$n $f"$'\n'
 done
 
-# Greedy pack, largest first, so a big program never strands a batch.
-batches=0; cur=""; curn=0
+# Greedy pack, largest first, so a big program never strands a batch. The size estimate only orders the programs: whether
+# a batch fits is the linker's answer, since alignment, the dispatch table and the driver cost more than the objects' sizes.
+fits() { ./test/board/build_batch.sh "$OUT/trial" "$@" > "$OUT/trial.log" 2>&1; }
+
+batches=0; cur=""; linkfail=0
 : > "$OUT/plan"
 while read -r n f; do
   [ -z "$f" ] && continue
-  if [ $((curn + n)) -gt "$BUDGET" ] && [ -n "$cur" ]; then
-    echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); cur=""; curn=0
+  if fits $cur $f; then cur="$cur $f"; continue; fi
+  if [ -n "$cur" ]; then
+    echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); cur=""
+    if fits $f; then cur=" $f"; continue; fi
   fi
-  cur="$cur $f"; curn=$((curn + n))
+  echo "   LINK FAILED alone: $(basename "$f")"; tail -3 "$OUT/trial.log" | sed 's/^/      /'
+  echo "$(basename "$f") LINK-FAILED" >> "$RESULTS"; linkfail=$((linkfail+1))
 done < <(printf '%s' "$sizes" | sort -rn)
 [ -n "$cur" ] && { echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); }
+[ -n "${PLAN_ONLY:-}" ] && { cat "$OUT/plan"; exit 0; }
 echo "== $batches batches"
 
 echo
@@ -84,7 +90,7 @@ while read -r progs; do
   t0=$SECONDS
   if ! BATCH_ID=$i ./test/board/build_batch.sh "$OUT/b$i" $progs > "$OUT/link.log" 2>&1; then
     echo "   LINK FAILED:"; sed 's/^/      /' "$OUT/link.log" | tail -12
-    for p in $progs; do echo "$(basename "$p") LINK-FAILED" >> "$RESULTS"; missing=$((missing+1)); done
+    for p in $progs; do echo "$(basename "$p") LINK-FAILED" >> "$RESULTS"; linkfail=$((linkfail+1)); done
     continue
   fi
   echo "   link:  $(tail -1 "$OUT/link.log")  [$((SECONDS-t0))s]"
@@ -144,14 +150,16 @@ done < "$OUT/plan"
 echo
 echo "=================================================="
 echo "on hardware: $pass passed, $fail failed, $missing no report"
+echo "never reached the board (host-side link failure): $linkfail"
 echo "skipped (larger than the ROM): $SKIP"
 
 # Grade against the simulation baselines: a failure the baseline does not name, a baselined program that passed, and a
 # floor program that never ran are each red.
 expected=$(grep -v '^#' test/EXPECTED_FAIL 2>/dev/null | awk 'NF{print $1}' | sort)
-unexpected=""; unexpected_pass=""
+unexpected=""; unexpected_pass=""; link_failed=""
 while read -r name status; do
   [ -z "$name" ] && continue
+  [ "$status" = LINK-FAILED ] && { link_failed="$link_failed $name"; continue; }
   case $(baseline_class "$name" "$status" "$expected") in
     unexpected-pass) unexpected_pass="$unexpected_pass $name";;
     unexpected) unexpected="$unexpected $name";;
@@ -163,8 +171,9 @@ for n in $(awk '/\.S[[:space:]]/{print $1}' test/OBSERVED_FLOOR); do
   grep -q "^$n " "$RESULTS" || never_ran="$never_ran $n"
 done
 echo "failed on the board and not baselined:${unexpected:- (none)}"
+echo "failed to link on the host, never run:${link_failed:- (none)}"
 echo "baselined to fail and passed on the board:${unexpected_pass:- (none)}"
 echo "in test/OBSERVED_FLOOR and never run:${never_ran:- (none)}"
 echo "per-program results, written as they arrived: $RESULTS"
 echo "raw UART captures, one file per batch and attempt: $RAWDIR"
-[ -z "$unexpected$unexpected_pass$never_ran" ]
+[ -z "$unexpected$unexpected_pass$never_ran$link_failed" ]
