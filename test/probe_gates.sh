@@ -5337,7 +5337,7 @@ probe "control: the shipping bench and build file agree" 0 \
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.MUL_FAST             (PERF ? 1 : 0)/.MUL_FAST             (0)/'
 probe "the performance build losing its single-cycle multiply is red" 1 \
-  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0 perf_c=0, the build file says area=0 perf=1 perf_c=1" \
+  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0 perf_c=0 nobp=0, the build file says area=0 perf=1 perf_c=1 nobp=1" \
   "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
@@ -5354,7 +5354,7 @@ d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1/MUL
 probe "PERF moving a parameter the authors' builds agree on is red" 1 \
   "PERF moves BRANCH_PREDICTOR" "$HC $d"
 
-d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1/MUL_FAST 0 1 0/'
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1 1/MUL_FAST 0 1 0 1/'
 probe "the C build differing from the performance build in a second parameter is red" 1 \
   "the C build differs from the performance build on EXTENSION_C, MUL_FAST, not on EXTENSION_C alone" \
   "$HC $d"
@@ -5362,7 +5362,18 @@ probe "the C build differing from the performance build in a second parameter is
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.EXTENSION_C          (WITH_C ? 1 : 0)/.EXTENSION_C          (0)/'
 probe "the C build losing its C extension in the bench is red" 1 \
-  "EXTENSION_C: bench_hazard3.v elaborates area=0 perf=0 perf_c=0, the build file says area=0 perf=0 perf_c=1" \
+  "EXTENSION_C: bench_hazard3.v elaborates area=0 perf=0 perf_c=0 nobp=0, the build file says area=0 perf=0 perf_c=1 nobp=1" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1 1/MUL_FAST 0 1 1 0/'
+probe "the no-predictor build differing from the C build in a second parameter is red" 1 \
+  "the nobp build differs from the C build on BRANCH_PREDICTOR, MUL_FAST, not on BRANCH_PREDICTOR alone" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.BRANCH_PREDICTOR     (PERF && !NO_BP ? 1 : 0)/.BRANCH_PREDICTOR     (PERF ? 1 : 0)/'
+probe "the no-predictor build keeping its predictor in the bench is red" 1 \
+  "BRANCH_PREDICTOR: bench_hazard3.v elaborates area=0 perf=1 perf_c=1 nobp=1, the build file says area=0 perf=1 perf_c=1 nobp=0" \
   "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" \

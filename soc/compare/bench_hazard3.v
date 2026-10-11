@@ -6,6 +6,7 @@
 module bench_hazard3 #(
   parameter bit PERF = 1'b0,  // 1: the authors' ECP5 build; 0: their iCE40 one (hazard3_builds.txt)
   parameter bit WITH_C = 1'b0,  // 1 with PERF: hazard3_c, the ECP5 build plus the C extension
+  parameter bit NO_BP = 1'b0,  // 1 with PERF and WITH_C: hazard3_c_nobp, hazard3_c without its branch predictor
   parameter integer ROM_WORDS = 1024,
   parameter integer RAM_WORDS = 16384,
   parameter INIT_ROM = "soc/compare/rom_flat.hex"
@@ -75,7 +76,7 @@ module bench_hazard3 #(
     .MUL_FASTER           (0),
     .MULH_FAST            (0),
     .FAST_BRANCHCMP       (1),
-    .BRANCH_PREDICTOR     (PERF ? 1 : 0)
+    .BRANCH_PREDICTOR     (PERF && !NO_BP ? 1 : 0)
   ) core (
     .clk           (clk),
     .clk_always_on (clk),

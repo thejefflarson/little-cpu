@@ -164,7 +164,7 @@ sweep_clock() {  # $1 = part, $2 = core; prints comma-separated ns on stdout
 # One sweep per (core, part) serves both benchmark pairs below.
 for part in $PARTS; do
   echo "== compare-product: clock sweep on $part ($SEEDS) =="
-  for core in littlecpu vexriscv hazard3 hazard3_perf vexriscv_lrsc hazard3_c; do
+  for core in littlecpu vexriscv hazard3 hazard3_perf vexriscv_lrsc hazard3_c hazard3_c_nobp; do
     echo "-- $core --"
     ns=$(sweep_clock "$part" "$core")
     echo "$ns"
@@ -368,7 +368,8 @@ measure_matched() {  # $1 = dhrystone | coremark
   m_lc=$(matched_cycles littlecpu)
   m_vx=$(matched_cycles vexriscv_lrsc)
   m_hz=$(matched_cycles hazard3_c)
-  for value in "$count" "$m_lc" "$m_vx" "$m_hz" "$divisor"; do
+  m_hu=$(matched_cycles hazard3_c_nobp)
+  for value in "$count" "$m_lc" "$m_vx" "$m_hz" "$m_hu" "$divisor"; do
     case $value in
       ''|*[!0-9.]*)
         echo "*** run_product.sh: the $bench feature-matched run gave '$value'," >&2
@@ -379,6 +380,7 @@ measure_matched() {  # $1 = dhrystone | coremark
   m_lc_factor=$(cycle_factor "$count" "$m_lc" "$divisor")
   m_vx_factor=$(cycle_factor "$count" "$m_vx" "$divisor")
   m_hz_factor=$(cycle_factor "$count" "$m_hz" "$divisor")
+  m_hu_factor=$(cycle_factor "$count" "$m_hu" "$divisor")
   CYCLE_TOOLS_BLOCK=$(toolchain_block)
   assert_tree_unmoved
   m_isa=$(isa_from_cflags "$cflags")
@@ -391,7 +393,8 @@ measure_matched() {  # $1 = dhrystone | coremark
     esac
     # A core under the up5k step is out of that comparison: it leaves the pair, which says so.
     out_of=""
-    for entry in "littlecpu:$m_lc_factor" "vexriscv_lrsc:$m_vx_factor" "hazard3_c:$m_hz_factor"; do
+    for entry in "littlecpu:$m_lc_factor" "vexriscv_lrsc:$m_vx_factor" "hazard3_c:$m_hz_factor" \
+                 "hazard3_c_nobp:$m_hu_factor"; do
       core=${entry%%:*}
       eval "ns=\$NS_${part}_${core}"
       if [ "$part" = up5k ] && under_step "$ns"; then
