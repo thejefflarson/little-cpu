@@ -75,19 +75,41 @@ owner_mode() {
   echo "$st"
 }
 
+ACL_PROBE_PY='
+import ctypes, ctypes.util, errno, sys
+libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+libc.acl_get_link_np.restype = ctypes.c_void_p
+libc.acl_get_link_np.argtypes = [ctypes.c_char_p, ctypes.c_int]
+libc.acl_to_text.restype = ctypes.c_void_p
+libc.acl_to_text.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+acl = libc.acl_get_link_np(sys.argv[1].encode(), 0x100)
+if not acl:
+    sys.exit(1 if ctypes.get_errno() == errno.ENOENT else 2)
+text = libc.acl_to_text(acl, None)
+if not text:
+    sys.exit(2)
+sys.exit(0 if b":allow:" in ctypes.string_at(text) else 1)
+'
+
 acl_grants() {
+  local out rc=0
   if [ "$(uname -s)" = Darwin ]; then
-    ls -lde "$1" 2>/dev/null | tail -n +2 | grep -q ' allow '
+    python3 -I -c "$ACL_PROBE_PY" "$1" 2>/dev/null || rc=$?
+    [ "$rc" -le 1 ] && return "$rc"
+    return 2
   elif command -v getfacl >/dev/null 2>&1; then
-    getfacl -cp "$1" 2>/dev/null | grep -Eq '^(user|group):[^:]+:.w'
+    out=$(getfacl -cp "$1" 2>/dev/null) || return 2
+    printf '%s\n' "$out" | grep -q '^user::' || return 2
+    printf '%s\n' "$out" | grep -Eq '^(user|group):[^:]+:.w'
   else
-    return 1
+    echo "error: getfacl is not installed, so the ACL on $1 cannot be read; install the acl package" >&2
+    return 2
   fi
 }
 
 # Prints $1's resolved path once it is owned by OWNER, each directory above by OWNER or root, none group-, world- or ACL-writable.
 check_path_chain() {
-  local want=${1-} owner=${2-0} real comp cur="" st uid mode
+  local want=${1-} owner=${2-0} real comp cur="" st uid mode acl
   local -a comps=()
   real=$(resolve_path "$want") || { echo "error: cannot resolve $want" >&2; return 1; }
   [ "$real" = / ] || IFS=/ read -r -a comps <<< "${real#/}"
@@ -104,9 +126,12 @@ check_path_chain() {
     if [ $(( 8#$mode & 8#022 )) -ne 0 ]; then
       echo "error: $cur is group- or world-writable (mode $mode); run 'make install-board-tools'" >&2; return 1
     fi
-    if acl_grants "$cur"; then
-      echo "error: $cur carries an ACL that grants access beyond its mode; run 'make install-board-tools'" >&2; return 1
-    fi
+    acl_grants "$cur" && acl=0 || acl=$?
+    case $acl in
+      0) echo "error: $cur carries an ACL that grants access beyond its mode; run 'make install-board-tools'" >&2; return 1;;
+      1) ;;
+      *) echo "error: cannot read the ACL on $cur" >&2; return 1;;
+    esac
   done
   printf '%s\n' "$real"
 }

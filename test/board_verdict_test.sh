@@ -12,10 +12,12 @@ INSTALL=${3:-$HERE/../soc/install_board_tools.sh}
 
 # The accept cases need scratch whose every ancestor passes the walk; Linux's /tmp is world-writable, so it never does.
 base=""
+scan=$(mktemp -d); printf "#!/bin/sh\nprintf 'user::rwx\\n'\n" > "$scan/getfacl"; chmod 755 "$scan/getfacl"
 for cand in "${TMPDIR:-/tmp}" "$HERE/../build" "$HOME"; do
   mkdir -p "$cand" 2>/dev/null || continue
-  if (. "$HERE/../soc/board_verdict.sh"; check_path_chain "$cand" "$(id -u)") >/dev/null 2>&1; then base=$cand; break; fi
+  if (PATH=$scan:$PATH; . "$HERE/../soc/board_verdict.sh"; check_path_chain "$cand" "$(id -u)") >/dev/null 2>&1; then base=$cand; break; fi
 done
+rm -rf "$scan"
 [ -n "$base" ] || { echo "error: no scratch candidate has an ancestry the root-binary walk accepts" >&2; exit 1; }
 WORK=$(mktemp -d "$base/board_verdict.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
@@ -126,10 +128,10 @@ cat > "$WORK/stubs/readelf" <<'STUB'
 [ -f "$STUB_DEPS/$(basename "$2").rpath" ] || exit 0
 echo ' 0x000000000000001d (RUNPATH)            Library runpath: ['"$(cat "$STUB_DEPS/$(basename "$2").rpath")"']'
 STUB
-cat > "$WORK/stubs/ls" <<'STUB'
+cat > "$WORK/stubs/python3" <<'STUB'
 #!/bin/bash
-if [ "$1" = -lde ] && grep -qxF -- "$2" "$STUB_ACL"; then echo "drwxr-xr-x+ 2 u g 64 Jan 1 00:00 $2"; echo ' 0: user:evil allow add_file'; exit 0; fi
-exec /bin/ls "$@"
+grep -qxF -- "$4" "$STUB_ACL" && exit 0
+exit 1
 STUB
 cat > "$WORK/stubs/getfacl" <<'STUB'
 #!/bin/bash
@@ -138,7 +140,7 @@ printf 'user::rwx\ngroup::r-x\nother::r-x\n'
 grep -qxF -- "$f" "$STUB_ACL" && echo 'user:evil:rwx'
 exit 0
 STUB
-chmod 755 "$WORK/stubs/readelf" "$WORK/stubs/ls" "$WORK/stubs/getfacl"
+chmod 755 "$WORK/stubs/readelf" "$WORK/stubs/python3" "$WORK/stubs/getfacl"
 export STUB_DEPS=$WORK/deps; mkdir "$STUB_DEPS"
 export STUB_ACL=$WORK/acl; : > "$STUB_ACL"
 PATH=$WORK/stubs:$PATH
@@ -197,6 +199,39 @@ chmod 755 "$WORK/a b"
 printf '%s\n' "$(cd -P "$WORK/a" && pwd -P)" > "$STUB_ACL"
 expect_at refuse "an ancestor whose ACL grants what its mode does not" "$WORK/a/b/tool"
 : > "$STUB_ACL"
+
+# An ACL read that fails must refuse: no getfacl on a non-Darwin host, or getfacl or ls -lde exiting nonzero.
+bare=$WORK/bare; mkdir "$bare"
+for t in stat dirname basename tail grep tr od id; do ln -s "$(command -v $t)" "$bare/$t"; done
+printf '#!/bin/bash\necho Linux\n' > "$bare/uname"; chmod 755 "$bare/uname"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: a host without getfacl passed the root-binary check" >&2; fail=1
+fi
+grep -q 'getfacl is not installed' "$WORK/err" || { echo "FAIL: the missing-getfacl refusal does not name the tool" >&2; fail=1; }
+printf '#!/bin/bash\nexit 1\n' > "$bare/getfacl"; chmod 755 "$bare/getfacl"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: a getfacl that exits nonzero passed the root-binary check" >&2; fail=1
+fi
+grep -q 'cannot read the ACL' "$WORK/err" || { echo "FAIL: a failing getfacl was not reported as unreadable" >&2; fail=1; }
+printf '#!/bin/bash\n' > "$bare/getfacl"; chmod 755 "$bare/getfacl"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: a getfacl that prints nothing passed the root-binary check" >&2; fail=1
+fi
+grep -q 'cannot read the ACL' "$WORK/err" || { echo "FAIL: an empty getfacl was not reported as unreadable" >&2; fail=1; }
+printf '#!/bin/bash\necho Darwin\n' > "$bare/uname"
+printf '#!/bin/bash\nexit 2\n' > "$bare/python3"; chmod 755 "$bare/python3"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: an ACL read that fails with EACCES passed the root-binary check" >&2; fail=1
+fi
+grep -q 'cannot read the ACL' "$WORK/err" || { echo "FAIL: a failing ACL read was not reported as unreadable" >&2; fail=1; }
+if [ "$(uname -s)" = Darwin ]; then
+  mkdir "$WORK/aclreal"
+  (PATH=${PATH#"$WORK/stubs:"}; acl_grants "$WORK/aclreal") && rc=0 || rc=$?
+  [ "$rc" = 1 ] || { echo "FAIL: the real ACL read of a plain directory returned $rc, not 1" >&2; fail=1; }
+  chmod +a "everyone allow write" "$WORK/aclreal"
+  (PATH=${PATH#"$WORK/stubs:"}; acl_grants "$WORK/aclreal") && rc=0 || rc=$?
+  [ "$rc" = 0 ] || { echo "FAIL: the real ACL read of a directory with a write ACL returned $rc, not 0" >&2; fail=1; }
+fi
 
 printf '\177ELF' > "$WORK/lib/libx.dylib"; printf '\177ELF' > "$WORK/lib/liby.dylib"
 chmod 755 "$WORK/lib/libx.dylib" "$WORK/lib/liby.dylib"
