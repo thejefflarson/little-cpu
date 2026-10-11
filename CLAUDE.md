@@ -899,7 +899,8 @@ make icesugar-dhrystone # build Dhrystone for it, load it, read the report it pr
                     # Needs the board, so off `make test` and off CI, like suite-board
 make icesugar-suite-board # the .S suite on that board, in batches: place once, swap ROM contents
                     # with ecpbram, load SRAM over JTAG, read the CDC UART. No sudo. Off
-                    # `make test` and CI; SHOW_RAW=1 prints each capture (ADR-0163)
+                    # `make test` and CI; SHOW_RAW=1 prints each capture. Links at 4096 words
+                    # (16 KB), so rvc.S runs; the up5k's suite-board stays at 8 KB (ADR-0163)
 make icesugar-coremark # the same for CoreMark, at SOC_ROM_WORDS=4096: 16 KB of ROM, which
                     # this part has the spare block RAM for and the up5k does not.
                     # `make coremark-rom-ecp5` builds that image alone

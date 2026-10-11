@@ -1162,6 +1162,7 @@ icesugar-dhrystone:
 	  --out $(BUILD)/icesugar_dhrystone.txt
 
 ICESUGAR_COREMARK_ROM_WORDS := 4096
+ICESUGAR_SUITE_ROM_WORDS := 4096
 
 .PHONY: icesugar-coremark
 icesugar-coremark:
@@ -1256,9 +1257,9 @@ suite-board: $(BUILD)/ftread
 .PHONY: icesugar-suite-board
 icesugar-suite-board:
 	@echo 'Runs the .S suite on the iCESugar-Pro, in batches: SRAM over JTAG, never the flash,'
-	@echo 'no sudo. SHOW_RAW=1 prints each raw capture; results land in build/suite_icesugar_results.txt.'
+	@echo 'no sudo, at 16 KB of ROM so rvc.S runs. SHOW_RAW=1 prints each raw capture; results land in build/suite_icesugar_results.txt.'
 	@echo
-	@./soc/run_suite_icesugar.sh
+	@ROM_WORDS=$(ICESUGAR_SUITE_ROM_WORDS) ./soc/run_suite_icesugar.sh
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 

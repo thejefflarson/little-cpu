@@ -17,7 +17,10 @@ DRIVER_BYTES=$(riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=i
                && riscv-none-elf-size build/.drv.$$.o | awk 'NR==2{print $1+$2}')
 rm -f build/.drv.$$.o
 : "${DRIVER_BYTES:=512}"
-BUDGET=${BUDGET:-$(( 8192 - DRIVER_BYTES - 600 ))}
+ROM_WORDS=${ROM_WORDS:-4096}
+export ROM_WORDS
+ROM_BYTES=$(( ROM_WORDS * 4 ))
+BANK_WORDS=$(( ROM_WORDS / 2 ))
 READ_S=${READ_S:-3}
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteice.XXXXXX")
 trap 'rm -rf "$OUT"' EXIT
@@ -27,10 +30,11 @@ RESULTS=${RESULTS:-build/suite_icesugar_results.txt}
 RAWDIR=${RAWDIR:-build/suite_icesugar_raw}
 rm -rf "$RAWDIR"; mkdir -p "$RAWDIR"
 
-# rvc.S is 12256 bytes and does not fit an 8192-byte ROM even alone.
-SKIP="rvc.S"
+# The ECP5 has block RAM for a 16 KB ROM, so rvc.S (12256 bytes) fits; a smaller ROM_WORDS skips what no longer does.
+SKIP=""
+[ "$ROM_BYTES" -lt 12800 ] && SKIP="rvc.S"
 
-echo "== driver is ${DRIVER_BYTES} bytes; budgeting ${BUDGET} per batch of the 8192-byte ROM"
+echo "== driver is ${DRIVER_BYTES} bytes; packing batches by trial link into the ${ROM_BYTES}-byte ROM"
 sizes=""
 for f in test/asm/*.S; do
   b=$(basename "$f")
@@ -41,27 +45,34 @@ for f in test/asm/*.S; do
   sizes="$sizes$n $f"$'\n'
 done
 
-# Greedy pack, largest first, so a big program never strands a batch.
-batches=0; cur=""; curn=0
+# Greedy pack, largest first, so a big program never strands a batch. The size estimate only orders the programs: whether
+# a batch fits is the linker's answer, since alignment, the dispatch table and the driver cost more than the objects' sizes.
+fits() { BATCH_ID=$((batches+1)) ./test/board/build_batch.sh "$OUT/trial" "$@" > "$OUT/trial.log" 2>&1; }
+
+batches=0; cur=""; linkfail=0
 : > "$OUT/plan"
 while read -r n f; do
   [ -z "$f" ] && continue
-  if [ $((curn + n)) -gt "$BUDGET" ] && [ -n "$cur" ]; then
-    echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); cur=""; curn=0
+  if fits $cur $f; then cur="$cur $f"; continue; fi
+  if [ -n "$cur" ]; then
+    echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); cur=""
+    if fits $f; then cur=" $f"; continue; fi
   fi
-  cur="$cur $f"; curn=$((curn + n))
+  echo "   LINK FAILED alone: $(basename "$f")"; tail -3 "$OUT/trial.log" | sed 's/^/      /'
+  echo "$(basename "$f") LINK-FAILED" >> "$RESULTS"; linkfail=$((linkfail+1))
 done < <(printf '%s' "$sizes" | sort -rn)
 [ -n "$cur" ] && { echo "$cur" >> "$OUT/plan"; batches=$((batches+1)); }
+[ -n "${PLAN_ONLY:-}" ] && { cat "$OUT/plan"; exit 0; }
 echo "== $batches batches"
 
 echo
 echo "== placing once (the design does not change between batches)"
-ecpbram -g "$OUT/ph_even.hex" -w 32 -d 1024 -s 1
-ecpbram -g "$OUT/ph_odd.hex" -w 32 -d 1024 -s 2
+ecpbram -g "$OUT/ph_even.hex" -w 32 -d "$BANK_WORDS" -s 1
+ecpbram -g "$OUT/ph_odd.hex" -w 32 -d "$BANK_WORDS" -s 2
 cp "$OUT/ph_even.hex" soc/rom_even.hex
 cp "$OUT/ph_odd.hex" soc/rom_odd.hex
 rm -f build/icesugar.json build/icesugar.config build/icesugar.bit
-if ! make build/icesugar.config ICESUGAR_ROM=noop-rom >"$OUT/place.log" 2>&1; then
+if ! make build/icesugar.config ICESUGAR_ROM=noop-rom SOC_ROM_WORDS="$ROM_WORDS" >"$OUT/place.log" 2>&1; then
   echo "PLACE FAILED:"; tail -15 "$OUT/place.log" | sed 's/^/   /'; exit 1
 fi
 cp build/icesugar.config "$OUT/base.config"
@@ -79,7 +90,7 @@ while read -r progs; do
   t0=$SECONDS
   if ! BATCH_ID=$i ./test/board/build_batch.sh "$OUT/b$i" $progs > "$OUT/link.log" 2>&1; then
     echo "   LINK FAILED:"; sed 's/^/      /' "$OUT/link.log" | tail -12
-    for p in $progs; do echo "$(basename "$p") LINK-FAILED" >> "$RESULTS"; missing=$((missing+1)); done
+    for p in $progs; do echo "$(basename "$p") LINK-FAILED" >> "$RESULTS"; linkfail=$((linkfail+1)); done
     continue
   fi
   echo "   link:  $(tail -1 "$OUT/link.log")  [$((SECONDS-t0))s]"
@@ -139,14 +150,16 @@ done < "$OUT/plan"
 echo
 echo "=================================================="
 echo "on hardware: $pass passed, $fail failed, $missing no report"
+echo "never reached the board (host-side link failure): $linkfail"
 echo "skipped (larger than the ROM): $SKIP"
 
 # Grade against the simulation baselines: a failure the baseline does not name, a baselined program that passed, and a
 # floor program that never ran are each red.
 expected=$(grep -v '^#' test/EXPECTED_FAIL 2>/dev/null | awk 'NF{print $1}' | sort)
-unexpected=""; unexpected_pass=""
+unexpected=""; unexpected_pass=""; link_failed=""
 while read -r name status; do
   [ -z "$name" ] && continue
+  [ "$status" = LINK-FAILED ] && { link_failed="$link_failed $name"; continue; }
   case $(baseline_class "$name" "$status" "$expected") in
     unexpected-pass) unexpected_pass="$unexpected_pass $name";;
     unexpected) unexpected="$unexpected $name";;
@@ -158,8 +171,9 @@ for n in $(awk '/\.S[[:space:]]/{print $1}' test/OBSERVED_FLOOR); do
   grep -q "^$n " "$RESULTS" || never_ran="$never_ran $n"
 done
 echo "failed on the board and not baselined:${unexpected:- (none)}"
+echo "failed to link on the host, never run:${link_failed:- (none)}"
 echo "baselined to fail and passed on the board:${unexpected_pass:- (none)}"
 echo "in test/OBSERVED_FLOOR and never run:${never_ran:- (none)}"
 echo "per-program results, written as they arrived: $RESULTS"
 echo "raw UART captures, one file per batch and attempt: $RAWDIR"
-[ -z "$unexpected$unexpected_pass$never_ran" ]
+[ -z "$unexpected$unexpected_pass$never_ran$link_failed" ]

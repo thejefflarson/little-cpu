@@ -322,3 +322,15 @@ connected to a non-constant net — checks the invariant that matters.
 
 The 25 MHz figures above are superseded by the 30 MHz PLL bitstream, which the
 board has since run cycle-identical to cxxrtl on today's tree (ADR-0172, amended).
+
+### Amendment 2026-10-11: the suite links at 16 KB on the iCESugar-Pro
+
+`make icesugar-suite-board` now places `icesugar_pro_top` at `SOC_ROM_WORDS=4096`
+(16 KB, the size `make icesugar-coremark` already uses) and links each batch with
+`test/board/board.lds`'s `ROM_BYTES` set to match, so `rvc.S` is no longer skipped.
+`rvc.S` alone links to 16,360 of 16,384 bytes. The up5k's `make suite-board` keeps the
+linker script's 8 KB default and its images are byte-identical to before. The packer decides batches by trial link, because object sizes undercount what the
+linker uses. On 2026-10-11, at 30 MHz and 16 KB of ROM, the board ran all five batches
+(`rvc.S` alone in the first, then 13, 18, 37 and 11 programs): **80 of 80 reported a
+pass**, none failed, none went silent, no host-side link failure, and no `test/OBSERVED_FLOOR`
+program went unrun.
