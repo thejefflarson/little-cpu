@@ -149,6 +149,8 @@ a capitalised spelling is the same word and is caught too
 a capture divider with a yosys command separator accepted is red
 a capture frame with a wrong trailer accepted is red
 a capture tag with a shell metacharacter accepted is red
+a capture written in place instead of moved whole into place is red
+a captured file of the wrong size resumed is red
 a carry hop is counted apart from a LUT level
 a casing keyword the table does not define stops rather than guessing
 a cause proof going red somewhere else is not evidence either
@@ -293,9 +295,13 @@ a floor stated for a different ISA is a new row, not a pass
 a floor too long for the shell's integers is named, not compared
 a formal harness that stops wiring rvfi at all is red
 a fourth core's ROM_WORDS with no Makefile entry to reach it is red
+a framer sending a different sample bit than rtl/trng.v reads is red
 a frequency with no path under it is not a measurement
+a from-boot run revived by a later sequence 0 is red
+a from-boot run that starts anywhere but sequence 0 is red
 a funct3-only predicate is rejected when a funct7 still separates two modelled rows
 a future kill wrongly ORed into the OR-identity is red, and named
+a gap check that never sees a gap is red
 a gap in the sequence is not a defect
 a gap opening between the UART and the SPI controller is red
 a gap opening between the data RAM and the timer is red
@@ -311,6 +317,19 @@ a glob seed word stays a literal and is refused, not expanded to file names
 a goal first reached at complete's own depth is red
 a goal reached at or beyond complete's own depth is red
 a graded target quietly depending on netlist-digest is red, and named
+a grader that accepts a NaN figure is red
+a grader that accepts a figure printed twice is red
+a grader that accepts a pass line beside a failure marker is red
+a grader that accepts a pass line printed twice is red
+a grader that accepts an H_I other than ea_non_iid's is red
+a grader that accepts an H_I that changes inside the report is red
+a grader that crashes on an unreadable figure is red
+a grader that does not require H_c is red
+a grader that ignores a failed restart test is red
+a grader that never compares H_original with the floor is red
+a grader that never compares the restart figure with the floor is red
+a grader that skips an H_bitstring line is red
+a grader that trusts the printed restart minimum is red
 a graph with no edges out of reg_rs1 is red, not a vacuous pass
 a grep exit of 2 or more is a real error, not `|| true`'s silent no-match
 a half-installed toolchain says so once, up front
@@ -352,6 +371,8 @@ a loader that outlives its limit and reports success is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
+a lock left by a dead holder never reclaimed is red
+a lock taken from a live holder is red
 a log naming no reached goal is exit 2
 a log that names no cover statement is exit 2, not a goal set of none
 a log with no ABC stime Delay line is refused
@@ -607,6 +628,8 @@ a respelled wait bound stops rather than pinning nothing
 a respelled word arm stops the same way
 a respelled zeroing loop stops rather than mutating nothing
 a results line that reads a missing verdict as a pass is red
+a resume of data with no sidecar is red
+a resume that does not check the sidecar is red
 a retire count below the floor is graded BELOW-FLOOR, not silently PASS
 a retire count too long for the shell's integers is NO-COUNTS
 a retried response gated on a stale, registered req_valid is red
@@ -623,6 +646,7 @@ a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed
 a row's number duplicated onto a different, real file is named
 a run reporting no retire count at all is graded NO-COUNTS
+a run that counts the previous design's frames before the port goes silent is red
 a run that never made the cross-core check is red
 a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a run with no stalled cycles gets a report, not a ZeroDivisionError
@@ -743,6 +767,7 @@ a torn atomic going red at the wait bound is not evidence either
 a torn atomic going red at the wait bound is not evidence either
 a traceless stalled-bus mutant is red, since its FAIL holds for a trivially true goal too
 a tracked file matching its own .gitignore rule is red and named
+a trailer that is not the sum of the bytes is red
 a trap taken exits 5
 a tree git cannot list is a scan of nothing, not a green one
 a tree git cannot list is a scan of nothing, not a green one
@@ -1076,6 +1101,7 @@ control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
 control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone
 control: the formal flow's lower-case rv32imc is a different thing
+control: the gapless capture's bits, sequence numbers and sums agree with the intervals
 control: the insn checks move to pono and the others do not
 control: the jalr share and the return guess are reported under the table
 control: the load and store paths both report an X exactly when one is there
@@ -1085,6 +1111,7 @@ control: the measured image reports the shortfall it has
 control: the note a delta is read against carries the part too
 control: the packer keeps rvc.S out of a batch it overflows
 control: the pc hop reaches the pc bin, by the declared net's bits
+control: the report grader passes the board's figures
 control: the shipping Makefile agrees with check-sources' warn-not-fail exit
 control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
@@ -1127,6 +1154,7 @@ control: with the part's own four SPRAM the same image fits
 coremark.lds putting .data back at ram's origin is red
 coremark.lds putting the stack back at the top of ram is red
 cores given with no --target-core among them is refused
+data bound to one bitstream accepted for another is red
 data past the end of the simulated RAM is red, not silent
 deleting an rtl file and leaving its line is red
 dividers that make a frequency CORE_HZ does not state is red
@@ -1234,6 +1262,7 @@ sby's trailing engine numbers are not part of the status
 sections.lds putting .data back at ram's origin is red
 sed --in-place is a raw edit exactly like sed -i
 sed -i is a raw edit even when it is not the first flag
+sequence numbers that do not advance are red
 starvation going red somewhere other than the bound is not evidence
 starvation going red somewhere other than the bound is not evidence
 status AGREE with a nonzero exit is a broken harness, not agreement
@@ -1257,6 +1286,7 @@ the RTL moving away takes the probe with it, loudly
 the RTL moving away takes the probe with it, loudly
 the SECOND CoreMark core's RAM diverging is graded, not only the first
 the SECOND core's RAM diverging is graded, not only the first
+the SP 800-90B install directory inside the checkout is red on its own
 the SPI controller moving in the core's copy alone is red
 the SPI controller moving in the proof's copy alone is red
 the Sail download directory inside the checkout is red on its own

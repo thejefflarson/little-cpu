@@ -3,9 +3,9 @@
 # two files which independently compute that location still agree.
 set -euo pipefail
 
-if [ "$#" -ne 5 ]; then
+if [ "$#" -ne 6 ]; then
   echo "usage: tool_cache_test.sh <sail-dir> <svlint-dir> <sail-download-dir>" >&2
-  echo "  <nano-liberty-dir> <riscv-gcc-dir>" >&2
+  echo "  <nano-liberty-dir> <riscv-gcc-dir> <nist90b-dir>" >&2
   exit 1
 fi
 
@@ -14,6 +14,7 @@ MAKE_SVLINT_DIR=$2
 MAKE_SAIL_DOWNLOAD_DIR=$3
 MAKE_NANO_LIBERTY_DIR=$4
 MAKE_RISCV_GCC_DIR=$5
+MAKE_NIST_90B_DIR=$6
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
@@ -75,6 +76,7 @@ outside_checkout Makefile "$MAKE_SVLINT_DIR"
 outside_checkout Makefile "$MAKE_SAIL_DOWNLOAD_DIR"
 outside_checkout Makefile "$MAKE_NANO_LIBERTY_DIR"
 outside_checkout Makefile "$MAKE_RISCV_GCC_DIR"
+outside_checkout mk/nist90b.mk "$MAKE_NIST_90B_DIR"
 
 if [ "$rc" -ne 0 ]; then
   exit 1

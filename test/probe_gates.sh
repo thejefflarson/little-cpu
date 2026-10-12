@@ -3817,37 +3817,41 @@ tc_cache="$tmp/cache/little-cpu"
 
 probe "control: agreeing paths outside the checkout are green" 0 \
   "outside the checkout and agreed on" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "the Makefile and test/cosim.py drifting apart is red" 1 \
   "do not agree on where the Sail" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "a Sail install back inside the checkout is red" 1 \
   "test/cosim.py installs tools inside the checkout" \
-  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "an svlint install inside the checkout is red on its own" 1 \
   "$REPO/tools/svlint" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 # The kept release tarball is what a CI cache holds, so a download directory back inside
 # the checkout would be cached under a path no worktree can read.
 probe "the Sail download directory inside the checkout is red on its own" 1 \
   "$REPO/tools/download" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "the nano liberty install directory inside the checkout is red on its own" 1 \
   "$REPO/tools/sky130" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $REPO/tools/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $REPO/tools/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "the riscv-gcc install directory inside the checkout is red on its own" 1 \
   "$REPO/tools/riscv-gcc" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $REPO/tools/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $REPO/tools/riscv-gcc $tc_cache/sp800-90b"
+
+probe "the SP 800-90B install directory inside the checkout is red on its own" 1 \
+  "$REPO/tools/sp800-90b" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $REPO/tools/sp800-90b"
 
 probe "a relative install directory is red before it is compared" 1 \
   "names a relative tool install directory" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download tools/sky130 tools/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download tools/sky130 tools/riscv-gcc tools/sp800-90b"
 
 begin_group "make sail-setup"
 
@@ -9961,6 +9965,172 @@ d=$(egeo_fixture)
 mutate "$d/soc/board_icesugar_pro.v" "s/\\.entropy_raw(entropy_raw)/.entropy_raw(1'b0)/"
 probe "the defect this exists for: the seed source tied low on the board" 1 \
   "seed reads DEAD" "$EGEO $d"
+
+begin_group "test/entropy_stream_test.py"
+
+ESTREAM="python3 $HERE/entropy_stream_test.py"
+
+estream_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO"/soc/entropy_stream.py "$REPO"/soc/entropy_nist.py "$REPO"/soc/nist90b_grade.py \
+     "$REPO"/soc/board_read.py "$REPO"/soc/board_port.py "$REPO"/soc/entropy_bit_framer.v "$d/soc/"
+  cp "$REPO/test/entropy_stream_bench.v" "$d/test/"
+  printf '%s' "$d"
+}
+
+d=$(estream_fixture)
+probe "control: the gapless capture's bits, sequence numbers and sums agree with the intervals" 0 \
+  "entropy-stream:" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_bit_framer.v" 's/assign sample = ticks\[1\] ^ ticks\[0\];/assign sample = ticks[1];/'
+probe "a framer sending a different sample bit than rtl/trng.v reads is red" 1 \
+  "every bit sent is the sample bit" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_bit_framer.v" "s/seq <= seq + 1'b1;/seq <= seq;/"
+probe "sequence numbers that do not advance are red" 1 \
+  "each follows by one" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_bit_framer.v" "s/sum   <= sum + 16'(body_byte);/sum   <= sum;/"
+probe "a trailer that is not the sum of the bytes is red" 1 \
+  "no frame fails its sum" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/    return sum((b - a).*/    return 0/'
+probe "a gap check that never sees a gap is red" 1 \
+  "edges faster than the UART drop frames" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/^        if not self.quiet:$/        if False:/'
+probe "a run that counts the previous design's frames before the port goes silent is red" 1 \
+  "are not a run before the port is silent" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/(not self.frames and self.first_zero and seq != 0)/(False)/'
+probe "a from-boot run that starts anywhere but sequence 0 is red" 1 \
+  "does not begin at sequence 0 is not accepted" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/self.broken = self.first_zero/self.broken = False/'
+probe "a from-boot run revived by a later sequence 0 is red" 1 \
+  "a gap ends a from-boot run for good" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/if holder_dead(path):/if False:/'
+probe "a lock left by a dead holder never reclaimed is red" 1 \
+  "a lock whose holder is dead is reclaimed" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/^    return False$/    return True/'
+probe "a lock taken from a live holder is red" 1 \
+  "a lock whose holder is alive is waited for" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/        if found != expected:/        if False:/'
+probe "data bound to one bitstream accepted for another is red" 1 \
+  "data bound to one bitstream is refused for another" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/^    os.replace(args.out + ".part", args.out)$/    pass/'
+probe "a capture written in place instead of moved whole into place is red" 1 \
+  "a finished capture is moved into place whole" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_nist.py" 's/^    entropy_stream.bind(meta_file, meta)$/    pass/'
+probe "a resume that does not check the sidecar is red" 1 \
+  "from another bitstream is refused" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_nist.py" 's/    if not os.path.exists(meta_file) and (/    if False and (/'
+probe "a resume of data with no sidecar is red" 1 \
+  "data but no sidecar is refused" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_nist.py" 's/    if os.path.exists(samples_file) and os.path.getsize(samples_file) != meta\["samples"\]:/    if False:/'
+probe "a captured file of the wrong size resumed is red" 1 \
+  "a captured file of the wrong size is refused" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+begin_group "test/nist90b_grade_test.py"
+
+NGRADE="python3 $HERE/nist90b_grade_test.py"
+
+ngrade_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO/soc/nist90b_grade.py" "$d/soc/"
+  printf '%s' "$d"
+}
+
+d=$(ngrade_fixture)
+probe "control: the report grader passes the board's figures" 0 "nist90b-grade:" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        if assessed < floor:/        if False:/'
+probe "a grader that never compares H_original with the floor is red" 1 \
+  "an H_bitstring under the floor fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if own < floor:/    if False:/'
+probe "a grader that never compares the restart figure with the floor is red" 1 \
+  "restart figures under the floor fail" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        "passed": passes == 1 and not failed,/        "passed": True,/'
+probe "a grader that ignores a failed restart test is red" 1 \
+  "a pass line beside a failure marker fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        "passed": passes == 1 and not failed,/        "passed": passes >= 1 and not failed,/'
+probe "a grader that accepts a pass line printed twice is red" 1 \
+  "a pass line printed twice fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        "passed": passes == 1 and not failed,/        "passed": passes == 1,/'
+probe "a grader that accepts a pass line beside a failure marker is red" 1 \
+  "a pass line beside a failure marker fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if abs(own - restart\["final"\]) > TOLERANCE:/    if False:/'
+probe "a grader that trusts the printed restart minimum is red" 1 \
+  "a printed minimum above the figures" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if None in figures or restart\["final"\] is None:/    if False:/'
+probe "a grader that does not require H_c is red" 1 \
+  "a restart report with no H_c fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if non_iid\["h_original"\] is not None and abs(restart\["h_i"\]/    if False and abs(restart["h_i"]/'
+probe "a grader that accepts an H_I other than ea_non_iid's is red" 1 \
+  "a restart given a different H_I" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if len(found) != count:/    if False:/'
+probe "a grader that accepts a figure printed twice is red" 1 \
+  "H_original printed twice with the same value fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if max(values) - min(values) > 0:/    if False:/'
+probe "a grader that accepts an H_I that changes inside the report is red" 1 \
+  "an H_I that changes inside the report fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if not all(math.isfinite(value) for value in values):/    if False:/'
+probe "a grader that accepts a NaN figure is red" 1 \
+  "a NaN H_original fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/ if has_bitstring else None,/ if False else None,/'
+probe "a grader that skips an H_bitstring line is red" 1 \
+  "an H_bitstring under the floor fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        except ValueError:/        except ZeroDivisionError:/'
+probe "a grader that crashes on an unreadable figure is red" 1 \
+  "fails without a traceback" "$NGRADE $d"
 
 begin_group "test/board_tools_test.py"
 

@@ -309,9 +309,11 @@ when one value fills 410 (NIST SP 800-90B 4.4.2, a claimed 0.5 bit per sample at
 until 1,024 raw samples have passed all four, and words produced before then are discarded.
 **Two boards have a Zkr source and one of them is measured.** The iCESugar-Pro is measured: its
 `soc/icesugar_pro_entropy.v` divides `OSCG` (DIV 128, 2.435 MHz) by 2^8 in fabric, 3,154 core
-cycles per edge at 30 MHz, and the raw intervals captured over the UART (`soc/entropy_assess.py`,
-24 frames of 4,096) estimate 0.63 to 0.78 bit of min-entropy per sample, above the 0.5 the cutoff
-assumes, with 0 of 192 adaptive-proportion windows tripping and a flat folded stream (ADR-0252);
+cycles per edge at 30 MHz. The repo's own estimators over 24 frames of 4,096 intervals
+(`soc/entropy_assess.py`) read 0.63 to 0.78 bit of min-entropy per sample with 0 of 192
+adaptive-proportion windows tripping, but **NIST's `ea_non_iid` on 1,000,000 consecutive samples
+reads 0.4994 (0.4134 with the core on the 25 MHz pad), under the 0.5 the cutoff assumes**; its
+restart test passes and `make entropy-nist-pll` reproduces it (ADR-0252, amended);
 `test/entropy_geometry_test.py` holds the period between 3,000 cycles and 80% of the edge timeout,
 and a divide of 2^7 measured 0.28 and tripped the proportion test, so the period is not a free
 parameter. The UPduino's `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
@@ -905,6 +907,12 @@ make icesugar-read  # read that board's UART for a bounded window. The port is t
                     # USB VID/PID (`--port` overrides; zero or several matches are refused), bytes
                     # reach the terminal escaped, and the loader runs under `soc/bounded.py`
                     # (ICESUGAR_LOAD_S, 90) so a stalled transfer is LOAD-FAILED, not a hang
+make nist90b-setup  # fetch and build NIST's SP800-90B_EntropyAssessment at its pinned commit into
+                    # ~/.cache/little-cpu/sp800-90b (SHA-256 checked before it is built)
+make entropy-nist-pll # the shipped seed source on the board: 1M consecutive samples, ea_non_iid,
+                    # 1,000 JTAG-load restarts, ea_restart, graded against 0.5 bit/sample. About
+                    # 85 minutes, needs the board, off `make test`; entropy-nist-pad is the 25 MHz-pad
+                    # setting, entropy-nist both. ENTROPY_NIST_LOCK, ENTROPY_NIST_RESUME
 make icesugar-clock-check # load soc/clock_check.S, time its `T` lines on the host and fail when
                     # the mean interval is outside ICESUGAR_CLOCK_PPM (1000) of the board's CORE_HZ;
                     # 30.0035 MHz, +116 ppm over 11 intervals when taken. Needs the board
