@@ -154,7 +154,10 @@ bitstream (`openFPGALoader -m`, SRAM) with the first 1,000 samples after the loa
 770) and its validation test, with H_r 0.502356, H_c 0.832244 and H_I 0.499409, so
 min(H_r, H_c, H_I) is 0.499409. The restart rows are no worse than the continuous run: the column
 estimates (0.83 to 0.999) show no first-sample pattern across restarts. The pad setting's matrix
-was not completed (see below).
+stopped at 275 of 1,000 restarts, when the board left the USB bus (the debugger enumerated no
+device for the following hours and nothing was unplugged on purpose), so `ea_restart` has not been run
+for it. Its H_original is under 0.5 on its own, and `ENTROPY_NIST_RESUME=1 make entropy-nist-pad`
+continues from row 276 once the board is back.
 
 **What a JTAG reload resets.** It erases and rewrites the FPGA's configuration SRAM: every fabric
 flip-flop returns to its initial value, the PLL is reconfigured and re-locks, and the capture
