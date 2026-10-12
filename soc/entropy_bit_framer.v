@@ -1,11 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// Streams the sample bit rtl/trng.v reads, ticks[1] ^ ticks[0] of the interval between two rising
-// edges, so that no edge is lost between frames. A frame is 0xA5 0x5A, a little-endian 16-bit
-// sequence number, 64 sample bits (the first in bit 0 of the first byte) and a little-endian 16-bit
-// sum of the ten bytes between the marker and the sum. A frame fills in 64 edges and the UART sends
-// its 14 bytes in far less, so a new frame finds the previous one sent; if one did not, the frame
-// is dropped but the sequence number still advances and the reader sees the gap.
+// Streams the sample bit rtl/trng.v reads for every edge in 14-byte frames with a sequence number.
 module entropy_bit_framer #(
   parameter integer CLOCK_HZ = 30_000_000
 ) (

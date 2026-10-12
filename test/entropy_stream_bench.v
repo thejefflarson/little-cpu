@@ -1,10 +1,7 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 
-// soc/entropy_bit_framer.v driven with edges 3,140 to 3,169 clocks apart (or FAST_EDGES clocks, faster
-// than the UART can send a frame). It prints "S <bit>" for the sample bit of each interval the framer
-// should count and "B <hex>" for each byte it sends, decoded at the divisor it was built with;
-// test/entropy_stream_test.py compares the two.
+// Drives the framer with edges and prints the expected sample bits and the decoded bytes.
 module entropy_stream_bench;
   parameter integer EDGES = 1800;
 `ifdef FAST_EDGES

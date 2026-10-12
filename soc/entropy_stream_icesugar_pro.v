@@ -1,9 +1,6 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The capture of soc/entropy_capture_icesugar_pro.v for a run of consecutive samples: it streams
-// the sample bit of every edge of OSCG, with no gap, through soc/entropy_bit_framer.v. It has no
-// core. The OSCG, the fabric divide and the 3-flop synchroniser are those of the shipping seed
-// source, so the bits are the ones rtl/trng.v reads.
+// The seed source of the board with a gapless sample-bit stream in place of the core.
 module entropy_stream_icesugar_pro #(
   parameter integer OSC_DIV  = 128,  // OSCG divider, 2..128
   parameter integer FAB_LOG2 = 8,    // fabric divide-by-2^FAB_LOG2, at least 1

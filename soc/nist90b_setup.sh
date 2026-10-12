@@ -1,6 +1,5 @@
 #!/bin/bash
-# Installs NIST's SP800-90B_EntropyAssessment at one pinned commit: fetches the commit's tarball,
-# refuses it unless the SHA-256 matches, builds ea_non_iid and ea_restart from it and stamps the pin.
+# Fetches NIST SP800-90B_EntropyAssessment at a pinned commit, checks its SHA-256 and builds ea_non_iid and ea_restart.
 set -euo pipefail
 if [ "$#" -ne 4 ]; then
   echo "usage: nist90b_setup.sh <commit> <sha256> <dest> <download-dir>" >&2
@@ -46,8 +45,6 @@ tmp=$(mktemp -d "$DEST.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 tar xzf "$tgz" -C "$tmp" --strip-components=1 --no-same-owner --no-same-permissions
 
-# Upstream's Makefile assumes g++, GNU OpenMP and /usr/include; Apple's clang has neither a -fopenmp
-# nor jsoncpp's headers, so macOS builds with clang++, Homebrew's libomp and Homebrew's prefixes.
 if [ "$(uname -s)" = Darwin ]; then
   command -v brew >/dev/null || { echo "Homebrew is needed for libomp, jsoncpp, libdivsufsort and openssl@3" >&2; exit 1; }
   for formula in libomp jsoncpp libdivsufsort openssl@3; do

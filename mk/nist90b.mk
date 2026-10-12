@@ -1,5 +1,4 @@
-# NIST's SP 800-90B reference tools, pinned the way nano/nano.mk pins the sky130 liberty, and the
-# assessment of the iCESugar-Pro's seed source that runs them against the board.
+# NIST SP 800-90B tools, pinned like nano/nano.mk pins the liberty; the board run is off `make test`.
 ifneq ($(filter command line environment,$(origin NIST_90B_COMMIT)),)
 $(error NIST_90B_COMMIT cannot be set from the command line or the environment: it pins \
   bytes this repo executes. Change it in mk/nist90b.mk, together with the SHA-256 digest \
@@ -27,9 +26,6 @@ nist90b-grade-test:
 entropy-stream-test:
 	@python3 ./test/entropy_stream_test.py
 
-# The multi-hour board run, off `make test`. It loads SRAM only, never the flash. ENTROPY_NIST_LOCK, when
-# set, is a directory made around each load-and-read and removed after, for a bench shared with other work.
-# ENTROPY_NIST_RESUME=1 keeps a capture already taken and continues a partly filled restart matrix.
 ENTROPY_NIST_RESTARTS ?= 1000
 ENTROPY_NIST_SAMPLES  ?= 1000000
 ENTROPY_NIST_FLOOR    ?= 0.5
