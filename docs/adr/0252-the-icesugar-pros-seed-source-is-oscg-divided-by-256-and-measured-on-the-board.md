@@ -178,3 +178,15 @@ capture, run both tools and grade them (`soc/entropy_nist.py`, `soc/nist90b_grad
 nonzero when the report is under 0.5, as the shipped setting's is. About 85 minutes each, off
 `make test`. `ENTROPY_NIST_LOCK` names a directory held around each board access and
 `ENTROPY_NIST_RESUME=1` continues a partly filled matrix.
+
+**What keeps a run honest.** A from-boot run counts nothing until the serial port has been silent for
+100 ms after the loader starts (the SRAM erase stops the old design's stream), then must begin at
+sequence 0 and ends for good at the first gap, because a later sequence 0 is the 16-bit counter
+wrapping after 441 s and not a board starting. The load and the capture happen under one hold of the
+board lock. Captured data and the restart matrix are bound by a sidecar (`<tag>_meta.json`, and
+`<matrix>.meta.json`) to the bitstream digest, core clock, sample count and restart count; `--resume`
+refuses data without one, with a different one, or of the wrong size, and a capture is written to
+`.part` and moved into place whole. The grader requires one pass line from `ea_restart` and none of its
+failure markers, recomputes min(H_r, H_c, H_I) itself, and requires the H_I it was given to be
+`ea_non_iid`'s H_original. A framer that numbers a boot (so a PLL relock mid-run is visible) and a
+CRC-16 in place of the additive sum change the bitstream and wait for the next board capture.

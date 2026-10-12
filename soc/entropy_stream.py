@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Capture consecutive raw samples from the iCESugar-Pro's seed source, for NIST's tools.
 
-  entropy_stream.py capture --samples N --out FILE [--port NODE]
+  entropy_stream.py capture --samples N --out FILE [--port NODE] [--bit BITSTREAM]
   entropy_stream.py restart --bit BITSTREAM --out FILE [--rows 1000] [--samples 1000]
 
 A frame is 0xA5 0x5A, a little-endian 16-bit sequence number, 64 sample bits (the first in bit 0
@@ -15,6 +15,8 @@ bitstream into SRAM before every row and keeps the first N samples after the loa
 
 import argparse
 import contextlib
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -28,6 +30,7 @@ FRAME_BYTES = len(HEADER) + 2 + DATA_BYTES + 2
 FRAME_BITS = 8 * DATA_BYTES
 SEQ_MOD = 1 << 16
 ICELINK_MOUNT = "/Volumes/iCELink"
+QUIET_S = 0.1
 
 
 def parse_frames(buf):
@@ -68,20 +71,35 @@ class Run:
 
     A gap in the sequence numbers throws away the run so far and counts a restart of it; a frame that
     fails its sum never joins the run, so the frame after it shows as the gap. With first_zero the run
-    must begin at sequence 0, the first frame a board sends after it starts.
+    must begin at sequence 0 and a gap ends it for good (`broken`), because a later sequence 0 is the
+    counter wrapping and not a board starting. With gated, nothing counts until the port has been
+    silent for QUIET_S after arm(): the load erases the old design, which stops its stream, so a run
+    cannot be the previous design's.
     """
 
-    def __init__(self, samples, first_zero=False):
-        self.samples, self.first_zero = samples, first_zero
-        self.buf, self.frames, self.restarts = bytearray(), [], 0
+    def __init__(self, samples, first_zero=False, gated=False):
+        self.samples, self.first_zero, self.quiet = samples, first_zero, not gated
+        self.buf, self.frames, self.restarts, self.broken, self.ref = bytearray(), [], 0, False, None
 
-    def feed(self, chunk):
+    def arm(self, now):
+        self.ref = now
+
+    def idle(self, now):
+        if not self.quiet and self.ref is not None and now - self.ref >= QUIET_S:
+            self.quiet = True
+            self.buf.clear()
+
+    def feed(self, chunk, now=0.0):
+        if not self.quiet:
+            self.ref = now
+            return
         self.buf.extend(chunk)
         good, _ = parse_frames(self.buf)
         for seq, bits in good:
             if self.frames and (seq - self.frames[-1][0]) % SEQ_MOD != 1:
                 self.frames, self.restarts = [], self.restarts + 1
-            if not self.frames and self.first_zero and seq != 0:
+                self.broken = self.first_zero
+            if self.broken or (not self.frames and self.first_zero and seq != 0):
                 continue
             self.frames.append((seq, bits))
 
@@ -94,33 +112,67 @@ class Run:
 
 
 def pump(fd, run, seconds, until=lambda: False):
-    """Read the port into run until it is complete, `until` says stop, or the time is up."""
+    """Read the port into run until it is complete or broken, `until` says stop, or the time is up."""
     deadline = time.monotonic() + seconds
-    while not run.complete and not until() and time.monotonic() < deadline:
+    while not run.complete and not run.broken and not until() and time.monotonic() < deadline:
         try:
             chunk = os.read(fd, 65536)
         except BlockingIOError:
             chunk = b""
+        now = time.monotonic()
         if chunk:
-            run.feed(chunk)
+            run.feed(chunk, now)
         else:
+            run.idle(now)
             time.sleep(0.005)
 
 
+def holder_dead(path):
+    """True when the lock's recorded PID is gone; False while it lives or has not been written yet."""
+    try:
+        with open(os.path.join(path, "pid")) as handle:
+            os.kill(int(handle.read().strip()), 0)
+    except (FileNotFoundError, ValueError):
+        return False
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 @contextlib.contextmanager
-def locked(path):
-    """Hold the directory `path` for the body, waiting while another holder has it; no lock when empty."""
+def locked(path, timeout=None):
+    """Hold the directory `path` for the body, waiting while another holder has it; no lock when empty.
+
+    The holder's PID is written inside, and a lock whose PID is dead is reclaimed.
+    """
     if path:
+        started, told = time.monotonic(), 0.0
         while True:
             try:
                 os.mkdir(path)
                 break
             except FileExistsError:
-                time.sleep(1)
+                if holder_dead(path):
+                    print("entropy_stream: reclaiming the lock %s from a dead holder" % path, flush=True)
+                    os.remove(os.path.join(path, "pid"))
+                    os.rmdir(path)
+                    continue
+                waited = time.monotonic() - started
+                if timeout is not None and waited > timeout:
+                    raise TimeoutError("lock %s still held after %gs" % (path, timeout))
+                if waited - told >= 30:
+                    told = waited
+                    print("entropy_stream: waiting for the lock %s" % path, flush=True)
+                time.sleep(0.05 if timeout is not None else 1.0)
+        with open(os.path.join(path, "pid"), "w") as handle:
+            handle.write("%d\n" % os.getpid())
     try:
         yield
     finally:
         if path:
+            os.remove(os.path.join(path, "pid"))
             os.rmdir(path)
 
 
@@ -139,28 +191,16 @@ def board_fd(port, seconds=30.0):
         time.sleep(0.5)
 
 
-def capture(args):
-    started = time.monotonic()
-    with locked(args.lock):
-        fd = board_fd(args.port)
-        run = Run(args.samples)
-        pump(fd, run, args.seconds)
-        os.close(fd)
-    samples, restarts = run.result(), run.restarts
-    if samples is None:
-        print("entropy_stream: no consecutive run of %d samples in %gs (%d restarts)"
-              % (args.samples, args.seconds, restarts))
-        return 1
-    with open(args.out, "wb") as handle:
-        handle.write(bytes(samples))
-    print("entropy_stream: %d consecutive samples in %.0fs, %d restarts of the run, ones %.4f"
-          % (len(samples), time.monotonic() - started, restarts, sum(samples) / len(samples)))
-    return 0
-
-
 def eject_icelink():
-    if os.path.ismount(ICELINK_MOUNT):
-        subprocess.run(["diskutil", "eject", ICELINK_MOUNT], capture_output=True, timeout=60)
+    if not os.path.ismount(ICELINK_MOUNT):
+        return
+    try:
+        done = subprocess.run(["diskutil", "eject", ICELINK_MOUNT], capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        print("entropy_stream: warning: ejecting %s timed out" % ICELINK_MOUNT, flush=True)
+        return
+    if done.returncode:
+        print("entropy_stream: warning: ejecting %s exited %d" % (ICELINK_MOUNT, done.returncode), flush=True)
 
 
 def start_load(bit, loader_seconds, loader):
@@ -177,6 +217,8 @@ def load(bit, loader_seconds, loader, fd=None, run=None):
     loader exits, so a reader that waited for the loader could find its first frames dropped from a full
     buffer.
     """
+    if run is not None:
+        run.arm(time.monotonic())
     proc = start_load(bit, loader_seconds, loader)
     try:
         if fd is not None:
@@ -186,8 +228,66 @@ def load(bit, loader_seconds, loader, fd=None, run=None):
     return status == 0
 
 
+def load_and_read(args, run):
+    """One load of args.bit with the port read through it and after it; False when anything failed."""
+    fd = board_fd(args.port)
+    try:
+        ok = load(args.bit, args.loader_seconds, args.loader, fd, run)
+        eject_icelink()
+        if ok:
+            pump(fd, run, args.seconds)
+        return ok
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def file_sha256(path):
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def bind(path, expected):
+    """Write the sidecar `path` when absent; refuse when it holds anything but `expected`."""
+    if os.path.exists(path):
+        with open(path) as handle:
+            found = json.load(handle)
+        if found != expected:
+            sys.exit("*** %s was written for %s, not %s; remove the data it describes to start over"
+                     % (path, found, expected))
+        return
+    with open(path, "w") as handle:
+        json.dump(expected, handle, sort_keys=True)
+
+
+def capture(args):
+    started = time.monotonic()
+    with locked(args.lock):
+        run = Run(args.samples, first_zero=bool(args.bit), gated=bool(args.bit))
+        if args.bit:
+            ok = load_and_read(args, run)
+        else:
+            fd = board_fd(args.port)
+            pump(fd, run, args.seconds)
+            os.close(fd)
+            ok = True
+    samples, restarts = run.result(), run.restarts
+    if not ok or samples is None:
+        print("entropy_stream: no consecutive run of %d samples (load %s, %d restarts of the run)"
+              % (args.samples, "ok" if ok else "FAILED", restarts))
+        return 1
+    with open(args.out + ".part", "wb") as handle:
+        handle.write(bytes(samples))
+    os.replace(args.out + ".part", args.out)
+    print("entropy_stream: %d consecutive samples in %.0fs, %d restarts of the run, ones %.4f"
+          % (len(samples), time.monotonic() - started, restarts, sum(samples) / len(samples)))
+    return 0
+
+
 def restart(args):
     done, failures = 0, 0
+    bind(args.out + ".meta.json", {"bitstream_sha256": file_sha256(args.bit), "row_samples": args.samples})
     if os.path.exists(args.out):
         size = os.path.getsize(args.out)
         if size % args.samples:
@@ -200,19 +300,10 @@ def restart(args):
     with open(args.out, "ab") as handle:
         while done < args.rows:
             with locked(args.lock):
-                fd = board_fd(args.port)
-                run = Run(args.samples, first_zero=True)
-                try:
-                    ok = load(args.bit, args.loader_seconds, args.loader, fd, run)
-                    eject_icelink()
-                    if ok:
-                        pump(fd, run, args.seconds)
-                except OSError:
-                    ok = False
-                finally:
-                    os.close(fd)
+                run = Run(args.samples, first_zero=True, gated=True)
+                ok = load_and_read(args, run)
                 samples = run.result()
-            if samples is None:
+            if not ok or samples is None:
                 failures += 1
                 print("entropy_stream: row %d failed (load %s); retrying" % (done, "ok" if ok else "FAILED"), flush=True)
                 if failures > args.max_failures:
@@ -236,11 +327,12 @@ def main():
         p.add_argument("--port", help="a serial node or glob, instead of the iCELink found by VID/PID")
         p.add_argument("--samples", type=int, default=1_000_000 if name == "capture" else 1000)
         p.add_argument("--seconds", type=float, default=900.0 if name == "capture" else 30.0)
+        p.add_argument("--bit", required=name == "restart",
+                       help="a bitstream to load first; the run must then start at the board's sequence 0")
+        p.add_argument("--loader", default="openFPGALoader")
+        p.add_argument("--loader-seconds", type=float, default=90.0)
     rp = sub.choices["restart"]
-    rp.add_argument("--bit", required=True)
     rp.add_argument("--rows", type=int, default=1000)
-    rp.add_argument("--loader", default="openFPGALoader")
-    rp.add_argument("--loader-seconds", type=float, default=90.0)
     rp.add_argument("--max-failures", type=int, default=20)
     args = parser.parse_args()
     return capture(args) if args.cmd == "capture" else restart(args)

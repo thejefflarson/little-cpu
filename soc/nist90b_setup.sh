@@ -22,7 +22,7 @@ tgz=$DOWNLOADS/SP800-90B_EntropyAssessment-$COMMIT.tar.gz
 if [ ! -f "$tgz" ]; then
   url=https://codeload.github.com/usnistgov/SP800-90B_EntropyAssessment/tar.gz/$COMMIT
   echo "fetching $url"
-  curl -fsSL -o "$tgz.part" "$url"
+  curl -fsSL --connect-timeout 30 --max-time 600 --retry 2 -o "$tgz.part" "$url"
   mv "$tgz.part" "$tgz"
 fi
 got=$($sha "$tgz" | cut -d ' ' -f 1)
