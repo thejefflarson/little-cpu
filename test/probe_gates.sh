@@ -10214,6 +10214,40 @@ mutate "$d/soc/entropy_capture.sh" 's/\*\[!0-9\]\*) echo "error: \${v%%/NEVERMAT
 probe "a capture divider with a yosys command separator accepted is red" 1 \
   "refuses ['t', '1;x'" "$BTOOLS $d"
 
+EJECT="python3 $HERE/icelink_eject_test.py"
+eject_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/mk"
+  cp "$REPO"/soc/*.sh "$REPO"/soc/*.py "$d/soc/"
+  cp "$REPO/Makefile" "$d/"
+  cp "$REPO/mk/nist90b.mk" "$d/mk/"
+  printf '%s' "$d"
+}
+
+d=$(eject_fixture)
+probe "control: every board command ejects the iCELink volume first" 0 \
+  "icelink-eject:" "$EJECT $d"
+
+d=$(eject_fixture)
+mutate "$d/Makefile" '/^icesugar-read:/{n;d;}'
+probe "a Makefile board read with no eject ahead of it is red" 1 \
+  "has an eject first" "$EJECT $d"
+
+d=$(eject_fixture)
+mutate "$d/Makefile" '/^icesugar-prog:/{n;d;}'
+probe "a Makefile loader call with no eject ahead of it is red" 1 \
+  "has an eject first" "$EJECT $d"
+
+d=$(eject_fixture)
+mutate "$d/soc/run_suite_icesugar.sh" '/^  soc\/icelink_eject.sh$/d'
+probe "a suite runner loading before it ejects is red" 1 \
+  "script that loads or reads the board ejects first" "$EJECT $d"
+
+d=$(eject_fixture)
+mutate "$d/soc/icelink_eject.sh" 's/grep -qF " on \$MOUNT ("/grep -q "$MOUNT"/'
+probe "an eject that matches a prefix of the mount point is red" 1 \
+  "sharing the prefix is left alone" "$EJECT $d"
+
 begin_group "test/pin_bump_token_test.py"
 
 # The workflow's shape is the control: the step that runs upstream code must hold no

@@ -34,6 +34,7 @@ ENTROPY_NIST_LOCK     ?=
 ENTROPY_NIST_RESUME   ?=
 
 define entropy_nist_run
+@soc/icelink_eject.sh
 @python3 soc/entropy_nist.py --tag $(1) --core-pad $(2) --out '$(ENTROPY_NIST_OUT)' \
   --bin '$(NIST_90B_BIN)' --samples $(ENTROPY_NIST_SAMPLES) --restarts $(ENTROPY_NIST_RESTARTS) \
   --floor $(ENTROPY_NIST_FLOOR) $(if $(ENTROPY_NIST_LOCK),--lock '$(ENTROPY_NIST_LOCK)') $(if $(ENTROPY_NIST_RESUME),--resume)

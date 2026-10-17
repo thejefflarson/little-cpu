@@ -23,6 +23,7 @@ import collections
 import glob
 import math
 import os
+import subprocess
 import sys
 import time
 
@@ -282,6 +283,7 @@ def main():
     asp.add_argument("files", nargs="+")
     args = parser.parse_args()
     if args.cmd == "read":
+        subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "icelink_eject.sh")], timeout=60)
         runs = read_frames(args.port, args.frames, args.seconds)
         with open(args.out, "w") as handle:
             for run in runs:

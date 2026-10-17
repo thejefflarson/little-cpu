@@ -29,7 +29,6 @@ DATA_BYTES = 8
 FRAME_BYTES = len(HEADER) + 2 + DATA_BYTES + 2
 FRAME_BITS = 8 * DATA_BYTES
 SEQ_MOD = 1 << 16
-ICELINK_MOUNT = "/Volumes/iCELink"
 QUIET_S = 0.1
 
 
@@ -192,15 +191,7 @@ def board_fd(port, seconds=30.0):
 
 
 def eject_icelink():
-    if not os.path.ismount(ICELINK_MOUNT):
-        return
-    try:
-        done = subprocess.run(["diskutil", "eject", ICELINK_MOUNT], capture_output=True, timeout=60)
-    except subprocess.TimeoutExpired:
-        print("entropy_stream: warning: ejecting %s timed out" % ICELINK_MOUNT, flush=True)
-        return
-    if done.returncode:
-        print("entropy_stream: warning: ejecting %s exited %d" % (ICELINK_MOUNT, done.returncode), flush=True)
+    subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "icelink_eject.sh")], timeout=60)
 
 
 def start_load(bit, loader_seconds, loader):
@@ -335,6 +326,7 @@ def main():
     rp.add_argument("--rows", type=int, default=1000)
     rp.add_argument("--max-failures", type=int, default=20)
     args = parser.parse_args()
+    eject_icelink()
     return capture(args) if args.cmd == "capture" else restart(args)
 
 
