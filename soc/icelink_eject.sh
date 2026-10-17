@@ -1,8 +1,14 @@
 #!/bin/bash
-# Ejects the iCELink debugger's DAPLink volume when it is mounted; Finder can hang on it.
-# A no-op where the volume is absent, and an eject that fails warns without failing the caller.
 MOUNT=${ICELINK_MOUNT:-/Volumes/iCELink}
+LIMIT_S=${ICELINK_EJECT_S:-20}
 if mount 2>/dev/null | grep -qF " on $MOUNT ("; then
-  diskutil eject "$MOUNT" >/dev/null 2>&1 || echo "icelink_eject: warning: ejecting $MOUNT failed" >&2
+  python3 "$(dirname "$0")/bounded.py" "$LIMIT_S" diskutil eject "$MOUNT" >/dev/null 2>&1
+  status=$?
+  if [ "$status" = 124 ]; then
+    echo "icelink_eject: warning: ejecting $MOUNT stalled past ${LIMIT_S}s; Finder may hang. Unplug the board or eject the volume in Disk Utility." >&2
+  elif [ "$status" != 0 ]; then
+    echo "icelink_eject: warning: ejecting $MOUNT failed" >&2
+  fi
 fi
 exit 0
+

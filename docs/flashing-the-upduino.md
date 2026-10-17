@@ -71,3 +71,7 @@ affecting JTAG loading or the UART. The board flows use only JTAG and the CDC po
 volume, and every iCESugar target and script ejects it when it is mounted, before it touches the loader or the
 serial port and again after a load, since the volume can return when the board re-enumerates
 (`soc/icelink_eject.sh`).
+
+Always pass `--vid 0x1d50 --pid 0x602b` to a hand-run `openFPGALoader -c cmsisdap`, as the make targets do: the bare
+`--detect` failed with "no USB backend available" on 2026-10-17, and the form with the IDs detected the LFE5U-25 on the
+same plug-in.

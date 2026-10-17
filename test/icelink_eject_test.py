@@ -56,18 +56,24 @@ def helper_cases(root, expect):
     with tempfile.TemporaryDirectory() as scratch:
         log = os.path.join(scratch, "calls")
         for tool, body in (("mount", 'printf "%s\\n" "$FAKE_MOUNT"'),
-                           ("diskutil", 'echo "$@" >> "%s"; exit ${FAKE_DISKUTIL_STATUS:-0}' % log)):
+                           ("diskutil", 'echo "$@" >> "%s"; sleep ${FAKE_DISKUTIL_SLEEP:-0}; exit ${FAKE_DISKUTIL_STATUS:-0}' % log)):
             path = os.path.join(scratch, tool)
             with open(path, "w") as handle:
                 handle.write("#!/bin/bash\n%s\n" % body)
             os.chmod(path, 0o755)
 
-        def run(mounts, status="0"):
+        def run(mounts, status="0", sleep=None):
             if os.path.exists(log):
                 os.remove(log)
             env = dict(os.environ, PATH=scratch + os.pathsep + os.environ["PATH"], FAKE_MOUNT=mounts,
-                       FAKE_DISKUTIL_STATUS=status)
-            done = subprocess.run([helper], env=env, capture_output=True, text=True, timeout=30)
+                       FAKE_DISKUTIL_STATUS=status,
+                       ICELINK_EJECT_S="1")
+            if sleep:
+                env["FAKE_DISKUTIL_SLEEP"] = sleep
+            try:
+                done = subprocess.run([helper], env=env, capture_output=True, text=True, timeout=15)
+            except subprocess.TimeoutExpired:
+                return None, []
             calls = open(log).read().split("\n") if os.path.exists(log) else []
             return done, [c for c in calls if c]
 
@@ -79,6 +85,10 @@ def helper_cases(root, expect):
         expect("an absent volume is a no-op", calls == [] and done.returncode == 0 and not done.stderr)
         done, calls = run("/dev/disk4s1 on /Volumes/iCELink (msdos, local)", status="1")
         expect("a failed eject warns and does not fail", done.returncode == 0 and "warning" in done.stderr)
+        done, calls = run("/dev/disk4s1 on /Volumes/iCELink (msdos, local)", sleep="60")
+        expect("a diskutil that stalls past the limit does not hang the helper, which warns and exits 0",
+               done is not None and done.returncode == 0 and "Finder may hang" in done.stderr
+               and "Disk Utility" in done.stderr)
 
 
 def wrapper_case(root, expect):

@@ -10253,6 +10253,11 @@ mutate "$d/soc/board_port.py" 's/    except subprocess.TimeoutExpired:/    excep
 probe "an eject wrapper that lets a hung helper's timeout escape is red" 1 \
   "returns when a hung helper" "$EJECT $d"
 
+d=$(eject_fixture)
+mutate "$d/soc/icelink_eject.sh" 's|python3 "$(dirname "$0")/bounded.py" "$LIMIT_S" diskutil|diskutil|'
+probe "an eject that runs diskutil with no time limit is red" 1 \
+  "does not hang the helper" "$EJECT $d"
+
 begin_group "test/pin_bump_token_test.py"
 
 # The workflow's shape is the control: the step that runs upstream code must hold no

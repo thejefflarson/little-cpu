@@ -26,8 +26,6 @@ import os
 import sys
 import time
 
-import board_port
-
 SAMPLES = 4096
 HEADER = b"\xa5\x5a"
 FRAME_BYTES = len(HEADER) + 2 * SAMPLES + 2
@@ -64,6 +62,8 @@ def extract_frames(buf):
 
 def read_frames(port, frames, seconds):
     import termios
+
+    import board_port
 
     nodes = sorted(glob.glob(port)) if port else board_port.find_ports()
     if len(nodes) != 1:
@@ -282,6 +282,8 @@ def main():
     asp.add_argument("files", nargs="+")
     args = parser.parse_args()
     if args.cmd == "read":
+        import board_port
+
         board_port.eject_icelink()
         runs = read_frames(args.port, args.frames, args.seconds)
         with open(args.out, "w") as handle:
