@@ -21,6 +21,8 @@ module trng (
   assign edge_seen = sync[1] && !sync[2];
 
   logic [11:0] ticks;
+  // `late` marks one full pass of `ticks` without an edge, so the timeout is 8,192 cycles.
+  logic        late;
   logic [12:0] ticks_next;
   assign ticks_next = {1'b0, ticks} + 13'd1;
 
@@ -52,6 +54,7 @@ module trng (
   always_ff @(posedge clk) begin
     if (reset) begin
       ticks      <= 12'b0;
+      late       <= 1'b0;
       dead       <= 1'b0;
       warm       <= 1'b0;
       run_last   <= 1'b0;
@@ -67,7 +70,8 @@ module trng (
       shift      <= 17'b1;
     end else begin
       ticks <= edge_seen ? 12'b0 : ticks_next[11:0];
-      if (!edge_seen && ticks_next[12]) dead <= 1'b1;
+      late <= !edge_seen && (late || ticks_next[12]);
+      if (!edge_seen && late && ticks_next[12]) dead <= 1'b1;
 
       if (edge_seen) begin
         samples <= samples + 10'd1;
