@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 
+import board_port
 import board_read
 
 HEADER = b"\xa5\x5a"
@@ -190,10 +191,6 @@ def board_fd(port, seconds=30.0):
         time.sleep(0.5)
 
 
-def eject_icelink():
-    subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "icelink_eject.sh")], timeout=60)
-
-
 def start_load(bit, loader_seconds, loader):
     argv = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "bounded.py"),
             str(loader_seconds), loader, "-c", "cmsisdap", "--vid", "0x1d50", "--pid", "0x602b",
@@ -224,7 +221,7 @@ def load_and_read(args, run):
     fd = board_fd(args.port)
     try:
         ok = load(args.bit, args.loader_seconds, args.loader, fd, run)
-        eject_icelink()
+        board_port.eject_icelink()
         if ok:
             pump(fd, run, args.seconds)
         return ok
@@ -287,7 +284,7 @@ def restart(args):
     if done < args.rows:
         with locked(args.lock):
             load(args.bit, args.loader_seconds, args.loader)
-            eject_icelink()
+            board_port.eject_icelink()
     with open(args.out, "ab") as handle:
         while done < args.rows:
             with locked(args.lock):
@@ -326,7 +323,7 @@ def main():
     rp.add_argument("--rows", type=int, default=1000)
     rp.add_argument("--max-failures", type=int, default=20)
     args = parser.parse_args()
-    eject_icelink()
+    board_port.eject_icelink()
     return capture(args) if args.cmd == "capture" else restart(args)
 
 

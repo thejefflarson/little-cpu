@@ -81,6 +81,32 @@ def helper_cases(root, expect):
         expect("a failed eject warns and does not fail", done.returncode == 0 and "warning" in done.stderr)
 
 
+def wrapper_case(root, expect):
+    with tempfile.TemporaryDirectory() as scratch:
+        stub = os.path.join(scratch, "slow.sh")
+        with open(stub, "w") as handle:
+            handle.write("#!/bin/bash\nsleep 30\n")
+        os.chmod(stub, 0o755)
+        sys.path.insert(0, os.path.join(root, "soc"))
+        try:
+            import board_port
+            for what, helper in (("a hung helper", stub), ("a missing helper", os.path.join(scratch, "none"))):
+                try:
+                    board_port.eject_icelink(helper, timeout=1)
+                    returned = True
+                except Exception:
+                    returned = False
+                expect("the Python wrapper returns when %s" % what, returned)
+        finally:
+            sys.path.remove(os.path.join(root, "soc"))
+            sys.modules.pop("board_port", None)
+    for name in ("entropy_stream.py", "entropy_assess.py"):
+        with open(os.path.join(root, "soc", name)) as handle:
+            text = handle.read()
+        expect("%s ejects through the shared wrapper" % name,
+               "board_port.eject_icelink()" in text and "icelink_eject.sh" not in text)
+
+
 def check(root):
     errors = []
 
@@ -89,6 +115,7 @@ def check(root):
             errors.append(what)
 
     helper_cases(root, expect)
+    wrapper_case(root, expect)
     with open(os.path.join(root, "Makefile")) as handle:
         make = handle.read()
     with open(os.path.join(root, "mk", "nist90b.mk")) as handle:

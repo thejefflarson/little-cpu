@@ -10248,6 +10248,11 @@ mutate "$d/soc/icelink_eject.sh" 's/grep -qF " on \$MOUNT ("/grep -q "$MOUNT"/'
 probe "an eject that matches a prefix of the mount point is red" 1 \
   "sharing the prefix is left alone" "$EJECT $d"
 
+d=$(eject_fixture)
+mutate "$d/soc/board_port.py" 's/    except subprocess.TimeoutExpired:/    except KeyError:/'
+probe "an eject wrapper that lets a hung helper's timeout escape is red" 1 \
+  "returns when a hung helper" "$EJECT $d"
+
 begin_group "test/pin_bump_token_test.py"
 
 # The workflow's shape is the control: the step that runs upstream code must hold no

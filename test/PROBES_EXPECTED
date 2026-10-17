@@ -834,6 +834,7 @@ an attribute that is not a source line is not forgiven
 an edge period that an oscillator 20% slow would push past the timeout is red
 an edge period too short for the jitter to fill is red
 an eject that matches a prefix of the mount point is red
+an eject wrapper that lets a hung helper's timeout escape is red
 an empty --current value is refused, not compared as though it were the field's value
 an empty .asc is no placement
 an empty CoreMark image is named rather than reported as fitting easily

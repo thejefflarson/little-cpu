@@ -7,12 +7,24 @@ only stable handle: this walks `ioreg`'s plist for every device with that pair a
 beneath it; callers refuse zero and several.
 """
 
+import os
 import plistlib
 import subprocess
 import sys
 
 VID, PID = 0x1D50, 0x602B
 KEEP = frozenset(b"\n\t") | frozenset(range(0x20, 0x7F))
+
+
+def eject_icelink(helper=None, timeout=60):
+    """Run soc/icelink_eject.sh; a hung or missing helper warns and returns, never raises."""
+    helper = helper or os.path.join(os.path.dirname(os.path.abspath(__file__)), "icelink_eject.sh")
+    try:
+        subprocess.run([helper], timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print("board_port: warning: ejecting the iCELink volume timed out", flush=True)
+    except OSError as err:
+        print("board_port: warning: cannot run %s: %s" % (helper, err), flush=True)
 
 
 def escape_display(data):

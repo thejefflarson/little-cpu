@@ -23,9 +23,10 @@ import collections
 import glob
 import math
 import os
-import subprocess
 import sys
 import time
+
+import board_port
 
 SAMPLES = 4096
 HEADER = b"\xa5\x5a"
@@ -63,8 +64,6 @@ def extract_frames(buf):
 
 def read_frames(port, frames, seconds):
     import termios
-
-    import board_port
 
     nodes = sorted(glob.glob(port)) if port else board_port.find_ports()
     if len(nodes) != 1:
@@ -283,7 +282,7 @@ def main():
     asp.add_argument("files", nargs="+")
     args = parser.parse_args()
     if args.cmd == "read":
-        subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "icelink_eject.sh")], timeout=60)
+        board_port.eject_icelink()
         runs = read_frames(args.port, args.frames, args.seconds)
         with open(args.out, "w") as handle:
             for run in runs:
