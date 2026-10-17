@@ -84,6 +84,8 @@ a CoreMark testbench simulating a different map than the image is linked for is 
 a FAIL verdict from the underlying sim is red for nano's startup check too
 a FREE line with no harness behind it is red
 a MAP_TOP inside the topmost window is red
+a Makefile board read with no eject ahead of it is red
+a Makefile loader call with no eject ahead of it is red
 a Makefile make cannot parse does not pass by silence
 a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
 a PASS with no counts line is not a pass
@@ -726,6 +728,7 @@ a stray comma in a connection list is named as one
 a stray file named after the check-solver target does not skip the guard
 a stubbed file:line warning is red
 a substituted, non-archive download is refused for every file, not silently skipped
+a suite runner loading before it ejects is red
 a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything
 a sweep file that is not there reads as missing, not as empty
@@ -830,6 +833,9 @@ an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
 an edge period that an oscillator 20% slow would push past the timeout is red
 an edge period too short for the jitter to fill is red
+an eject that matches a prefix of the mount point is red
+an eject that runs diskutil with no time limit is red
+an eject wrapper that lets a hung helper's timeout escape is red
 an empty --current value is refused, not compared as though it were the field's value
 an empty .asc is no placement
 an empty CoreMark image is named rather than reported as fitting easily
@@ -1048,6 +1054,7 @@ control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: ecp5 is derived too, and a single sweep states its own figure
 control: every allowed site is covered and nothing else carries the string
+control: every board command ejects the iCELink volume first
 control: every goal first reached before complete's depth passes the tie
 control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0/0
 control: every line of the littlecpu-subset manifest marked EXCLUDED is red too
