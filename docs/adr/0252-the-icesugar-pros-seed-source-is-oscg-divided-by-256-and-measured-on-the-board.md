@@ -190,3 +190,30 @@ refuses data without one, with a different one, or of the wrong size, and a capt
 failure markers, recomputes min(H_r, H_c, H_I) itself, and requires the H_I it was given to be
 `ea_non_iid`'s H_original. A framer that numbers a boot (so a PLL relock mid-run is visible) and a
 CRC-16 in place of the additive sum change the bitstream and wait for the next board capture.
+
+## Amendment: a 2^9 divide and an 8,192-cycle edge timeout (2026-10-17)
+
+The 2^8 source read 0.4994 bit per sample, with no margin over the 0.5 the proportion cutoff
+assumes. A shorter period had measured worse (2^7 read 0.28), so the longer one is tried: the
+fabric divide in `soc/icesugar_pro_entropy.v` becomes 2^9, 6,342 core cycles per edge at 30 MHz,
+and `rtl/trng.v`'s edge timeout doubles to 8,192 cycles so the period sits at 77% of it.
+`test/entropy_geometry_test.py` keeps its rule (3,000 cycles to 80% of the timeout, here 6,554) and
+now reads the timeout as two passes of `ticks`, the second marked by a `late` flag.
+
+**The rule's cost on the up5k.** The shared RTL carries the longer timeout on both boards. Three
+spellings of a 13-bit counter placed at 5,292 to 5,310 `ICESTORM_LC` and did not fit the part's
+5,280; a 12-bit counter with the `late` flag placed at 5,265 (+56 against 5,209 on main). Sixteen
+serial placements of that tree, paired by seed against main on the same toolchain (yosys 0.68+48,
+nextpnr 0.11-1): worst 12.33 MHz (main 12.27), median 13.01 (12.91), best 13.54 (13.30), spread
+9.8% (8.4%); `make fit` reads 4,549 against 4,503 and `FIT_MAX_LC` 4,586; `make ecp5-timing` reads
+39.20 MHz. `soc/pin.json` is stale against this tree.
+
+**NIST at 2^9, 2026-10-17** (`make entropy-nist-pll` with the capture built at 2^9, the core on
+the 30 MHz PLL, SRAM only, 1,000,000 consecutive samples and a 1000 x 1000 restart matrix). `ea_non_iid`
+reads H_original 0.810058: most common value 0.995023, collision 0.818688, Markov 0.979534,
+compression 0.810058, t-tuple 0.919089, longest repeated substring 0.967367, MultiMCW 0.990734,
+lag 0.977158, MultiMMC 0.977680, LZ78Y 0.977005. `ea_restart` passed, with H_r 0.803011, H_c
+0.824950 and H_I 0.810058, so min(H_r, H_c, H_I) is 0.803011, against 0.4994 at 2^8 and a 0.5
+floor. The compression estimator is the lowest of the ten. The seed probe on the
+shipping design printed 273 words with no DEAD, and a word every 9,935,539 core cycles (0.33 s at
+30 MHz) after the first.

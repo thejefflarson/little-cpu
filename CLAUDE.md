@@ -301,19 +301,19 @@ so no value-dependent timing exists and `test/zkt_isolation_test.py` stays green
 `rtl/trng.v`, inside `rtl/csrs.v`: a slow oscillator reaches the core on the `entropy_raw` input,
 and the module measures the interval between its rising edges in `clk` cycles, takes the low two
 bits, runs a von Neumann corrector and an 8-to-1 XOR fold, and buffers 16 bits. Four hardware health
-tests report DEAD, sticky and never alongside entropy: no edge for 4,096 cycles; a 64-sample aligned
+tests report DEAD, sticky and never alongside entropy: no edge for 8,192 cycles; a 64-sample aligned
 block of raw samples with no corrected bit (a beat pattern emits nothing and would otherwise sit in
 WAIT forever); the 32nd repeat of the previous corrected bit in a row (a repetition count on the folded output, which
 also catches a period-2 emitted pattern); and an adaptive proportion over 512-sample windows, dead
 when one value fills 410 (NIST SP 800-90B 4.4.2, a claimed 0.5 bit per sample at 2^-20). BIST lasts
 until 1,024 raw samples have passed all four, and words produced before then are discarded.
 **Two boards have a Zkr source and one of them is measured.** The iCESugar-Pro is measured: its
-`soc/icesugar_pro_entropy.v` divides `OSCG` (DIV 128, 2.435 MHz) by 2^8 in fabric, 3,154 core
-cycles per edge at 30 MHz. The repo's own estimators over 24 frames of 4,096 intervals
+`soc/icesugar_pro_entropy.v` divides `OSCG` (DIV 128, 2.435 MHz) by 2^9 in fabric, 6,342 core
+cycles per edge at 30 MHz (2^8, 3,171 cycles, shipped first). The repo's own estimators over 24 frames of 4,096 intervals
 (`soc/entropy_assess.py`) read 0.63 to 0.78 bit of min-entropy per sample with 0 of 192
 adaptive-proportion windows tripping, but **NIST's `ea_non_iid` on 1,000,000 consecutive samples
-reads 0.4994 (0.4134 with the core on the 25 MHz pad), under the 0.5 the cutoff assumes**; its
-restart test passes and `make entropy-nist-pll` reproduces it (ADR-0252, amended);
+read 0.4994 at 2^8 (0.4134 with the core on the 25 MHz pad), under the 0.5 the cutoff assumes**; the
+longer 2^9 period reads 0.810 and its restart test 0.803, so min is 0.803 (ADR-0252, amended);
 `test/entropy_geometry_test.py` holds the period between 3,000 cycles and 80% of the edge timeout,
 and a divide of 2^7 measured 0.28 and tripped the proportion test, so the period is not a free
 parameter. The UPduino's `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
@@ -1184,9 +1184,9 @@ that it advances by exactly the non-trapping issues; `test/asm/minstret.S`, `tes
 `make -C formal check` as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is necessary,
 not sufficient.
 
-With the `seed` CSR, its entropy source and the Zkr health tests, `make fit` reads 4,503 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
-soc-timing` places at 5,209 of 5,280 `ICESTORM_LC` (98.7%), with sixteen paired seeds at 12.27–13.30 MHz (median 12.91) and
-`soc/pin.json` holding seed 20382078 at 13.19 MHz (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.95 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
+With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,549 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
+soc-timing` places at 5,265 of 5,280 `ICESTORM_LC` (99.7%), with sixteen paired seeds at 12.33–13.54 MHz (median 13.01; the same sixteen on the 5,209-cell tree read 12.27–13.30, median 12.91) and
+`soc/pin.json` holding seed 20382078 at 13.19 MHz (stale against this tree, 13.07 MHz at that seed) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets

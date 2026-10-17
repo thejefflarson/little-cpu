@@ -76,7 +76,7 @@ def main():
             if os.path.exists(path):
                 os.remove(path)
 
-    if run([os.path.join(SOC, "entropy_capture.sh"), build_tag, "128", "8", str(args.core_pad), "stream"],
+    if run([os.path.join(SOC, "entropy_capture.sh"), build_tag, "128", "9", str(args.core_pad), "stream"],
            timeout=BUILD_S):
         sys.exit("*** the capture bitstream did not build")
     digest = entropy_stream.file_sha256(bit)
