@@ -282,6 +282,9 @@ def main():
     asp.add_argument("files", nargs="+")
     args = parser.parse_args()
     if args.cmd == "read":
+        import board_port
+
+        board_port.eject_icelink()
         runs = read_frames(args.port, args.frames, args.seconds)
         with open(args.out, "w") as handle:
             for run in runs:

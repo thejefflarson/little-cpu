@@ -613,6 +613,10 @@ entropy-geometry-test:
 entropy-assess-test:
 	@python3 ./test/entropy_assess_test.py
 
+.PHONY: icelink-eject-test
+icelink-eject-test:
+	@python3 ./test/icelink_eject_test.py
+
 .PHONY: board-tools-test
 board-tools-test:
 	@python3 ./test/board_tools_test.py
@@ -795,7 +799,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test figure-stamp-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test entropy-geometry-test entropy-assess-test entropy-stream-test nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
+      pll-clock-test icelink-eject-test entropy-geometry-test entropy-assess-test entropy-stream-test nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \
@@ -1160,10 +1164,11 @@ ICESUGAR_LOAD_S  ?= 90
 ICESUGAR_LOAD    = python3 soc/bounded.py $(ICESUGAR_LOAD_S) $(ICESUGAR_LOADER) -c cmsisdap \
                    --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID)
 ICESUGAR_LOAD_FAILED = echo 'LOAD-FAILED: the loader failed or stalled past $(ICESUGAR_LOAD_S)s'; exit 1
-ICESUGAR_EJECT    = @if mount | grep -q ' on /Volumes/iCELink ('; then diskutil eject /Volumes/iCELink >/dev/null || true; fi
+ICESUGAR_EJECT    = @soc/icelink_eject.sh
 
 .PHONY: icesugar-prog
 icesugar-prog: $(BUILD)/icesugar.bit
+	$(ICESUGAR_EJECT)
 	@$(ICESUGAR_LOAD) -m $(BUILD)/icesugar.bit || { $(ICESUGAR_LOAD_FAILED); }
 	$(ICESUGAR_EJECT)
 	@echo
@@ -1172,6 +1177,7 @@ icesugar-prog: $(BUILD)/icesugar.bit
 
 .PHONY: icesugar-read
 icesugar-read:
+	$(ICESUGAR_EJECT)
 	@python3 soc/board_read.py --seconds $(ICESUGAR_READ_S)
 
 .PHONY: icesugar-dhrystone
@@ -1180,6 +1186,7 @@ icesugar-dhrystone:
 	@$(MAKE) --no-print-directory dhrystone-rom
 	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_ROM=noop-rom
 	@$(MAKE) --no-print-directory icesugar-prog
+	$(ICESUGAR_EJECT)
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out $(BUILD)/icesugar_dhrystone.txt
 
@@ -1192,6 +1199,7 @@ icesugar-clock-check:
 	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
 	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_ROM=soc-rom ICESUGAR_PROG=soc/clock_check.S
 	@$(MAKE) --no-print-directory icesugar-prog
+	$(ICESUGAR_EJECT)
 	@python3 soc/board_read.py --seconds $(ICESUGAR_CLOCK_S) --out $(BUILD)/icesugar_clock.txt \
 	  --stamps $(BUILD)/icesugar_clock_stamps.txt > /dev/null
 	@python3 soc/clock_grade.py $(BUILD)/icesugar_clock_stamps.txt --clock-hz $(ICESUGAR_CLOCK_HZ) \
@@ -1208,6 +1216,7 @@ icesugar-coremark:
 	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_ROM=noop-rom \
 	  SOC_ROM_WORDS=$(ICESUGAR_COREMARK_ROM_WORDS)
 	@$(MAKE) --no-print-directory icesugar-prog
+	$(ICESUGAR_EJECT)
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out icesugar_coremark.txt
 
@@ -1236,6 +1245,7 @@ icesugar-dual-run:
 	@rm -f $(BUILD)/icesugar_dual.json $(BUILD)/icesugar_dual.config $(BUILD)/icesugar_dual.bit
 	@$(MAKE) --no-print-directory $(BUILD)/icesugar_dual.bit
 	@grep -E 'Max frequency for clock' $(BUILD)/icesugar_dual.pnr.log | tail -1
+	$(ICESUGAR_EJECT)
 	@$(ICESUGAR_LOAD) -m $(BUILD)/icesugar_dual.bit || { $(ICESUGAR_LOAD_FAILED); }
 	$(ICESUGAR_EJECT)
 	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt
@@ -1247,6 +1257,7 @@ ICESUGAR_FLASH_ID ?= EF4019
 icesugar-flash-id:
 	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
 	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_PROG=soc/flash_id.S
+	$(ICESUGAR_EJECT)
 	@$(ICESUGAR_LOAD) -m $(BUILD)/icesugar.bit || { $(ICESUGAR_LOAD_FAILED); }
 	$(ICESUGAR_EJECT)
 	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_flash_id.txt

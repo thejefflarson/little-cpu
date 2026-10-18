@@ -909,7 +909,10 @@ make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks
                     # No --freq: the LPF states the pad, nextpnr derives the core
                     # domain from the PLL's dividers, and missing it is an ERROR
 make icesugar-prog  # load it into SRAM over JTAG. NOT the flash: a flash write leaves the
-                    # part at `@cdone:0`, unconfigured, until it is physically power-cycled
+                    # part at `@cdone:0`, unconfigured, until it is physically power-cycled.
+                    # Every iCESugar-Pro target and script first ejects the iCELink volume
+                    # (`soc/icelink_eject.sh`), which Finder can hang on, and again after a load;
+                    # `test/icelink_eject_test.py` grades it. Eject by hand before a bare openFPGALoader
 make icesugar-read  # read that board's UART for a bounded window. The port is the iCELink found by
                     # USB VID/PID (`--port` overrides; zero or several matches are refused), bytes
                     # reach the terminal escaped, and the loader runs under `soc/bounded.py`
