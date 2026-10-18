@@ -158,6 +158,10 @@ def child_env():
     flags = re.sub(r"(^| )-j\d*\b", " ", flags)
     env["MAKEFLAGS"] = flags.strip()
     env.pop("MFLAGS", None)
+    # The OSS CAD Suite's python launcher exports these for its own interpreter. A check that
+    # runs a different python3 (a probe with a minimal PATH) would fail to start under them.
+    for var in ("PYTHONHOME", "PYTHONEXECUTABLE"):
+        env.pop(var, None)
     return env
 
 

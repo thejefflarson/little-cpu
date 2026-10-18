@@ -90,7 +90,7 @@ jobs:
         env:
           TEST_JOBS: 3
           PROBE_SHARDS: 3
-          NANO_PROBE_JOBS: 2
+          NANO_PROBE_JOBS: 1
           TEST_VERBOSE: 1
 
       - name: Report the pod's peak memory

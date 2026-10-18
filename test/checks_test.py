@@ -164,7 +164,9 @@ def main():
         reset_counts(repo)
         driver(repo)
         reset_counts(repo)
-        bindir = tempfile.mkdtemp(prefix="checks-test-bin.")
+        build = os.path.join(os.path.dirname(HERE), "build")
+        os.makedirs(build, exist_ok=True)
+        bindir = tempfile.mkdtemp(prefix="checks-test-bin.", dir=build)
         with open(os.path.join(bindir, "yosys"), "w") as fh:
             fh.write("#!/bin/sh\necho Yosys fake-1\n")
         os.chmod(os.path.join(bindir, "yosys"), 0o755)
