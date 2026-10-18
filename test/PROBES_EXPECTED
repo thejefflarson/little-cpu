@@ -88,6 +88,8 @@ a Makefile board read with no eject ahead of it is red
 a Makefile loader call with no eject ahead of it is red
 a Makefile make cannot parse does not pass by silence
 a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
+a NIST board run that does not pass the lock through is red
+a NIST board run with no default lock is red
 a PASS with no counts line is not a pass
 a PDK cache save step with no if: always() only saves on job success
 a PLL fed by something other than the constrained pad is red
@@ -662,6 +664,8 @@ a script run inside a make conditional is graded too
 a second instance of the macro is refused, not priced once
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
+a seed probe that re-latches the first ES16 cycle on every status change is red
+a seed probe whose word line omits the first ES16 cycle is red
 a seed proof going red somewhere else is not evidence
 a seed word carrying shell syntax is refused before it is expanded
 a semicolon in the liberty path stays inside its own quoted token
@@ -1119,6 +1123,7 @@ control: the note a delta is read against carries the part too
 control: the packer keeps rvc.S out of a batch it overflows
 control: the pc hop reaches the pc bin, by the declared net's bits
 control: the report grader passes the board's figures
+control: the seed probe prints its first ES16 cycle and the NIST run takes the lock
 control: the shipping Makefile agrees with check-sources' warn-not-fail exit
 control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets

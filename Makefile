@@ -617,6 +617,10 @@ entropy-assess-test:
 icelink-eject-test:
 	@python3 ./test/icelink_eject_test.py
 
+.PHONY: seed-probe-test
+seed-probe-test:
+	@python3 ./test/seed_probe_test.py
+
 .PHONY: board-tools-test
 board-tools-test:
 	@python3 ./test/board_tools_test.py
@@ -795,7 +799,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test icelink-eject-test entropy-geometry-test entropy-assess-test entropy-stream-test nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
+      pll-clock-test icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \

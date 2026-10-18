@@ -915,7 +915,8 @@ make nist90b-setup  # fetch and build NIST's SP800-90B_EntropyAssessment at its 
 make entropy-nist-pll # the shipped seed source on the board: 1M consecutive samples, ea_non_iid,
                     # 1,000 JTAG-load restarts, ea_restart, graded against 0.5 bit/sample. About
                     # 85 minutes, needs the board, off `make test`; entropy-nist-pad is the 25 MHz-pad
-                    # setting, entropy-nist both. ENTROPY_NIST_LOCK, ENTROPY_NIST_RESUME
+                    # setting, entropy-nist both. ENTROPY_NIST_LOCK (default ~/.cache/little-cpu/icesugar.lock,
+                    # held for each board access), ENTROPY_NIST_RESUME
 make icesugar-clock-check # load soc/clock_check.S, time its `T` lines on the host and fail when
                     # the mean interval is outside ICESUGAR_CLOCK_PPM (1000) of the board's CORE_HZ;
                     # 30.0035 MHz, +116 ppm over 11 intervals when taken. Needs the board
@@ -924,7 +925,8 @@ soc/entropy_capture.sh TAG OSC_DIV FAB_LOG2 CORE_PAD # build a core-less capture
                     # `soc/entropy_assess.py read` and `assess` collect and grade the frames; each frame ends
                     # in a 16-bit sum of its intervals, and a frame whose sum differs is dropped and counted.
                     # `make icesugar-prog ICESUGAR_PROG=soc/seed_probe.S` prints the seed CSR's
-                    # status changes and words. Needs the board, so off `make test` and CI
+                    # status changes and words, each word line carrying the mcycle of the first ES16
+                    # read (9,103,936, 0.30 s at 30 MHz, 2^9 shipping top). Needs the board, so off `make test` and CI
 make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.
                     # Needs the board, so off `make test` and off CI, like suite-board
 make icesugar-suite-board # the .S suite on that board, in batches: place once, swap ROM contents

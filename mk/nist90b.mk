@@ -30,14 +30,14 @@ ENTROPY_NIST_RESTARTS ?= 1000
 ENTROPY_NIST_SAMPLES  ?= 1000000
 ENTROPY_NIST_FLOOR    ?= 0.5
 ENTROPY_NIST_OUT      ?= $(BUILD)/nist
-ENTROPY_NIST_LOCK     ?=
+ENTROPY_NIST_LOCK     ?= $(TOOL_CACHE)/icesugar.lock
 ENTROPY_NIST_RESUME   ?=
 
 define entropy_nist_run
 @soc/icelink_eject.sh
 @python3 soc/entropy_nist.py --tag $(1) --core-pad $(2) --out '$(ENTROPY_NIST_OUT)' \
   --bin '$(NIST_90B_BIN)' --samples $(ENTROPY_NIST_SAMPLES) --restarts $(ENTROPY_NIST_RESTARTS) \
-  --floor $(ENTROPY_NIST_FLOOR) $(if $(ENTROPY_NIST_LOCK),--lock '$(ENTROPY_NIST_LOCK)') $(if $(ENTROPY_NIST_RESUME),--resume)
+  --floor $(ENTROPY_NIST_FLOOR) --lock '$(ENTROPY_NIST_LOCK)' $(if $(ENTROPY_NIST_RESUME),--resume)
 endef
 
 .PHONY: entropy-nist-pll entropy-nist-pad entropy-nist
