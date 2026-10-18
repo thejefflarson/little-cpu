@@ -2788,6 +2788,51 @@ STUB
 probe "control: a placed design that missed its clock still builds the .asc" 0 \
   "" "$(soc_asc_make "$d")"
 
+# make board-timing, with a stub nextpnr and a stub icetime: board.json is held up to date
+# (-o) so no synthesis runs, and the stub icetime hands back a canned report to be graded.
+board_fixture() {  # $1 = the critical path's total in ns; stdin = the stub nextpnr's body
+  local d; d=$(new_case)
+  mkdir -p "$d/build"
+  echo '{}' > "$d/build/board.json"
+  echo stale > "$d/build/board.asc"
+  touch -t 200001010000 "$d/build/board.asc"
+  echo stale > "$d/build/board.timing.rpt"
+  printf ' lut1 (LogicCell40) LC: %s ns\n   %s ns netA (start_point)\n              lcout -> start_point\nTotal path delay: %s ns\nTotal number of logic levels: 1\n' "$1" "$1" "$1" > "$d/canned.rpt"
+  { echo '#!/bin/sh'; cat; } > "$d/nextpnr"
+  { echo '#!/bin/sh'
+    echo 'while [ "$#" -gt 0 ]; do [ "$1" = -r ] && out=$2; shift; done'
+    echo "cp $d/canned.rpt \"\$out\""; } > "$d/icetime"
+  chmod +x "$d/nextpnr" "$d/icetime"
+  printf '%s' "$d"
+}
+board_make() {  # <fixture>
+  printf 'make -C %s -o %s/build/board.json BUILD=%s/build BOARD_PNR=%s/nextpnr BOARD_ICETIME=%s/icetime board-timing' \
+    "$REPO" "$1" "$1" "$1" "$1"
+}
+
+d=$(board_fixture 10 <<'STUB'
+echo "ERROR: Failed to expand region (0, 0) |_> (25, 31) of 5306 ICESTORM_LCs"
+exit 1
+STUB
+)
+probe "a nextpnr that cannot place the board top fails board-timing, stale .asc beside it" 2 \
+  "NOTHING was measured" "$(board_make "$d")"
+probe "...and the stale board report and .asc are gone, so no timing is read from them" 0 \
+  "STALE GONE" "test ! -e $d/build/board.timing.rpt && test ! -e $d/build/board.asc && echo STALE GONE"
+
+board_places() {  # stub nextpnr body: writes the asc and a clean log
+  cat <<'STUB'
+while [ "$#" -gt 0 ]; do [ "$1" = --asc ] && echo fresh > "$2"; shift; done
+echo "Info: Device utilisation:"
+STUB
+}
+
+d=$(board_fixture 10 <<< "$(board_places)")
+probe "control: a placed board top clearing 12 MHz is green" 0 "RATCHET:" "$(board_make "$d")"
+
+d=$(board_fixture 200 <<< "$(board_places)")
+probe "a placed board top under 12 MHz is red" 2 "is under the" "$(board_make "$d")"
+
 begin_group "soc/print_toolchain.sh"
 
 # The stamp `make fit`, `make soc-timing` and the sweep above all print.

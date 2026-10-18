@@ -32,6 +32,7 @@
 ...and the report names the parameter, not merely 'changed'
 ...and the report names the target make actually overrode
 ...and the same for the second mutation, which shares that line
+...and the stale board report and .asc are gone, so no timing is read from them
 ...and the stale report and .asc are gone, so no sweep can read them
 ...and their second copy is compared whole, not just its ISA
 0 retires overrides every verdict above to exit 6, the blind oracle
@@ -483,6 +484,7 @@ a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
 a nextpnr that cannot place fails the recipe, stale .asc beside it
+a nextpnr that cannot place the board top fails board-timing, stale .asc beside it
 a nextpnr that died early is NOT graded on the last run's pair
 a node name with an escape byte printed raw is red
 a non-.S program cannot carry a real floor; this runner only globs .S
@@ -534,6 +536,7 @@ a pin file that does not exist is refused, not read as absent-is-fine
 a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
 a pinned compiler version the stamp did not measure is STALE
+a placed board top under 12 MHz is red
 a placement at zero MHz is not a placement
 a placement failure is fatal even with an .asc left on disk
 a placer that wrote no bitstream placed nothing, which is not a pass
@@ -1035,6 +1038,7 @@ control: a one-retire floor is F+2, not F+G+2
 control: a passing suite against an empty baseline is green
 control: a peripheral above the reserved span is accepted
 control: a pin whose sources match checks OK
+control: a placed board top clearing 12 MHz is green
 control: a placed design that missed its clock still builds the .asc
 control: a placement holding the whole core is green
 control: a plain liberty and source produce the expected yosys script
