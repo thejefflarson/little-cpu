@@ -4,7 +4,8 @@
 #define CSR_SEED    0x015
 
 // Reads the seed CSR in a loop and prints each status change with the cycle count it arrived at
-// ("S<0-3> <mcycle>": 0 BIST, 1 WAIT, 2 ES16, 3 DEAD), "F <mcycle>" after each WAIT for the first ES16 read, and every word a read of ES16 returns ("W <hex>").
+// ("S<0-3> <mcycle>": 0 BIST, 1 WAIT, 2 ES16, 3 DEAD) and every word a read of ES16 returns
+// ("W <word> <mcycle of the first ES16 read>"), so a read opened late still recovers the first.
 .section .text
 .globl _start
 _start:
@@ -29,18 +30,9 @@ poll:
   csrr  a0, mcycle
   jal   puthex
   li    t0, 2
-  bne   a1, t0, 3f
-  bnez  s5, 3f
-  csrr  s5, mcycle
-3:
-  li    t0, 1
   bne   a1, t0, same
-  li    a0, 'F'
-  jal   putc
-  li    a0, ' '
-  jal   putc
-  mv    a0, s5
-  jal   puthex
+  bnez  s5, same
+  csrr  s5, mcycle
 same:
   li    t0, 2
   bne   a1, t0, poll
@@ -50,11 +42,23 @@ same:
   jal   putc
   slli  a0, s4, 16
   srli  a0, a0, 16
+  jal   hex8
+  li    a0, ' '
+  jal   putc
+  mv    a0, s5
   jal   puthex
   j     poll
 
-// a0 as eight hex digits and a newline; clobbers a0, t1-t4.
+// a0 as eight hex digits and a newline; clobbers a0, t1-t5.
 puthex:
+  mv    t5, ra
+  jal   hex8
+  li    a0, '\n'
+  jal   putc
+  mv    ra, t5
+  ret
+
+hex8:
   mv    t3, ra
   mv    t2, a0
   li    t4, 28
@@ -69,8 +73,6 @@ puthex:
   jal   putc
   addi  t4, t4, -4
   bgez  t4, 1b
-  li    a0, '\n'
-  jal   putc
   mv    ra, t3
   ret
 
