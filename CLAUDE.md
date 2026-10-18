@@ -37,7 +37,8 @@ Four habits carry the goals:
   that arm list (ADR-0068).
 - **A grader that cannot fail is not a grader.** Every graded comparison must have a demonstrated
   red direction that fails for the reason it was written; `make probe-gates` forces all of them and
-  runs as a prerequisite of `make test`. Five of this repo's recorded defects were comparisons
+  runs under `make test-full`, which CI's `test` job runs; `make test`, the fast tier, leaves the
+  sweep out (ADR-0254). Five of this repo's recorded defects were comparisons
   whose failure path had never once run.
 
 ## Design commitments
@@ -849,25 +850,26 @@ make lint           # svlint over rtl/, RVFI macros off and on. A required CI ch
 make lint-setup     # fetch the pinned svlint release into the tool cache
 make riscv-gcc-setup # fetch the pinned xPack riscv-none-elf-gcc release into the tool
                     # cache; make test's riscv-gcc-pin-test grades that PATH resolves it
-make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches + probe-gates
-                    # + every repo-scanning `*-test` target (memmap, march, band-source,
-                    # figure-stamp, retired-term, adr-numbering, port-connect, compare-geometry, hazard3-config,
-                    # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
-                    # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
-                    # pll-clock, probes-header, dhry-board-parity, macro-register,
-                    # compare-product-schedule-publish, stall-sites, pin-help-text,
-                    # formal-ci-coverage, yosys-script-oneline, tmp-path)
-                    # + window-test, imem-share-test, board-elaborate, mutation-probe,
-                    # dual-build, nano-test, nano-startup-test, nano-littlecpu-test,
-                    # nano-qspi-loop-test and nano-qspi-control-test; graded against EXPECTED_FAIL / OBSERVED_FLOOR,
-                    # with STALL_REPORT=1 so the cycle-accounting identity runs on every
-                    # call, not only `make cycles`
+make test           # the fast tier, for the edit-and-check loop: every check in test/CHECKS but the
+                    # forced-red sweeps (the test/asm suite under cxxrtl, the unit benches, the
+                    # repo-scanning `*-test` targets, the nano benches), TEST_JOBS at a time (default:
+                    # the CPU count). A check whose declared inputs are unchanged since it last
+                    # passed is skipped; a changed file no row claims, a new toolchain or a cold
+                    # build/ runs everything. Cold 86 s on a 10-core machine under load (ADR-0254)
+make test-full      # every check and the forced-red sweeps (probe-gates, nano-qspi-loop-probe),
+                    # never skipping: CI's `test` job. TEST_JOBS and PROBE_SHARDS size the
+                    # parallelism (CI sets 3 and 3), TEST_VERBOSE=1 prints every check's log, not
+                    # only a failure's. The Makefile's TEST_CHECKS lists the checks, test/CHECKS
+                    # schedules them (docs/manifests/checks.md), and checks-manifest-test holds the
+                    # two equal; graded against EXPECTED_FAIL / OBSERVED_FLOOR, with STALL_REPORT=1
+                    # so the cycle-accounting identity runs on every call, not only `make cycles`
 make test-units     # the unit benches alone; the list is checked against test/*_tb.v both ways
 make elaborate-strict # yosys elaborates every simulation source through `check`; the
                     # required `elaborate` CI job
-make probe-gates    # force every graded comparison red for its own reason. Two groups need a
-                    # real tool: yosys for the zkt netlist walk, and the cross linker
-                    # for the linker scripts' layout ASSERTs
+make probe-gates    # force every graded comparison red for its own reason, in PROBE_SHARDS
+                    # parallel shards (default 8; PROBE_GROUP=<name> runs one group). Two groups
+                    # need a real tool: yosys for the zkt netlist walk, and the cross linker
+                    # for the linker scripts' layout ASSERTs. Under `make test-full`, not `make test`
 make mutation-check # delete a term from rtl/ and require exactly the detectors
                     # test/MUTATION_DETECTORS pairs with it to go red, both ways. ~3.5 min,
                     # not on `make test`; `make mutation-probe` forces its graders red and IS
@@ -1073,7 +1075,8 @@ make nano-qspi-loop-test # the loop buffer's three invariants, each able to fail
                     # where every nano-qspi-sim exits 7 on a fetch served from parcels its flash
                     # run never streamed or already handed over, a hit for a parcel that never
                     # entered the buffer, or served fetches that differ from retires (ADR-0186).
-                    # nano-qspi-loop-probe is its forced-red prerequisite. On `make test`'s path
+                    # nano-qspi-loop-run is the test alone, on `make test`'s path;
+                    # nano-qspi-loop-probe, its forced-red prerequisite, runs under `make test-full`
 make nano-qspi-pins-sim  # nano.v -> nano/qspi.v (the real bit-serial QSPI controller) ->
                     # pin-level flash/PSRAM behavioural models, sck/cs_n/sio rather than
                     # nano_qspi_memory.v's abstract bus. nano-qspi-pins-test reruns the
@@ -1145,6 +1148,10 @@ a decision was measured against them. `nproc` and `free` inside a pod report the
   there.
 - **Every non-trivial change adds or updates tests and runs the full suite** before being declared
   done. Elaboration succeeding is not a substitute.
+- **A check is safe to run beside every other one.** `make test` runs checks in parallel, so a
+  check keeps its scratch to `mktemp` or a path only it writes and builds nothing another check
+  builds; a shared artifact is a `needs` row in `test/CHECKS`. A new check gets a row there, with
+  the files it reads in `inputs`, and `checks-manifest-test` fails until it has one.
 - **Never commit build artifacts** (`test/rtl.cc`, `sim`, `*.vvp`, `*.vcd`, `rvfi_macros.vh`,
   `formal/` output dirs). `test/monitor.v` is the one deliberate exception.
 - **Scratch goes in the worktree; downloaded tools go in `~/.cache/little-cpu`.** The question that

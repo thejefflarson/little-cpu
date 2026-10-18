@@ -171,6 +171,7 @@ a check set with no insn_* family is refused, not retuned silently
 a check that APPEARED needs a line -- the shape check runs both ways
 a check that went red is red here
 a check that wrote no status fails the shard, named, rather than reaching the baseline
+a check the Makefile lists and test/CHECKS dropped is red, and named
 a check with no skip line is refused, not handed to pono anyway
 a checker that cannot run on the leaking mutant is exit 2, not a red proof
 a checkout that leaves the token in .git/config is red
@@ -259,6 +260,14 @@ a display filter that lets an escape sequence through is red
 a document with one number edited by hand is red
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
+a driver blind to the toolchain skips past a tool upgrade
+a driver that forgets the epoch repeats the checks that already passed
+a driver that ignores lanes overlaps two checks that share one
+a driver that ignores needs starts a check before the one it needs
+a driver that never skips reruns a check on an unchanged tree
+a driver that runs full-tier rows in the fast tier is red
+a driver that trusts every stamp skips a check whose input was edited
+a driver with no unclaimed-file rule skips past a file no row claims
 a dual directory that is not there is the failure this exists to see
 a dual grader that accepts a capture holding only debugger chatter is red
 a dual grader that accepts any DUAL line whatever its c1 is red
@@ -281,6 +290,7 @@ a file that moved away takes the check with it, loudly
 a file that moved out from under the check is fatal, not skipped
 a file the manifest stopped naming is red before shasum ever runs
 a file the manifest stopped naming is red before shasum ever runs
+a file the recipe's script names, left unclaimed, is red
 a file with no row in the index is named as orphaned
 a file with two rows in the index is named
 a file-located frontend warning with no bare-prefixed echo is red
@@ -537,6 +547,7 @@ a pre-ADR-0035 one-field baseline line is rejected, not half-matched
 a pre-ADR-0036 one-field baseline line is named, not half-matched
 a predicate keyed on a decoder flag is rejected, not parsed
 a predicate matching an opcode its declaration does not is named
+a probe two shards both ran is red
 a product named for a core with no configuration label is refused
 a program both exempt and paired is red
 a program that stopped assembling is ASSEMBLE-ERROR
@@ -566,6 +577,7 @@ a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
 a reason dropped from the decoder's own composition is red, and named
+a recipe file no input pattern claims is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a recipe running a script git records as 100644 is red, and located
 a red that is not a structural difference is not the red this probe wants
@@ -653,6 +665,7 @@ a root-binary check that skips the libraries it loads is red
 a root-binary check that stops at the first library hop is red
 a root-binary check that walks only the file and its parent is red
 a row naming a file that does not exist is named
+a row the Makefile no longer lists is red, and named
 a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed
 a row's number duplicated onto a different, real file is named
@@ -681,6 +694,8 @@ a semicolon in the liberty path stays inside its own quoted token
 a semicolon in the stat-json path stays inside its own quoted token
 a served fetch moved to parcel wait keeps one reason a cycle and fails the retire count
 a shard spec that is not <i>/<n> is refused before anything runs
+a shard that lost a probe is red, and the label is named
+a shard that never wrote its labels is red
 a shipping core that already fails the gate proves nothing about a leak
 a shipping core that fails ill_e is red before any mutant runs
 a shipping harness that cannot reach its own cover goal is red
@@ -900,6 +915,7 @@ an indented line equal to a plain heredoc's token does not close it early
 an injection site that moved stops the control, loudly
 an input edited during the run refuses to stamp
 an input held constant that no baseline declares is red
+an input pattern that matches no file is red
 an installer that leaves all of /System unbundled is red
 an integrator telling the core a text size its ROM has not got
 an integrator that stopped stating it at all is red, not defaulted
@@ -1111,6 +1127,7 @@ control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: run_product.sh evals no tool string and splices no variable into python3 -c
 control: rvc.S links and fits a 16 KB board ROM
+control: shards whose labels together equal the manifest are accepted
 control: the CoreMark report's lines all pass the stamp check
 control: the Dhrystone report's lines all pass the stamp check
 control: the ECP5 arm reads its own fabric's two cell names
@@ -1142,12 +1159,14 @@ control: the pc hop reaches the pc bin, by the declared net's bits
 control: the report grader passes the board's figures
 control: the seed probe prints its first ES16 cycle and the NIST run takes the lock
 control: the shipping Makefile agrees with check-sources' warn-not-fail exit
+control: the shipping Makefile and test/CHECKS agree
 control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
 control: the shipping bench and build file agree
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
+control: the shipping check driver passes its own grader
 control: the shipping entropy source sits between the jitter floor and the edge timeout
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping executor reaches x_busy only through its one gate
@@ -1361,6 +1380,7 @@ the encoding proof going red somewhere else is not evidence
 the entropy reader accepting several matching nodes is red
 the exemption does not extend to a write of the WRONG register
 the files the stamp itself feeds are excluded, so it never goes stale on its own output
+the forced-red sweep moved into the fast tier is red
 the free harness with no line in the baseline is red
 the free trap harness tied low would grade no interrupt entry, and is red
 the free trap harness with only the timer input tied low is red too

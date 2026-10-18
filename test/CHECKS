@@ -1,0 +1,88 @@
+# make test / make test-full schedule; format and rationale in docs/manifests/checks.md.
+# name | tier | lane | needs | inputs | command
+#
+# Two rows are build steps, not checks: gen-inputs generates the files sim and the nano
+# simulators read, once, so that no two rows regenerate them at the same time. sim and nano-sim
+# are marked !always because make's own timestamps already decide whether they rebuild.
+gen-inputs | fast | - | - | !always | make -s rvfi_macros.vh test/monitor.sim.v
+sim | fast | - | gen-inputs | !always
+nano-sim | fast | - | gen-inputs | !always
+#
+# The simulators and the benches built on them.
+test-units | fast | - | gen-inputs | rtl/ test/ soc/miso_share_enable.v soc/pin_lockout.v Makefile mk/ formal/pin.mk
+suite-test | fast | - | sim | rtl/ test/ Makefile mk/ formal/pin.mk
+nano-test | fast | - | nano-sim | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
+nano-startup-test | fast | - | nano-sim | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
+nano-littlecpu-test | fast | - | nano-sim | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
+nano-qspi-control-test | fast | - | nano-sim | nano/ test/ soc/compare/ Makefile mk/ formal/pin.mk
+nano-qspi-pins-test | fast | - | gen-inputs | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
+nano-qspi-loop-run | fast | - | gen-inputs | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
+nano-qspi-latency-test | fast | - | - | nano/ Makefile mk/
+nano-qspi-window-test | fast | - | - | nano/ rtl/ test/ Makefile mk/
+nano-stale-build-test | fast | - | - | nano/ docs/nano-stale-builds.md Makefile mk/ formal/pin.mk
+nano-memmap-test | fast | - | - | nano/ rtl/ test/memmap_test.sh Makefile mk/
+nano-tt-test | fast | - | - | nano/ test/ Makefile mk/
+nano-timer-test | fast | - | - | nano/ Makefile mk/
+nano-tt-area-workflow-test | fast | - | - | @all test/nano_tt_area_workflow_test.py .github/ nano/
+macro-register-test | fast | - | - | @all test/macro_register_test.sh test/asm/ test/
+dual-build | fast | - | - | rtl/ test/ Makefile mk/
+board-elaborate | fast | - | - | rtl/ soc/ test/ Makefile mk/
+window-test | fast | - | - | rtl/ test/window_test.sh Makefile
+imem-share-test | fast | - | - | rtl/ soc/ test/imem_share_test.sh docs/manifests/probes-expected.md Makefile
+mutation-probe | fast | - | - | test/mutation_probe.sh test/mutation_check.sh test/mutations/ test/MUTATION_DETECTORS test/MUTATION_COVERAGE Makefile
+zkt-isolation-test | fast | - | - | rtl/ test/ formal/ Makefile
+#
+# Scanners and graders of repository text. Each is fast, so each is keyed on every file
+# (@all) and skips only when nothing at all changed; the patterns after @all are what it claims.
+pin-bump-test | fast | - | - | @all formal/ .github/
+pin-bump-token-test | fast | - | - | @all test/pin_bump_token_test.py test/monitor.v .github/
+compare-product-schedule-token-test | fast | - | - | @all test/compare_product_schedule_token_test.py test/pin_bump_token_test.py .github/
+compare-product-schedule-publish-test | fast | - | - | test/compare_product_schedule_publish_test.py .github/ docs/comparison.md soc/ Makefile
+tool-cache-test | fast | - | - | @all test/tool_cache_test.sh test/cosim.py Makefile mk/
+riscv-gcc-pin-test | fast | - | - | @all test/riscv_gcc_pin_test.sh Makefile mk/
+riscv-gcc-search-test | fast | - | - | @all test/riscv_gcc_search_test.sh test/probe_gates.sh docs/ soc/ test/
+memmap-test | fast | - | - | test/memmap_test.sh rtl/ test/ formal/traps.sv soc/rom_banks.py Makefile
+adr-numbering-test | fast | - | - | @all test/adr_numbering_test.sh docs/adr/
+compare-geometry-test | fast | - | - | @all soc/compare/ rtl/memory.v Makefile
+hazard3-config-test | fast | - | - | @all soc/compare/
+vexriscv-path-test | fast | - | - | @all soc/compare/ test/ Makefile
+compare-doc-test | fast | - | - | @all soc/compare/ docs/comparison.md
+retired-term-test | fast | - | - | @all test/retired_term_test.sh docs/ CLAUDE.md README CODE_OF_CONDUCT.md formal/checks.cfg nano/nano.v
+port-connect-test | fast | - | - | @all test/port_connect_test.py rtl/ soc/compare/ test/ formal/
+march-test | fast | - | - | @all test/march_test.sh CLAUDE.md docs/ Makefile nano/tb.mk soc/ formal/ test/
+tmp-path-test | fast | - | - | @all test/tmp_path_test.sh Makefile mk/ test/probe_gates.sh
+exec-mode-test | fast | - | - | @all test/exec_mode_test.py Makefile
+band-source-test | fast | - | - | @all test/band_source_test.py CLAUDE.md soc/ docs/ test/
+figure-stamp-test | fast | - | - | @all test/figure_stamp_test.py nano/ docs/ README test/
+fixture-freshness-test | fast | - | - | @all test/fixture_freshness_test.py test/probe_gates.sh
+tracked-ignored-test | fast | - | - | @all test/tracked_ignored_test.sh .gitignore
+mutation-coverage-test | fast | - | - | @all test/mutation_coverage_test.sh test/MUTATION_COVERAGE rtl/ Makefile
+comment-density-test | fast | - | - | @all test/comment_density_test.py docs/comment-budget.md
+lut4-site-test | fast | - | - | @all test/lut4_site_test.sh rtl/
+pll-clock-test | fast | - | - | @all test/pll_clock_test.py soc/ rtl/uart.v
+icelink-eject-test | fast | - | - | test/icelink_eject_test.py soc/ Makefile mk/
+seed-probe-test | fast | - | - | @all test/seed_probe_test.py soc/ Makefile
+entropy-geometry-test | fast | - | - | @all test/entropy_geometry_test.py soc/ rtl/
+entropy-assess-test | fast | - | - | @all test/entropy_assess_test.py soc/
+entropy-stream-test | fast | - | - | test/entropy_stream_test.py test/entropy_stream_bench.v soc/ Makefile mk/
+nist90b-grade-test | fast | - | - | @all test/nist90b_grade_test.py soc/ mk/
+board-tools-test | fast | - | - | test/board_tools_test.py soc/ Makefile mk/
+board-verdict-test | fast | - | - | test/board_verdict_test.sh soc/ Makefile
+ill-e-wiring-test | fast | - | - | @all test/ill_e_wiring_test.py nano/formal/ formal/ rtl/
+probes-header-test | fast | - | - | @all test/probes_header_test.py test/PROBES_EXPECTED
+dhry-board-parity-test | fast | - | - | @all test/dhry_board_parity_test.sh test/bench/ Makefile
+stall-sites-test | fast | - | - | @all test/stall_sites_test.py test/stall_report.py rtl/ test/cxxrtl.cc
+pin-help-text-test | fast | - | - | @all test/pin_help_text_test.sh Makefile
+formal-ci-coverage-test | fast | - | - | @all test/formal_ci_coverage_test.py .github/ formal/ nano/formal/
+yosys-script-oneline-test | fast | - | - | @all test/yosys_script_oneline_test.py Makefile nano/
+memcheck-depth-test | fast | - | - | formal/ nano/formal/
+abc-engine-test | fast | - | - | formal/ Makefile
+makefile-target-test | fast | - | - | @all test/makefile_target_test.sh Makefile mk/ nano/ formal/pin.mk soc/compare/hazard3_pin.mk
+checks-test | fast | - | - | test/checks.py test/checks_test.py test/CHECKS .gitignore
+checks-manifest-test | fast | - | - | @all test/checks_manifest_test.py test/checks.py test/CHECKS Makefile
+#
+# The forced-red sweeps. They run under make test-full, which is what CI runs, and not under
+# make test: they take most of the wall time and prove the graders above can fail, which a
+# change to one grader's inputs does not need re-proving on every local run.
+probe-gates | full | - | gen-inputs | @all test/probe_gates.sh test/PROBES_EXPECTED
+nano-qspi-loop-probe | full | - | gen-inputs | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk

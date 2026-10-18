@@ -8,6 +8,12 @@ this file has and the run does not is as red as one the run has and this file do
 a probe that is deleted, skipped, or stranded behind an early `return` is caught by name
 rather than by a total going out of sync with a different total.
 
+`make probe-gates` runs the script in shards, one process each, and every shard writes the labels
+it ran to a file. A group belongs to the shard its position modulo `PROBE_SHARDS` names; a group
+marked `spread` deals its probes round-robin across the shards instead, because its probes are slow
+and independent. `probe_gates.sh --merge` then compares the union of the shards' files to this
+file, so a group no shard owned, or one two shards both ran, is a mismatch like any other.
+
 Two identical labels are two lines, not one. A handful of probes across different fixtures
 share the same English description on purpose (the same usage-error message, checked
 against a different script); the comparison is a multiset, so losing one occurrence of a

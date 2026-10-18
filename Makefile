@@ -538,7 +538,7 @@ test-units: check-unit-benches test/monitor.sim.v
 
 .PHONY: probe-gates
 probe-gates:
-	@./test/probe_gates.sh
+	@./test/probe_gates.sh --parallel
 
 .PHONY: pin-bump-test
 pin-bump-test:
@@ -794,23 +794,53 @@ mutation-probe:
 dual-build:
 	@./test/dual_build.sh test/dual test/asm test/dual/MUTATION_PAIRINGS
 
-.PHONY: test
-test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
-      compare-product-schedule-token-test compare-product-schedule-publish-test tool-cache-test \
-      riscv-gcc-pin-test memmap-test \
-      adr-numbering-test compare-geometry-test hazard3-config-test vexriscv-path-test retired-term-test port-connect-test march-test \
-      riscv-gcc-search-test tmp-path-test exec-mode-test \
-      band-source-test figure-stamp-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
-      memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
-      tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
-      nano-startup-test macro-register-test nano-littlecpu-test \
-      nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
-      nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \
-      nano-memmap-test nano-tt-test nano-timer-test \
-      stall-sites-test pin-help-text-test formal-ci-coverage-test yosys-script-oneline-test \
-      compare-doc-test
+# Every check `make test-full` runs; test/CHECKS schedules them and test/checks_manifest_test.py
+# holds the two equal. The forced-red sweeps (`probe-gates`, `nano-qspi-loop-probe`) are in the
+# full tier only.
+TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
+               compare-product-schedule-token-test compare-product-schedule-publish-test \
+               tool-cache-test riscv-gcc-pin-test memmap-test adr-numbering-test \
+               compare-geometry-test hazard3-config-test vexriscv-path-test retired-term-test \
+               port-connect-test march-test riscv-gcc-search-test tmp-path-test exec-mode-test \
+               band-source-test figure-stamp-test zkt-isolation-test fixture-freshness-test window-test \
+               imem-share-test memcheck-depth-test abc-engine-test makefile-target-test \
+               mutation-probe dual-build board-elaborate tracked-ignored-test \
+               mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
+               icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test \
+               nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
+               dhry-board-parity-test board-verdict-test nano-test nano-startup-test \
+               macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
+               nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
+               nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
+               nano-tt-test nano-timer-test stall-sites-test pin-help-text-test \
+               formal-ci-coverage-test yosys-script-oneline-test compare-doc-test suite-test \
+               checks-test checks-manifest-test
+
+.PHONY: print-test-checks
+print-test-checks:
+	@echo $(TEST_CHECKS)
+
+# The fast tier: skips a check whose declared inputs have not changed since it last passed.
+# `make test-full` runs every check and never skips; it is what CI's `test` job runs.
+# Both run TEST_JOBS checks at once (default: the CPU count).
+.PHONY: test test-full
+test:
+	@python3 ./test/checks.py --tier fast
+
+test-full:
+	@python3 ./test/checks.py --tier full --no-skip
+
+.PHONY: suite-test
+suite-test: sim
 	@STALL_REPORT=1 ./test/run_tests.sh ./sim test/asm test/EXPECTED_FAIL test/OBSERVED_FLOOR
+
+.PHONY: checks-test
+checks-test:
+	@python3 ./test/checks_test.py
+
+.PHONY: checks-manifest-test
+checks-manifest-test:
+	@python3 ./test/checks_manifest_test.py
 
 .PHONY: cycles
 cycles: sim
