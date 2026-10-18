@@ -171,8 +171,10 @@ def main():
             fh.write("#!/bin/sh\necho Yosys fake-1\n")
         os.chmod(os.path.join(bindir, "yosys"), 0o755)
         env = {"PATH": bindir + os.pathsep + os.environ["PATH"]}
-        driver(repo, env=env)
+        r = driver(repo, env=env)
         check(count(repo, "alpha") == 1, "a changed tool version re-runs the checks")
+        if count(repo, "alpha") != 1:
+            print(f"    driver exited {r.returncode}\n{r.stdout}\n{r.stderr}")
         reset_counts(repo)
         driver(repo, env=env)
         check(count(repo, "alpha") == 0, "and the same tool version skips again")
