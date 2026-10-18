@@ -1446,7 +1446,7 @@ coremark-board:
 
 BOARD ?= upduino
 
-BOARD_SRCS := $(SOC_SRCS) soc/miso_share_enable.v soc/board_upduino.v
+BOARD_SRCS := $(SOC_SRCS) soc/miso_share_enable.v soc/pin_lockout.v soc/board_upduino.v
 BOARD_TOP  := upduino_top
 BOARD_PCF  := soc/upduino.pcf
 
