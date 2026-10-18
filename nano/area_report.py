@@ -29,6 +29,10 @@ import math
 import re
 import sys
 
+import figure_stamp
+
+LOCAL_TARGET = "sky130hd tt_025C_1v80"
+
 LEF_SIZE = re.compile(r"^\s*SIZE\s+([0-9.]+)\s+BY\s+([0-9.]+)\s*;", re.MULTILINE)
 CELL_LINE = re.compile(r'^\s*cell\s*\(\s*"?([A-Za-z_][A-Za-z0-9_.]*)"?\s*\)\s*\{')
 
@@ -144,6 +148,20 @@ def add_macro_args(parser):
     parser.add_argument(
         "--macro-lef-sha256", help="NANO_RF_MACRO_LEF_SHA256: the digest --macro-lef must match"
     )
+
+
+def add_stamp_args(parser):
+    parser.add_argument(
+        "--cflags", required=True,
+        help="NANO_CFLAGS: the -march the stamp on every printed figure names",
+    )
+
+
+def local_stamp(args):
+    try:
+        return figure_stamp.nano_stamp(args.cflags, LOCAL_TARGET)
+    except figure_stamp.StampError as exc:
+        sys.exit(f"*** nano: cannot stamp a figure: {exc}")
 
 
 def macro_areas(args, target_name="nano-area"):
@@ -301,7 +319,9 @@ def main():
         "Diagnostic only -- it never changes the exit status.",
     )
     add_macro_args(parser)
+    add_stamp_args(parser)
     args = parser.parse_args()
+    stamp = local_stamp(args)
 
     s = summarise(
         args.stat_json, args.liberty, args.liberty_sha256, args.excluded, macro_areas(args)
@@ -309,30 +329,31 @@ def main():
     area, num_cells = s["area"], s["num_cells"]
 
     print(f"cells         : {num_cells}")
-    print(f"soft logic    : {s['soft_area']:.4f} um2  (sequential {s['sequential_area']:.4f} um2)")
+    print(figure_stamp.stamped(
+        f"soft logic    : {s['soft_area']:.4f} um2  (sequential {s['sequential_area']:.4f} um2)",
+        stamp))
     for name, macro_um2 in sorted(s["macros"].items()):
-        print(
+        print(figure_stamp.stamped(
             f"macro {name:8s}: {macro_um2:.4f} um2  (SIZE of {args.macro_lef}, "
-            f"sha256 {args.macro_lef_sha256[:12]}...)"
-        )
-    print(f"area          : {area:.4f} um2  (soft logic plus macros)")
+            f"sha256 {args.macro_lef_sha256[:12]}...)", stamp))
+    print(figure_stamp.stamped(f"area          : {area:.4f} um2  (soft logic plus macros)", stamp))
     for name in sorted(s["by_type"]):
         print(f"  {name:32s} {s['by_type'][name]:6d}")
 
     if args.previous is not None:
-        print(
+        print(figure_stamp.stamped(
             f"\nTREND: {area - args.previous:+.1f} um2 against the {args.previous:.1f} "
-            "the Makefile records -- a diagnostic; only the ratchet below can fail."
-        )
+            "the Makefile records -- a diagnostic; only the ratchet below can fail.", stamp))
 
     if area > args.max_um2:
         sys.exit(
             f"\n*** make nano-area: {area:.1f} um2 is over the {args.max_um2:.1f} "
-            "um2 budget.\n"
+            f"um2 budget. {figure_stamp.render(stamp)}\n"
             "*** This is a ratchet, not a suggestion. Find what grew; raising\n"
             "*** NANO_MAX_UM2 needs a reason in the commit."
         )
-    print(f"\nRATCHET: {area:.1f} of {args.max_um2:.1f} um2 budgeted -- OK")
+    print(figure_stamp.stamped(
+        f"\nRATCHET: {area:.1f} of {args.max_um2:.1f} um2 budgeted -- OK", stamp))
 
 
 if __name__ == "__main__":

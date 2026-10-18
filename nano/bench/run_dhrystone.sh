@@ -86,4 +86,4 @@ if [ "$sim_status" -ne 0 ]; then
   exit "$sim_status"
 fi
 
-python3 "$HERE/bench_report.py" "$tmp/run.log" --kind dhrystone --runs "$RUNS"
+python3 "$HERE/bench_report.py" "$tmp/run.log" --kind dhrystone --runs "$RUNS" --cflags "$CFLAGS"

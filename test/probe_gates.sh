@@ -1290,7 +1290,7 @@ EOF
 d=$(qtr_fixture)
 
 QTR="python3 '$REPO/nano/bench/qspi_timing_report.py'"
-QTR_ROW="--config c --kind dhrystone --runs 10 --depth 2 --loop-kind 0 --loop-window 0 --preamble 24"
+QTR_ROW="--config c --kind dhrystone --runs 10 --depth 2 --loop-kind 0 --loop-window 0 --preamble 24 --cflags=-march=rv32ec_zicsr"
 
 probe "control: a QSPI timing log whose buckets sum to its cycle count reports a row" 0 \
   "DMIPS/MHz=" "$QTR '$d/good.log' $QTR_ROW"
@@ -1299,10 +1299,10 @@ probe "a QSPI timing log whose buckets do not sum to its window is refused as ma
   "LOG FORMAT" "$QTR '$d/bad.log' $QTR_ROW"
 
 probe "a QSPI timing row labelled with another build's loop kind is refused" 1 \
-  "MODEL MISMATCH" "$QTR '$d/good.log' --config c --kind dhrystone --runs 10 --depth 2 --loop-kind 1 --loop-window 0 --preamble 24"
+  "MODEL MISMATCH" "$QTR '$d/good.log' --config c --kind dhrystone --runs 10 --depth 2 --loop-kind 1 --loop-window 0 --preamble 24 --cflags=-march=rv32ec_zicsr"
 
 probe "a QSPI timing row labelled with another build's preamble is refused" 1 \
-  "MODEL MISMATCH" "$QTR '$d/good.log' --config c --kind dhrystone --runs 10 --depth 2 --loop-kind 0 --loop-window 0 --preamble 20"
+  "MODEL MISMATCH" "$QTR '$d/good.log' --config c --kind dhrystone --runs 10 --depth 2 --loop-kind 0 --loop-window 0 --preamble 20 --cflags=-march=rv32ec_zicsr"
 
 probe "a QSPI timing log whose served fetches differ from its retires is refused" 1 \
   "FETCH/RETIRE MISMATCH" "$QTR '$d/extra_retire.log' $QTR_ROW"
@@ -4858,7 +4858,7 @@ ma_fixture() {
   cp "$REPO/CLAUDE.md" "$REPO/Makefile" "$d/"
   cp "$REPO/test/run_tests.sh" "$REPO/test/cosim.py" "$REPO/test/march_test.sh" \
      "$REPO/test/dual_build.sh" "$REPO/test/probe_gates.sh" "$d/test/"
-  cp "$REPO/nano/tb.mk" "$REPO/nano/stamp.mk" "$d/nano/"
+  cp "$REPO/nano/tb.mk" "$REPO/nano/stamp.mk" "$REPO/nano/figure_stamp.py" "$d/nano/"
   cp "$REPO/test/sail/reservation_probe.sh" "$d/test/sail/"
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
@@ -9301,7 +9301,7 @@ probe "a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
 
 begin_group "nano/area_report.py"
 
-AR="python3 $REPO/nano/area_report.py"
+AR="python3 $REPO/nano/area_report.py --cflags=-march=rv32ec_zicsr"
 
 ar_sha() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d ' ' -f 1; \
@@ -9493,7 +9493,7 @@ probe "naming a macro without its LEF is refused, not priced at zero" 1 \
 
 begin_group "nano/timing_report.py"
 
-TR="python3 $REPO/nano/timing_report.py"
+TR="python3 $REPO/nano/timing_report.py --cflags=-march=rv32ec_zicsr"
 
 tr_log() {  # $1 = path, $2 = delay in ps
   cat > "$1" <<EOF
@@ -9504,7 +9504,9 @@ EOF
 tr_correlation() {  # $1 = path
   cat > "$1" <<'EOF'
 {"local_um2": 100.0, "flow_um2": 125.0, "flow_tool": "LibreLane 0", "flow_tag": "t",
- "local_tree": "a fixture tree", "note": "a fixture note"}
+ "local_tree": "a fixture tree", "note": "a fixture note",
+ "local_stamp": {"design": "nanocpu", "isa": "rv32im", "target": "t", "flow": "f", "sha": "unrecorded"},
+ "flow_stamp": {"design": "nanocpu", "isa": "rv32im", "target": "u", "flow": "g", "sha": "unrecorded"}}
 EOF
 }
 
@@ -9582,6 +9584,130 @@ probe "control: the correlation prints its factor and both halves' provenance" 0
   "1.250x the local figure" \
   "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json \
      --flow-correlation $d/corr.json"
+
+begin_group "nano/figure_stamp.py"
+
+FS="python3 $REPO/nano/figure_stamp.py"
+FST="python3 $REPO/test/figure_stamp_test.py"
+FS_MARCH="--cflags=-march=rv32ec_zicsr"
+
+# A copy of the shipping emitters, the grammar, the grader and one stamped note, plus a
+# `git init`, so the control is the real shape and each red probe is one edit away from it.
+fs_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/nano/bench" "$d/test" "$d/docs/adr"
+  cp "$REPO/nano/figure_stamp.py" "$REPO/nano/area_report.py" "$REPO/nano/timing_report.py" "$d/nano/"
+  cp "$REPO/nano/bench/bench_report.py" "$REPO/nano/bench/qspi_timing_report.py" "$d/nano/bench/"
+  cp "$REPO/test/figure_stamp_test.py" "$d/test/"
+  printf 'nanocpu measured 45,120 um2 [nanocpu · rv32ec_zicsr · sky130hd tt_025C_1v80 · yosys 0.69 · 1a2b3c4d5e6f]\n' \
+    > "$d/docs/note.md"
+  printf 'nano read 45,120 um2 here, a dated record.\n' > "$d/docs/adr/0100-an-old-record.md"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+fs_edit() {  # $1 = fixture, $2 = path within it, $3 = sed expression
+  mutate "$1/$2" "$3"
+  git -C "$1" add -A
+}
+
+fs_area() {  # $1 = fixture whose nano/area_report.py to run -> its output in $1/area.out
+  local d=$1 lib; lib=$(ar_liberty); ar_stat "$lib"
+  python3 "$d/nano/area_report.py" "$lib/stat.json" --excluded /dev/null --liberty "$lib/fake.lib" \
+    --liberty-sha256 "$(ar_sha "$lib/fake.lib")" --max-um2 10 $FS_MARCH > "$d/area.out" || return 1
+}
+
+d=$(fs_fixture)
+probe "control: the shipping shape states the grammar once and stamps every figure" 0 \
+  "every nano figure is stamped" "$FST $d"
+
+d=$(fs_fixture)
+probe "control: nano-area's output passes the stamp check" 0 "" \
+  "fs_area $d || exit 1; $FS check $d/area.out"
+
+d=$(fs_fixture)
+fs_edit "$d" nano/figure_stamp.py 's|return f"{text} {render(stamp)}"|return text|'
+probe "a nano figure with the stamp suppressed is red" 1 \
+  "figure without a valid stamp" \
+  "fs_area $d || exit 1; python3 $d/nano/figure_stamp.py check $d/area.out"
+
+d=$(new_case)
+printf 'area : 45120.0 um2 [rv32ec_zicsr · sky130hd tt_025C_1v80 · yosys 0.69 · 1a2b3c4d5e6f]\n' > "$d/f.txt"
+probe "a stamp missing design is red and names the field" 1 \
+  "missing field \`design\`" "$FS check $d/f.txt"
+
+d=$(new_case)
+printf 'area : 45120.0 um2 [armcpu · rv32ec_zicsr · sky130hd tt_025C_1v80 · yosys 0.69 · 1a2b3c4d5e6f]\n' > "$d/f.txt"
+probe "a stamp naming a design outside the enum is red" 1 \
+  "not one of littlecpu, nanocpu" "$FS check $d/f.txt"
+
+d=$(new_case)
+printf '{"value": 3.0, "stamp": {"design": "nanocpu", "isa": "rv32ec_zicsr", "target": "t", "flow": "f", "sha": "abcdef1"}}' > "$d/a.json"
+printf '{"value": 2.0, "stamp": {"design": "nanocpu", "isa": "rv32ec_zicsr", "target": "t", "flow": "f", "sha": "1234567"}}' > "$d/b.json"
+probe "control: two rows of one design and target combine into a ratio" 0 \
+  "1.5000x" "$FS ratio $d/a.json $d/b.json"
+
+d=$(new_case)
+printf '{"value": 3.0, "stamp": {"design": "nanocpu", "isa": "rv32ec_zicsr", "target": "t", "flow": "f", "sha": "abcdef1"}}' > "$d/a.json"
+printf '{"value": 2.0, "stamp": {"design": "littlecpu", "isa": "rv32ec_zicsr", "target": "t", "flow": "f", "sha": "1234567"}}' > "$d/b.json"
+probe "a ratio requested across two designs is refused naming design" 1 \
+  "whose \`design\` differs" "$FS ratio $d/a.json $d/b.json"
+
+d=$(new_case)
+printf '{"value": 3.0, "stamp": {"design": "nanocpu", "isa": "rv32ec_zicsr", "target": "t", "flow": "f", "sha": "abcdef1"}}' > "$d/a.json"
+printf '{"value": 2.0, "stamp": {"design": "nanocpu", "isa": "rv32ec_zicsr", "target": "u", "flow": "f", "sha": "abcdef1"}}' > "$d/b.json"
+probe "a ratio across two targets of one design is refused naming target" 1 \
+  "whose \`target\` differs" "$FS ratio $d/a.json $d/b.json"
+
+d=$(fs_fixture)
+printf 'KNOWN = ("littlecpu", "nanocpu")\n' > "$d/nano/second_copy.py"
+git -C "$d" add -A
+probe "the grammar restated in a second file is red" 1 \
+  "nano/second_copy.py:1: restates the stamp grammar" "$FST $d"
+
+d=$(fs_fixture)
+printf 'JOINED = " · ".join(parts)\n' > "$d/nano/second_join.py"
+git -C "$d" add -A
+probe "the separator restated in a second file is red" 1 \
+  "nano/second_join.py:1: restates the stamp grammar" "$FST $d"
+
+d=$(fs_fixture)
+fs_edit "$d" docs/note.md 's| \[nanocpu .*$||'
+probe "a nano figure in a doc with the bracket stripped is red" 1 \
+  "docs/note.md:1: nano figure without a valid stamp" "$FST $d"
+
+d=$(fs_fixture)
+printf 'nano reads 45,120 um2 after the cutover.\n' > "$d/docs/adr/0253-a-new-record.md"
+git -C "$d" add -A
+probe "an ADR past the cutover is held to the stamp rule" 1 \
+  "docs/adr/0253-a-new-record.md:1" "$FST $d"
+
+d=$(fs_fixture)
+printf 'import sys\nprint("5 um2")\n' > "$d/nano/new_report.py"
+git -C "$d" add -A
+probe "a new nano emitter that prints a figure and skips the emitter is named" 1 \
+  "nano/new_report.py: prints a figure and never routes it through figure_stamp" "$FST $d"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"
+probe "an emitter handed build flags with no -march refuses to stamp" 1 \
+  "no -march= in the build flags" \
+  "$AR $d/stat.json --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --max-um2 10 --cflags=-mabi=ilp32e"
+
+d=$(ar_liberty); sha=$(ar_sha "$d/fake.lib"); ar_stat "$d"; tr_log "$d/flops.log" 100.00; tr_correlation "$d/corr.json"
+probe "control: nano-timing's area, delay and correlation lines all pass the stamp check" 0 "" \
+  "$TR --excluded /dev/null --liberty $d/fake.lib --liberty-sha256 $sha --variant flops:$d/flops.log:$d/stat.json --flow-correlation $d/corr.json > $d/tr.out || exit 1; $FS check $d/tr.out"
+
+d=$(new_case)
+printf 'BENCH marks=2 cycles=100000 verdict=1 writes=5\n' > "$d/run.log"
+probe "control: the Dhrystone report's lines all pass the stamp check" 0 "" \
+  "python3 $REPO/nano/bench/bench_report.py $d/run.log --kind dhrystone --runs 10 $FS_MARCH > $d/b.out || exit 1; $FS check $d/b.out"
+probe "control: the CoreMark report's lines all pass the stamp check" 0 "" \
+  "python3 $REPO/nano/bench/bench_report.py $d/run.log --kind coremark --runs 10 $FS_MARCH > $d/c.out || exit 1; $FS check $d/c.out"
+
+d=$(qtr_fixture)
+probe "control: a QSPI timing row carries a stamp column that passes the check" 0 "" \
+  "python3 $REPO/nano/bench/qspi_timing_report.py $d/good.log $QTR_ROW > $d/q.out || exit 1; $FS check $d/q.out"
 
 begin_group "nano/srcs_guard.sh"
 

@@ -469,6 +469,13 @@ never places: 231 `SB_IO` against sg48's 39, expected); `make soc-timing` is the
 and times; `make ecp5-timing` is that SoC on the other part; `make dual-ecp5-timing` is the dual
 top, ECP5 only.
 
+- **A nano figure travels with a design stamp, and figures of different designs do not combine**
+  (ADR-0253). Every nano emitter prints a figure through `nano/figure_stamp.py`, the one file that
+  writes the stamp grammar and the list of designs, followed by a bracket naming design, isa,
+  target, flow and commit. `figure_stamp.py ratio` refuses rows that differ in design, isa, target
+  or flow and names the field; `test/figure_stamp_test.py` refuses a second copy of the grammar, an
+  emitter that skips it, and an unstamped nano figure in any markdown file outside `docs/ideas/` and
+  the ADRs numbered below 0253.
 - **`make fit` has a churn band of about ±50 packed cells**: functionally identical edits move the
   count that much from re-mapping alone, and the band measures wider than nominal, so `FIT_MAX_LC`
   is derived from a span measured on the tree and budgets the whole span (the derivation is the
@@ -844,7 +851,7 @@ make riscv-gcc-setup # fetch the pinned xPack riscv-none-elf-gcc release into th
                     # cache; make test's riscv-gcc-pin-test grades that PATH resolves it
 make test           # the test/asm suite (.S and .c) under cxxrtl + unit benches + probe-gates
                     # + every repo-scanning `*-test` target (memmap, march, band-source,
-                    # retired-term, adr-numbering, port-connect, compare-geometry, hazard3-config,
+                    # figure-stamp, retired-term, adr-numbering, port-connect, compare-geometry, hazard3-config,
                     # vexriscv-path, tracked-ignored, tool-cache, pin-bump, abc-engine,
                     # zkt-isolation, fixture-freshness, makefile-target, lut4-site,
                     # pll-clock, probes-header, dhry-board-parity, macro-register,

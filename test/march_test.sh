@@ -76,6 +76,10 @@ test/march_test.sh (any)
 # planting is not a probe.
 test/probe_gates.sh (any)
 
+# The nano figure stamp reads the isa out of whatever flags it is handed, so its
+# occurrences are a pattern and a diagnostic, not a flag.
+nano/figure_stamp.py (any)
+
 # soc/compare/bench.S, the cross-core harness's own smoke/timing image --
 # `make compare-timing` and `make compare-smoke` hand it to whichever single
 # core COMPARE_CORE selects, and it has no reason to ask for more than plain

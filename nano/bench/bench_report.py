@@ -12,8 +12,12 @@ different design with a different memory system.
 """
 
 import argparse
+import os
 import re
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import figure_stamp  # noqa: E402
 
 FACT = re.compile(
     r"^BENCH marks=(?P<marks>\d+) cycles=(?P<cycles>\d+) "
@@ -44,7 +48,15 @@ def main():
     parser.add_argument("--kind", choices=["dhrystone", "coremark"], required=True)
     parser.add_argument("--runs", type=int, required=True,
                          help="Dhrystone runs, or CoreMark iterations")
+    parser.add_argument("--cflags", required=True,
+                         help="the flags the benchmark was built with; the stamp's isa is their -march")
     args = parser.parse_args()
+
+    target = os.environ.get("NANO_BENCH_TARGET", "cxxrtl flat zero-wait memory")
+    try:
+        stamp = figure_stamp.nano_stamp(args.cflags, target)
+    except figure_stamp.StampError as exc:
+        sys.exit(f"cannot stamp a figure: {exc}")
 
     if args.runs <= 0:
         sys.exit(f"--runs is {args.runs}; nothing was measured.")
@@ -70,12 +82,15 @@ def main():
     per_run = cycles / args.runs
     if args.kind == "dhrystone":
         per_mhz = (args.runs * 1e6 / cycles) / VAX_DHRYSTONES_PER_SEC
-        print(f"cycles       : {cycles} ({per_run:.1f} cycles/dhrystone, {args.runs} runs)")
-        print(f"DMIPS/MHz    : {per_mhz:.3f}")
+        print(figure_stamp.stamped(
+            f"cycles       : {cycles} ({per_run:.1f} cycles/dhrystone, {args.runs} runs)", stamp))
+        print(figure_stamp.stamped(f"DMIPS/MHz    : {per_mhz:.3f}", stamp))
     else:
         per_mhz = args.runs * 1e6 / cycles
-        print(f"cycles       : {cycles} ({per_run:.1f} cycles/iteration, {args.runs} iterations)")
-        print(f"CoreMark/MHz : {per_mhz:.3f}")
+        print(figure_stamp.stamped(
+            f"cycles       : {cycles} ({per_run:.1f} cycles/iteration, {args.runs} iterations)",
+            stamp))
+        print(figure_stamp.stamped(f"CoreMark/MHz : {per_mhz:.3f}", stamp))
     print(
         "No clock is placed for nano yet, so this is a per-MHz figure only -- never an\n"
         "absolute figure, and never comparable to littlecpu's own numbers, which were\n"

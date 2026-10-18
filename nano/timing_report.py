@@ -21,9 +21,13 @@ import json
 import re
 import sys
 
+import figure_stamp
 from area_report import (
-    add_macro_args, check_liberty, load_stat, macro_areas, read_excluded, validate_design,
+    LOCAL_TARGET, add_macro_args, add_stamp_args, check_liberty, load_stat, macro_areas,
+    read_excluded, validate_design,
 )
+
+TIMING_TARGET = LOCAL_TARGET + " delay-mapped"
 
 STIME_LINE = re.compile(r"Delay\s*=\s*([0-9.]+)\s*ps")
 YOSYS_VERSION = re.compile(r"^Yosys\s+\S+.*$", re.MULTILINE)
@@ -86,8 +90,13 @@ def main():
         help="a JSON file recording the last local-vs-flow area pair this tree measured",
     )
     add_macro_args(parser)
+    add_stamp_args(parser)
     args = parser.parse_args()
 
+    try:
+        stamp = figure_stamp.nano_stamp(args.cflags, TIMING_TARGET)
+    except figure_stamp.StampError as exc:
+        sys.exit(f"*** make nano-timing: cannot stamp a figure: {exc}")
     liberty_cells = check_liberty(args.liberty, args.liberty_sha256, target_name="nano-timing")
     macros = macro_areas(args, target_name="nano-timing")
     excluded_cells = read_excluded(args.excluded, target_name="nano-timing")
@@ -109,8 +118,10 @@ def main():
         delay_ps = read_delay_ps(log_path)
         area_um2 = read_area_um2(json_path, args.liberty, liberty_cells, excluded_cells, macros)
         print(f"register file: {name}")
-        print(f"  area  : {area_um2:.2f} um2   (this recipe's own mapping, not NANO_MAX_UM2)")
-        print(f"  delay : {delay_ps:.2f} ps    (ABC's mapped estimate, pre-layout)")
+        print(figure_stamp.stamped(
+            f"  area  : {area_um2:.2f} um2   (this recipe's own mapping, not NANO_MAX_UM2)", stamp))
+        print(figure_stamp.stamped(
+            f"  delay : {delay_ps:.2f} ps    (ABC's mapped estimate, pre-layout)", stamp))
         print()
 
     print(
@@ -129,21 +140,29 @@ def print_correlation(path):
         pair = json.load(open(path))
     except FileNotFoundError:
         sys.exit(f"*** make nano-timing: no correlation record at {path}.")
-    required = {"local_um2", "flow_um2", "flow_tool", "flow_tag", "local_tree", "note"}
+    required = {
+        "local_um2", "flow_um2", "flow_tool", "flow_tag", "local_tree", "note",
+        "local_stamp", "flow_stamp",
+    }
     missing = required - set(pair)
     if missing:
         sys.exit(
             f"*** make nano-timing: {path} is missing {sorted(missing)} -- a\n"
             "*** correlation record with no provenance is not a correlation."
         )
+    try:
+        local_stamp = figure_stamp.validate(pair["local_stamp"])
+        flow_stamp = figure_stamp.validate(pair["flow_stamp"])
+    except figure_stamp.StampError as exc:
+        sys.exit(f"*** make nano-timing: {path}: {exc}")
     factor = pair["flow_um2"] / pair["local_um2"]
     print("correlation against the flow (STALE -- see the note below):")
     print(f"  local tree : {pair['local_tree']}")
-    print(f"  local area : {pair['local_um2']:.2f} um2  (make nano-area, that tree)")
-    print(
+    print(figure_stamp.stamped(
+        f"  local area : {pair['local_um2']:.2f} um2  (make nano-area, that tree)", local_stamp))
+    print(figure_stamp.stamped(
         f"  flow area  : {pair['flow_um2']:.2f} um2  "
-        f"({pair['flow_tool']}, {pair['flow_tag']}, {factor:.3f}x the local figure)"
-    )
+        f"({pair['flow_tool']}, {pair['flow_tag']}, {factor:.3f}x the local figure)", flow_stamp))
     print(f"  *** {pair['note']}")
 
 

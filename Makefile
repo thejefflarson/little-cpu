@@ -705,6 +705,10 @@ tracked-ignored-test:
 band-source-test:
 	@python3 ./test/band_source_test.py
 
+.PHONY: figure-stamp-test
+figure-stamp-test:
+	@python3 ./test/figure_stamp_test.py
+
 .PHONY: probes-header-test
 probes-header-test:
 	@python3 ./test/probes_header_test.py
@@ -796,7 +800,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       riscv-gcc-pin-test memmap-test \
       adr-numbering-test compare-geometry-test hazard3-config-test vexriscv-path-test retired-term-test port-connect-test march-test \
       riscv-gcc-search-test tmp-path-test exec-mode-test \
-      band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
+      band-source-test figure-stamp-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
       pll-clock-test icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \

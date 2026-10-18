@@ -457,6 +457,8 @@ a mutation with no program leg is a real entry, not a missing file
 a name defined twice is checked at both definitions, not just the last
 a named .sby that does not exist is refused
 a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff
+a nano figure in a doc with the bracket stripped is red
+a nano figure with the stamp suppressed is red
 a nano harness that stopped tying the input off is red
 a nano harness that stopped tying the timer input off is red
 a nano target CI stopped running is red, and named
@@ -466,6 +468,7 @@ a netlist that is not there is refused, not read as equal
 a netlist with no block RAM at all is refused, not silently green
 a netlist with no pc net would leave that bin empty for ever
 a netlist with no top module names no one design
+a new nano emitter that prints a figure and skips the emitter is named
 a new rtl file with no line is red, naming the file
 a new site naming an ISA nothing declared is red, and located
 a new wide input port with no classification is red (finding 3)
@@ -552,6 +555,8 @@ a push aimed at main instead of the refresh branch is red
 a push carrying no per-command credential helper is red
 a push landing only one word instead of two is red across every occupancy
 a push surviving a flush lets the overtaken request's reply land
+a ratio across two targets of one design is refused naming target
+a ratio requested across two designs is refused naming design
 a ratio that is not its two products' quotient is refused
 a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ
 a raw sed -i outside mutate/mutate_remove is red, naming the line
@@ -711,6 +716,8 @@ a stall-sites repo root that does not exist is red before anything is scanned
 a stalled-bus mutant red for only some goals is not full evidence
 a stamp carrying the performance build renders it under its named build
 a stamp measured on a dirty tree is STALE even if nothing has moved since
+a stamp missing design is red and names the field
+a stamp naming a design outside the enum is red
 a stamp string carrying markup is refused
 a stamp string that would break out of its code span is refused
 a stamp that moved under the committed document is red
@@ -813,6 +820,7 @@ a zero-wait log one cycle off QSPI_CONTROL is refused
 a zero-wait log with no BENCH line is refused, not read as zero
 an #insn-check naming a file that does not exist is refused
 an ABI alias outside x0-x15 (a7 = x17) is caught the same way
+an ADR past the cutover is held to the stamp rule
 an ECP5 placement read with ice40 names names the part, not a bad log
 an ECP5 stamp carrying up5k's tools is missing its own
 an EXTRA architectural write the model never made is caught
@@ -843,6 +851,7 @@ an edge period too short for the jitter to fill is red
 an eject that matches a prefix of the mount point is red
 an eject that runs diskutil with no time limit is red
 an eject wrapper that lets a hung helper's timeout escape is red
+an emitter handed build flags with no -march refuses to stamp
 an empty --current value is refused, not compared as though it were the field's value
 an empty .asc is no placement
 an empty CoreMark image is named rather than reported as fitting easily
@@ -975,6 +984,7 @@ control: TEST_CASE with an ordinary testreg still assembles
 control: TEST_CASE_D32 with ordinary testregs still assembles
 control: TIMEOUT is a real verdict and IS baselineable
 control: a QSPI timing log whose buckets sum to its cycle count reports a row
+control: a QSPI timing row carries a stamp column that passes the check
 control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite
 control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
@@ -1090,6 +1100,8 @@ control: nano's own suite is graded the same way, and it is green
 control: nano's real divider defect is a baselined green, not a hidden one
 control: nano's shipping core passes the gate and the leak fails it
 control: nano's startup check is graded the same way, and it is green
+control: nano-area's output passes the stamp check
+control: nano-timing's area, delay and correlation lines all pass the stamp check
 control: nano.lds puts the timer block where nano_testbench.v hardcodes it
 control: nano/formal/Makefile also puts the cached suite first
 control: nothing changing during the run is unmoved
@@ -1099,6 +1111,8 @@ control: programs that build and are paired are green
 control: rule 6 gates the trap comparison and writes its compensation
 control: run_product.sh evals no tool string and splices no variable into python3 -c
 control: rvc.S links and fits a 16 KB board ROM
+control: the CoreMark report's lines all pass the stamp check
+control: the Dhrystone report's lines all pass the stamp check
 control: the ECP5 arm reads its own fabric's two cell names
 control: the LR/SC build's bench is the stock bench but for the core's module name
 control: the MUL constant-latency assertion fails at its own line
@@ -1150,6 +1164,7 @@ control: the shipping model's accounting identity holds on a real build
 control: the shipping pin-bump workflow keeps credentials off the upstream-code step
 control: the shipping publish script pushes one branch and opens one issue
 control: the shipping schedule workflow confines its credential to the publish step
+control: the shipping shape states the grammar once and stamps every figure
 control: the shipping tree has no fallback search outside its exceptions
 control: the shipping tree has no literal /tmp/ outside its exceptions
 control: the shipping tree keeps the retired term inside its allow-list
@@ -1163,6 +1178,7 @@ control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
 control: two identical snapshots print a null delta and no news
 control: two legs that report the same PASS/retires agree
+control: two rows of one design and target combine into a ratio
 control: two seeds clear a --min-seeds of one
 control: two sweeps measured the same way are subtracted
 control: with the part's own four SPRAM the same image fits
@@ -1349,6 +1365,7 @@ the free harness with no line in the baseline is red
 the free trap harness tied low would grade no interrupt entry, and is red
 the free trap harness with only the timer input tied low is red too
 the generated check set's isa line swept along with the flags is red
+the grammar restated in a second file is red
 the harness giving the UART its own baud rate is red
 the harness moving away takes the probe with it, loudly
 the harness moving away takes the probe with it, loudly
@@ -1396,6 +1413,7 @@ the sby script moving away takes the ill_e probe with it, loudly
 the sby script moving away takes the probe with it, loudly
 the sby script moving away takes the probe with it, loudly
 the second header is scanned too, not just test_macros.h
+the separator restated in a second file is red
 the shipping build itself reporting an X on the load path is red before any mutant runs
 the stale ISA name coming back in a formal harness comment is red
 the suite runner running the loader with no time limit is red

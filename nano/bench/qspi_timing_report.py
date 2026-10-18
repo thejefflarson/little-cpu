@@ -12,8 +12,12 @@ one thing.
 """
 
 import argparse
+import os
 import re
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import figure_stamp  # noqa: E402
 
 BENCH = re.compile(
     r"^BENCH marks=(?P<marks>\d+) cycles=(?P<cycles>\d+) "
@@ -74,7 +78,14 @@ def main():
                                   "own MODEL line must agree")
     parser.add_argument("--mhz", type=float, default=64.0,
                          help="the clock this row's absolute figure assumes (default 64, the brief's target)")
+    parser.add_argument("--cflags", required=True,
+                         help="the flags the benchmark was built with; the stamp's isa is their -march")
     args = parser.parse_args()
+
+    try:
+        stamp = figure_stamp.nano_stamp(args.cflags, "cxxrtl qspi timing model")
+    except figure_stamp.StampError as exc:
+        sys.exit(f"cannot stamp a figure: {exc}")
 
     if args.runs <= 0:
         sys.exit(f"--runs is {args.runs}; nothing was measured.")
@@ -144,6 +155,7 @@ def main():
         f"{cycles}\t{per_unit:.1f}\t{row['metric_name']}={row['metric']:.4f}\t"
         f"{row['absolute_name']}={row['absolute']:.2f}\t"
         + "\t".join(f"{k}={pct[k]:.2f}%" for k in BUCKET_KEYS)
+        + "\t" + figure_stamp.render(stamp)
     )
     return 0
 
