@@ -122,3 +122,29 @@ closes. It is the next ticket's measurement, not this one's.
   passes, nominal and fast corners close, and the slow corner misses.
 - The workflow now uploads the per-corner post-route STA, so the next diagnosis starts from paths
   rather than counts.
+
+## Amendment (2026-10-11): registering take_trap's decode half is declined
+
+The fix named under Decision was built on the aliased-timer tree: `decode_trap_q`, one flop of
+`!is_valid || is_ecall || is_ebreak`, feeding `take_trap` in place of the live decode. It is
+architecturally neutral (F = 11 and G = 9 reproduce, `make -C nano/formal all` passes) and costs
+790 um2 locally, 76,622.8 against 75,833.2 on the same tree without it, inside the 77,900
+ratchet.
+
+It did not route at 4x2 under the flow as shipped (`AREA 2`, run 38056995762, 2026-10-10). Detailed
+routing started at 13:57 UTC and the job hit its six-hour timeout at 19:46 UTC, still inside
+"Harden with LibreLane", so no metrics, no per-corner timing and no gate-level simulation exist.
+Violations after each iteration:
+
+| Iteration | This change | Clean baseline (run 38046468060) |
+|---|---|---|
+| 0 | 18,950 | 16,049 |
+| 1-9 | 17,337, 12,107, 10,131, 9,093, 8,551, 8,246, 7,809, 7,592, 6,448 | reached 0 |
+| later | 3,500 (18:55), 3,242 (19:21), 3,061 (19:43, killed) | 0 after about 30 min |
+
+Iterations grew from about 5 to 25 minutes each, against 1 to 4 minutes for the baseline.
+
+Registering the trap decode therefore costs routability at 4x2, which is the owner's hard limit,
+and the slow-corner question was never reached. The change is declined. The slow-corner miss stays
+accepted as this ADR records it; a future attempt must reduce the decode cone without adding a
+register whose fan-out the router cannot place.
