@@ -28,18 +28,31 @@ module entropy_stream_bench;
   integer gap, ticks, i, b;
   logic [7:0] byte_in;
 
-  initial begin
-    repeat (20) @(posedge clk);
-    running <= 1;
-    repeat (7) @(posedge clk);
-    edge_seen <= 1; @(posedge clk); edge_seen <= 0;
-    for (i = 0; i < EDGES; i = i + 1) begin
+  task automatic edges(input integer count);
+    for (i = 0; i < count; i = i + 1) begin
       gap = MIN_GAP + ($urandom % SPREAD);
       repeat (gap - 1) @(posedge clk);
       edge_seen <= 1; @(posedge clk); edge_seen <= 0;
       ticks = (gap - 1) & 3;
       $display("S %0d", ticks[1] ^ ticks[0]);
     end
+  endtask
+
+  initial begin
+    repeat (20) @(posedge clk);
+    running <= 1;
+    repeat (7) @(posedge clk);
+    edge_seen <= 1; @(posedge clk); edge_seen <= 0;
+    edges(EDGES);
+`ifdef RELOCK
+    repeat (40000) @(posedge clk);
+    running <= 0;
+    repeat (5) @(posedge clk);
+    running <= 1;
+    repeat (7) @(posedge clk);
+    edge_seen <= 1; @(posedge clk); edge_seen <= 0;
+    edges(EDGES);
+`endif
     repeat (60000) @(posedge clk);
     $finish;
   end
