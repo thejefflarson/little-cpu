@@ -8,7 +8,9 @@
 // samples 1.
 module trng_tb;
   localparam logic [1:0] BIST = 2'b00, WAIT = 2'b01, ES16 = 2'b10, DEAD = 2'b11;
-  localparam int N = 15;
+  localparam int N = 16;
+  localparam int GEN = 15;
+  localparam int SLOW_PERIOD = 6000;
 
   logic clk = 0;
   always #5 clk = ~clk;
@@ -19,6 +21,7 @@ module trng_tb;
   // 6: samples 1,1,1,1,1,1,1,0 repeating. 7: ten 0s then ten 1s, a slow beat. 8: samples
   // 87% ones at random. 9: samples 62% ones at random, which must still reach ES16.
   // 10-12: 31, 32 and 33 folded ones between alternating bits. 13-14: 31 and 32 zeros from reset.
+  // 15: one edge every 6,000 cycles, slower than a 4,096-cycle timeout and inside an 8,192 one.
   logic [N-1:0]  raw = '0;
   logic [N-1:0]  pop = '0;
   logic [31:0]   seed [N];
@@ -28,6 +31,7 @@ module trng_tb;
   logic          stop_source4 = 1'b0;
   int            left [N];
   int            since [N];
+  int            slow_count = 0;
   int            idx [N];
 
   for (genvar i = 0; i < N; i++) begin : g_dut
@@ -78,7 +82,7 @@ module trng_tb;
   endfunction
 
   always_ff @(posedge clk) begin
-    for (int i = 5; i < N; i++) begin
+    for (int i = 5; i < GEN; i++) begin
       if (i >= 10 && reset) begin
         raw[i] <= 1'b0;
       end else if (left[i] == 0) begin
@@ -102,6 +106,9 @@ module trng_tb;
     end else begin
       wait_left[0] <= wait_left[0] - 2'd1;
     end
+
+    slow_count <= (slow_count == SLOW_PERIOD - 1) ? 0 : slow_count + 1;
+    raw[15]    <= slow_count < 2;
 
     raw[1] <= 1'b0;
     raw[2] <= 1'b1;
@@ -186,6 +193,14 @@ module trng_tb;
   logic [15:0] first_word, second_word;
 
   initial begin
+    wait (!reset);
+    repeat (SLOW_PERIOD + 1500) @(posedge clk);
+    #1;
+    check("a source slower than 4,096 cycles per edge is not yet DEAD",
+          {30'b0, seed[15][31:30]}, {30'b0, BIST});
+  end
+
+  initial begin
     repeat (4) @(posedge clk);
     #1;
     reset = 1'b0;
@@ -219,11 +234,11 @@ module trng_tb;
       errors++;
     end
 
-    wait_status(1, DEAD, 6000);
+    wait_status(1, DEAD, 12000);
     check("a source stuck low reads DEAD", {30'b0, seed[1][31:30]}, {30'b0, DEAD});
-    wait_status(2, DEAD, 6000);
+    wait_status(2, DEAD, 12000);
     check("a source stuck high reads DEAD", {30'b0, seed[2][31:30]}, {30'b0, DEAD});
-    wait_status(3, DEAD, 6000);
+    wait_status(3, DEAD, 12000);
     check("a constant-period source reads DEAD", {30'b0, seed[3][31:30]}, {30'b0, DEAD});
     wait_status(5, DEAD, 200000);
     check("samples alternating 0,1 read DEAD", {30'b0, seed[5][31:30]}, {30'b0, DEAD});
@@ -239,7 +254,7 @@ module trng_tb;
     wait_status(4, ES16, 60000);
     check("the fourth source starts healthy", {30'b0, seed[4][31:30]}, {30'b0, ES16});
     stop_source4 = 1'b1;
-    wait_status(4, DEAD, 6000);
+    wait_status(4, DEAD, 12000);
     check("a source that stops reads DEAD even with a word buffered",
           {30'b0, seed[4][31:30]}, {30'b0, DEAD});
     check("...and gives the word up", {16'b0, seed[4][15:0]}, 32'b0);

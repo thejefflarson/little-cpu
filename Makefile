@@ -37,6 +37,7 @@ sim: test/cxxrtl.cc test/rtl.cc
 
 include mk/toolchain.mk
 
+include mk/nist90b.mk
 include nano/nano.mk
 include nano/tb.mk
 
@@ -558,7 +559,7 @@ compare-product-schedule-publish-test:
 .PHONY: tool-cache-test
 tool-cache-test:
 	@./test/tool_cache_test.sh '$(SAIL_RISCV_DIR)' '$(SVLINT_DIR)' '$(SAIL_DOWNLOAD_DIR)' \
-	  '$(NANO_LIBERTY_DIR)' '$(RISCV_GCC_DIR)'
+	  '$(NANO_LIBERTY_DIR)' '$(RISCV_GCC_DIR)' '$(NIST_90B_DIR)'
 
 .PHONY: riscv-gcc-pin-test
 riscv-gcc-pin-test:
@@ -603,6 +604,18 @@ makefile-target-test:
 .PHONY: pll-clock-test
 pll-clock-test:
 	@python3 ./test/pll_clock_test.py
+
+.PHONY: entropy-geometry-test
+entropy-geometry-test:
+	@python3 ./test/entropy_geometry_test.py
+
+.PHONY: entropy-assess-test
+entropy-assess-test:
+	@python3 ./test/entropy_assess_test.py
+
+.PHONY: board-tools-test
+board-tools-test:
+	@python3 ./test/board_tools_test.py
 
 .PHONY: ill-e-wiring-test
 ill-e-wiring-test:
@@ -778,7 +791,7 @@ test: sim test-units probe-gates pin-bump-test pin-bump-token-test \
       band-source-test zkt-isolation-test fixture-freshness-test window-test imem-share-test \
       memcheck-depth-test abc-engine-test makefile-target-test mutation-probe dual-build board-elaborate \
       tracked-ignored-test mutation-coverage-test comment-density-test lut4-site-test \
-      pll-clock-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
+      pll-clock-test entropy-geometry-test entropy-assess-test entropy-stream-test nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test dhry-board-parity-test board-verdict-test nano-test \
       nano-startup-test macro-register-test nano-littlecpu-test \
       nano-tt-area-workflow-test nano-qspi-loop-test nano-qspi-pins-test nano-qspi-latency-test \
       nano-qspi-window-test nano-qspi-control-test nano-stale-build-test \
@@ -1093,7 +1106,7 @@ ICESUGAR_PACKAGE := CABGA256
 ICESUGAR_SPEED   := 6
 ICESUGAR_PART    := LFE5U-25F-6BG256C
 ICESUGAR_TOP     := icesugar_pro_top
-ICESUGAR_SRCS    := $(SOC_SRCS) soc/icesugar_pro_pll.v soc/board_icesugar_pro.v
+ICESUGAR_SRCS    := $(SOC_SRCS) soc/icesugar_pro_pll.v soc/icesugar_pro_entropy.v soc/board_icesugar_pro.v
 ICESUGAR_PROG    ?= soc/blink.S
 
 ICESUGAR_ROM     ?= soc-rom
@@ -1139,11 +1152,16 @@ ICESUGAR_LOADER  ?= openFPGALoader
 ICESUGAR_VID     ?= 0x1d50
 ICESUGAR_PID     ?= 0x602b
 ICESUGAR_READ_S  ?= 30
+ICESUGAR_LOAD_S  ?= 90
+ICESUGAR_LOAD    = python3 soc/bounded.py $(ICESUGAR_LOAD_S) $(ICESUGAR_LOADER) -c cmsisdap \
+                   --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID)
+ICESUGAR_LOAD_FAILED = echo 'LOAD-FAILED: the loader failed or stalled past $(ICESUGAR_LOAD_S)s'; exit 1
+ICESUGAR_EJECT    = @if mount | grep -q ' on /Volumes/iCELink ('; then diskutil eject /Volumes/iCELink >/dev/null || true; fi
 
 .PHONY: icesugar-prog
 icesugar-prog: $(BUILD)/icesugar.bit
-	@$(ICESUGAR_LOADER) -c cmsisdap --vid $(ICESUGAR_VID) --pid $(ICESUGAR_PID) \
-	  -m $(BUILD)/icesugar.bit
+	@$(ICESUGAR_LOAD) -m $(BUILD)/icesugar.bit || { $(ICESUGAR_LOAD_FAILED); }
+	$(ICESUGAR_EJECT)
 	@echo
 	@echo 'Loaded into SRAM; the design is running. Read it with'
 	@echo '`make icesugar-read`, or power-cycle the board to go back to flash.'
@@ -1161,7 +1179,22 @@ icesugar-dhrystone:
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out $(BUILD)/icesugar_dhrystone.txt
 
+ICESUGAR_CLOCK_HZ  ?= $(shell sed -n 's/.*CORE_HZ = \([0-9_]*\);.*/\1/p' soc/board_icesugar_pro.v | tr -d _)
+ICESUGAR_CLOCK_S   ?= 60
+ICESUGAR_CLOCK_PPM ?= 1000
+
+.PHONY: icesugar-clock-check
+icesugar-clock-check:
+	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_ROM=soc-rom ICESUGAR_PROG=soc/clock_check.S
+	@$(MAKE) --no-print-directory icesugar-prog
+	@python3 soc/board_read.py --seconds $(ICESUGAR_CLOCK_S) --out $(BUILD)/icesugar_clock.txt \
+	  --stamps $(BUILD)/icesugar_clock_stamps.txt > /dev/null
+	@python3 soc/clock_grade.py $(BUILD)/icesugar_clock_stamps.txt --clock-hz $(ICESUGAR_CLOCK_HZ) \
+	  --tol-ppm $(ICESUGAR_CLOCK_PPM)
+
 ICESUGAR_COREMARK_ROM_WORDS := 4096
+ICESUGAR_SUITE_ROM_WORDS := 4096
 
 .PHONY: icesugar-coremark
 icesugar-coremark:
@@ -1173,6 +1206,47 @@ icesugar-coremark:
 	@$(MAKE) --no-print-directory icesugar-prog
 	@python3 soc/board_read.py --seconds 60 --until 'Self-check' \
 	  --out icesugar_coremark.txt
+
+ICESUGAR_DUAL_ROM_WORDS ?= 2048
+ICESUGAR_DUAL_HELD      ?= 0
+ICESUGAR_DUAL_SRCS      := $(DUAL_RTL_SRCS) rtl/littledualsoc.v soc/icesugar_pro_pll.v soc/board_icesugar_pro_dual.v
+ICESUGAR_DUAL_TAG       := rom$(ICESUGAR_DUAL_ROM_WORDS)_held$(ICESUGAR_DUAL_HELD)
+
+$(BUILD)/icesugar_dual.json: $(ICESUGAR_DUAL_SRCS) soc/icesugar_pro.lpf | $(BUILD)
+	@$(MAKE) --no-print-directory soc-rom SOC_PROG=soc/dual_hello.S SOC_ROM_WORDS=$(ICESUGAR_DUAL_ROM_WORDS)
+	@yosys -p 'read_verilog -sv $(ICESUGAR_DUAL_SRCS); chparam -set ROM_WORDS $(ICESUGAR_DUAL_ROM_WORDS) littledualsoc; chparam -set HART1_HELD $(ICESUGAR_DUAL_HELD) littledualsoc; synth_ecp5 -top icesugar_pro_dual_top -json $@' \
+	  > $(BUILD)/icesugar_dual.synth.log 2>&1 || { tail -40 $(BUILD)/icesugar_dual.synth.log; exit 1; }
+	@python3 soc/bram_reset_check.py $@ --gate 'make icesugar-dual-run'
+
+$(BUILD)/icesugar_dual.config: $(BUILD)/icesugar_dual.json
+	@rm -f $@
+	@nextpnr-ecp5 $(ICESUGAR_DEVICE) --package $(ICESUGAR_PACKAGE) --speed $(ICESUGAR_SPEED) \
+	  --json $< --lpf soc/icesugar_pro.lpf \
+	  --textcfg $@ > $(BUILD)/icesugar_dual.pnr.log 2>&1 || { tail -30 $(BUILD)/icesugar_dual.pnr.log; exit 1; }
+
+$(BUILD)/icesugar_dual.bit: $(BUILD)/icesugar_dual.config
+	@ecppack $< $@
+
+.PHONY: icesugar-dual-run
+icesugar-dual-run:
+	@rm -f $(BUILD)/icesugar_dual.json $(BUILD)/icesugar_dual.config $(BUILD)/icesugar_dual.bit
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar_dual.bit
+	@grep -E 'Max frequency for clock' $(BUILD)/icesugar_dual.pnr.log | tail -1
+	@$(ICESUGAR_LOAD) -m $(BUILD)/icesugar_dual.bit || { $(ICESUGAR_LOAD_FAILED); }
+	$(ICESUGAR_EJECT)
+	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt
+	@bash -c '. soc/board_verdict.sh && dual_verdict "$$0" "$$1"' $(BUILD)/icesugar_dual_$(ICESUGAR_DUAL_TAG).txt $(if $(filter 1,$(ICESUGAR_DUAL_HELD)),0,16)
+
+ICESUGAR_FLASH_ID ?= EF4019
+
+.PHONY: icesugar-flash-id
+icesugar-flash-id:
+	@rm -f $(BUILD)/icesugar.json $(BUILD)/icesugar.config $(BUILD)/icesugar.bit
+	@$(MAKE) --no-print-directory $(BUILD)/icesugar.bit ICESUGAR_PROG=soc/flash_id.S
+	@$(ICESUGAR_LOAD) -m $(BUILD)/icesugar.bit || { $(ICESUGAR_LOAD_FAILED); }
+	$(ICESUGAR_EJECT)
+	@python3 soc/board_read.py --seconds 5 --out $(BUILD)/icesugar_flash_id.txt
+	@bash -c '. soc/board_verdict.sh && flash_verdict "$$0" "$$1"' $(BUILD)/icesugar_flash_id.txt $(ICESUGAR_FLASH_ID)
 
 ECP5_TOOLS := yosys nextpnr-ecp5 trellis-db
 
@@ -1223,6 +1297,13 @@ suite-board: $(BUILD)/ftread
 	@echo 'iceprog and ftread run under ICEPROG_SUDO, as `make prog` does. Roughly ten minutes.'
 	@echo
 	@ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/run_suite_board.sh $(if $(ICEPROG_SUDO),--iceprog '$(BOARD_ICEPROG)' --ftread '$(BOARD_FTREAD)',--ftread '$(abspath $(BUILD))/ftread')
+
+.PHONY: icesugar-suite-board
+icesugar-suite-board:
+	@echo 'Runs the .S suite on the iCESugar-Pro, in batches: SRAM over JTAG, never the flash,'
+	@echo 'no sudo, at 16 KB of ROM so rvc.S runs. SHOW_RAW=1 prints each raw capture; results land in build/suite_icesugar_results.txt.'
+	@echo
+	@ROM_WORDS=$(ICESUGAR_SUITE_ROM_WORDS) ./soc/run_suite_icesugar.sh
 
 DHRY_BOARD_CFLAGS ?= $(DHRY_CFLAGS)
 
@@ -1594,15 +1675,36 @@ COMPARE_CORE_READ := read_verilog $(VEXRISCV_V); \
 COMPARE_CORE_TOP  := VexRiscv
 COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_V) vexriscv-pin-check
 COMPARE_CORE_DEPS := $(VEXRISCV_V) vexriscv-pin-check
-else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf),)
+else ifeq ($(COMPARE_CORE),vexriscv_lrsc)
+COMPARE_TOP  := bench_vexriscv_lrsc
+COMPARE_SRCS := soc/compare/bench_vexriscv_lrsc.v rtl/memory.v
+COMPARE_READ := read_verilog $(VEXRISCV_LRSC_V); \
+                read_verilog -sv $(COMPARE_SRCS)
+COMPARE_CORE_READ := read_verilog $(VEXRISCV_LRSC_V); \
+                     hierarchy -top VexRiscvLrsc; delete -port VexRiscvLrsc/rvfi_*
+COMPARE_CORE_TOP  := VexRiscvLrsc
+COMPARE_DEPS      := $(COMPARE_SRCS) $(VEXRISCV_LRSC_V) vexriscv-pin-check
+COMPARE_CORE_DEPS := $(VEXRISCV_LRSC_V) vexriscv-pin-check
+else ifneq ($(filter $(COMPARE_CORE),hazard3 hazard3_perf hazard3_c hazard3_c_fit),)
 COMPARE_TOP  := bench_hazard3
 COMPARE_SRCS := $(HAZARD3_SRCS) rtl/memory.v soc/compare/bench_hazard3.v
 COMPARE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(COMPARE_SRCS)
-# hazard3_perf is the bench with PERF set; its standalone synthesis takes the same four parameters.
-ifeq ($(COMPARE_CORE),hazard3_perf)
+# hazard3_perf is the bench with PERF set, hazard3_c the same plus WITH_C, hazard3_c_fit that
+# plus FIT; each takes the same parameters in its standalone synthesis. 4294967292 is
+# MTVEC_WMASK 32'hfffffffc.
+ifneq ($(filter $(COMPARE_CORE),hazard3_perf hazard3_c hazard3_c_fit),)
 COMPARE_BENCH_CHPARAM := -set PERF 1
-HAZARD3_PERF_CHPARAM := -set EXTENSION_ZIFENCEI 1 -set CSR_COUNTER 1 -set MUL_FAST 1 \
-                        -set BRANCH_PREDICTOR 1
+HAZARD3_PERF_CHPARAM := -set CSR_COUNTER 1 -set MUL_FAST 1 -set BRANCH_PREDICTOR 1
+ifeq ($(COMPARE_CORE),hazard3_c_fit)
+COMPARE_BENCH_CHPARAM += -set FIT 1
+HAZARD3_PERF_CHPARAM += -set EXTENSION_ZIFENCEI 0 -set MTVEC_WMASK 4294967292
+else
+HAZARD3_PERF_CHPARAM += -set EXTENSION_ZIFENCEI 1
+endif
+endif
+ifneq ($(filter $(COMPARE_CORE),hazard3_c hazard3_c_fit),)
+COMPARE_BENCH_CHPARAM += -set WITH_C 1
+HAZARD3_PERF_CHPARAM += -set EXTENSION_C 1
 endif
 COMPARE_CORE_READ := read_verilog -sv -I $(HAZARD3_HDL) $(HAZARD3_SRCS); \
                      $(if $(HAZARD3_PERF_CHPARAM),chparam $(HAZARD3_PERF_CHPARAM) hazard3_cpu_2port; )\
@@ -1668,18 +1770,18 @@ $(BUILD)/compare.$(COMPARE_CORE).asc: $(BUILD)/compare.$(COMPARE_CORE).json $(CO
 	sh soc/pnr_check.sh 'make compare-timing' "$$status" $(BUILD)/compare.$(COMPARE_CORE).pnr.log $@
 
 COMPARE_SMOKE_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
-                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
-                      soc/compare/bench_tb.v
+                      soc/compare/bench_vexriscv.v soc/compare/bench_vexriscv_lrsc.v \
+                      soc/compare/bench_hazard3.v soc/compare/bench_tb.v
 
-$(BUILD)/compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) vexriscv-pin-check \
-             | $(HAZARD3_DIR) $(BUILD)
+$(BUILD)/compare.vvp: $(COMPARE_SMOKE_SRCS) compare-rom $(VEXRISCV_V) $(VEXRISCV_LRSC_V) \
+             vexriscv-pin-check | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
-	  $(VEXRISCV_V) $(HAZARD3_SRCS) \
+	  $(VEXRISCV_V) $(VEXRISCV_LRSC_V) $(HAZARD3_SRCS) \
 	  $(COMPARE_SMOKE_SRCS)
 
 .PHONY: compare-smoke
 compare-smoke: hazard3-config-clone-test $(BUILD)/compare.vvp
-	@vvp $<
+	@vvp $(BUILD)/compare.vvp
 
 COMPARE_DHRY_RUNS   ?= 400
 COMPARE_DHRY_CYCLES ?= 2000000
@@ -1692,6 +1794,8 @@ COMPARE_BENCH_CFLAGS_TAIL := -mabi=ilp32 -O2 -std=c11 -ffreestanding \
                              -fno-tree-loop-distribute-patterns -Wall -Wextra -Werror
 COMPARE_DHRY_VEXC_CFLAGS := -march=rv32imc $(COMPARE_BENCH_CFLAGS_TAIL)
 COMPARE_DHRY_HAZA_CFLAGS := -march=rv32ima $(COMPARE_BENCH_CFLAGS_TAIL)
+# The feature-matched row: the richest ISA littlecpu, VexRiscv (C, LR/SC) and Hazard3 (C, A) share.
+COMPARE_DHRY_IMAC_CFLAGS := -march=rv32imac_zicsr_zifencei $(COMPARE_BENCH_CFLAGS_TAIL)
 
 COMPARE_DHRY_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                      soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
@@ -1723,6 +1827,30 @@ COMPARE_DHRY_HAZA_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
 $(BUILD)/compare.dhry.haza.vvp: $(COMPARE_DHRY_HAZA_SRCS) | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(HAZARD3_SRCS) $(COMPARE_DHRY_HAZA_SRCS)
+
+COMPARE_DHRY_IMAC_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                          soc/compare/bench_vexriscv_lrsc.v soc/compare/bench_hazard3.v \
+                          soc/compare/dhry_monitor.v soc/compare/dhry_imac_tb.v
+
+$(BUILD)/compare.dhry.imac.vvp: $(COMPARE_DHRY_IMAC_SRCS) $(VEXRISCV_LRSC_V) vexriscv-pin-check \
+                  | $(HAZARD3_DIR) $(BUILD)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(VEXRISCV_LRSC_V) $(HAZARD3_SRCS) $(COMPARE_DHRY_IMAC_SRCS)
+
+.PHONY: compare-dhrystone-matched
+compare-dhrystone-matched: hazard3-config-clone-test $(BUILD)/compare.dhry.imac.vvp
+	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv_lrsc $(BUILD)/compare.vexriscv_lrsc.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c $(BUILD)/compare.hazard3_c.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c_fit $(BUILD)/compare.hazard3_c_fit.core.log
+	@echo '== the feature-matched row: littlecpu, VexRiscv with LR/SC and Hazard3 with C, all at RV32IMAC =='
+	@./soc/compare/run_dhrystone.sh $(COMPARE_DHRY_RUNS) $(COMPARE_DHRY_CYCLES) \
+	  '$(COMPARE_DHRY_IMAC_CFLAGS)' hardware $(BUILD)/compare.dhry.imac.vvp \
+	  littlecpu,vexriscv_lrsc,hazard3_c,hazard3_c_fit \
+	  littlecpu=$(BUILD)/compare.littlecpu.core.log \
+	  vexriscv_lrsc=$(BUILD)/compare.vexriscv_lrsc.core.log \
+	  hazard3_c=$(BUILD)/compare.hazard3_c.core.log \
+	  hazard3_c_fit=$(BUILD)/compare.hazard3_c_fit.core.log
 
 .PHONY: compare-dhrystone
 compare-dhrystone: hazard3-config-clone-test $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp \
@@ -1779,6 +1907,7 @@ COMPARE_COREMARK_CFLAGS := -march=rv32im -mabi=ilp32 -O2 -std=c11 \
 # CoreMark's own image at the same two pairwise ISAs the Dhrystone flags above state.
 COMPARE_COREMARK_VEXC_CFLAGS := -march=rv32imc $(COMPARE_BENCH_CFLAGS_TAIL)
 COMPARE_COREMARK_HAZA_CFLAGS := -march=rv32ima $(COMPARE_BENCH_CFLAGS_TAIL)
+COMPARE_COREMARK_IMAC_CFLAGS := -march=rv32imac_zicsr_zifencei $(COMPARE_BENCH_CFLAGS_TAIL)
 
 COMPARE_COREMARK_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
                          soc/compare/bench_vexriscv.v soc/compare/bench_hazard3.v \
@@ -1810,6 +1939,26 @@ COMPARE_COREMARK_HAZA_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
 $(BUILD)/compare.coremark.haza.vvp: $(COMPARE_COREMARK_HAZA_SRCS) | $(HAZARD3_DIR) $(BUILD)
 	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
 	  $(HAZARD3_SRCS) $(COMPARE_COREMARK_HAZA_SRCS)
+
+COMPARE_COREMARK_IMAC_SRCS := $(SIM_RTL_SRCS) soc/compare/bench_littlecpu.v \
+                              soc/compare/bench_vexriscv_lrsc.v soc/compare/bench_hazard3.v \
+                              soc/compare/dhry_monitor.v soc/compare/coremark_imac_tb.v
+
+$(BUILD)/compare.coremark.imac.vvp: $(COMPARE_COREMARK_IMAC_SRCS) $(VEXRISCV_LRSC_V) \
+                       vexriscv-pin-check | $(HAZARD3_DIR) $(BUILD)
+	iverilog -I./rtl/ -I$(HAZARD3_HDL) -g2012 -o $@ \
+	  $(VEXRISCV_LRSC_V) $(HAZARD3_SRCS) $(COMPARE_COREMARK_IMAC_SRCS)
+
+.PHONY: compare-coremark-matched
+compare-coremark-matched: hazard3-config-clone-test $(BUILD)/compare.coremark.imac.vvp
+	@$(MAKE) --no-print-directory COMPARE_CORE=littlecpu $(BUILD)/compare.littlecpu.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=vexriscv_lrsc $(BUILD)/compare.vexriscv_lrsc.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c $(BUILD)/compare.hazard3_c.core.log
+	@$(MAKE) --no-print-directory COMPARE_CORE=hazard3_c_fit $(BUILD)/compare.hazard3_c_fit.core.log
+	@echo '== the feature-matched row: littlecpu, VexRiscv with LR/SC and Hazard3 with C, all at RV32IMAC =='
+	@./soc/compare/run_coremark_compare.sh $(COMPARE_COREMARK_ITERATIONS) \
+	  $(COMPARE_COREMARK_CYCLES) '$(COMPARE_COREMARK_IMAC_CFLAGS)' $(BUILD)/compare.coremark.imac.vvp \
+	  littlecpu,vexriscv_lrsc,hazard3_c,hazard3_c_fit
 
 .PHONY: compare-coremark
 compare-coremark: hazard3-config-clone-test $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp \
@@ -1849,6 +1998,9 @@ COMPARE_ECP5_EXPECT_DSP_littlecpu := 4
 COMPARE_ECP5_EXPECT_DSP_vexriscv  := 4
 COMPARE_ECP5_EXPECT_DSP_hazard3   := 0
 COMPARE_ECP5_EXPECT_DSP_hazard3_perf := 3
+COMPARE_ECP5_EXPECT_DSP_hazard3_c := 3
+COMPARE_ECP5_EXPECT_DSP_hazard3_c_fit := 3
+COMPARE_ECP5_EXPECT_DSP_vexriscv_lrsc := 4
 COMPARE_ECP5_EXPECT_DSP := $(COMPARE_ECP5_EXPECT_DSP_$(COMPARE_CORE))
 
 $(BUILD)/compare_ecp5.$(COMPARE_CORE).core.log: $(COMPARE_CORE_DEPS)
@@ -1957,7 +2109,8 @@ clean:
 	rm -f soc/rom_even.hex soc/rom_odd.hex
 	rm -f $(BUILD)/compare.*.json $(BUILD)/compare.*.asc $(BUILD)/compare.*.log $(BUILD)/compare.*.rpt $(BUILD)/compare.vvp
 	rm -f $(BUILD)/compare_ecp5.*.json $(BUILD)/compare_ecp5.*.config $(BUILD)/compare_ecp5.*.log
-	rm -f $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp $(BUILD)/compare.dhry.haza.vvp
+	rm -f $(BUILD)/compare.dhry.vvp $(BUILD)/compare.dhry.solo.vvp $(BUILD)/compare.dhry.vexc.vvp $(BUILD)/compare.dhry.haza.vvp \
+	      $(BUILD)/compare.dhry.imac.vvp $(BUILD)/compare.coremark.imac.vvp
 	rm -f $(BUILD)/compare.coremark.vvp $(BUILD)/compare.coremark.solo.vvp $(BUILD)/compare.coremark.vexc.vvp \
 	      $(BUILD)/compare.coremark.haza.vvp
 	rm -f soc/compare/rom_even.hex soc/compare/rom_odd.hex soc/compare/rom_flat.hex

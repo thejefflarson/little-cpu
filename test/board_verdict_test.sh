@@ -12,10 +12,12 @@ INSTALL=${3:-$HERE/../soc/install_board_tools.sh}
 
 # The accept cases need scratch whose every ancestor passes the walk; Linux's /tmp is world-writable, so it never does.
 base=""
+scan=$(mktemp -d); printf "#!/bin/sh\nprintf 'user::rwx\\n'\n" > "$scan/getfacl"; chmod 755 "$scan/getfacl"
 for cand in "${TMPDIR:-/tmp}" "$HERE/../build" "$HOME"; do
   mkdir -p "$cand" 2>/dev/null || continue
-  if (. "$HERE/../soc/board_verdict.sh"; check_path_chain "$cand" "$(id -u)") >/dev/null 2>&1; then base=$cand; break; fi
+  if (PATH=$scan:$PATH; . "$HERE/../soc/board_verdict.sh"; check_path_chain "$cand" "$(id -u)") >/dev/null 2>&1; then base=$cand; break; fi
 done
+rm -rf "$scan"
 [ -n "$base" ] || { echo "error: no scratch candidate has an ancestry the root-binary walk accepts" >&2; exit 1; }
 WORK=$(mktemp -d "$base/board_verdict.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
@@ -66,6 +68,53 @@ if [ -n "$unfiltered" ]; then
   fail=1
 fi
 
+ICE_SUITE=${4:-$HERE/../soc/run_suite_icesugar.sh}
+unfiltered=$(grep -E "$display_pat" "$ICE_SUITE" | grep -v display_safe || true)
+if [ -n "$unfiltered" ]; then
+  echo "FAIL: UART text reaches the terminal unfiltered in $ICE_SUITE: $unfiltered" >&2
+  fail=1
+fi
+
+# A replay as the CDC line delivers it: the debugger's chatter, a replay cut mid-line at the start, two whole replays, a cut tail.
+capture=$'@cdone:0\n1 1\n.\n0 1\n1 7\n2 1\n.\n0 1\n1 7\n2 1\n.\n0 1\n1'
+block=$(printf '%s' "$capture" | uart_last_block)
+[ "$block" = $'0 1\n1 7\n2 1' ] || { echo "FAIL: last block parsed as '$block'" >&2; fail=1; }
+[ -z "$(printf '0 1\n1 7\n' | uart_last_block)" ] || { echo "FAIL: a capture with no replay marker produced a block" >&2; fail=1; }
+[ "$(block_verdict "$block" 1)" = 7 ] || { echo "FAIL: block_verdict did not find index 1" >&2; fail=1; }
+[ -z "$(block_verdict "$block" 3)" ] || { echo "FAIL: block_verdict invented index 3" >&2; fail=1; }
+[ "$(result_line a.S 1)" = "a.S PASS" ] || { echo "FAIL: verdict 1 is not a pass" >&2; fail=1; }
+[ "$(result_line a.S 7)" = "a.S FAIL 3" ] || { echo "FAIL: verdict 7 is not a fail at test 3" >&2; fail=1; }
+[ "$(result_line a.S '')" = "a.S MISSING" ] || { echo "FAIL: no verdict is not MISSING" >&2; fail=1; }
+[ "$(result_line a.S zz)" = "a.S PARSE-ERROR" ] || { echo "FAIL: a non-number verdict is not a parse error" >&2; fail=1; }
+
+[ "$(block_tag_ok $'B3 11\n0 1\n' 3 11 && echo y)" = y ] || { echo "FAIL: a matching batch tag was refused" >&2; fail=1; }
+block_tag_ok $'B2 11\n0 1\n' 3 11 && { echo "FAIL: stale batch tag accepted" >&2; fail=1; }
+block_tag_ok $'0 1\n1 1\n' 3 2 && { echo "FAIL: an untagged block accepted" >&2; fail=1; }
+[ "$(baseline_class a.S 'FAIL 3' a.S)" = ok ] || { echo "FAIL: a baselined FAIL did not match" >&2; fail=1; }
+for s in MISSING PARSE-ERROR LOAD-FAILED SWAP-FAILED LINK-FAILED; do
+  [ "$(baseline_class a.S "$s" a.S)" = unexpected ] || { echo "FAIL: baselined $s matched the baseline" >&2; fail=1; }
+done
+[ "$(baseline_class a.S PASS a.S)" = unexpected-pass ] || { echo "FAIL: a baselined pass was not flagged" >&2; fail=1; }
+[ "$(baseline_class b.S 'FAIL 3' a.S)" = unexpected ] || { echo "FAIL: an unbaselined FAIL was not flagged" >&2; fail=1; }
+
+printf '@cdone:0\nDUAL c0=1\xff\nDUAL c0=16 c1=16\nDUAL c0=16 c1=16\nDUAL c0=1' > "$WORK/dual_ok"
+dual_verdict "$WORK/dual_ok" 16 >/dev/null 2>&1 || { echo "FAIL: a two-hart capture was refused" >&2; fail=1; }
+printf 'DUAL c0=16 c1=0\n' > "$WORK/dual_held"
+dual_verdict "$WORK/dual_held" 0 >/dev/null 2>&1 || { echo "FAIL: a held-hart capture was refused" >&2; fail=1; }
+dual_verdict "$WORK/dual_held" 16 >/dev/null 2>&1 && { echo "FAIL: dual wrong c1 accepted" >&2; fail=1; }
+printf '@cdone:0\n\xff\xfe\n' > "$WORK/dual_chatter"
+dual_verdict "$WORK/dual_chatter" 16 >/dev/null 2>&1 && { echo "FAIL: dual chatter-only capture accepted" >&2; fail=1; }
+printf 'DUAL c0=16 c1=16\n@cdone:0\n' > "$WORK/dual_old"
+dual_verdict "$WORK/dual_old" 0 >/dev/null 2>&1 && { echo "FAIL: dual stale two-hart line accepted for a held run" >&2; fail=1; }
+
+printf '@cdone:0\nFLASH id=EF40\nFLASH id=EF4019 sfdp=SFDP\nFLASH id=EF4019 sfdp=SF' > "$WORK/flash_ok"
+flash_verdict "$WORK/flash_ok" EF4019 >/dev/null 2>&1 || { echo "FAIL: a good flash capture was refused" >&2; fail=1; }
+flash_verdict "$WORK/flash_ok" EF4018 >/dev/null 2>&1 && { echo "FAIL: flash wrong id accepted" >&2; fail=1; }
+printf 'FLASH id=EF4019 sfdp=SFDQ\n' > "$WORK/flash_nosig"
+flash_verdict "$WORK/flash_nosig" EF4019 >/dev/null 2>&1 && { echo "FAIL: flash missing signature accepted" >&2; fail=1; }
+printf '@cdone:0\n\xff\xfe\n' > "$WORK/flash_chatter"
+flash_verdict "$WORK/flash_chatter" EF4019 >/dev/null 2>&1 && { echo "FAIL: flash chatter-only capture accepted" >&2; fail=1; }
+
 mkdir "$WORK/stubs"
 cat > "$WORK/stubs/otool" <<'STUB'
 #!/bin/bash
@@ -79,10 +128,10 @@ cat > "$WORK/stubs/readelf" <<'STUB'
 [ -f "$STUB_DEPS/$(basename "$2").rpath" ] || exit 0
 echo ' 0x000000000000001d (RUNPATH)            Library runpath: ['"$(cat "$STUB_DEPS/$(basename "$2").rpath")"']'
 STUB
-cat > "$WORK/stubs/ls" <<'STUB'
+cat > "$WORK/stubs/python3" <<'STUB'
 #!/bin/bash
-if [ "$1" = -lde ] && grep -qxF -- "$2" "$STUB_ACL"; then echo "drwxr-xr-x+ 2 u g 64 Jan 1 00:00 $2"; echo ' 0: user:evil allow add_file'; exit 0; fi
-exec /bin/ls "$@"
+grep -qxF -- "$4" "$STUB_ACL" && exit 0
+exit 1
 STUB
 cat > "$WORK/stubs/getfacl" <<'STUB'
 #!/bin/bash
@@ -91,7 +140,7 @@ printf 'user::rwx\ngroup::r-x\nother::r-x\n'
 grep -qxF -- "$f" "$STUB_ACL" && echo 'user:evil:rwx'
 exit 0
 STUB
-chmod 755 "$WORK/stubs/readelf" "$WORK/stubs/ls" "$WORK/stubs/getfacl"
+chmod 755 "$WORK/stubs/readelf" "$WORK/stubs/python3" "$WORK/stubs/getfacl"
 export STUB_DEPS=$WORK/deps; mkdir "$STUB_DEPS"
 export STUB_ACL=$WORK/acl; : > "$STUB_ACL"
 PATH=$WORK/stubs:$PATH
@@ -150,6 +199,39 @@ chmod 755 "$WORK/a b"
 printf '%s\n' "$(cd -P "$WORK/a" && pwd -P)" > "$STUB_ACL"
 expect_at refuse "an ancestor whose ACL grants what its mode does not" "$WORK/a/b/tool"
 : > "$STUB_ACL"
+
+# An ACL read that fails must refuse: no getfacl on a non-Darwin host, or getfacl or ls -lde exiting nonzero.
+bare=$WORK/bare; mkdir "$bare"
+for t in stat dirname basename tail grep tr od id; do ln -s "$(command -v $t)" "$bare/$t"; done
+printf '#!/bin/bash\necho Linux\n' > "$bare/uname"; chmod 755 "$bare/uname"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: a host without getfacl passed the root-binary check" >&2; fail=1
+fi
+grep -q 'getfacl is not installed' "$WORK/err" || { echo "FAIL: the missing-getfacl refusal does not name the tool" >&2; fail=1; }
+printf '#!/bin/bash\nexit 1\n' > "$bare/getfacl"; chmod 755 "$bare/getfacl"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: a getfacl that exits nonzero passed the root-binary check" >&2; fail=1
+fi
+grep -q 'cannot read the ACL' "$WORK/err" || { echo "FAIL: a failing getfacl was not reported as unreadable" >&2; fail=1; }
+printf '#!/bin/bash\n' > "$bare/getfacl"; chmod 755 "$bare/getfacl"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: a getfacl that prints nothing passed the root-binary check" >&2; fail=1
+fi
+grep -q 'cannot read the ACL' "$WORK/err" || { echo "FAIL: an empty getfacl was not reported as unreadable" >&2; fail=1; }
+printf '#!/bin/bash\necho Darwin\n' > "$bare/uname"
+printf '#!/bin/bash\nexit 2\n' > "$bare/python3"; chmod 755 "$bare/python3"
+if (PATH=$bare; check_path_chain "$WORK/a/b" "$me") >/dev/null 2>"$WORK/err"; then
+  echo "FAIL: an ACL read that fails with EACCES passed the root-binary check" >&2; fail=1
+fi
+grep -q 'cannot read the ACL' "$WORK/err" || { echo "FAIL: a failing ACL read was not reported as unreadable" >&2; fail=1; }
+if [ "$(uname -s)" = Darwin ]; then
+  mkdir "$WORK/aclreal"
+  (PATH=${PATH#"$WORK/stubs:"}; acl_grants "$WORK/aclreal") && rc=0 || rc=$?
+  [ "$rc" = 1 ] || { echo "FAIL: the real ACL read of a plain directory returned $rc, not 1" >&2; fail=1; }
+  chmod +a "everyone allow write" "$WORK/aclreal"
+  (PATH=${PATH#"$WORK/stubs:"}; acl_grants "$WORK/aclreal") && rc=0 || rc=$?
+  [ "$rc" = 0 ] || { echo "FAIL: the real ACL read of a directory with a write ACL returned $rc, not 0" >&2; fail=1; }
+fi
 
 printf '\177ELF' > "$WORK/lib/libx.dylib"; printf '\177ELF' > "$WORK/lib/liby.dylib"
 chmod 755 "$WORK/lib/libx.dylib" "$WORK/lib/liby.dylib"

@@ -1,6 +1,6 @@
 /* The `.S` suite, linked for a board instead of a harness. */
 MEMORY {
-    rom(rx)  : ORIGIN = 0x00000000, LENGTH = 8K
+    rom(rx)  : ORIGIN = 0x00000000, LENGTH = DEFINED(ROM_BYTES) ? ROM_BYTES : 8K
     ram(!rx) : ORIGIN = 0x00010000, LENGTH = 64K
 }
 

@@ -250,6 +250,21 @@ simulator returns the board's number to the cycle. `DHRY_BOARD_CFLAGS`'s comment
 claimed sharing `DHRY_CFLAGS` made the two comparable; it is necessary and not
 sufficient, and the Makefile now says so beside the define that breaks it.
 
+## The `.S` suite on the part, 2026-10-05
+
+`make icesugar-suite-board` runs the suite on this board the way `make suite-board`
+does on the UPduino: it places `icesugar_pro_top` once with placeholder ROM
+contents, then per batch swaps the linked batch into the placed configuration
+with `ecpbram`, repacks, loads SRAM over JTAG and reads the CDC UART with
+`soc/board_read.py`. Every program the `.S` suite holds except `rvc.S` (12,256
+bytes against the 8 KB ROM) ran, in 8 batches of 8 to 11 programs, on `origin/main`
+13e24b38 at 30 MHz: **79 of 79 reported a pass**, none failed, none went silent.
+Nothing in `test/EXPECTED_FAIL` exists to be contradicted, and no program in
+`test/OBSERVED_FLOOR` failed to run. The timer-interrupt programs, the atomics
+and the self-modifying-text programs are among the 79. A program that
+passed under simulation and failed on silicon would have been the finding; there
+was none.
+
 ## What this does not settle
 
 Whether the fault is yosys emitting an output
@@ -302,3 +317,20 @@ consequence of implementing the zero arm without delegating it to the
 block's own reset feature rather than an independently load-bearing half of
 the fix. `soc/bram_reset_check.py`'s criterion — any block RAM reset port
 connected to a non-constant net — checks the invariant that matters.
+
+## Amendment, 2026-10-05
+
+The 25 MHz figures above are superseded by the 30 MHz PLL bitstream, which the
+board has since run cycle-identical to cxxrtl on today's tree (ADR-0172, amended).
+
+### Amendment 2026-10-11: the suite links at 16 KB on the iCESugar-Pro
+
+`make icesugar-suite-board` now places `icesugar_pro_top` at `SOC_ROM_WORDS=4096`
+(16 KB, the size `make icesugar-coremark` already uses) and links each batch with
+`test/board/board.lds`'s `ROM_BYTES` set to match, so `rvc.S` is no longer skipped.
+`rvc.S` alone links to 16,360 of 16,384 bytes. The up5k's `make suite-board` keeps the
+linker script's 8 KB default and its images are byte-identical to before. The packer decides batches by trial link, because object sizes undercount what the
+linker uses. On 2026-10-11, at 30 MHz and 16 KB of ROM, the board ran all five batches
+(`rvc.S` alone in the first, then 13, 18, 37 and 11 programs): **80 of 80 reported a
+pass**, none failed, none went silent, no host-side link failure, and no `test/OBSERVED_FLOOR`
+program went unrun.

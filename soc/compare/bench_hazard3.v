@@ -5,6 +5,8 @@
 // the same three pads, the same program image, the same part and the same seeds.
 module bench_hazard3 #(
   parameter bit PERF = 1'b0,  // 1: the authors' ECP5 build; 0: their iCE40 one (hazard3_builds.txt)
+  parameter bit WITH_C = 1'b0,  // 1 with PERF: hazard3_c, the ECP5 build plus the C extension
+  parameter bit FIT = 1'b0,  // 1 with PERF and WITH_C: hazard3_c_fit, hazard3_c cut to fit the up5k's step
   parameter integer ROM_WORDS = 1024,
   parameter integer RAM_WORDS = 16384,
   parameter INIT_ROM = "soc/compare/rom_flat.hex"
@@ -52,14 +54,14 @@ module bench_hazard3 #(
     .CSR_M_TRAP           (1),
     .NUM_IRQS             (1),
     .EXTENSION_A          (1),
-    .EXTENSION_C          (0),
+    .EXTENSION_C          (WITH_C ? 1 : 0),
     .EXTENSION_M          (1),
     .EXTENSION_ZBA        (0),
     .EXTENSION_ZBB        (0),
     .EXTENSION_ZBC        (0),
     .EXTENSION_ZBS        (0),
     .EXTENSION_ZBKB       (0),
-    .EXTENSION_ZIFENCEI   (PERF ? 1 : 0),
+    .EXTENSION_ZIFENCEI   (PERF && !FIT ? 1 : 0),
     .EXTENSION_XH3BEXTM   (0),
     .EXTENSION_XH3PMPM    (0),
     .EXTENSION_XH3POWER   (0),
@@ -68,6 +70,7 @@ module bench_hazard3 #(
     .PMP_REGIONS          (0),
     .BREAKPOINT_TRIGGERS  (0),
     .IRQ_PRIORITY_BITS    (0),
+    .MTVEC_WMASK          (FIT ? 32'hfffffffc : 32'hfffffffd),
     .REDUCED_BYPASS       (0),
     .MULDIV_UNROLL        (1),
     .MUL_FAST             (PERF ? 1 : 0),

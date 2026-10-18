@@ -3817,37 +3817,41 @@ tc_cache="$tmp/cache/little-cpu"
 
 probe "control: agreeing paths outside the checkout are green" 0 \
   "outside the checkout and agreed on" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "the Makefile and test/cosim.py drifting apart is red" 1 \
   "do not agree on where the Sail" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/elsewhere $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "a Sail install back inside the checkout is red" 1 \
   "test/cosim.py installs tools inside the checkout" \
-  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$REPO/cache $TCT $REPO/cache/little-cpu/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "an svlint install inside the checkout is red on its own" 1 \
   "$REPO/tools/svlint" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $REPO/tools/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 # The kept release tarball is what a CI cache holds, so a download directory back inside
 # the checkout would be cached under a path no worktree can read.
 probe "the Sail download directory inside the checkout is red on its own" 1 \
   "$REPO/tools/download" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download $tc_cache/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $REPO/tools/download $tc_cache/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "the nano liberty install directory inside the checkout is red on its own" 1 \
   "$REPO/tools/sky130" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $REPO/tools/sky130 $tc_cache/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $REPO/tools/sky130 $tc_cache/riscv-gcc $tc_cache/sp800-90b"
 
 probe "the riscv-gcc install directory inside the checkout is red on its own" 1 \
   "$REPO/tools/riscv-gcc" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $REPO/tools/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $REPO/tools/riscv-gcc $tc_cache/sp800-90b"
+
+probe "the SP 800-90B install directory inside the checkout is red on its own" 1 \
+  "$REPO/tools/sp800-90b" \
+  "XDG_CACHE_HOME=$tmp/cache $TCT $tc_cache/sail $tc_cache/svlint $tc_cache/download $tc_cache/sky130 $tc_cache/riscv-gcc $REPO/tools/sp800-90b"
 
 probe "a relative install directory is red before it is compared" 1 \
   "names a relative tool install directory" \
-  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download tools/sky130 tools/riscv-gcc"
+  "XDG_CACHE_HOME=$tmp/cache $TCT tools/sail tools/svlint tools/download tools/sky130 tools/riscv-gcc tools/sp800-90b"
 
 begin_group "make sail-setup"
 
@@ -4251,6 +4255,62 @@ d=$(layout_fixture); mutate "$d/test/board/board.lds" 's/LENGTH(ram) - 2048;/LEN
 probe "board.lds putting the stack back at the top of ram is red" 1 \
   "$LAYOUT_STACK_RED" "layout_link $d test/board/board.lds"
 
+begin_group "the board suite's ROM size"
+
+rom_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/test/board" "$d/test/asm" "$d/soc"
+  cp "$REPO"/test/board/board.lds "$REPO"/test/board/board_suite.S "$REPO"/test/board/build_batch.sh "$d/test/board/"
+  cp "$REPO"/test/asm/*.S "$REPO"/test/asm/*.h "$d/test/asm/"
+  cp "$REPO"/soc/rom_banks.py "$d/soc/"
+  cp "$REPO"/Makefile "$d/"
+  printf '%s' "$d"
+}
+
+rom_batch() {  # $1 = fixture dir, $2 = ROM words
+  ROM_WORDS=$2 "$1/test/board/build_batch.sh" "$1/out" test/asm/rvc.S
+}
+
+d=$(rom_fixture)
+probe "control: rvc.S links and fits a 16 KB board ROM" 0 \
+  "of 16384" "rom_batch $d 4096"
+
+d=$(rom_fixture)
+probe "rvc.S in an 8 KB board ROM is red" 1 \
+  "will not fit in region" "rom_batch $d 2048"
+
+d=$(rom_fixture); mutate "$d/test/board/build_batch.sh" 's/ -Wl,--defsym=ROM_BYTES=\$ROM_BYTES//'
+probe "build_batch.sh not passing the ROM size to the linker is red" 1 \
+  "will not fit in region" "rom_batch $d 4096"
+
+pack_fixture() {
+  local d; d=$(rom_fixture)
+  mkdir -p "$d/soc" "$d/test/asm.all"
+  mv "$d"/test/asm/*.S "$d/test/asm.all/"
+  cp "$d/test/asm.all/rvc.S" "$d/test/asm.all/amominmax.S" "$d/test/asm/"
+  cp "$REPO"/soc/board_verdict.sh "$REPO"/soc/run_suite_icesugar.sh "$d/soc/"
+  printf '%s' "$d"
+}
+
+pack_apart() {  # $1 = fixture dir; green only when rvc.S and amominmax.S land in separate batches
+  local plan
+  plan=$(cd "$1" && PLAN_ONLY=1 ROM_WORDS=4096 ./soc/run_suite_icesugar.sh | grep '^ ')
+  if [ "$(printf '%s\n' "$plan" | wc -l | tr -d ' ')" -eq 2 ]; then
+    echo "rvc.S and amominmax.S packed apart"
+  else
+    echo "rvc.S and amominmax.S share a batch the linker rejects:$plan"
+    return 1
+  fi
+}
+
+d=$(pack_fixture)
+probe "control: the packer keeps rvc.S out of a batch it overflows" 0 \
+  "packed apart" "pack_apart $d"
+
+d=$(pack_fixture); mutate "$d/soc/run_suite_icesugar.sh" 's/^fits() {.*/fits() { return 0; }/'
+probe "a packer that trusts its size estimate over the linker is red" 1 \
+  "share a batch the linker rejects" "pack_apart $d"
+
 begin_group "nano/asm/nano.lds's timer window ASSERT"
 
 nano_lds_fixture() {
@@ -4362,6 +4422,56 @@ mutate "$d/board_verdict.sh" 's/^  check_deps "\$real" "\$owner" || return 1$/  
 probe "a root-binary check that skips the libraries it loads is red" 1 \
   "world-writable library dependency: got accept" "$BV $d/board_verdict.sh"
 
+d=$(new_case); cp "$REPO/soc/run_suite_icesugar.sh" "$d/run_suite_icesugar.sh"
+mutate "$d/run_suite_icesugar.sh" 's/display_safe | tr /tr /'
+probe "an iCESugar suite summary line that skips the display filter is red" 1 \
+  "UART text reaches the terminal unfiltered" "$BV $REPO/soc/board_verdict.sh $REPO/soc/run_suite_board.sh $REPO/soc/install_board_tools.sh $d/run_suite_icesugar.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/printf "%s", a\[n-1\]/printf "%s", a[n]/'
+probe "a replay parser that reads the cut tail instead of the last whole block is red" 1 \
+  "last block parsed as" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/echo "\$name MISSING"/echo "$name PASS"/'
+probe "a results line that reads a missing verdict as a pass is red" 1 \
+  "no verdict is not MISSING" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "s/^block_tag_ok() { .*/block_tag_ok() { true; }/"
+probe "a replay block left over from another batch is read as this batch's is red" 1 \
+  "stale batch tag accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/    \*) echo unexpected;;/    *) if [ -n "$hit" ]; then echo ok; else echo unexpected; fi;;/'
+probe "a baselined program with no report matching its baseline is red" 1 \
+  "matched the baseline" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "DUAL c0=16 c1=\$2" \]; then/if [ -n "$last" ]; then/'
+probe "a dual grader that accepts any DUAL line whatever its c1 is red" 1 \
+  "dual wrong c1 accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "DUAL c0=16 c1=\$2" \]; then/if [ "$last" = "DUAL c0=16 c1=$2" ] || [ -z "$last" ]; then/'
+probe "a dual grader that accepts a capture holding only debugger chatter is red" 1 \
+  "dual chatter-only capture accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ -n "$last" ]; then/'
+probe "a flash grader that accepts any FLASH line whatever its id is red" 1 \
+  "flash wrong id accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ "${last% sfdp=*}" = "FLASH id=$2" ]; then/'
+probe "a flash grader that does not require the SFDP signature is red" 1 \
+  "flash missing signature accepted" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ "\$last" = "FLASH id=\$2 sfdp=SFDP" \]; then/if [ "$last" = "FLASH id=$2 sfdp=SFDP" ] || [ -z "$last" ]; then/'
+probe "a flash grader that accepts a capture holding only debugger chatter is red" 1 \
+  "flash chatter-only capture accepted" "$BV $d/board_verdict.sh"
+
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/      queue+=("\$real")/      :/'
 probe "a root-binary check that stops at the first library hop is red" 1 \
@@ -4399,7 +4509,7 @@ probe "a path walk that word-splits a directory name is red" 1 \
   "a path with a space and a glob character in it: got refuse" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
-mutate "$d/board_verdict.sh" 's/^    if acl_grants "\$cur"; then$/    if false; then/'
+mutate "$d/board_verdict.sh" 's/^    acl_grants "\$cur" \&\& acl=0 || acl=\$?$/    acl=1/'
 probe "a path walk that reads only the mode bits, not the ACL, is red" 1 \
   "an ancestor whose ACL grants what its mode does not: got accept" "$BV $d/board_verdict.sh"
 
@@ -4425,6 +4535,21 @@ d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/^        case \$dir in \/\*) ;; \*) echo/        case $dir in *) ;; NEVERMATCH) echo/'
 probe "a RUNPATH relative to the caller's directory is red" 1 \
   "a relative RUNPATH: got accept" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^    return 2$/    return 1/'
+probe "a path walk that reads an unreadable ACL as no ACL is red" 1 \
+  "a host without getfacl passed the root-binary check" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" "/^    printf '%s\\\\n' \"\$out\" | grep -q '\\^user::' || return 2\$/d"
+probe "a path walk that accepts a getfacl that printed nothing is red" 1 \
+  "a getfacl that prints nothing passed the root-binary check" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/^    \[ "\$rc" -le 1 \] && return "\$rc"$/    return $((rc != 0))/'
+probe "a path walk that reads a failed Darwin ACL read as no ACL is red" 1 \
+  "an ACL read that fails with EACCES passed the root-binary check" "$BV $d/board_verdict.sh"
 
 begin_group "test/exec_mode_test.py"
 
@@ -5208,7 +5333,7 @@ gt_fixture() {
   mkdir -p "$d/rtl" "$d/soc/compare"
   cp "$REPO"/rtl/memory.v "$d/rtl/"
   cp "$REPO"/soc/compare/bench_littlecpu.v "$REPO"/soc/compare/bench_vexriscv.v \
-     "$REPO"/soc/compare/bench_hazard3.v \
+     "$REPO"/soc/compare/bench_vexriscv_lrsc.v "$REPO"/soc/compare/bench_hazard3.v \
      "$REPO"/soc/compare/bench.lds "$REPO"/soc/compare/bench.S "$d/soc/compare/"
   cp "$REPO"/Makefile "$d/"
   printf '%s' "$d"
@@ -5332,12 +5457,12 @@ hc_clone() {
 
 d=$(hc_fixture)
 probe "control: the shipping bench and build file agree" 0 \
-  "26 parameters agree between bench_hazard3.v, hazard3_builds.txt" "$HC $d"
+  "27 parameters agree between bench_hazard3.v, hazard3_builds.txt" "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.MUL_FAST             (PERF ? 1 : 0)/.MUL_FAST             (0)/'
 probe "the performance build losing its single-cycle multiply is red" 1 \
-  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0, the authors' builds are area=0 perf=1" \
+  "MUL_FAST: bench_hazard3.v elaborates area=0 perf=0 perf_c=0 fit=0, the build file says area=0 perf=1 perf_c=1 fit=1" \
   "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
@@ -5353,6 +5478,28 @@ probe "a parameter the bench sets and the build file does not list is red" 1 \
 d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1/MUL_FAST 0 0/'
 probe "PERF moving a parameter the authors' builds agree on is red" 1 \
   "PERF moves BRANCH_PREDICTOR" "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1 1/MUL_FAST 0 1 0 1/'
+probe "the C build differing from the performance build in a second parameter is red" 1 \
+  "the C build differs from the performance build on EXTENSION_C, MUL_FAST, not on EXTENSION_C alone" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.EXTENSION_C          (WITH_C ? 1 : 0)/.EXTENSION_C          (0)/'
+probe "the C build losing its C extension in the bench is red" 1 \
+  "EXTENSION_C: bench_hazard3.v elaborates area=0 perf=0 perf_c=0 fit=0, the build file says area=0 perf=0 perf_c=1 fit=1" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" 's/^MUL_FAST 0 1 1 1/MUL_FAST 0 1 1 0/'
+probe "the cut-to-fit build differing from the C build in a third parameter is red" 1 \
+  "the fit build differs from the C build on EXTENSION_ZIFENCEI, MTVEC_WMASK, MUL_FAST, not on EXTENSION_ZIFENCEI, MTVEC_WMASK alone" \
+  "$HC $d"
+
+d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
+  's/\.EXTENSION_ZIFENCEI   (PERF && !FIT ? 1 : 0)/.EXTENSION_ZIFENCEI   (PERF ? 1 : 0)/'
+probe "the cut-to-fit build keeping Zifencei in the bench is red" 1 \
+  "EXTENSION_ZIFENCEI: bench_hazard3.v elaborates area=0 perf=1 perf_c=1 fit=1, the build file says area=0 perf=1 perf_c=1 fit=0" \
+  "$HC $d"
 
 d=$(hc_fixture); mutate "$d/soc/compare/hazard3_builds.txt" \
   's/^pin [0-9a-f]*/pin 0000000000000000000000000000000000000000/'
@@ -5405,7 +5552,7 @@ probe "a commented-out setting beside the live one does not override it" 0 \
 d=$(hc_fixture); mutate "$d/soc/compare/bench_hazard3.v" \
   's/\.PMP_REGIONS          (0),/.PMP_REGIONS          (0), \/\/ .PMP_GRAIN (0),/'
 probe "a commented-out bench parameter is not read as set" 0 \
-  "26 parameters agree" "$HC $d"
+  "27 parameters agree" "$HC $d"
 
 d=$(hc_fixture)
 probe "--require-clone with no clone present is red, not a skipped leg" 1 \
@@ -5431,6 +5578,19 @@ cp "$REPO/Makefile" "$f"
 mutate "$f" 's#\$(VEXRISCV_V)##g'
 probe "a Makefile naming \$(VEXRISCV_V) nowhere is red, not vacuously clean" 1 \
   "names \$(VEXRISCV_V) nowhere" "$VPT $f"
+
+d=$(new_case); mkdir -p "$d/soc/compare"
+cp "$REPO/Makefile" "$d/Makefile"
+cp "$REPO/soc/compare/bench_vexriscv.v" "$REPO/soc/compare/bench_vexriscv_lrsc.v" "$d/soc/compare/"
+probe "control: the LR/SC build's bench is the stock bench but for the core's module name" 0 \
+  "references to \$(VEXRISCV_V), and no other VexRiscv.v path" "$VPT $d/Makefile"
+
+d=$(new_case); mkdir -p "$d/soc/compare"
+cp "$REPO/Makefile" "$d/Makefile"
+cp "$REPO/soc/compare/bench_vexriscv.v" "$REPO/soc/compare/bench_vexriscv_lrsc.v" "$d/soc/compare/"
+mutate "$d/soc/compare/bench_vexriscv_lrsc.v" 's/\.iBus_cmd_ready(1.b1)/.iBus_cmd_ready(1'"'"'b0)/'
+probe "an LR/SC bench adapter that differs beyond its module name is red" 1 \
+  "differs from bench_vexriscv.v in more" "$VPT $d/Makefile"
 
 begin_group "soc/compare/dhry_fit.py"
 
@@ -9775,6 +9935,285 @@ mutate_remove "$d/soc/icesugar_pro_pll.v"
 probe "a missing PLL file is refused rather than read as agreement" 1 \
   "cannot grade a missing one" "$PLLC $d"
 
+begin_group "test/entropy_geometry_test.py"
+
+EGEO="python3 $HERE/entropy_geometry_test.py"
+
+egeo_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/rtl" "$d/test"
+  cp "$REPO/soc/icesugar_pro_entropy.v" "$REPO/soc/board_icesugar_pro.v" "$d/soc/"
+  cp "$REPO/rtl/trng.v" "$d/rtl/"
+  printf '%s' "$d"
+}
+
+d=$(egeo_fixture)
+probe "control: the shipping entropy source sits between the jitter floor and the edge timeout" 0 \
+  "core cycles per edge" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 9/DIV_LOG2 = 7/'
+probe "an edge period too short for the jitter to fill is red" 1 \
+  "under the 3000 at which the measured min-entropy reached 0.5" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 9/DIV_LOG2 = 10/'
+probe "an edge period that an oscillator 20% slow would push past the timeout is red" 1 \
+  "edge timeout; an oscillator" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/board_icesugar_pro.v" "s/\\.entropy_raw(entropy_raw)/.entropy_raw(1'b0)/"
+probe "the defect this exists for: the seed source tied low on the board" 1 \
+  "seed reads DEAD" "$EGEO $d"
+
+begin_group "test/entropy_stream_test.py"
+
+ESTREAM="python3 $HERE/entropy_stream_test.py"
+
+estream_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO"/soc/entropy_stream.py "$REPO"/soc/entropy_nist.py "$REPO"/soc/nist90b_grade.py \
+     "$REPO"/soc/board_read.py "$REPO"/soc/board_port.py "$REPO"/soc/entropy_bit_framer.v "$d/soc/"
+  cp "$REPO/test/entropy_stream_bench.v" "$d/test/"
+  printf '%s' "$d"
+}
+
+d=$(estream_fixture)
+probe "control: the gapless capture's bits, sequence numbers and sums agree with the intervals" 0 \
+  "entropy-stream:" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_bit_framer.v" 's/assign sample = ticks\[1\] ^ ticks\[0\];/assign sample = ticks[1];/'
+probe "a framer sending a different sample bit than rtl/trng.v reads is red" 1 \
+  "every bit sent is the sample bit" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_bit_framer.v" "s/seq <= seq + 1'b1;/seq <= seq;/"
+probe "sequence numbers that do not advance are red" 1 \
+  "each follows by one" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_bit_framer.v" "s/sum   <= sum + 16'(body_byte);/sum   <= sum;/"
+probe "a trailer that is not the sum of the bytes is red" 1 \
+  "no frame fails its sum" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/    return sum((b - a).*/    return 0/'
+probe "a gap check that never sees a gap is red" 1 \
+  "edges faster than the UART drop frames" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/^        if not self.quiet:$/        if False:/'
+probe "a run that counts the previous design's frames before the port goes silent is red" 1 \
+  "are not a run before the port is silent" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/(not self.frames and self.first_zero and seq != 0)/(False)/'
+probe "a from-boot run that starts anywhere but sequence 0 is red" 1 \
+  "does not begin at sequence 0 is not accepted" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/self.broken = self.first_zero/self.broken = False/'
+probe "a from-boot run revived by a later sequence 0 is red" 1 \
+  "a gap ends a from-boot run for good" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/if holder_dead(path):/if False:/'
+probe "a lock left by a dead holder never reclaimed is red" 1 \
+  "a lock whose holder is dead is reclaimed" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/^    return False$/    return True/'
+probe "a lock taken from a live holder is red" 1 \
+  "a lock whose holder is alive is waited for" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/        if found != expected:/        if False:/'
+probe "data bound to one bitstream accepted for another is red" 1 \
+  "data bound to one bitstream is refused for another" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/^    os.replace(args.out + ".part", args.out)$/    pass/'
+probe "a capture written in place instead of moved whole into place is red" 1 \
+  "a finished capture is moved into place whole" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_nist.py" 's/^    entropy_stream.bind(meta_file, meta)$/    pass/'
+probe "a resume that does not check the sidecar is red" 1 \
+  "from another bitstream is refused" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_nist.py" 's/    if not os.path.exists(meta_file) and (/    if False and (/'
+probe "a resume of data with no sidecar is red" 1 \
+  "data but no sidecar is refused" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_nist.py" 's/    if os.path.exists(samples_file) and os.path.getsize(samples_file) != meta\["samples"\]:/    if False:/'
+probe "a captured file of the wrong size resumed is red" 1 \
+  "a captured file of the wrong size is refused" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+begin_group "test/nist90b_grade_test.py"
+
+NGRADE="python3 $HERE/nist90b_grade_test.py"
+
+ngrade_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO/soc/nist90b_grade.py" "$d/soc/"
+  printf '%s' "$d"
+}
+
+d=$(ngrade_fixture)
+probe "control: the report grader passes the board's figures" 0 "nist90b-grade:" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        if assessed < floor:/        if False:/'
+probe "a grader that never compares H_original with the floor is red" 1 \
+  "an H_bitstring under the floor fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if own < floor:/    if False:/'
+probe "a grader that never compares the restart figure with the floor is red" 1 \
+  "restart figures under the floor fail" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        "passed": passes == 1 and not failed,/        "passed": True,/'
+probe "a grader that ignores a failed restart test is red" 1 \
+  "a pass line beside a failure marker fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        "passed": passes == 1 and not failed,/        "passed": passes >= 1 and not failed,/'
+probe "a grader that accepts a pass line printed twice is red" 1 \
+  "a pass line printed twice fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        "passed": passes == 1 and not failed,/        "passed": passes == 1,/'
+probe "a grader that accepts a pass line beside a failure marker is red" 1 \
+  "a pass line beside a failure marker fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if abs(own - restart\["final"\]) > TOLERANCE:/    if False:/'
+probe "a grader that trusts the printed restart minimum is red" 1 \
+  "a printed minimum above the figures" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if None in figures or restart\["final"\] is None:/    if False:/'
+probe "a grader that does not require H_c is red" 1 \
+  "a restart report with no H_c fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if non_iid\["h_original"\] is not None and abs(restart\["h_i"\]/    if False and abs(restart["h_i"]/'
+probe "a grader that accepts an H_I other than ea_non_iid's is red" 1 \
+  "a restart given a different H_I" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if len(found) != count:/    if False:/'
+probe "a grader that accepts a figure printed twice is red" 1 \
+  "H_original printed twice with the same value fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if max(values) - min(values) > 0:/    if False:/'
+probe "a grader that accepts an H_I that changes inside the report is red" 1 \
+  "an H_I that changes inside the report fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/    if not all(math.isfinite(value) for value in values):/    if False:/'
+probe "a grader that accepts a NaN figure is red" 1 \
+  "a NaN H_original fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/ if has_bitstring else None,/ if False else None,/'
+probe "a grader that skips an H_bitstring line is red" 1 \
+  "an H_bitstring under the floor fails" "$NGRADE $d"
+
+d=$(ngrade_fixture)
+mutate "$d/soc/nist90b_grade.py" 's/        except ValueError:/        except ZeroDivisionError:/'
+probe "a grader that crashes on an unreadable figure is red" 1 \
+  "fails without a traceback" "$NGRADE $d"
+
+begin_group "test/board_tools_test.py"
+
+BTOOLS="python3 $HERE/board_tools_test.py"
+
+btools_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO"/soc/board_port.py "$REPO"/soc/board_read.py "$REPO"/soc/bounded.py "$REPO"/soc/clock_grade.py \
+     "$REPO"/soc/entropy_assess.py "$REPO"/soc/entropy_capture.sh "$REPO"/soc/run_suite_icesugar.sh "$d/soc/"
+  cp "$REPO/Makefile" "$d/"
+  printf '%s' "$d"
+}
+
+d=$(btools_fixture)
+probe "control: the board tooling agrees with its known-answer inputs" 0 \
+  "board-tools:" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/board_port.py" 's/node.get("idProduct") == pid/True/'
+probe "a device with the board's VID and another PID taken for the board is red" 1 \
+  "another PID is not the board" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/board_read.py" 's/    if len(nodes) == 1:/    if nodes:/'
+probe "the reader accepting several matching nodes is red" 1 \
+  "several nodes are refused" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/board_port.py" 's/chr(b) if b in KEEP else/chr(b) if True else/'
+probe "a control byte reaching the terminal unescaped is red" 1 \
+  "does not reach the terminal as an escape byte" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/board_port.py" 's/    return escape_display(name.encode("utf-8", "surrogateescape"))/    return name/'
+probe "a node name with an escape byte printed raw is red" 1 \
+  "escape byte in a node name does not reach the refusal message" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/bounded.py" 's/        return TIMED_OUT/        return 0/'
+probe "a loader that outlives its limit and reports success is red" 1 \
+  "outlives its limit exits 124" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/Makefile" 's|python3 soc/bounded.py \$(ICESUGAR_LOAD_S) ||'
+probe "the Makefile running the loader with no time limit is red" 1 \
+  "Makefile runs the loader only under soc/bounded.py" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/run_suite_icesugar.sh" 's|python3 soc/bounded.py "\$LOAD_S" ||'
+probe "the suite runner running the loader with no time limit is red" 1 \
+  "run_suite_icesugar.sh runs the loader only under soc/bounded.py" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/clock_grade.py" 's/ok = abs(error) <= tol_ppm/ok = True/'
+probe "a clock grader that passes a 25 MHz core against an expected 30 is red" 1 \
+  "out of tolerance" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/clock_grade.py" 's/if count - 1 < min_intervals:/if count < 2:/'
+probe "a clock graded from too few T lines is red" 1 \
+  "too few T lines are refused" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/entropy_assess.py" 's/if sum(words) & 0xFFFF == trailer:/if True:/'
+probe "a capture frame with a wrong trailer accepted is red" 1 \
+  "wrong trailer is dropped and counted" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/entropy_assess.py" 's/    if len(nodes) != 1:/    if not nodes:/'
+probe "the entropy reader accepting several matching nodes is red" 1 \
+  "refuses when several nodes match" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/entropy_capture.sh" 's/\*\[!A-Za-z0-9_-\]\*) echo/NEVERMATCH) echo/'
+probe "a capture tag with a shell metacharacter accepted is red" 1 \
+  "refuses ['t;x'" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/entropy_capture.sh" 's/\*\[!0-9\]\*) echo "error: \${v%%/NEVERMATCH) echo "error: ${v%%/'
+probe "a capture divider with a yosys command separator accepted is red" 1 \
+  "refuses ['t', '1;x'" "$BTOOLS $d"
+
 begin_group "test/pin_bump_token_test.py"
 
 # The workflow's shape is the control: the step that runs upstream code must hold no
@@ -10418,6 +10857,35 @@ probe "a pair name product_write.py would never write is refused" 1 \
 d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["coremark"] = "measured"' "$d/stamp.json"
 probe "a pair that is not an object is refused, not skipped" 1 \
   "pair coremark is 'measured'" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+probe "a stamped feature-matched pair renders under the RV32IMAC section" 0 \
+  "#### Dhrystone 2.1, RV32IMAC" "$CMP render --stamp $d/stamp.json"
+
+probe "a stamp with no feature-matched pair says the section is not stamped yet" 0 \
+  "The feature-matched section is not stamped yet" "$CMP render --stamp $CMP_STAMP"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+grep -v '_imac' "$CMP_FLOOR" > "$d/floor"
+probe "a stamped feature-matched pair with no floor line is red" 1 \
+  "dhrystone_imac: CYCLE_FLOOR has no dhrystone_imac line" "$CMP ratchet --stamp $d/stamp.json --floor $d/floor"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]' "$d/stamp.json"
+{ cat "$CMP_FLOOR"; echo 'dhrystone_imac littlecpu rv32im 1.99'; } > "$d/floor"
+probe "a feature-matched cycle factor under its floor is a regression" 1 \
+  "dhrystone_imac: REGRESSION" "$CMP ratchet --stamp $d/stamp.json --floor $d/floor"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone_imac"] = stamp["pairs"]["dhrystone"]; stamp["pairs"]["dhrystone_imac"]["cores"]["hazard3_b"] = stamp["pairs"]["dhrystone"]["cores"]["vexriscv"]' "$d/stamp.json"
+probe "a feature-matched core with no configuration label is refused" 1 \
+  "hazard3_b in the stamp with no configuration label" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["out_of_comparison"] = "hazard3_c 11.50 to 11.90 MHz"' "$d/stamp.json"
+probe "a pair naming a core that missed the step says it is out of the comparison" 0 \
+  "hazard3_c 11.50 to 11.90 MHz, worst to best placement" "$CMP render --stamp $d/stamp.json"
+
+d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["out_of_comparison"] = "hazard3_c 11.5 to 11.9 MHz [x](http://x)"' "$d/stamp.json"
+probe "an out-of-comparison note carrying markup is refused" 1 \
+  "dhrystone.out_of_comparison is" "$CMP render --stamp $d/stamp.json"
 
 begin_group "test/probes_header_test.py"
 

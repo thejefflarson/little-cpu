@@ -10,3 +10,12 @@ IOBUF PORT "led_r_n" IO_TYPE=LVCMOS33;
 
 LOCATE COMP "uart_tx" SITE "B9";
 IOBUF PORT "uart_tx" IO_TYPE=LVCMOS33;
+
+LOCATE COMP "flash_cs_n" SITE "N8";
+IOBUF PORT "flash_cs_n" IO_TYPE=LVCMOS33;
+
+LOCATE COMP "flash_mosi" SITE "T8";
+IOBUF PORT "flash_mosi" IO_TYPE=LVCMOS33;
+
+LOCATE COMP "flash_miso" SITE "T7";
+IOBUF PORT "flash_miso" IO_TYPE=LVCMOS33;

@@ -101,10 +101,22 @@ jobs:
             echo "*** check none of them for staleness." >&2
             exit 1
           fi
+          DHRY_IMAC_CFLAGS=$(make -s print-COMPARE_DHRY_IMAC_CFLAGS)
+          COREMARK_IMAC_CFLAGS=$(make -s print-COMPARE_COREMARK_IMAC_CFLAGS)
           current_args=()
           while IFS= read -r pair; do
             [ -n "$pair" ] || continue
             case "$pair" in
+              dhrystone_imac|dhrystone_imac_*)
+                current_args+=(--current "$pair:cflags=$DHRY_IMAC_CFLAGS" \
+                               --current "$pair:rom_words=$ROM_WORDS" \
+                               --current "$pair:ram_words=$RAM_WORDS" \
+                               --current "$pair:compiler=riscv-none-elf-gcc" \
+                               --current "$pair:compiler_version=$GCC_VERSION") ;;
+              coremark_imac|coremark_imac_*)
+                current_args+=(--current "$pair:cflags=$COREMARK_IMAC_CFLAGS" \
+                               --current "$pair:compiler=riscv-none-elf-gcc" \
+                               --current "$pair:compiler_version=$GCC_VERSION") ;;
               dhrystone|dhrystone_*)
                 current_args+=(--current "$pair:cflags=$DHRY_CFLAGS" \
                                --current "$pair:rom_words=$ROM_WORDS" \
@@ -150,7 +162,7 @@ jobs:
           esac
 
       - name: Upload the freshly measured stamp
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compare-product-stamp
           path: ${{ env.OUT_DIR }}/product.json
@@ -195,7 +207,7 @@ jobs:
           persist-credentials: false
 
       - name: Fetch the measured stamp
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: compare-product-stamp
           path: ${{ runner.temp }}/compare-product

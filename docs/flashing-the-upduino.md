@@ -64,3 +64,8 @@ The FT232H is both the programmer and the serial port. `iceprog` leaves it in MP
 
 The iCESugar-Pro doesn't have this problem. Its serial port is a CDC device on the iCELink
 debugger, a device node that flashing never takes away (`soc/board_read.py`).
+
+The iCELink also mounts a drag-and-drop volume at `/Volumes/iCELink` (DAPLink's emulated FAT
+drive), and Finder can hang reading it. `diskutil eject /Volumes/iCELink` removes it without
+affecting JTAG loading or the UART. The board flows use only JTAG and the CDC port, never the
+volume, and the iCESugar targets that call openFPGALoader eject it after loading when it is mounted.
