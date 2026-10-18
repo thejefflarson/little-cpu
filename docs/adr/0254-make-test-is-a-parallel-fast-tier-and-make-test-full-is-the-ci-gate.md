@@ -6,7 +6,7 @@ from this ADR.*
 ## Context
 
 `make test` ran about 70 prerequisites one after another, with no `-j`, and CI's `test` job took
-23 minutes 29 seconds for the step. Locally it took 28 minutes on a lightly loaded 10-core machine
+23 minutes 29 seconds for the step (1,409 s). Locally it took 28 minutes on a lightly loaded 10-core machine
 and about 67 under heavy load. It was meant to be the quick check before full CI and had become
 the slowest thing a change waits on.
 
@@ -17,7 +17,7 @@ fast tier keeps the actual checks.
 
 ## Measurements, before
 
-One CI run on `main` (23 minutes 29 seconds for `make test`, a 4-CPU, 3 GiB pod), with each
+One CI run on `main` (23 minutes 29 seconds for `make test`, a 4-CPU pod), with each
 target's span read from the log's timestamps, and one local serial pass per target (10 cores, load
 average 5 to 9 at the start, so the local figures carry that load):
 
@@ -88,7 +88,15 @@ declared input that is narrower than what the script reads goes red.
 | `make test`, cold (69 checks) | 86 s |
 | `make test`, nothing changed | 1.2 s |
 | `make test`, one line of `rtl/executor.v` changed (50 of 69 ran) | 64 s |
-| `make test-full`, cold (71 checks) | 488 s |
+| `make test-full`, cold (73 checks, after rebasing on `main`; `TEST_JOBS=4 PROBE_SHARDS=4 NANO_PROBE_JOBS=2`; load 3.5 at the start) | 573 s |
+| **CI** `make test-full`, this PR's run (`TEST_JOBS=3 PROBE_SHARDS=3 NANO_PROBE_JOBS=1`) | 1,057 s against 1,409 s before |
+
+The CI run shared its node with the PR's other twenty jobs, and `sim` took 134 s there against 54 s
+in the baseline run: the pod is limited by what the node has free, not by its four-CPU ceiling, so
+parallelism bought 25% on CI where it bought 20x on a quiet local machine. Its slowest checks were
+`nano-qspi-loop-probe` (827 s), `probe-gates` (601 s), `nano-qspi-pins-test` (186 s) and `sim`
+(134 s). The first two are the forced-red sweeps that were already the first two in the baseline;
+they are cheaper to shorten (fewer mutants per run, or a smaller sweep) than to schedule better.
 
 The cold fast tier's long poles are `nano-qspi-pins-test` (84 s), `sim` (71 s) and `nano-test`
 (45 s), run side by side. In the one-line case `sim` (47 s) is the pole, and 13 of the 50 reruns
@@ -102,11 +110,15 @@ are the `@all` scanners at 1 to 3 seconds each.
   `probe-gates` forces red is checked by `make test` only for the green direction; the red one is
   found by `make test-full`, which CI runs on every PR. `make probe-gates` is still one command.
 - **Parallel safety is a property of each check.** The profile of every target's writes found no
-  two sharing a path except through the build rows; a cold `make test-full` ran all 71 green. A new
+  two sharing a path except through the build rows; a cold `make test-full` ran all 73 green. A new
   check keeps its scratch to `mktemp` or a path only it writes, and CLAUDE.md says so.
-- **The CI pod has 3 GiB.** A cxxrtl build holds about 600 MB, so `.github/workflows/ci.yml` caps
-  `TEST_JOBS`, `PROBE_SHARDS` and `NANO_PROBE_JOBS` below the CPU count and prints
-  `memory.peak` after the step.
+- **CI memory.** A cxxrtl build holds about 600 MB. The runner's configuration file says 3 GiB,
+  but the pod's `memory.max` reads 6 GiB and the run's `memory.peak` was 2.6 GB with the settings
+  above, which `.github/workflows/ci.yml` prints after the step. They stay below the CPU count
+  because CPU on a shared node, not memory, set the wall time.
+- **The suite's python launcher leaks `PYTHONHOME`.** The OSS CAD Suite's `python3` exports it for
+  its own interpreter, and a check that runs a different `python3` under a minimal `PATH` failed
+  to start under it; the driver drops `PYTHONHOME` and `PYTHONEXECUTABLE` from every child.
 
 ## Declined
 
