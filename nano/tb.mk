@@ -126,9 +126,12 @@ nano-qspi-control-test: nano-sim
 nano-qspi-loop-probe: rvfi_macros.vh test/monitor.sim.v
 	@./nano/bench/run_qspi_loop_buffer_probe.sh '$(NANO_CFLAGS)'
 
-.PHONY: nano-qspi-loop-test
-nano-qspi-loop-test: nano-qspi-loop-probe
+.PHONY: nano-qspi-loop-run
+nano-qspi-loop-run: rvfi_macros.vh test/monitor.sim.v
 	@./nano/bench/run_qspi_loop_buffer_test.sh '$(NANO_CFLAGS)'
+
+.PHONY: nano-qspi-loop-test
+nano-qspi-loop-test: nano-qspi-loop-probe nano-qspi-loop-run
 
 # nano.v -> nano_qspi_ctrl -> a flash model and a PSRAM model, speaking sck/cs_n/sio rather than the abstract bus nano_qspi_memory.v times. On `make test`'s path.
 NANO_QSPI_PINS_RTL_SRCS := nano/nano.v nano/timer.v nano/qspi.v nano/tb/nano_qspi_flash_model.v \

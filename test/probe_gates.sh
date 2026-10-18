@@ -18,6 +18,75 @@ if [ ! -f "$PROBES_MANIFEST" ] || [ ! -r "$PROBES_MANIFEST" ]; then
   exit 1
 fi
 
+# Sharding. A group belongs to the shard its position modulo PROBE_SHARDS names; a shard
+# still runs every line of setup between probes, so the groups see the same variables and
+# fixtures in every shard, and runs only its own groups' probes. Each shard writes the
+# labels it ran to PROBE_LABELS_OUT, and `--merge` holds the union of them to the manifest.
+shard_count=${PROBE_SHARDS:-1}
+shard_index=${PROBE_SHARD:-0}
+labels_out=${PROBE_LABELS_OUT:-}
+# PROBE_GROUP=<substring> runs only the groups whose name contains it, for working on one
+# group; the manifest comparison needs the whole run, so it is skipped.
+only_group=${PROBE_GROUP:-}
+
+manifest_labels() {
+  grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort
+}
+
+# check_labels <file-of-labels> -- the label set that ran against the manifest, both ways.
+check_labels() {
+  local actual_labels expected_labels
+  actual_labels=$(LC_ALL=C sort "$1")
+  expected_labels=$(manifest_labels)
+  if [ "$actual_labels" != "$expected_labels" ]; then
+    echo "error: the probes that ran do not match $PROBES_MANIFEST." >&2
+    echo "A probe was added, removed, renamed, or skipped by an early return." >&2
+    echo "Update test/PROBES_EXPECTED in the same commit -- '<' is a label the" >&2
+    echo "manifest has that this run did not reach, '>' is one this run reached" >&2
+    echo "that the manifest does not name:" >&2
+    diff <(printf '%s\n' "$expected_labels") <(printf '%s\n' "$actual_labels") >&2 || true
+    return 1
+  fi
+}
+
+case "${1:-}" in
+  --merge)
+    shift
+    merged=$(mktemp "${TMPDIR:-/tmp}/littlecpu-probe-labels.XXXXXX")
+    trap 'rm -f "$merged"' EXIT
+    for f in "$@"; do
+      [ -r "$f" ] || { echo "error: shard label file '$f' is missing: a shard did not finish." >&2; exit 1; }
+      cat "$f" >> "$merged"
+    done
+    check_labels "$merged"
+    echo "$(grep -c . "$merged") graded comparisons across $# shards, every failure path executed."
+    exit 0
+    ;;
+  --parallel)
+    # One process per shard, output kept apart until the shard ends so groups do not
+    # interleave, then the union checked. PROBE_SHARDS is the count (default 8).
+    n=${PROBE_SHARDS:-8}
+    out=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe-shards.XXXXXX")
+    trap 'rm -rf "$out"' EXIT
+    pids=()
+    for ((i = 0; i < n; i++)); do
+      PROBE_SHARDS=$n PROBE_SHARD=$i PROBE_LABELS_OUT="$out/labels.$i" \
+        "$0" > "$out/log.$i" 2>&1 &
+      pids+=("$!")
+    done
+    rc=0
+    files=()
+    for ((i = 0; i < n; i++)); do
+      wait "${pids[$i]}" || rc=1
+      cat "$out/log.$i"
+      files+=("$out/labels.$i")
+    done
+    [ "$rc" -eq 0 ] || { echo "error: a probe shard failed; read its output above." >&2; exit 1; }
+    "$0" --merge "${files[@]}"
+    exit $?
+    ;;
+esac
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/littlecpu-probe.XXXXXX") || {
   echo "error: could not create a temporary directory under ${TMPDIR:-/tmp}." >&2
   exit 1
@@ -31,6 +100,10 @@ trap 'rm -rf "$tmp"' EXIT
 probe_labels=()
 failed=0
 group=""
+group_index=-1
+group_mine=1
+group_spread=0
+spread_seq=0
 
 # `mktemp -d` rather than a counter because fixtures are built inside `$(...)`, a
 # subshell: a counter would never advance in the parent, so every fixture would land on
@@ -41,25 +114,49 @@ new_case() {
 
 group_started=0
 
+# begin_group <name> [spread]. A `spread` group is one whose probes are slow and independent
+# of one another, so its probes are dealt round-robin to the shards instead of going to one.
 begin_group() {
-  if [ -n "$group" ]; then
+  if [ -n "$group" ] && [ "$group_mine" -eq 1 ]; then
     printf '  (%ss)\n' "$((SECONDS - group_started))"
   fi
   group=$1
+  group_index=$((group_index + 1))
+  group_spread=0
+  [ "${2:-}" = spread ] && group_spread=1
+  spread_seq=0
+  group_mine=0
+  if [ "$group_spread" -eq 1 ] || [ "$((group_index % shard_count))" -eq "$shard_index" ]; then
+    group_mine=1
+  fi
+  if [ -n "$only_group" ] && [[ $group != *"$only_group"* ]]; then group_mine=0; fi
   group_started=$SECONDS
-  echo
-  echo "== $group"
+  if [ "$group_mine" -eq 1 ]; then
+    echo
+    echo "== $group"
+  fi
 }
 
 # probe <label> <expected-exit> <expected-text> <shell-snippet>
 probe() {
   local label=$1 want_exit=$2 want_text=$3 snippet=$4
+  if [ "$group_index" -lt 0 ]; then
+    echo "error: probe '$label' ran before any begin_group, so no shard owns it." >&2
+    exit 1
+  fi
+  [ "$group_mine" -eq 1 ] || return 0
+  if [ "$group_spread" -eq 1 ]; then
+    spread_seq=$((spread_seq + 1))
+    [ "$((spread_seq % shard_count))" -eq "$shard_index" ] || return 0
+  fi
   probe_labels+=("$label")
-  local out rc
+  local out rc began=$SECONDS
   set +e
   out=$(eval "$snippet" 2>&1)
   rc=$?
   set -e
+  local took=""
+  if [ "$((SECONDS - began))" -ge 5 ]; then took=" ($((SECONDS - began))s)"; fi
   local why=""
   # A here-string, not a pipe.
   if [ "$rc" -ne "$want_exit" ]; then
@@ -68,7 +165,7 @@ probe() {
     why="output does not contain $want_text"
   fi
   if [ -z "$why" ]; then
-    printf '  ok   %s\n' "$label"
+    printf '  ok   %s%s\n' "$label" "$took"
   else
     printf '  RED  %s\n     -> %s\n' "$label" "$why" >&2
     printf '%s\n' "$out" | sed -e 's|^|        |' >&2
@@ -1340,7 +1437,7 @@ probe "a QSPI_CONTROL with two lines for one benchmark is refused" 1 \
 probe "a QSPI_CONTROL line with a non-numeric cycle count is refused" 1 \
   "malformed dhrystone line" "$QCC '$d/match.log' dhrystone 200 '$d/control_malformed'"
 
-begin_group "nano_qspi_memory.v's own accounting identity (real build)"
+begin_group "nano_qspi_memory.v's own accounting identity (real build)" spread
 
 NANO_QSPI_ACCOUNTING_CC=""
 if command -v riscv-none-elf-gcc > /dev/null 2>&1; then
@@ -3593,7 +3690,7 @@ d=$(fq_fixture "s/assign committed = cnt + (req_valid ? 3'd2 : 3'd0);/assign com
 probe "a room check that forgets the response landing this cycle is red" 1 \
   "a response due this cycle, on top of one queued pair: no room left" "fq_run $d"
 
-begin_group "test/trng_tb.v"
+begin_group "test/trng_tb.v" spread
 
 tg_fixture() {  # $1 = sed expression applied to a copy of rtl/trng.v, or "" for the control
   local d; d=$(new_case)
@@ -3896,7 +3993,7 @@ echo "not the pinned release either" > "$tgz"
 probe "a tarball already in the cache is reused, and still meets the digest" 2 \
   "using the tarball already in" "XDG_CACHE_HOME=$d/cache $SS"
 
-begin_group "test/memmap_test.sh"
+begin_group "test/memmap_test.sh" spread
 
 # The fixture is a COPY OF THE SHIPPING FILES, not a stub tree, so the control below is
 # the real repo and every red probe is one edit away from it.
@@ -4378,7 +4475,7 @@ mutate "$d/test/bench/dhry_port.c" 's/#ifdef DHRY_UART/#ifdef DHRY_UART_NEVER_DE
 probe "DHRY_UART no longer gating any code in dhry_port.c is red" 1 \
   "dhry_port.o came out byte-identical" "$DP $d"
 
-begin_group "test/board_verdict_test.sh"
+begin_group "test/board_verdict_test.sh" spread
 
 BV="$HERE/board_verdict_test.sh"
 
@@ -8156,10 +8253,9 @@ probe "a repo root with no Makefile is red before anything is parsed" 1 \
   "does not exist, so there is nothing to parse" "$ND $d"
 
 d=$(nd_fixture)
-mutate "$d/Makefile" \
-  's/^test: sim test-units probe-gates /test: sim test-units probe-gates netlist-digest /'
+mutate "$d/Makefile" 's/^suite-test: sim$/suite-test: sim netlist-digest/'
 probe "a graded target quietly depending on netlist-digest is red, and named" 1 \
-  "test: depends on netlist-digest" "$ND $d"
+  "suite-test: depends on netlist-digest" "$ND $d"
 
 probe "and the diagnostic states the corollary this check is enforcing" 1 \
   "THE DIGEST REPLACES A SWEEP, NEVER A GATE" "$ND $d"
@@ -10092,7 +10188,7 @@ mutate "$d/soc/board_icesugar_pro.v" "s/\\.entropy_raw(entropy_raw)/.entropy_raw
 probe "the defect this exists for: the seed source tied low on the board" 1 \
   "seed reads DEAD" "$EGEO $d"
 
-begin_group "test/entropy_stream_test.py"
+begin_group "test/entropy_stream_test.py" spread
 
 ESTREAM="python3 $HERE/entropy_stream_test.py"
 
@@ -10273,7 +10369,7 @@ mutate "$d/soc/nist90b_grade.py" 's/        except ValueError:/        except Ze
 probe "a grader that crashes on an unreadable figure is red" 1 \
   "fails without a traceback" "$NGRADE $d"
 
-begin_group "test/board_tools_test.py"
+begin_group "test/board_tools_test.py" spread
 
 BTOOLS="python3 $HERE/board_tools_test.py"
 
@@ -10634,7 +10730,7 @@ d=$(new_case); mkdir -p "$d/test"; cp "$REPO/test/compare_product_schedule_token
 probe "a missing schedule workflow file is an error, not an empty pass" 1 \
   "is missing" "cd '$d' && python3 test/compare_product_schedule_token_test.py ."
 
-begin_group "test/compare_product_schedule_publish_test.py"
+begin_group "test/compare_product_schedule_publish_test.py" spread
 
 cpsp_fixture() {  # $1 = sed program applied to the publish script
   local d; d=$(new_case)
@@ -11107,6 +11203,117 @@ d=$(new_case); cmp_stamp_edit 'stamp["pairs"]["dhrystone"]["out_of_comparison"] 
 probe "an out-of-comparison note carrying markup is refused" 1 \
   "dhrystone.out_of_comparison is" "$CMP render --stamp $d/stamp.json"
 
+begin_group "test/checks_test.py" spread
+
+CK="python3 $HERE/checks_test.py"
+
+probe "control: the shipping check driver passes its own grader" 0 \
+  "skipping, lanes, tiers and refusals all behave" "$CK"
+
+ck_driver() {  # $1 = sed expression applied to a copy of the driver
+  local d; d=$(new_case)
+  cp "$HERE/checks.py" "$d/checks.py"
+  mutate "$d/checks.py" "$1"
+  printf '%s' "$d/checks.py"
+}
+
+drv=$(ck_driver 's/trusted = (not c.always and stamp/trusted = (False and stamp/')
+probe "a driver that never skips reruns a check on an unchanged tree" 1 \
+  "RED  an unchanged tree runs nothing that declares inputs" "$CK $drv"
+
+drv=$(ck_driver 's/trusted = (not c.always and stamp.get("key") == keys\[c.name\]/trusted = (True or stamp.get("key") == keys[c.name]/')
+probe "a driver that trusts every stamp skips a check whose input was edited" 1 \
+  "RED  editing a file a check declares re-runs that check" "$CK $drv"
+
+drv=$(ck_driver 's/unclaimed = \[p for p in moved if not any(claimed_by(c, p) for c in all_checks)\]/unclaimed = []/')
+probe "a driver with no unclaimed-file rule skips past a file no row claims" 1 \
+  "RED  a changed file no row claims runs every check" "$CK $drv"
+
+drv=$(ck_driver 's/(not epoch or stamp.get("epoch") == epoch)/(not epoch)/')
+probe "a driver that forgets the epoch repeats the checks that already passed" 1 \
+  "RED  while a sibling that passed in the same epoch is not repeated" "$CK $drv"
+
+drv=$(ck_driver 's/ or c.lane in busy_lanes:/:/')
+probe "a driver that ignores lanes overlaps two checks that share one" 1 \
+  "RED  two checks in one lane never overlap" "$CK $drv"
+
+drv=$(ck_driver 's/ and all(d in done for d in c.needs)//')
+probe "a driver that ignores needs starts a check before the one it needs" 1 \
+  "RED  a check runs after the one it needs" "$CK $drv"
+
+drv=$(ck_driver 's/selected = \[c for c in checks if args.tier == "full" or c.tier == "fast"\]/selected = list(checks)/')
+probe "a driver that runs full-tier rows in the fast tier is red" 1 \
+  "RED  the fast tier leaves a full-tier check alone" "$CK $drv"
+
+drv=$(ck_driver 's/for argv in TOOL_PROBES:/for argv in ():/')
+probe "a driver blind to the toolchain skips past a tool upgrade" 1 \
+  "RED  a changed tool version re-runs the checks" "$CK $drv"
+
+begin_group "test/probe_gates.sh --merge"
+
+PG="$HERE/probe_gates.sh"
+
+d=$(new_case)
+grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" > "$d/all"
+awk 'NR % 2 == 1' "$d/all" > "$d/a"
+awk 'NR % 2 == 0' "$d/all" > "$d/b"
+probe "control: shards whose labels together equal the manifest are accepted" 0 \
+  "across 2 shards" "$PG --merge $d/a $d/b"
+
+sed '$d' "$d/b" > "$d/b_short"
+probe "a shard that lost a probe is red, and the label is named" 1 \
+  "the probes that ran do not match" "$PG --merge $d/a $d/b_short"
+
+{ cat "$d/b"; sed -n 1p "$d/a"; } > "$d/b_twice"
+probe "a probe two shards both ran is red" 1 \
+  "the probes that ran do not match" "$PG --merge $d/a $d/b_twice"
+
+probe "a shard that never wrote its labels is red" 1 \
+  "a shard did not finish" "$PG --merge $d/a $d/nowhere"
+
+begin_group "test/checks_manifest_test.py" spread
+
+CM_PY="python3 $HERE/checks_manifest_test.py"
+
+# A copy of the tracked tree, so the grader reads a Makefile and a test/CHECKS a probe can
+# mutate. The pinned riscv-formal clone is untracked and `make -n` only needs it to exist.
+cm_fixture() {
+  local d; d=$(new_case)
+  (cd "$REPO" && git ls-files -z --cached --others --exclude-standard | tar --null -cf - -T -) \
+    | tar -xf - -C "$d"
+  [ -e "$REPO/formal/riscv-formal" ] && ln -s "$REPO/formal/riscv-formal" "$d/formal/riscv-formal"
+  git -c init.defaultBranch=main -C "$d" init -q
+  printf '%s' "$d"
+}
+
+d=$(cm_fixture)
+probe "control: the shipping Makefile and test/CHECKS agree" 0 \
+  "the Makefile and test/CHECKS agree" "$CM_PY $d"
+
+d=$(cm_fixture); mutate "$d/test/CHECKS" '/^window-test |/d'
+probe "a check the Makefile lists and test/CHECKS dropped is red, and named" 1 \
+  "window-test is in the Makefile's TEST_CHECKS and has no row" "$CM_PY $d"
+
+d=$(cm_fixture); mutate "$d/Makefile" 's/^\( *\)imem-share-test memcheck-depth-test/\1memcheck-depth-test/'
+probe "a row the Makefile no longer lists is red, and named" 1 \
+  "imem-share-test has a row in test/CHECKS, is not in TEST_CHECKS" "$CM_PY $d"
+
+d=$(cm_fixture); mutate "$d/test/CHECKS" 's/^probe-gates | full/probe-gates | fast/'
+probe "the forced-red sweep moved into the fast tier is red" 1 \
+  "probe-gates must be a full-tier row" "$CM_PY $d"
+
+d=$(cm_fixture); mutate "$d/test/CHECKS" 's|^\(window-test .*\) test/window_test.sh Makefile$|\1 Makefile|'
+probe "a recipe file no input pattern claims is red, and named" 1 \
+  "its recipe names test/window_test.sh, which no input pattern claims" "$CM_PY $d"
+
+d=$(cm_fixture); mutate "$d/test/CHECKS" 's|^\(nano-qspi-window-test .*\) rtl/ \(.*\)$|\1 \2|'
+probe "a file the recipe's script names, left unclaimed, is red" 1 \
+  "nano/tb/nano_qspi_window_probe.sh names rtl/imemory.v, which no input pattern claims" "$CM_PY $d"
+
+d=$(cm_fixture); mutate "$d/test/CHECKS" 's|^\(zkt-isolation-test .*\) Makefile$|\1 Makefile nosuchdir/|'
+probe "an input pattern that matches no file is red" 1 \
+  "input 'nosuchdir/' matches no file" "$CM_PY $d"
+
 begin_group "test/probes_header_test.py"
 
 PH="python3 $REPO/test/probes_header_test.py"
@@ -11126,18 +11333,12 @@ d=$(new_case); grep -v '^# TWO IDENTICAL LABELS' "$REPO/test/PROBES_EXPECTED" > 
 probe "a PROBES_EXPECTED header that lost only its multiset line is refused" 1 \
   "2 header line(s), under 3" "$PH $d/PROBES_EXPECTED"
 
-actual_labels=$(printf '%s\n' "${probe_labels[@]}" | LC_ALL=C sort)
-expected_labels=$(grep -vE '^#|^[[:space:]]*$' "$PROBES_MANIFEST" | LC_ALL=C sort)
-if [ "$actual_labels" != "$expected_labels" ]; then
-  echo "error: the probes that ran do not match $PROBES_MANIFEST." >&2
-  echo "A probe was added, removed, renamed, or skipped by an early return." >&2
-  echo "Update test/PROBES_EXPECTED in the same commit -- '<' is a label the" >&2
-  echo "manifest has that this run did not reach, '>' is one this run reached" >&2
-  echo "that the manifest does not name:" >&2
-  diff <(printf '%s\n' "$expected_labels") <(printf '%s\n' "$actual_labels") >&2 || true
+labels_file=${labels_out:-$tmp/labels}
+: > "$labels_file"
+for ((i = 0; i < ${#probe_labels[@]}; i++)); do printf '%s\n' "${probe_labels[$i]}" >> "$labels_file"; done
+if [ -z "$labels_out" ] && [ -z "$only_group" ] && ! check_labels "$labels_file"; then
   exit 1
 fi
-
 
 if [ "$failed" -ne 0 ]; then
   echo "error: a graded comparison did not go red where it was supposed to." >&2
@@ -11146,5 +11347,5 @@ if [ "$failed" -ne 0 ]; then
   exit 1
 fi
 
-printf "  (%ss)\n" "$((SECONDS - group_started))"
+if [ "$group_mine" -eq 1 ]; then printf "  (%ss)\n" "$((SECONDS - group_started))"; fi
 echo "${#probe_labels[@]} graded comparisons, every failure path executed."

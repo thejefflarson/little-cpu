@@ -85,8 +85,17 @@ jobs:
       - name: Set up OSS CAD Suite
         uses: ./.github/actions/setup-oss-cad-suite
 
-      - name: make test
-        run: make test
+      - name: make test-full
+        run: make test-full
+        env:
+          TEST_JOBS: 3
+          PROBE_SHARDS: 3
+          NANO_PROBE_JOBS: 2
+          TEST_VERBOSE: 1
+
+      - name: Report the pod's peak memory
+        if: always()
+        run: cat /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.max || true
 
       - name: Report job wall time
         if: always()
