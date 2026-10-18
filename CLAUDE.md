@@ -313,7 +313,8 @@ cycles per edge at 30 MHz (2^8, 3,171 cycles, shipped first). The repo's own est
 (`soc/entropy_assess.py`) read 0.63 to 0.78 bit of min-entropy per sample with 0 of 192
 adaptive-proportion windows tripping, but **NIST's `ea_non_iid` on 1,000,000 consecutive samples
 read 0.4994 at 2^8 (0.4134 with the core on the 25 MHz pad), under the 0.5 the cutoff assumes**; the
-longer 2^9 period reads 0.810 and its restart test 0.803, so min is 0.803 (ADR-0252, amended);
+longer 2^9 period reads 0.810 and its restart test 0.803, so min is 0.803, and with the core on the
+25 MHz pad it reads 0.742 with a restart min of 0.742, one draw each (ADR-0252, amended);
 `test/entropy_geometry_test.py` holds the period between 3,000 cycles and 80% of the edge timeout,
 and a divide of 2^7 measured 0.28 and tripped the proportion test, so the period is not a free
 parameter. The UPduino's `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`

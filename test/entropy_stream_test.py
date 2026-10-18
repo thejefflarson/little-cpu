@@ -4,8 +4,9 @@
 soc/entropy_bit_framer.v is simulated with edges at the board's rate and its UART bytes are read by the
 same parser the capture uses; the bits must be the sample bits of the intervals, frame after frame, with
 the sequence numbers advancing by one. Each way the capture could lose "consecutive" is then forced and
-must be seen: edges faster than the UART (a dropped frame), a flipped byte, a skipped sequence number and
-a wrong sample bit.
+must be seen: edges faster than the UART (a dropped frame), a flipped byte, a skipped sequence number,
+bytes swapped or bit errors that cancel (which the old additive sum accepted), a framer reset (the
+epoch moves) and a wrong sample bit.
 
 Usage: entropy_stream_test.py [repo-root]     # defaults to this script's parent
 """
@@ -56,13 +57,13 @@ def check(root):
         if not ok:
             errors.append(what)
 
-    def frame(seq):
-        body = bytes([seq & 255, seq >> 8]) + bytes(range(seq % 7, seq % 7 + es.DATA_BYTES))
-        total = sum(body)
+    def frame(seq, epoch=0):
+        body = bytes([seq & 255, seq >> 8, epoch]) + bytes(range(seq % 7, seq % 7 + es.DATA_BYTES))
+        total = es.crc16(body)
         return es.HEADER + body + bytes([total & 255, total >> 8 & 255])
 
-    def stream(seqs):
-        return b"".join(frame(seq) for seq in seqs)
+    def stream(seqs, epoch=0):
+        return b"".join(frame(seq, epoch) for seq in seqs)
 
     if os.environ.get("ENTROPY_STREAM_SKIP_SIM"):
         raw = stream(range(20))
@@ -72,23 +73,36 @@ def check(root):
             framer = os.path.join(root, "soc", "entropy_bit_framer.v")
             wanted, raw = simulate(root, scratch, framer)
             frames, bad = es.parse_frames(bytearray(raw))
-            sequences = [seq for seq, _ in frames]
-            got = [bit for _, bits in frames for bit in bits]
+            sequences = [seq for seq, _, _ in frames]
+            got = [bit for _, _, bits in frames for bit in bits]
             expect("the framer sends at least twenty frames in the run (%d)" % len(frames), len(frames) >= 20)
-            expect("no frame fails its sum (%d bad)" % bad, bad == 0)
+            expect("no frame fails its CRC (%d bad)" % bad, bad == 0)
             expect("the first frame is sequence 0 and each follows by one (%s)" % sequences[:5],
                    sequences[:1] == [0] and es.gaps(sequences) == 0 and sequences == list(range(len(frames))))
             expect("every bit sent is the sample bit of the interval at its place",
                    len(got) > 0 and got == wanted[: len(got)])
             expect("the bits sent keep up with the edges, a frame behind at most",
                    len(wanted) - len(got) < 2 * es.FRAME_BITS)
+            expect("the framer has never been reset, so every epoch is 0", {e for _, e, _ in frames} == {0})
             expect("both sample bits occur", 0 < sum(got) < len(got))
 
             fast_wanted, fast_raw = simulate(root, scratch, framer, ["FAST_EDGES"])
             fast_frames, _ = es.parse_frames(fast_raw)
-            fast_seq = [seq for seq, _ in fast_frames]
+            fast_seq = [seq for seq, _, _ in fast_frames]
             expect("edges faster than the UART drop frames, and the sequence numbers show it (gaps %d)"
                    % es.gaps(fast_seq), es.gaps(fast_seq) > 0)
+
+            _, relock_raw = simulate(root, scratch, framer, ["RELOCK"])
+            relock_bytes = bytes(relock_raw)
+            relock_frames, relock_bad = es.parse_frames(relock_raw)
+            epochs = [e for _, e, _ in relock_frames]
+            expect("a lock loss mid-run moves the epoch from 0 to 1 and sends the sequence back to 0 (%s)"
+                   % sorted(set(epochs)), relock_bad == 0 and sorted(set(epochs)) == [0, 1]
+                   and epochs == sorted(epochs) and [s for s, e, _ in relock_frames if e == 1][:1] == [0])
+            runner = es.Run(2 * es.FRAME_BITS * len(relock_frames), first_zero=True)
+            runner.feed(relock_bytes, 0.0)
+            expect("a from-boot run is ended by that lock loss and never completes across it",
+                   runner.broken and len(runner.frames) < len(relock_frames))
 
             wrong = os.path.join(scratch, "wrong.v")
             text = open(framer).read()
@@ -98,7 +112,7 @@ def check(root):
                 handle.write(flipped)
             mut_wanted, mut_raw = simulate(root, scratch, wrong)
             mut_frames, _ = es.parse_frames(mut_raw)
-            mut_got = [bit for _, bits in mut_frames for bit in bits]
+            mut_got = [bit for _, _, bits in mut_frames for bit in bits]
             expect("a framer sending the wrong sample bit is told apart from the intervals",
                    mut_got != mut_wanted[: len(mut_got)])
 
@@ -106,9 +120,34 @@ def check(root):
     damaged[20] ^= 0x10
     good, bad = es.parse_frames(damaged)
     expect("a flipped byte drops its frame and no other", bad >= 1 and len(good) == len(frames) - 1)
-    expect("a dropped frame is a gap in the sequence", es.gaps([seq for seq, _ in good]) == 1)
+    expect("a dropped frame is a gap in the sequence", es.gaps([seq for seq, _, _ in good]) == 1)
     expect("sequence numbers wrap from 65535 to 0 without a gap", es.gaps([65534, 65535, 0, 1]) == 0)
     expect("a repeated sequence number is a gap", es.gaps([4, 5, 5]) == 1)
+
+    base = frame(3)
+    body_sum = lambda data: sum(data[2:2 + es.BODY_BYTES])
+    swapped = bytearray(base)
+    swapped[7], swapped[8] = swapped[8], swapped[7]
+    expect("a byte swap leaves the old additive sum unchanged", swapped != base and body_sum(swapped) == body_sum(base))
+    expect("the CRC tells a byte swap from the frame it came from", es.crc16(swapped[2:2 + es.BODY_BYTES]) != es.crc16(base[2:2 + es.BODY_BYTES]))
+    old_sum = bytearray(base[:-2]) + bytes([body_sum(base) & 255, body_sum(base) >> 8])
+    expect("a frame closed by the old additive sum is a bad frame", es.parse_frames(old_sum)[1] == 1)
+    cancel = bytearray(base)
+    cancel[7], cancel[8] = (cancel[7] + 1) & 255, (cancel[8] - 1) & 255
+    expect("compensating changes leave the old additive sum unchanged", body_sum(cancel) == body_sum(base))
+    expect("the CRC tells compensating changes from the frame they came from", es.crc16(cancel[2:2 + es.BODY_BYTES]) != es.crc16(base[2:2 + es.BODY_BYTES]))
+    expect("the CRC matches the CCITT-FALSE check value", es.crc16(b"123456789") == 0x29B1)
+
+    reset = es.Run(3 * es.FRAME_BITS, first_zero=True)
+    reset.feed(stream([0, 1]) + stream([2], epoch=1), 0.0)
+    expect("a change of epoch ends a from-boot run for good, though the sequence number follows on",
+           reset.broken and not reset.complete)
+    wrap = es.Run(3 * es.FRAME_BITS)
+    wrap.feed(stream([65535], epoch=1) + stream([0, 1], epoch=1), 0.0)
+    expect("a wrap within one epoch is not a restart", wrap.complete and wrap.restarts == 0)
+    moved = es.Run(2 * es.FRAME_BITS)
+    moved.feed(stream([65535], epoch=1) + stream([0], epoch=2) + stream([1], epoch=2), 0.0)
+    expect("an epoch that moves across a wrap is a restart of an unanchored run", moved.restarts == 1)
 
     gated = es.Run(3 * es.FRAME_BITS, first_zero=True, gated=True)
     gated.arm(0.0)
@@ -119,7 +158,7 @@ def check(root):
     gated.idle(0.2)
     gated.feed(stream([0, 1, 2]), 0.3)
     expect("after the silence the run starts at the new design's sequence 0",
-           gated.complete and [seq for seq, _ in gated.frames] == [0, 1, 2])
+           gated.complete and [seq for seq, _, _ in gated.frames] == [0, 1, 2])
     still = es.Run(es.FRAME_BITS, first_zero=True, gated=True)
     still.arm(0.0)
     for tick in range(1, 30):
@@ -234,7 +273,7 @@ def check(root):
         for message in errors:
             sys.stderr.write("error: %s\n" % message)
         return 1
-    print("entropy-stream: the framer's bits, sequence numbers and sums agree with the intervals, and each loss is seen.")
+    print("entropy-stream: the framer's bits, sequence numbers and CRCs agree with the intervals, and each loss is seen.")
     return 0
 
 

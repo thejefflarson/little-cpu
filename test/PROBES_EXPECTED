@@ -299,6 +299,8 @@ a floor stated for a different ISA is a new row, not a pass
 a floor too long for the shell's integers is named, not compared
 a formal harness that stops wiring rvfi at all is red
 a fourth core's ROM_WORDS with no Makefile entry to reach it is red
+a frame check that is the additive sum, blind to a byte swap, is red
+a framer reset that leaves the epoch alone is red
 a framer sending a different sample bit than rtl/trng.v reads is red
 a frequency with no path under it is not a measurement
 a from-boot run revived by a later sequence 0 is red
@@ -651,6 +653,7 @@ a row with no placement behind it stops the read, not just that seed
 a row's number duplicated onto a different, real file is named
 a run reporting no retire count at all is graded NO-COUNTS
 a run that counts the previous design's frames before the port goes silent is red
+a run that ignores the epoch and takes a reset for a wrap is red
 a run that never made the cross-core check is red
 a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
 a run with no stalled cycles gets a report, not a ZeroDivisionError
@@ -774,7 +777,7 @@ a torn atomic going red at the wait bound is not evidence either
 a torn atomic going red at the wait bound is not evidence either
 a traceless stalled-bus mutant is red, since its FAIL holds for a trivially true goal too
 a tracked file matching its own .gitignore rule is red and named
-a trailer that is not the sum of the bytes is red
+a trailer that is not the CRC of the bytes is red
 a trap taken exits 5
 a tree git cannot list is a scan of nothing, not a green one
 a tree git cannot list is a scan of nothing, not a green one
@@ -1112,7 +1115,7 @@ control: the declared list matches the tree exactly
 control: the digest states what its two verdicts mean
 control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone
 control: the formal flow's lower-case rv32imc is a different thing
-control: the gapless capture's bits, sequence numbers and sums agree with the intervals
+control: the gapless capture's bits, sequence numbers and CRCs agree with the intervals
 control: the insn checks move to pono and the others do not
 control: the jalr share and the return guess are reported under the table
 control: the load and store paths both report an X exactly when one is there
