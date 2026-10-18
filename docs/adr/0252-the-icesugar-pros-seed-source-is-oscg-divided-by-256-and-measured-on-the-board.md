@@ -217,3 +217,16 @@ lag 0.977158, MultiMMC 0.977680, LZ78Y 0.977005. `ea_restart` passed, with H_r 0
 floor. The compression estimator is the lowest of the ten. The seed probe on the
 shipping design printed 273 words with no DEAD, and a word every 9,935,539 core cycles (0.33 s at
 30 MHz) after the first.
+
+## Amendment: the first ES16 word, read from the probe itself (2026-10-18)
+
+`soc/seed_probe.S` now latches `mcycle` at the first ES16 read and prints it as the second field of
+every word line (`W <word> <mcycle>`), so a read opened after the run starts still recovers it; the
+read used to open too late to see the first status changes. On the board at 2^9, the 30 MHz PLL core
+clock and the shipping 8,192-cycle timeout, the first ES16 arrived at 9,103,936 cycles
+(0x008aea40), 0.303 s at 30 MHz, the same value on every word line of the eight-second read. The
+estimate of about 16 million cycles (1,024 BIST samples plus one word) was high by 1.8x; 1,024
+samples at 6,342 cycles is 6.5 million, which leaves 2.6 million for the first word. This is one
+load on one board. `make entropy-nist-pll` and `-pad` now pass `--lock` with `ENTROPY_NIST_LOCK`
+defaulting to `~/.cache/little-cpu/icesugar.lock`, so the 85-minute capture holds the board lock;
+`test/seed_probe_test.py` grades both.

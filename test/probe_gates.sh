@@ -10384,6 +10384,41 @@ mutate "$d/soc/icelink_eject.sh" 's|python3 "$(dirname "$0")/bounded.py" "$LIMIT
 probe "an eject that runs diskutil with no time limit is red" 1 \
   "does not hang the helper" "$EJECT $d"
 
+begin_group "test/seed_probe_test.py"
+
+SPT="python3 $HERE/seed_probe_test.py"
+spt_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/mk"
+  cp "$REPO/soc/seed_probe.S" "$d/soc/"
+  cp "$REPO/mk/nist90b.mk" "$d/mk/"
+  printf '%s' "$d"
+}
+
+d=$(spt_fixture)
+probe "control: the seed probe prints its first ES16 cycle and the NIST run takes the lock" 0 \
+  "seed-probe:" "$SPT $d"
+
+d=$(spt_fixture)
+mutate "$d/soc/seed_probe.S" '/^  bnez  s5, same$/d'
+probe "a seed probe that re-latches the first ES16 cycle on every status change is red" 1 \
+  "still zero" "$SPT $d"
+
+d=$(spt_fixture)
+mutate "$d/soc/seed_probe.S" 's/^  mv    a0, s5$/  mv    a0, s4/'
+probe "a seed probe whose word line omits the first ES16 cycle is red" 1 \
+  "does not print the first-ES16 cycle" "$SPT $d"
+
+d=$(spt_fixture)
+mutate "$d/mk/nist90b.mk" 's/^ENTROPY_NIST_LOCK     ?=.*/ENTROPY_NIST_LOCK     ?=/'
+probe "a NIST board run with no default lock is red" 1 \
+  "has no default" "$SPT $d"
+
+d=$(spt_fixture)
+mutate "$d/mk/nist90b.mk" "s/ --lock '\$(ENTROPY_NIST_LOCK)'//"
+probe "a NIST board run that does not pass the lock through is red" 1 \
+  "does not pass --lock" "$SPT $d"
+
 begin_group "test/pin_bump_token_test.py"
 
 # The workflow's shape is the control: the step that runs upstream code must hold no
