@@ -1497,8 +1497,6 @@ noop-rom:
 board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)
 	@./soc/board_elaborate.sh yosys $(BOARD_TOP) $(BOARD_SRCS)
 
-# `-abc2` is a second ABC pass: it maps about 70 fewer cells than one, and the board top does not
-# place in 5,280 without it. `littlesoc` stays on one pass: the second costs it about 6% of its median Fmax.
 $(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) | $(BUILD)
 	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: $(BUILD)/board.synth.log)'
 	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); synth_ice40 -device u -dsp -spram -abc2 -top $(BOARD_TOP) -json $@' \
@@ -1519,14 +1517,11 @@ $(BUILD)/board.bin: $(BUILD)/board.asc
 	@icepack $< $@
 	@echo "$(BUILD)/board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
 
-# `littlesoc` placing says nothing about this top: the wrapper adds an oscillator, a pin driver and
-# a different tie-off, and the mapper's result moves by tens of cells with all of them.
 BOARD_ICETIME := icetime
 
 .PHONY: board-timing
 board-timing: $(BUILD)/board.asc
 	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' $(BUILD)/board.pnr.log
-	@# No `-p`: see `bitstream` below for icetime's pcf parser and the `-nowarn` line.
 	@$(BOARD_ICETIME) -d up5k -P sg48 -t -r $(BUILD)/board.timing.rpt $(BUILD)/board.asc \
 	  > $(BUILD)/board.icetime.log 2>&1 || { cat $(BUILD)/board.icetime.log; exit 1; }
 	@python3 soc/timing_split.py $(BUILD)/board.timing.rpt --min-mhz $(SOC_MIN_MHZ)
