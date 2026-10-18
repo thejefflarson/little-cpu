@@ -1196,7 +1196,7 @@ not sufficient.
 
 With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,549 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
 soc-timing` places at 5,265 of 5,280 `ICESTORM_LC` (99.7%), with sixteen paired seeds at 12.33–13.54 MHz (median 13.01; the same sixteen on the 5,209-cell tree read 12.27–13.30, median 12.91) and
-`soc/pin.json` holding seed 20382078 at 13.19 MHz (stale against this tree, 13.07 MHz at that seed) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
+`soc/pin.json` holding seed 156842832 at 13.50 MHz, 12.50% over the requirement, from a twelve-seed search on this tree (12.44–13.50 MHz, median 13.04) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
