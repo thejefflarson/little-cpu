@@ -4858,7 +4858,7 @@ ma_fixture() {
   cp "$REPO/CLAUDE.md" "$REPO/Makefile" "$d/"
   cp "$REPO/test/run_tests.sh" "$REPO/test/cosim.py" "$REPO/test/march_test.sh" \
      "$REPO/test/dual_build.sh" "$REPO/test/probe_gates.sh" "$d/test/"
-  cp "$REPO/nano/tb.mk" "$REPO/nano/stamp.mk" "$d/nano/"
+  cp "$REPO/nano/tb.mk" "$REPO/nano/stamp.mk" "$REPO/nano/figure_stamp.py" "$d/nano/"
   cp "$REPO/test/sail/reservation_probe.sh" "$d/test/sail/"
   cp "$REPO/soc/depth/cycles.py" "$d/soc/depth/"
   cp "$REPO/soc/compare/run_dhrystone.sh" "$d/soc/compare/"
