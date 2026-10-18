@@ -93,7 +93,7 @@ declared input that is narrower than what the script reads goes red.
 
 The CI run shared its node with the PR's other twenty jobs, and `sim` took 134 s there against 54 s
 in the baseline run: the pod is limited by what the node has free, not by its four-CPU ceiling, so
-parallelism bought 25% on CI where it bought 20x on a quiet local machine. Its slowest checks were
+parallelism bought 25% on CI where the same suite went from 1,700 s serial to 573 s on the local machine. Its slowest checks were
 `nano-qspi-loop-probe` (827 s), `probe-gates` (601 s), `nano-qspi-pins-test` (186 s) and `sim`
 (134 s). The first two are the forced-red sweeps that were already the first two in the baseline;
 they are cheaper to shorten (fewer mutants per run, or a smaller sweep) than to schedule better.
