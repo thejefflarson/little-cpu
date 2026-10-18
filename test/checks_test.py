@@ -164,21 +164,27 @@ def main():
         reset_counts(repo)
         driver(repo)
         reset_counts(repo)
-        build = os.path.join(os.path.dirname(HERE), "build")
-        os.makedirs(build, exist_ok=True)
-        bindir = tempfile.mkdtemp(prefix="checks-test-bin.", dir=build)
-        with open(os.path.join(bindir, "yosys"), "w") as fh:
-            fh.write("#!/bin/sh\necho Yosys fake-1\n")
-        os.chmod(os.path.join(bindir, "yosys"), 0o755)
-        env = {"PATH": bindir + os.pathsep + os.environ["PATH"]}
+        tooldir = tempfile.mkdtemp(prefix="checks-test-tool.")
+        tool = os.path.join(tooldir, "faketool")
+
+        def set_version(v):
+            with open(tool, "w") as fh:
+                fh.write(f"#!/bin/sh\necho faketool {v}\n")
+            os.chmod(tool, 0o755)
+
+        env = {"CHECKS_TOOLS": tool}
+        set_version("1")
         r = driver(repo, env=env)
-        check(count(repo, "alpha") == 1, "a changed tool version re-runs the checks")
+        check(count(repo, "alpha") == 1, "a tool joining the toolchain re-runs the checks")
         if count(repo, "alpha") != 1:
             print(f"    driver exited {r.returncode}\n{r.stdout}\n{r.stderr}")
         reset_counts(repo)
         driver(repo, env=env)
         check(count(repo, "alpha") == 0, "and the same tool version skips again")
-        shutil.rmtree(bindir)
+        set_version("2")
+        driver(repo, env=env)
+        check(count(repo, "alpha") == 1, "a changed tool version re-runs the checks")
+        shutil.rmtree(tooldir)
 
         print("lanes and ordering")
         reset_counts(repo)

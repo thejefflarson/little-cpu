@@ -11245,7 +11245,7 @@ drv=$(ck_driver 's/selected = \[c for c in checks if args.tier == "full" or c.ti
 probe "a driver that runs full-tier rows in the fast tier is red" 1 \
   "RED  the fast tier leaves a full-tier check alone" "$CK $drv"
 
-drv=$(ck_driver 's/for argv in TOOL_PROBES:/for argv in ():/')
+drv=$(ck_driver 's/for argv in tool_probes():/for argv in ():/')
 probe "a driver blind to the toolchain skips past a tool upgrade" 1 \
   "RED  a changed tool version re-runs the checks" "$CK $drv"
 

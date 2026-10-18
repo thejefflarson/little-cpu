@@ -114,9 +114,20 @@ def claimed_by(check, path):
     return any(claims(p, path) for p in check.inputs)
 
 
+def tool_probes():
+    """The tools whose versions key a stamp, plus any executables CHECKS_TOOLS names.
+
+    CHECKS_TOOLS is a PATH-style list that exists so a test can stand in a tool whose version
+    it controls; the OSS CAD Suite's python launcher puts its own bin first on PATH, so a fake
+    put on PATH is never the one found.
+    """
+    extra = [[t, "--version"] for t in os.environ.get("CHECKS_TOOLS", "").split(os.pathsep) if t]
+    return list(TOOL_PROBES) + extra
+
+
 def tool_key():
     parts = []
-    for argv in TOOL_PROBES:
+    for argv in tool_probes():
         try:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
             first = (r.stdout or r.stderr).strip().splitlines()
