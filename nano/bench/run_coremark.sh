@@ -92,4 +92,4 @@ if [ "$sim_status" -ne 0 ]; then
   exit "$sim_status"
 fi
 
-python3 "$HERE/bench_report.py" "$tmp/run.log" --kind coremark --runs "$ITERATIONS"
+python3 "$HERE/bench_report.py" "$tmp/run.log" --kind coremark --runs "$ITERATIONS" --cflags "$CFLAGS"

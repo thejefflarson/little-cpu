@@ -119,6 +119,7 @@ nano-area:
 	python3 nano/area_report.py nano/area.json --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --max-um2 '$(NANO_MAX_UM2)' \
 	  --excluded '$(NANO_EXCLUDED_CELLS)' \
+	  --cflags '$(NANO_CFLAGS)' \
 	  --macro rf_top --macro-lef '$(NANO_RF_MACRO_LEF)' --macro-lef-sha256 '$(NANO_RF_MACRO_LEF_SHA256)'
 
 # Area and delay both come out of one synthesis run; no ratchet, since this ranks RTL versions against each other rather than gating either figure.
@@ -132,7 +133,7 @@ nano-timing:
 	  > nano/timing.flops.log 2>&1 || { tail -40 nano/timing.flops.log; exit 1; }; \
 	python3 nano/timing_report.py --liberty '$(NANO_LIBERTY)' \
 	  --liberty-sha256 '$(NANO_LIBERTY_SHA256)' --excluded '$(NANO_EXCLUDED_CELLS)' \
-	  --variant flops:nano/timing.flops.log:nano/timing.flops.json \
+	  --variant flops:nano/timing.flops.log:nano/timing.flops.json --cflags '$(NANO_CFLAGS)' \
 	  --macro rf_top --macro-lef '$(NANO_RF_MACRO_LEF)' --macro-lef-sha256 '$(NANO_RF_MACRO_LEF_SHA256)' \
 	  --flow-correlation nano/timing_flow_correlation.json
 

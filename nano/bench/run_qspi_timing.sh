@@ -70,24 +70,24 @@ run_config() {  # name, depth, kind, window, preamble -> both report rows on std
   local sim="$REPO/nano-qspi-sim.$name"
   local memory="nano/tb/nano_qspi_memory.v, QSPI timing model: depth=$depth loop_kind=$kind loop_window=$window preamble=$preamble"
 
-  NANO_BENCH_MEMORY="$memory" "$REPO/nano/bench/run_dhrystone.sh" "$sim" "$DHRY_RUNS" "$DHRY_CYCLE_LIMIT" "$CFLAGS" \
+  NANO_BENCH_MEMORY="$memory" NANO_BENCH_TARGET="cxxrtl qspi timing model" "$REPO/nano/bench/run_dhrystone.sh" "$sim" "$DHRY_RUNS" "$DHRY_CYCLE_LIMIT" "$CFLAGS" \
     > "$tmp/$name.dhry.log" 2>&1 || { tail -60 "$tmp/$name.dhry.log" >&2; exit 1; }
   keep_log "$tmp/$name.dhry.log" "$name.dhry.log"
   python3 "$HERE/qspi_timing_report.py" "$tmp/$name.dhry.log" --config "$name" \
     --kind dhrystone --runs "$DHRY_RUNS" --depth "$depth" --loop-kind "$kind" \
-    --loop-window "$window" --preamble "$preamble" || exit 1
+    --loop-window "$window" --preamble "$preamble" --cflags "$CFLAGS" || exit 1
   bench_cycles "$tmp/$name.dhry.log" > "$tmp/$name.dhry_cycles" || exit 1
 
-  NANO_BENCH_MEMORY="$memory" "$REPO/nano/bench/run_coremark.sh" "$sim" "$COREMARK_ITERATIONS" "$COREMARK_CYCLE_LIMIT" "$CFLAGS" \
+  NANO_BENCH_MEMORY="$memory" NANO_BENCH_TARGET="cxxrtl qspi timing model" "$REPO/nano/bench/run_coremark.sh" "$sim" "$COREMARK_ITERATIONS" "$COREMARK_CYCLE_LIMIT" "$CFLAGS" \
     > "$tmp/$name.cm.log" 2>&1 || { tail -60 "$tmp/$name.cm.log" >&2; exit 1; }
   keep_log "$tmp/$name.cm.log" "$name.cm.log"
   python3 "$HERE/qspi_timing_report.py" "$tmp/$name.cm.log" --config "$name" \
     --kind coremark --runs "$COREMARK_ITERATIONS" --depth "$depth" --loop-kind "$kind" \
-    --loop-window "$window" --preamble "$preamble" || exit 1
+    --loop-window "$window" --preamble "$preamble" --cflags "$CFLAGS" || exit 1
   rm -f "$sim"
 }
 
-echo -e "config\tkind\tcycles\tper_unit\tmetric\tabsolute\texecute%\tparcel_wait%\tredirect_preamble%\tloop_hit%\thandshake%\tpsram_wait%"
+echo -e "config\tkind\tcycles\tper_unit\tmetric\tabsolute\texecute%\tparcel_wait%\tredirect_preamble%\tloop_hit%\thandshake%\tpsram_wait%\tstamp"
 
 # CoreMark is a hundred million cycles a configuration in this model, so the configurations run
 # side by side; every row is printed in table order once all of them have finished.
