@@ -9,7 +9,7 @@ OSCG's edge-to-edge jitter is a fixed time (about 50 ns rms at 105 us), so how m
 cycles it spans, and so how much of rtl/trng.v's two sampled counter bits it randomises,
 is set by this one product. Below MIN_CYCLES the measured min-entropy falls under the
 0.5 bit per sample the adaptive proportion cutoff assumes; at MAX_CYCLES a source 20%
-slow trips the 4,096-cycle edge timeout and reads DEAD.
+slow trips the 8,192-cycle edge timeout and reads DEAD.
 
 WHAT IT CANNOT SEE. Whether the silicon's OSCG runs at its nominal 310 MHz; that is the
 capture in soc/entropy_assess.py, and the numbers below come from it.
@@ -59,7 +59,9 @@ def check(root):
     width = re.findall(r"logic\s+\[(\d+):0\]\s+ticks\s*;", trng)
     if len(width) != 1:
         sys.exit("error: %s declares %d `ticks` counters, expected exactly one." % (TRNG, len(width)))
-    timeout = 2 ** (int(width[0]) + 1)
+    if len(re.findall(r"logic\s+late\s*;", trng)) != 1:
+        sys.exit("error: %s declares no `late` flag, so the timeout is not two passes of `ticks`." % TRNG)
+    timeout = 2 ** (int(width[0]) + 2)
 
     errors = []
     if not 2 <= div <= 128:

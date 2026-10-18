@@ -1,10 +1,10 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
 // The interval must span several core cycles of accumulated jitter and stay under rtl/trng.v's
-// 4,096-cycle edge timeout; test/entropy_geometry_test.py holds the nominal period between the two.
+// 8,192-cycle edge timeout; test/entropy_geometry_test.py holds the nominal period between the two.
 module icesugar_pro_entropy #(
   parameter integer DIV      = 128,
-  parameter integer DIV_LOG2 = 8
+  parameter integer DIV_LOG2 = 9
 ) (
   output logic raw
 );

@@ -3,7 +3,7 @@
 // The seed source of the board with a gapless sample-bit stream in place of the core.
 module entropy_stream_icesugar_pro #(
   parameter integer OSC_DIV  = 128,  // OSCG divider, 2..128
-  parameter integer FAB_LOG2 = 8,    // fabric divide-by-2^FAB_LOG2, at least 1
+  parameter integer FAB_LOG2 = 9,    // fabric divide-by-2^FAB_LOG2, at least 1
   parameter integer CORE_PAD = 0     // 1 clocks the capture from the 25 MHz pad, 0 from the PLL
 ) (
   input  logic clk_pin,

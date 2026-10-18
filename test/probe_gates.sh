@@ -9952,12 +9952,12 @@ probe "control: the shipping entropy source sits between the jitter floor and th
   "core cycles per edge" "$EGEO $d"
 
 d=$(egeo_fixture)
-mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 8/DIV_LOG2 = 7/'
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 9/DIV_LOG2 = 7/'
 probe "an edge period too short for the jitter to fill is red" 1 \
   "under the 3000 at which the measured min-entropy reached 0.5" "$EGEO $d"
 
 d=$(egeo_fixture)
-mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 8/DIV_LOG2 = 9/'
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 9/DIV_LOG2 = 10/'
 probe "an edge period that an oscillator 20% slow would push past the timeout is red" 1 \
   "edge timeout; an oscillator" "$EGEO $d"
 
