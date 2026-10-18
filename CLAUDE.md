@@ -916,7 +916,8 @@ make nist90b-setup  # fetch and build NIST's SP800-90B_EntropyAssessment at its 
 make entropy-nist-pll # the shipped seed source on the board: 1M consecutive samples, ea_non_iid,
                     # 1,000 JTAG-load restarts, ea_restart, graded against 0.5 bit/sample. About
                     # 85 minutes, needs the board, off `make test`; entropy-nist-pad is the 25 MHz-pad
-                    # setting, entropy-nist both. ENTROPY_NIST_LOCK, ENTROPY_NIST_RESUME
+                    # setting, entropy-nist both. ENTROPY_NIST_LOCK (default ~/.cache/little-cpu/icesugar.lock,
+                    # held for each board access), ENTROPY_NIST_RESUME
 make icesugar-clock-check # load soc/clock_check.S, time its `T` lines on the host and fail when
                     # the mean interval is outside ICESUGAR_CLOCK_PPM (1000) of the board's CORE_HZ;
                     # 30.0035 MHz, +116 ppm over 11 intervals when taken. Needs the board
@@ -925,7 +926,8 @@ soc/entropy_capture.sh TAG OSC_DIV FAB_LOG2 CORE_PAD # build a core-less capture
                     # `soc/entropy_assess.py read` and `assess` collect and grade the frames; each frame ends
                     # in a 16-bit sum of its intervals, and a frame whose sum differs is dropped and counted.
                     # `make icesugar-prog ICESUGAR_PROG=soc/seed_probe.S` prints the seed CSR's
-                    # status changes and words. Needs the board, so off `make test` and CI
+                    # status changes and words, each word line carrying the mcycle of the first ES16
+                    # read (9,103,936, 0.30 s at 30 MHz, 2^9 shipping top). Needs the board, so off `make test` and CI
 make icesugar-dhrystone # build Dhrystone for it, load it, read the report it prints itself.
                     # Needs the board, so off `make test` and off CI, like suite-board
 make icesugar-suite-board # the .S suite on that board, in batches: place once, swap ROM contents
@@ -1190,7 +1192,7 @@ not sufficient.
 
 With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,549 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
 soc-timing` places at 5,265 of 5,280 `ICESTORM_LC` (99.7%), with sixteen paired seeds at 12.33–13.54 MHz (median 13.01; the same sixteen on the 5,209-cell tree read 12.27–13.30, median 12.91) and
-`soc/pin.json` holding seed 20382078 at 13.19 MHz (stale against this tree, 13.07 MHz at that seed) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
+`soc/pin.json` holding seed 156842832 at 13.50 MHz, 12.50% over the requirement, from a twelve-seed search on this tree (12.44–13.50 MHz, median 13.04) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
