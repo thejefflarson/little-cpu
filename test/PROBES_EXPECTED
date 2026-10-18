@@ -671,6 +671,7 @@ a row the Makefile no longer lists is red, and named
 a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed
 a row's number duplicated onto a different, real file is named
+a rule staged in a user-writable file before the install is red
 a run reporting no retire count at all is graded NO-COUNTS
 a run that counts the previous design's frames before the port goes silent is red
 a run that ignores the epoch and takes a reset for a wrap is red

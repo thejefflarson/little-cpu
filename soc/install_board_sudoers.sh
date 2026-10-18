@@ -3,7 +3,7 @@
 set -euo pipefail
 DEST=${1:?usage: $0 DEST GROUP}; GROUP=${2:?usage: $0 DEST GROUP}
 SUDO=${BOARD_SUDO:-sudo}
-VISUDO=${BOARD_VISUDO:-visudo}
+VISUDO=${BOARD_VISUDO:-/usr/sbin/visudo}
 CHECK=${BOARD_CHECK:-$(dirname "$0")/check_root_binary.sh}
 OUT=${BOARD_SUDOERS:-/etc/sudoers.d/little-cpu}
 NAME=$(id -un)
@@ -19,9 +19,14 @@ for b in iceprog ftread; do
   paths+=("$p")
 done
 
-STAGE=$(mktemp)
-trap 'rm -f "$STAGE"' EXIT
-printf '%s ALL=(root) NOPASSWD: %s, %s\n' "$NAME" "${paths[0]}" "${paths[1]}" > "$STAGE"
-"$VISUDO" -cf "$STAGE" >/dev/null || { echo "error: visudo rejected the rule; nothing installed" >&2; exit 1; }
-"$SUDO" install -m 0440 -o root -g "$GROUP" "$STAGE" "$OUT"
-echo "installed $OUT: $(cat "$STAGE")"
+# The rule reaches root over a pipe into a root-owned file, so no user-writable copy sits between visudo's check and the install.
+RULE=$(printf '%s ALL=(root) NOPASSWD: %s, %s' "$NAME" "${paths[0]}" "${paths[1]}")
+NEW=$(dirname "$OUT")/.$(basename "$OUT").new
+trap '"$SUDO" rm -f "$NEW"' EXIT
+"$SUDO" install -m 0600 -o root -g "$GROUP" /dev/null "$NEW"
+printf '%s\n' "$RULE" | "$SUDO" tee "$NEW" >/dev/null
+"$SUDO" "$VISUDO" -cf "$NEW" >/dev/null || { echo "error: visudo rejected the rule; nothing installed" >&2; exit 1; }
+"$SUDO" chmod 0440 "$NEW"
+"$SUDO" mv -f "$NEW" "$OUT"
+trap - EXIT
+echo "installed $OUT: $RULE"

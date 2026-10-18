@@ -37,12 +37,20 @@ If `/usr/local` or
 
 macOS's `sudo` caches a password per terminal, and a shell with no terminal (an editor's task
 runner, or an agent) never sees that cache. `make install-board-sudoers` writes
-`/etc/sudoers.d/little-cpu`, which lets you run exactly the two root-owned copies above with no
-password and nothing else. It refuses unless both pass the same root-owned check the board targets
-run, writes the rule to a temporary file, has `visudo -cf` accept it, then `sudo install`s it
-root-owned at mode 0440. Probe it with `sudo -n /usr/local/libexec/little-cpu/bin/iceprog --help`;
-`sudo -n true` stays refused. Remove it with `sudo rm /etc/sudoers.d/little-cpu`. One cost: `iceprog -r FILE`
-writes FILE as root, so any process running as you can overwrite a root-owned file through it.
+`/etc/sudoers.d/little-cpu`, which lets you run the two root-owned copies above with no password,
+with any arguments. It refuses unless both pass the same root-owned check the board targets run. The
+rule never sits in a file you can write: it is piped into a root-owned file in `/etc/sudoers.d`,
+named with a dot so sudo ignores it until it is moved into place, and `visudo -cf` checks that
+file before `mv` installs it at mode 0440. Probe it with
+`sudo -n /usr/local/libexec/little-cpu/bin/iceprog --help`; `sudo -n true` stays refused. Remove
+it with `sudo rm /etc/sudoers.d/little-cpu`.
+
+**The rule is root-equivalent for any process running as you.** sudo cannot restrict the
+arguments, and `iceprog` takes a path: `iceprog -r FILE` writes FILE as root, and `iceprog FILE`
+reads FILE as root and writes it to the board's flash, where `-r` can read it back. So the rule
+removes the password between your account and root. It does not add a separate privilege boundary.
+Install it only on a machine where that trade is acceptable, and remove it when the board work is
+done.
 
 ## Why flashing needs root
 

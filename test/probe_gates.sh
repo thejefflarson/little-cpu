@@ -10385,7 +10385,7 @@ probe "control: the sudoers rule installer agrees with its stubs" 0 \
   "board-sudoers:" "$BSUDO $d"
 
 d=$(bsudo_fixture)
-mutate "$d/soc/install_board_sudoers.sh" 's/^"$VISUDO" -cf "$STAGE" >\/dev\/null || .*$/true/'
+mutate "$d/soc/install_board_sudoers.sh" 's/^"$SUDO" "$VISUDO" -cf "$NEW" >\/dev\/null || .*$/true/'
 probe "a sudoers rule installed without visudo's check is red" 1 \
   "a rule visudo rejects was installed" "$BSUDO $d"
 
@@ -10398,6 +10398,11 @@ d=$(bsudo_fixture)
 mutate "$d/soc/install_board_sudoers.sh" '/would misread/d'
 probe "a path that would misparse in sudoers written into the rule is red" 1 \
   "a path holding a comma" "$BSUDO $d"
+
+d=$(bsudo_fixture)
+mutate "$d/soc/install_board_sudoers.sh" 's/^printf .%s\\n. "$RULE" | "$SUDO" tee "$NEW" >\/dev\/null$/T=$(mktemp); printf "%s\\n" "$RULE" > "$T"; "$SUDO" cp "$T" "$NEW"/'
+probe "a rule staged in a user-writable file before the install is red" 1 \
+  "swapped the rule between" "$BSUDO $d"
 
 begin_group "test/board_tools_test.py" spread
 
