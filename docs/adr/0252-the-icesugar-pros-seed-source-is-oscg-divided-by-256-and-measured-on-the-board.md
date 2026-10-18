@@ -188,8 +188,8 @@ board lock. Captured data and the restart matrix are bound by a sidecar (`<tag>_
 refuses data without one, with a different one, or of the wrong size, and a capture is written to
 `.part` and moved into place whole. The grader requires one pass line from `ea_restart` and none of its
 failure markers, recomputes min(H_r, H_c, H_I) itself, and requires the H_I it was given to be
-`ea_non_iid`'s H_original. A framer that numbers a boot (so a PLL relock mid-run is visible) and a
-CRC-16 in place of the additive sum change the bitstream and wait for the next board capture.
+`ea_non_iid`'s H_original. The framer's CRC-16 and boot number, which this paragraph first listed as waiting for a capture,
+are in the 2026-10-18 amendment below.
 
 ## Amendment: a 2^9 divide and an 8,192-cycle edge timeout (2026-10-17)
 
@@ -217,3 +217,45 @@ lag 0.977158, MultiMMC 0.977680, LZ78Y 0.977005. `ea_restart` passed, with H_r 0
 floor. The compression estimator is the lowest of the ten. The seed probe on the
 shipping design printed 273 words with no DEAD, and a word every 9,935,539 core cycles (0.33 s at
 30 MHz) after the first.
+
+## Amendment: the 25 MHz-pad setting at 2^9, a CRC-16 and a framer epoch (2026-10-18)
+
+**Frame.** `soc/entropy_bit_framer.v` closes a frame with CRC-16/CCITT-FALSE (polynomial 0x1021,
+initial value 0xFFFF, unreflected; check value 0x29B1 over `123456789`) in place of the 16-bit
+additive sum, which accepts two bytes swapped and any pair of changes that cancel. It also sends an
+epoch byte after the sequence number: the count of times `running` has dropped since configuration.
+A reset of the framer sends the sequence back to 0, which a host could take for the normal 65535 to 0
+wrap; the epoch moves with it, and `soc/entropy_stream.py` treats a change of epoch as a gap (a
+from-boot run ends for good, an unanchored one restarts). A frame is 15 bytes. `test/entropy_stream_test.py`
+simulates a lock loss mid-run (`RELOCK` in `test/entropy_stream_bench.v`) and forces the CRC, the
+byte swap, the cancelling change, the epoch in the framer and the epoch in the host red.
+
+**Measurement.** `make entropy-nist-pad`, 2026-10-18, tree at `main` d20819ca plus this change, built at
+`OSC_DIV` 128 and a fabric divide of 2^9 with the core clocked from the 25 MHz pad (about 5,285 core
+cycles per edge; the shipping setting is the 30 MHz PLL), bitstream SHA-256
+`8aae4800883f0cc1c14bd39c3e0889179dedb6eb0ab904b631aec9042829f9a0`, SRAM only. The capture is
+1,000,000 consecutive samples from sequence 0 with no restart of the run. The matrix is 1,000 rows of
+1,000 samples, each a fresh JTAG load, 0 failed loads; every row is accepted only if it begins at
+sequence 0 and its sequence numbers advance by one with a constant epoch and a passing CRC, so each
+row is gapless. This is a new measurement of a changed source. The 2^8 pad reading of 2026-10-11
+(H_original 0.4134, matrix stopped at row 275) stands as the dated reading it was.
+
+| estimator | 2^9, core on the 25 MHz pad |
+|---|---|
+| most common value | 0.996079 |
+| collision | **0.741646** |
+| Markov | 0.953985 |
+| compression | 0.810852 |
+| t-tuple | 0.901041 |
+| longest repeated substring | 0.966445 |
+| MultiMCW prediction | 0.986806 |
+| lag prediction | 0.950534 |
+| MultiMMC prediction | 0.950486 |
+| LZ78Y prediction | 0.950336 |
+| **H_original** | **0.741646** |
+
+`ea_restart` passed its sanity check (X_cutoff 666) and its validation test, with H_r 0.743917, H_c
+0.833509 and H_I 0.741646, so **min(H_r, H_c, H_I) is 0.741646** against the 0.5 floor. The
+collision estimate is the lowest, as it is at 30 MHz, and the pad run reads 0.06 bit under the PLL
+run's 0.803 at the same divide (the slower core clock quantises the same jitter more coarsely). One run of
+each setting is one draw; the 2^8 setting's repeat captures spread by about 0.004.

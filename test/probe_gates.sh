@@ -9980,7 +9980,7 @@ estream_fixture() {
 }
 
 d=$(estream_fixture)
-probe "control: the gapless capture's bits, sequence numbers and sums agree with the intervals" 0 \
+probe "control: the gapless capture's bits, sequence numbers and CRCs agree with the intervals" 0 \
   "entropy-stream:" "$ESTREAM $d"
 
 d=$(estream_fixture)
@@ -9994,9 +9994,24 @@ probe "sequence numbers that do not advance are red" 1 \
   "each follows by one" "$ESTREAM $d"
 
 d=$(estream_fixture)
-mutate "$d/soc/entropy_bit_framer.v" "s/sum   <= sum + 16'(body_byte);/sum   <= sum;/"
-probe "a trailer that is not the sum of the bytes is red" 1 \
-  "no frame fails its sum" "$ESTREAM $d"
+mutate "$d/soc/entropy_bit_framer.v" "s/crc   <= crc_step(crc, body_byte);/crc   <= crc;/"
+probe "a trailer that is not the CRC of the bytes is red" 1 \
+  "no frame fails its CRC" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/^    return crc$/    return sum(data) \& 0xFFFF/'
+probe "a frame check that is the additive sum, blind to a byte swap, is red" 1 \
+  "the CRC tells a byte swap from the frame" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_bit_framer.v" "s/if (was_running) epoch <= epoch + 1'b1;/if (was_running) epoch <= epoch;/"
+probe "a framer reset that leaves the epoch alone is red" 1 \
+  "a lock loss mid-run moves the epoch" "$ESTREAM $d"
+
+d=$(estream_fixture)
+mutate "$d/soc/entropy_stream.py" 's/ or epoch != self.frames\[-1\]\[1\]//'
+probe "a run that ignores the epoch and takes a reset for a wrap is red" 1 \
+  "a change of epoch ends a from-boot run" "ENTROPY_STREAM_SKIP_SIM=1 $ESTREAM $d"
 
 d=$(estream_fixture)
 mutate "$d/soc/entropy_stream.py" 's/    return sum((b - a).*/    return 0/'

@@ -4,11 +4,12 @@
   entropy_stream.py capture --samples N --out FILE [--port NODE] [--bit BITSTREAM]
   entropy_stream.py restart --bit BITSTREAM --out FILE [--rows 1000] [--samples 1000]
 
-A frame is 0xA5 0x5A, a little-endian 16-bit sequence number, 64 sample bits (the first in bit 0
-of the first byte) and a little-endian 16-bit sum of the ten bytes after the marker
-(soc/entropy_bit_framer.v). The board streams the sample bit of every oscillator edge with no gap,
-so a run is consecutive exactly when the sequence numbers advance by one: a gap, which a frame
-that fails its sum also makes, discards what was collected and starts the run again. Output is one byte per sample,
+A frame is 0xA5 0x5A, a little-endian 16-bit sequence number, an epoch byte, 64 sample bits (the
+first in bit 0 of the first byte) and a little-endian CRC-16/CCITT-FALSE of the eleven bytes after
+the marker (soc/entropy_bit_framer.v). The epoch counts the times the framer was reset, which sends
+the sequence back to 0. The board streams the sample bit of every oscillator edge with no gap,
+so a run is consecutive exactly when the sequence numbers advance by one and the epoch stays put: a
+gap, which a frame that fails its CRC also makes, discards what was collected and starts the run again. Output is one byte per sample,
 0 or 1, the layout ea_non_iid and ea_restart read with bits_per_symbol 1. `restart` loads the
 bitstream into SRAM before every row and keeps the first N samples after the load.
 """
@@ -27,14 +28,25 @@ import board_read
 
 HEADER = b"\xa5\x5a"
 DATA_BYTES = 8
-FRAME_BYTES = len(HEADER) + 2 + DATA_BYTES + 2
+BODY_BYTES = 2 + 1 + DATA_BYTES
+FRAME_BYTES = len(HEADER) + BODY_BYTES + 2
 FRAME_BITS = 8 * DATA_BYTES
 SEQ_MOD = 1 << 16
 QUIET_S = 0.1
 
 
+def crc16(data):
+    """CRC-16/CCITT-FALSE: polynomial 0x1021, initial value 0xFFFF, no reflection."""
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = (crc << 1 ^ 0x1021 if crc & 0x8000 else crc << 1) & 0xFFFF
+    return crc
+
+
 def parse_frames(buf):
-    """(sequence, bits) of each frame whose sum matches, removed from buf; the count of bad ones.
+    """(sequence, epoch, bits) of each frame whose CRC matches, removed from buf; the count of bad ones.
 
     A bad frame is skipped one byte at a time, so a marker inside data cannot swallow the real
     frame behind it.
@@ -45,12 +57,12 @@ def parse_frames(buf):
         if at < 0 or len(buf) < at + FRAME_BYTES:
             del buf[: at if at >= 0 else max(len(buf) - 1, 0)]
             return frames, bad
-        body = buf[at + 2 : at + 2 + 2 + DATA_BYTES]
+        body = buf[at + 2 : at + 2 + BODY_BYTES]
         want = buf[at + FRAME_BYTES - 2] | buf[at + FRAME_BYTES - 1] << 8
-        if sum(body) & 0xFFFF == want:
+        if crc16(body) == want:
             seq = body[0] | body[1] << 8
-            bits = [body[2 + i // 8] >> (i % 8) & 1 for i in range(FRAME_BITS)]
-            frames.append((seq, bits))
+            bits = [body[3 + i // 8] >> (i % 8) & 1 for i in range(FRAME_BITS)]
+            frames.append((seq, body[2], bits))
             del buf[: at + FRAME_BYTES]
         else:
             bad += 1
@@ -63,14 +75,15 @@ def gaps(sequences):
 
 
 def frames_to_samples(frames, count):
-    return [bit for _, bits in frames for bit in bits][:count]
+    return [bit for _, _, bits in frames for bit in bits][:count]
 
 
 class Run:
     """Frames fed in as bytes arrive, kept while they are consecutive.
 
-    A gap in the sequence numbers throws away the run so far and counts a restart of it; a frame that
-    fails its sum never joins the run, so the frame after it shows as the gap. With first_zero the run
+    A gap in the sequence numbers, or a change of epoch (the framer was reset, and its sequence
+    restarted at 0 where it could be mistaken for a wrap), throws away the run so far and counts a
+    restart of it; a frame that fails its CRC never joins the run, so the frame after it shows as the gap. With first_zero the run
     must begin at sequence 0 and a gap ends it for good (`broken`), because a later sequence 0 is the
     counter wrapping and not a board starting. With gated, nothing counts until the port has been
     silent for QUIET_S after arm(): the load erases the old design, which stops its stream, so a run
@@ -95,13 +108,13 @@ class Run:
             return
         self.buf.extend(chunk)
         good, _ = parse_frames(self.buf)
-        for seq, bits in good:
-            if self.frames and (seq - self.frames[-1][0]) % SEQ_MOD != 1:
+        for seq, epoch, bits in good:
+            if self.frames and ((seq - self.frames[-1][0]) % SEQ_MOD != 1 or epoch != self.frames[-1][1]):
                 self.frames, self.restarts = [], self.restarts + 1
                 self.broken = self.first_zero
             if self.broken or (not self.frames and self.first_zero and seq != 0):
                 continue
-            self.frames.append((seq, bits))
+            self.frames.append((seq, epoch, bits))
 
     @property
     def complete(self):
