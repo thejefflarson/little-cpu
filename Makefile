@@ -743,6 +743,10 @@ dhry-board-parity-test:
 board-verdict-test:
 	@./test/board_verdict_test.sh
 
+.PHONY: board-sudoers-test
+board-sudoers-test:
+	@./test/board_sudoers_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -808,7 +812,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
                icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test \
                nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
-               dhry-board-parity-test board-verdict-test nano-test nano-startup-test \
+               dhry-board-parity-test board-verdict-test board-sudoers-test nano-test nano-startup-test \
                macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
@@ -1544,6 +1548,10 @@ install-board-tools: $(BUILD)/ftread
 	  exit 1; \
 	}
 	@./soc/install_board_tools.sh '$(BOARD_TOOLS_DIR)' '$(BOARD_TOOLS_GROUP)' '$(BUILD)/ftread'
+
+.PHONY: install-board-sudoers
+install-board-sudoers:
+	@./soc/install_board_sudoers.sh '$(BOARD_TOOLS_DIR)' '$(BOARD_TOOLS_GROUP)'
 
 .PHONY: prog
 prog: $(BUILD)/board.bin

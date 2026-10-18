@@ -33,6 +33,17 @@ If `/usr/local` or
 `BOARD_TOOLS_DIR` must move to a root-owned prefix. On Linux
 `ICEPROG_SUDO` is empty and nothing changes: `iceprog` comes from `PATH` and `ftread` from `build/`.
 
+## Running the board targets without a password
+
+macOS's `sudo` caches a password per terminal, and a shell with no terminal (an editor's task
+runner, or an agent) never sees that cache. `make install-board-sudoers` writes
+`/etc/sudoers.d/little-cpu`, which lets you run exactly the two root-owned copies above with no
+password and nothing else. It refuses unless both pass the same root-owned check the board targets
+run, writes the rule to a temporary file, has `visudo -cf` accept it, then `sudo install`s it
+root-owned at mode 0440. Probe it with `sudo -n /usr/local/libexec/little-cpu/bin/iceprog --help`;
+`sudo -n true` stays refused. Remove it with `sudo rm /etc/sudoers.d/little-cpu`. One cost: `iceprog -r FILE`
+writes FILE as root, so any process running as you can overwrite a root-owned file through it.
+
 ## Why flashing needs root
 
 Run unprivileged, every libftdi tool reports **zero devices**, even while `ioreg` shows the board.

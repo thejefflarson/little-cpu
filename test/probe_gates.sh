@@ -10369,6 +10369,36 @@ mutate "$d/soc/nist90b_grade.py" 's/        except ValueError:/        except Ze
 probe "a grader that crashes on an unreadable figure is red" 1 \
   "fails without a traceback" "$NGRADE $d"
 
+begin_group "test/board_sudoers_test.sh"
+
+BSUDO="$HERE/board_sudoers_test.sh"
+
+bsudo_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc"
+  cp "$REPO/soc/install_board_sudoers.sh" "$d/soc/"
+  printf '%s' "$d"
+}
+
+d=$(bsudo_fixture)
+probe "control: the sudoers rule installer agrees with its stubs" 0 \
+  "board-sudoers:" "$BSUDO $d"
+
+d=$(bsudo_fixture)
+mutate "$d/soc/install_board_sudoers.sh" 's/^"$VISUDO" -cf "$STAGE" >\/dev\/null || .*$/true/'
+probe "a sudoers rule installed without visudo's check is red" 1 \
+  "a rule visudo rejects was installed" "$BSUDO $d"
+
+d=$(bsudo_fixture)
+mutate "$d/soc/install_board_sudoers.sh" 's/^  p=$("$CHECK" "$DEST\/bin\/$b") || {$/  p="$DEST\/bin\/$b"; true || {/'
+probe "a binary granted without the root-owned check is red" 1 \
+  "fails the root-owned check was granted" "$BSUDO $d"
+
+d=$(bsudo_fixture)
+mutate "$d/soc/install_board_sudoers.sh" '/would misread/d'
+probe "a path that would misparse in sudoers written into the rule is red" 1 \
+  "a path holding a comma" "$BSUDO $d"
+
 begin_group "test/board_tools_test.py" spread
 
 BTOOLS="python3 $HERE/board_tools_test.py"
