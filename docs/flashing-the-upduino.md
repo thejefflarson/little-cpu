@@ -94,3 +94,18 @@ serial port and again after a load, since the volume can return when the board r
 Always pass `--vid 0x1d50 --pid 0x602b` to a hand-run `openFPGALoader -c cmsisdap`, as the make targets do: the bare
 `--detect` failed with "no USB backend available" on 2026-10-17, and the form with the IDs detected the LFE5U-25 on the
 same plug-in.
+
+## Loading without a write, and reading a sparse stream
+
+`iceprog -S` (SRAM) is not usable on the UPduino: it finishes with the FPGA's CDONE low, unconfigured, on
+2026-10-18. `iceprog -t` reads the flash's ID and resets the FPGA around it, so the FPGA configures itself
+from the flash again with nothing written; `soc/entropy_upduino.py` uses it to restart a design a thousand
+times for one flash write. Both tools run through `sudo -n` on the root-owned copies, which is the only
+thing a sudoers rule for the board needs to name.
+
+`ftread` drops most frames of a stream that leaves the line idle between bursts (it kept 28% of a
+15-byte frame every 6.4 ms, with stray bytes ahead of each marker) and keeps nearly all of a stream that
+never idles. `soc/entropy_bit_framer.v` has a `FILL` parameter that sends a zero byte in every idle slot
+for that reason. `ftread` also prints a byte outside 0x20 to 0x7e as `<xx>`, which
+`soc/entropy_upduino.py` decodes. A flash write under a heavily loaded host takes minutes, not the 6 s of
+an idle one; the write must not be interrupted, because the erase has already happened.

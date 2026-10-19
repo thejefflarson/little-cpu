@@ -272,3 +272,8 @@ row is gapless. This is a new measurement of a changed source. The 2^8 pad readi
 collision estimate is the lowest, as it is at 30 MHz, and the pad run reads 0.06 bit under the PLL
 run's 0.803 at the same divide (the slower core clock quantises the same jitter more coarsely). One run of
 each setting is one draw; the 2^8 setting's repeat captures spread by about 0.004.
+
+## Amendment: the UPduino's capture (2026-10-18)
+
+The "SB_LFOSC capture on the UPduino is not taken" above is taken: ADR-0245's amendment of the same date
+holds it. The same method, with the same estimators, reads 0.046 bit for the shipped source there.

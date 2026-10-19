@@ -2,9 +2,11 @@
 `default_nettype none
 // Streams the sample bit rtl/trng.v reads for every edge in 15-byte frames: marker, sequence number,
 // epoch, 64 sample bits and a CRC-16/CCITT-FALSE of the eleven bytes after the marker.
+// With FILL the line never idles: a zero byte is sent whenever there is no frame to send.
 // The epoch counts how many times `running` has dropped, so a reset of the sequence is never a wrap.
 module entropy_bit_framer #(
-  parameter integer CLOCK_HZ = 30_000_000
+  parameter integer CLOCK_HZ = 30_000_000,
+  parameter bit     FILL     = 1'b0
 ) (
   input  logic clk,
   input  logic running,
@@ -93,6 +95,8 @@ module entropy_bit_framer #(
           shift <= {1'b1, 8'hA5, 1'b0}; bits_left <= 4'd10; baud <= '0;
           crc   <= 16'hFFFF;
           state <= HDR1;
+        end else if (FILL && !tx_busy) begin
+          shift <= {1'b1, 8'h00, 1'b0}; bits_left <= 4'd10; baud <= '0;
         end
         HDR1: if (!tx_busy) begin
           shift <= {1'b1, 8'h5A, 1'b0}; bits_left <= 4'd10; baud <= '0;

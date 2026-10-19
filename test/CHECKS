@@ -65,6 +65,7 @@ seed-probe-test | fast | - | - | @all test/seed_probe_test.py soc/ Makefile
 entropy-geometry-test | fast | - | - | @all test/entropy_geometry_test.py soc/ rtl/
 entropy-assess-test | fast | - | - | @all test/entropy_assess_test.py soc/
 entropy-stream-test | fast | - | - | test/entropy_stream_test.py test/entropy_stream_bench.v soc/ Makefile mk/
+entropy-upduino-test | fast | - | - | test/entropy_upduino_test.py soc/ Makefile mk/
 nist90b-grade-test | fast | - | - | @all test/nist90b_grade_test.py soc/ mk/
 board-tools-test | fast | - | - | test/board_tools_test.py soc/ Makefile mk/
 board-verdict-test | fast | - | - | test/board_verdict_test.sh soc/ Makefile
