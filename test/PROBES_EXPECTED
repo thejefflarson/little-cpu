@@ -154,6 +154,7 @@ a capitalised spelling is the same word and is caught too
 a capture divider with a yosys command separator accepted is red
 a capture frame with a wrong trailer accepted is red
 a capture tag with a shell metacharacter accepted is red
+a capture top that breaks the oscillator's port is red
 a capture written in place instead of moved whole into place is red
 a captured file of the wrong size resumed is red
 a carry hop is counted apart from a LUT level
@@ -301,6 +302,7 @@ a fixture that opens its body on the head line is still inspected
 a flash grader that accepts a capture holding only debugger chatter is red
 a flash grader that accepts any FLASH line whatever its id is red
 a flash grader that does not require the SFDP signature is red
+a flash write taken as loaded without VERIFY OK is red
 a floating tool is recorded and never graded, so a new yosys is not STALE
 a floor line matching no stamped pair is red
 a floor line that is neither a number nor EXCLUDED is named
@@ -384,6 +386,7 @@ a linker script promising RAM the harness does not have is red
 a linker script that moves ram off the decoded base is red
 a linker script the Makefile does not link and nothing else names is red
 a littlecpu harness whose core port moved stops rather than tying nothing
+a load into SRAM, which leaves this board unconfigured, is red
 a loader that outlives its limit and reports success is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
@@ -531,6 +534,8 @@ a path walk that reads only the mode bits, not the ACL, is red
 a path walk that trusts a symlinked ancestor unresolved is red
 a path walk that word-splits a directory name is red
 a path with no LUT level at all reports zero rather than dividing by it
+a periodicity limit no pattern can reach is red
+a periodicity scan that reads drift as a repeating pattern is red
 a peripheral inside the timer's reserved span is red
 a pin file that does not exist is refused, not read as absent-is-fine
 a pin that makes another check read rvfi_intr is red
@@ -575,11 +580,13 @@ a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ
 a raw sed -i outside mutate/mutate_remove is red, naming the line
 a reached line whose wording hides its step is exit 2, not a tie of nothing
 a reached line whose wording hides its step stops rather than switching the tie off
+a reader that leaves ftread's escapes undecoded is red
 a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
 a reason dropped from the decoder's own composition is red, and named
 a recipe file no input pattern claims is red, and named
+a reboot that does not read the flash is red
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a recipe running a script git records as 100644 is red, and located
 a red that is not a structural difference is not the red this probe wants
@@ -1137,6 +1144,7 @@ control: the Dhrystone report's lines all pass the stamp check
 control: the ECP5 arm reads its own fabric's two cell names
 control: the LR/SC build's bench is the stock bench but for the core's module name
 control: the MUL constant-latency assertion fails at its own line
+control: the UPduino capture path decodes ftread's text, finds a period and writes the flash
 control: the Zkt-isolation assertion fails at its own line
 control: the arm proves for the shipping core and fails on both values
 control: the authors' examples agree with the build file

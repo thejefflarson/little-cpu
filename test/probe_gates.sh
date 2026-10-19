@@ -10404,6 +10404,58 @@ mutate "$d/soc/install_board_sudoers.sh" 's/^printf .%s\\n. "$RULE" | "$SUDO" te
 probe "a rule staged in a user-writable file before the install is red" 1 \
   "swapped the rule between" "$BSUDO $d"
 
+begin_group "test/entropy_upduino_test.py"
+
+EUP="python3 $HERE/entropy_upduino_test.py"
+
+eup_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/test"
+  cp "$REPO"/soc/entropy_upduino.py "$REPO"/soc/entropy_stream.py "$REPO"/soc/entropy_assess.py \
+     "$REPO"/soc/board_read.py "$REPO"/soc/board_port.py "$REPO"/soc/entropy_capture_upduino.v \
+     "$REPO"/soc/entropy_interval_capture.v "$REPO"/soc/entropy_bit_framer.v "$REPO"/soc/miso_share_enable.v "$d/soc/"
+  printf '%s' "$d"
+}
+
+d=$(eup_fixture)
+probe "control: the UPduino capture path decodes ftread's text, finds a period and writes the flash" 0 \
+  "entropy-upduino:" "$EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/    return ESCAPED.sub(lambda m: bytes(\[int(m.group(1), 16)\]), data)/    return data/'
+probe "a reader that leaves ftread's escapes undecoded is red" 1 \
+  "every byte value survives ftread's text form" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/^PROMINENCE_LIMIT = 0.02$/PROMINENCE_LIMIT = 2.0/'
+probe "a periodicity limit no pattern can reach is red" 1 \
+  "a pattern repeating every seven samples stands out" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/        prominence = match\[lag\] - near\[len(near) \/\/ 2\]/        prominence = match[lag] - 0.5/'
+probe "a periodicity scan that reads drift as a repeating pattern is red" 1 \
+  "a bias that drifts slowly is not a repeating pattern" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/sudo(\[iceprog, bit\], LOAD_S)/sudo([iceprog, "-S", bit], LOAD_S)/'
+probe "a load into SRAM, which leaves this board unconfigured, is red" 1 \
+  "the load writes the flash" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/        if status == 0 and b"VERIFY OK" in out + err:/        if status == 0:/'
+probe "a flash write taken as loaded without VERIFY OK is red" 1 \
+  "a flash write that never says VERIFY OK is not a load" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/sudo(\[iceprog, "-t"\], 60)/sudo([iceprog, "-S"], 60)/'
+probe "a reboot that does not read the flash is red" 1 \
+  "a reboot is a status-zero iceprog -t" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_capture_upduino.v" 's/\.CLKLF(lfosc_out)/.CLKLFX(lfosc_out)/'
+probe "a capture top that breaks the oscillator's port is red" 1 \
+  "the capture top elaborates warning-free" "$EUP $d"
+
 begin_group "test/board_tools_test.py" spread
 
 BTOOLS="python3 $HERE/board_tools_test.py"

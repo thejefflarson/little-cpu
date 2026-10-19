@@ -19,12 +19,15 @@ NIST_90B_BIN := $(NIST_90B_DIR)/bin
 nist90b-setup:
 	@./soc/nist90b_setup.sh '$(NIST_90B_COMMIT)' '$(NIST_90B_SHA256)' '$(NIST_90B_DIR)' '$(SAIL_DOWNLOAD_DIR)'
 
-.PHONY: nist90b-grade-test entropy-stream-test
+.PHONY: nist90b-grade-test entropy-stream-test entropy-upduino-test
 nist90b-grade-test:
 	@python3 ./test/nist90b_grade_test.py
 
 entropy-stream-test:
 	@python3 ./test/entropy_stream_test.py
+
+entropy-upduino-test:
+	@python3 ./test/entropy_upduino_test.py
 
 ENTROPY_NIST_RESTARTS ?= 1000
 ENTROPY_NIST_SAMPLES  ?= 1000000
@@ -48,3 +51,15 @@ entropy-nist-pad: nist90b-setup
 	$(call entropy_nist_run,pad,1)
 
 entropy-nist: entropy-nist-pll entropy-nist-pad
+
+ENTROPY_UPDUINO_OSC  ?= internal
+ENTROPY_UPDUINO_FAB  ?= 0
+ENTROPY_UPDUINO_LOCK ?= $(TOOL_CACHE)/upduino.lock
+
+.PHONY: entropy-nist-upduino
+entropy-nist-upduino: nist90b-setup
+	@soc/icelink_eject.sh
+	@python3 soc/entropy_nist.py --board upduino --tag upduino_$(ENTROPY_UPDUINO_OSC)_f$(ENTROPY_UPDUINO_FAB) \
+	  --osc $(ENTROPY_UPDUINO_OSC) --fab-log2 $(ENTROPY_UPDUINO_FAB) --out '$(ENTROPY_NIST_OUT)' \
+	  --bin '$(NIST_90B_BIN)' --samples $(ENTROPY_NIST_SAMPLES) --restarts $(ENTROPY_NIST_RESTARTS) \
+	  --floor $(ENTROPY_NIST_FLOOR) --lock '$(ENTROPY_UPDUINO_LOCK)' $(if $(ENTROPY_NIST_RESUME),--resume)
