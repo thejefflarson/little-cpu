@@ -578,7 +578,7 @@ top, ECP5 only.
 - **The UPduino board top is a fifth design, and `make board-timing` places it** (ADR-0255).
   `littlesoc` placing says nothing about `upduino_top`: the wrapper's tie-offs and instance names move
   its mapped count by 40 to 70 cells, and it stopped placing at 5,306 of 5,280 for as long as no job
-  placed it. Its synthesis takes `-abc2`, a second ABC pass that maps about 70 cells fewer and costs
+  placed it. Its synthesis runs a second ABC pass (`abc; ice40_opt` spelled out before `map_luts`, because yosys 0.70 removed `-abc2`) that maps about 70 cells fewer and costs
   `littlesoc` about 6% of its median Fmax, so the SoC stays on one pass. Placed: 5,207 cells, 12.57 MHz
   at the default seed, worst of thirteen draws 12.05.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
@@ -903,7 +903,7 @@ make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ. W
                     # (soc/timing_sweep.sh runs four) bypasses the pin
 make board-timing   # the UPduino top (soc/board_upduino.v) placed and timed at the default
                     # seed against SOC_MIN_MHZ; the soc-timing CI job runs it. Its synthesis
-                    # takes -abc2, which littlesoc's does not (ADR-0255)
+                    # runs a second ABC pass that littlesoc's does not (ADR-0255)
 make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entropy seeds
                     # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.
                     # SOC_SEARCH_SEEDS overrides the seed list, SOC_SEARCH_COUNT the

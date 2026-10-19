@@ -1499,7 +1499,7 @@ board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)
 
 $(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) | $(BUILD)
 	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: $(BUILD)/board.synth.log)'
-	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); synth_ice40 -device u -dsp -spram -abc2 -top $(BOARD_TOP) -json $@' \
+	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -run :map_luts; abc; ice40_opt; synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@ -run map_luts:' \
 	  > $(BUILD)/board.synth.log 2>&1 || { tail -40 $(BUILD)/board.synth.log; exit 1; }
 	@python3 soc/cell_census.py $(BUILD)/board.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
 	  "the board wrapper changed how rtl/memory.v maps -- the SoC underneath it is the same design"

@@ -26,7 +26,7 @@ target is inside the noise. `rtl/trng.v` offered no saving to spend: widening `t
 `samples[0]` for `have`) synthesised alone to 96 `SB_LUT4` against 95, and `have` alone was 19 cells
 worse on the board top at one name.
 
-**A second ABC pass is a real saving.** `synth_ice40 -abc2` packs the board top at 5,190 to 5,225 over
+**A second ABC pass is a real saving.** `synth_ice40 -abc2` (see the amendment below for how it is spelled) packs the board top at 5,190 to 5,225 over
 six instance names (mean 5,208), against 5,279 for one pass: 71 cells, with the whole spread under
 the part. It removes no logic the design needs. Placed, `upduino_top` reads 5,207 cells at the default
 seed and 12.57 MHz.
@@ -40,7 +40,7 @@ needs the area.
 
 ## Decision
 
-1. `$(BUILD)/board.json` synthesises with `-abc2`. `littlesoc` does not.
+1. `$(BUILD)/board.json` synthesises with a second ABC pass. `littlesoc` does not.
 2. `make board-timing` places the board top (`BOARD_PNR`, default seed) and grades the `icetime`
    report against `SOC_MIN_MHZ` through `soc/timing_split.py`, the reader `make soc-timing` uses. A
    placement failure removes the stale `.asc` and report and fails with "NOTHING was measured".
@@ -73,3 +73,12 @@ edit under it, the same condition ADR-0171 records for the SoC.
   move the count by tens of cells, and the gate reports it.
 - Not taken: removing or weakening any Zkr health test, `mseccfg`, or any other feature. The pure
   respellings tried did not move the count outside its own noise.
+
+## Amendment: the flag is gone in yosys 0.70, so the passes are spelled out
+
+CI's runner has yosys 0.70+157, whose `synth_ice40` has no `-abc2`: the first CI run of
+`make board-timing` printed the usage text and failed in synthesis. The recipe now runs the script
+in two halves, `synth_ice40 ... -run :map_luts`, then `abc; ice40_opt`, then `synth_ice40 ...
+-run map_luts:`, which are exactly the two commands 0.68 ran under `-abc2` ahead of `map_luts`. On
+0.68 the spelled-out form gives a netlist identical to the flag's (same JSON), so 5,207 cells and
+the 12.57 MHz default-seed reading stand. The count on 0.70 is whatever the CI job log prints.
