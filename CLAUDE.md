@@ -319,10 +319,13 @@ longer 2^9 period reads 0.810 and its restart test 0.803, so min is 0.803, and w
 `test/entropy_geometry_test.py` holds the period between 3,000 cycles and 80% of the edge timeout,
 and a divide of 2^7 measured 0.28 and tripped the proportion test, so the period is not a free
 parameter. The UPduino's `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
-(~10 kHz, a hard macro costing no cell) and has **no capture yet**: its sample bits, fold depth and
-claimed 0.5 bit per sample are unmeasured, and `soc/entropy_assess.py` is the method that settles
-them. An `entropy_raw` held low, as every formal harness and the dual top hold it, reads DEAD,
-which is spec-honest. **Zkr is in the ISA string**, `_zkr` at all seven sites `test/march_test.sh`
+(10.004 kHz, 1,199.5 cycles per edge at 12 MHz, a hard macro costing no cell) and **fails the 0.5 bit**:
+NIST's `ea_non_iid` reads 0.0459 on a million samples, 895 of 1,953 proportion windows would set DEAD,
+and the sample bit follows a slow drift of the oscillator against the clock rather than its jitter. A
+fabric divide of 2^2 reads 0.437, 2^3 reads 0.705 (9,591 cycles, past the 8,192-cycle edge timeout) and
+2^4 reads 0.809; no periodic lock shows at the shipped setting (ADR-0245, amended 2026-10-18). Only the
+`SB_HFOSC` clock could be measured, because this board's crystal jumper is open. An `entropy_raw` held low, as every formal harness and the dual
+top hold it, reads DEAD, which is spec-honest. **Zkr is in the ISA string**, `_zkr` at all seven sites `test/march_test.sh`
 grades. `mseccfg` (0x747) and `mseccfgh` (0x757) read zero and
 ignore writes: Zkr adds the SSEED and USEED fields, which the Zkr text allows to be read-only zero,
 and M-mode access to `seed` is unconditional. Both addresses are implemented because the privileged
@@ -936,6 +939,11 @@ make entropy-nist-pll # the shipped seed source on the board: 1M consecutive sam
                     # 85 minutes, needs the board, off `make test`; entropy-nist-pad is the 25 MHz-pad
                     # setting, entropy-nist both. ENTROPY_NIST_LOCK (default ~/.cache/little-cpu/icesugar.lock,
                     # held for each board access), ENTROPY_NIST_RESUME
+make entropy-nist-upduino # the UPduino's SB_LFOSC on the board: flash a core-less capture, 1M samples,
+                    # ea_non_iid, a reboot matrix, ea_restart, graded against 0.5. ENTROPY_UPDUINO_FAB
+                    # is the fabric divide (log2), ENTROPY_UPDUINO_OSC the clock; holds the board lock
+                    # for the whole matrix, hours. soc/entropy_upduino.py intervals|periodic are the
+                    # interval capture and the repeating-pattern scan. Needs the board, off `make test`
 make icesugar-clock-check # load soc/clock_check.S, time its `T` lines on the host and fail when
                     # the mean interval is outside ICESUGAR_CLOCK_PPM (1000) of the board's CORE_HZ;
                     # 30.0035 MHz, +116 ppm over 11 intervals when taken. Needs the board

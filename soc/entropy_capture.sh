@@ -9,7 +9,7 @@ if [ "$#" -ne 4 ] && [ "$#" -ne 5 ]; then
   exit 2
 fi
 TAG=$1; DIV=$2; FAB=$3; PAD=$4
-SRCS=soc/entropy_capture_icesugar_pro.v; TOP=entropy_capture_icesugar_pro
+SRCS="soc/entropy_capture_icesugar_pro.v soc/entropy_interval_capture.v"; TOP=entropy_capture_icesugar_pro
 case ${5-} in
   '') ;;
   stream) SRCS="soc/entropy_stream_icesugar_pro.v soc/entropy_bit_framer.v"; TOP=entropy_stream_icesugar_pro;;

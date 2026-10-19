@@ -33,6 +33,25 @@ If `/usr/local` or
 `BOARD_TOOLS_DIR` must move to a root-owned prefix. On Linux
 `ICEPROG_SUDO` is empty and nothing changes: `iceprog` comes from `PATH` and `ftread` from `build/`.
 
+## Running the board targets without a password
+
+macOS's `sudo` caches a password per terminal, and a shell with no terminal (an editor's task
+runner, or an agent) never sees that cache. `make install-board-sudoers` writes
+`/etc/sudoers.d/little-cpu`, which lets you run the two root-owned copies above with no password,
+with any arguments. It refuses unless both pass the same root-owned check the board targets run. The
+rule never sits in a file you can write: it is piped into a root-owned file in `/etc/sudoers.d`,
+named with a dot so sudo ignores it until it is moved into place, and `visudo -cf` checks that
+file before `mv` installs it at mode 0440. Probe it with
+`sudo -n /usr/local/libexec/little-cpu/bin/iceprog --help`; `sudo -n true` stays refused. Remove
+it with `sudo rm /etc/sudoers.d/little-cpu`.
+
+**The rule is root-equivalent for any process running as you.** sudo cannot restrict the
+arguments, and `iceprog` takes a path: `iceprog -r FILE` writes FILE as root, and `iceprog FILE`
+reads FILE as root and writes it to the board's flash, where `-r` can read it back. So the rule
+removes the password between your account and root. It does not add a separate privilege boundary.
+Install it only on a machine where that trade is acceptable, and remove it when the board work is
+done.
+
 ## Why flashing needs root
 
 Run unprivileged, every libftdi tool reports **zero devices**, even while `ioreg` shows the board.
@@ -75,3 +94,18 @@ serial port and again after a load, since the volume can return when the board r
 Always pass `--vid 0x1d50 --pid 0x602b` to a hand-run `openFPGALoader -c cmsisdap`, as the make targets do: the bare
 `--detect` failed with "no USB backend available" on 2026-10-17, and the form with the IDs detected the LFE5U-25 on the
 same plug-in.
+
+## Loading without a write, and reading a sparse stream
+
+`iceprog -S` (SRAM) is not usable on the UPduino: it finishes with the FPGA's CDONE low, unconfigured, on
+2026-10-18. `iceprog -t` reads the flash's ID and resets the FPGA around it, so the FPGA configures itself
+from the flash again with nothing written; `soc/entropy_upduino.py` uses it to restart a design a thousand
+times for one flash write. Both tools run through `sudo -n` on the root-owned copies, which is the only
+thing a sudoers rule for the board needs to name.
+
+`ftread` drops most frames of a stream that leaves the line idle between bursts (it kept 28% of a
+15-byte frame every 6.4 ms, with stray bytes ahead of each marker) and keeps nearly all of a stream that
+never idles. `soc/entropy_bit_framer.v` has a `FILL` parameter that sends a zero byte in every idle slot
+for that reason. `ftread` also prints a byte outside 0x20 to 0x7e as `<xx>`, which
+`soc/entropy_upduino.py` decodes. A flash write under a heavily loaded host takes minutes, not the 6 s of
+an idle one; the write must not be interrupted, because the erase has already happened.
