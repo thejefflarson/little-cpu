@@ -137,6 +137,7 @@ a baselined upstream file that stopped mentioning it is red
 a bench in test/ that make does not run is named
 a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
 a benchmark this artifact never recorded is refused, not read as fresh
+a binary granted without the root-owned check is red
 a bitstream the placer never finished writing is not a placement
 a block RAM read through its own reset is refused
 a block short of a tool is named, not summarised around
@@ -522,6 +523,7 @@ a part with no cell-name row is refused rather than defaulted
 a part with no icetime walk reads NA rather than a fabricated zero
 a partial pin missing required fields is not a pin
 a path that does not reconcile blames the script, not the design
+a path that would misparse in sudoers written into the rule is red
 a path walk that accepts a getfacl that printed nothing is red
 a path walk that reads a failed Darwin ACL read as no ACL is red
 a path walk that reads an unreadable ACL as no ACL is red
@@ -669,6 +671,7 @@ a row the Makefile no longer lists is red, and named
 a row whose period is not a number stops the read
 a row with no placement behind it stops the read, not just that seed
 a row's number duplicated onto a different, real file is named
+a rule staged in a user-writable file before the install is red
 a run reporting no retire count at all is graded NO-COUNTS
 a run that counts the previous design's frames before the port goes silent is red
 a run that ignores the epoch and takes a reset for a wrap is red
@@ -757,6 +760,7 @@ a stray comma in a connection list is named as one
 a stray file named after the check-solver target does not skip the guard
 a stubbed file:line warning is red
 a substituted, non-archive download is refused for every file, not silently skipped
+a sudoers rule installed without visudo's check is red
 a suite runner loading before it ejects is red
 a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything
@@ -1193,6 +1197,7 @@ control: the shipping tree states every band figure in one place
 control: the shipping trng passes its own bench
 control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
 control: the stamped compiler name and pinned version agree
+control: the sudoers rule installer agrees with its stubs
 control: the tracked monitor sanitizes, and rule 3 fires
 control: two identical netlists are equal
 control: two identical snapshots print a null delta and no news
