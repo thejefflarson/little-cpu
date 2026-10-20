@@ -1503,21 +1503,32 @@ board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)
 
 $(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) | $(BUILD)
 	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: $(BUILD)/board.synth.log)'
-	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@' \
+	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -run :map_luts; abc; ice40_opt; synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@ -run map_luts:' \
 	  > $(BUILD)/board.synth.log 2>&1 || { tail -40 $(BUILD)/board.synth.log; exit 1; }
 	@python3 soc/cell_census.py $(BUILD)/board.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
 	  "the board wrapper changed how rtl/memory.v maps -- the SoC underneath it is the same design"
 
+BOARD_PNR := nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF)
+
 $(BUILD)/board.asc: $(BUILD)/board.json $(BOARD_PCF)
 	@echo 'nextpnr: placing $(BOARD_TOP) on up5k/sg48 (log: $(BUILD)/board.pnr.log)'
-	@rm -f $@
-	@status=0; nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF) --json $< \
+	@rm -f $@ $(BUILD)/board.timing.rpt
+	@status=0; $(BOARD_PNR) --json $< \
 	  --asc $@ > $(BUILD)/board.pnr.log 2>&1 || status=$$?; \
 	sh soc/pnr_check.sh 'make bitstream' "$$status" $(BUILD)/board.pnr.log $@
 
 $(BUILD)/board.bin: $(BUILD)/board.asc
 	@icepack $< $@
 	@echo "$(BUILD)/board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
+
+BOARD_ICETIME := icetime
+
+.PHONY: board-timing
+board-timing: $(BUILD)/board.asc
+	@sed -n '/^Info: Device utilisation:/,/^$$/s/^Info: //p' $(BUILD)/board.pnr.log
+	@$(BOARD_ICETIME) -d up5k -P sg48 -t -r $(BUILD)/board.timing.rpt $(BUILD)/board.asc \
+	  > $(BUILD)/board.icetime.log 2>&1 || { cat $(BUILD)/board.icetime.log; exit 1; }
+	@python3 soc/timing_split.py $(BUILD)/board.timing.rpt --min-mhz $(SOC_MIN_MHZ)
 
 .PHONY: bitstream
 bitstream: $(BUILD)/board.bin

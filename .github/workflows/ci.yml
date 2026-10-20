@@ -412,7 +412,7 @@ jobs:
   soc-timing:
     name: soc-timing
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -446,6 +446,23 @@ jobs:
             echo "\`soc/baseline_sweep.sh\` stamps a sweep with, so a placement here"
             echo "and one in a sweep can be told apart from a toolchain that moved"
             echo "under both."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: make board-timing
+        run: |
+          set +e
+          make board-timing > "$RUNNER_TEMP/board-timing.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/board-timing.txt"
+          {
+            echo "### board timing"
+            echo '```'
+            cat "$RUNNER_TEMP/board-timing.txt"
+            echo '```'
+            echo "The UPduino top (\`upduino_top\`) placed and timed against the same"
+            echo "\`SOC_MIN_MHZ\`. \`littlesoc\` alone can place while the board top does not."
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 

@@ -468,7 +468,7 @@ bench.
 
 ## Measurements and ratchets
 
-Three instruments, four designs — never merge their numbers. `make fit` is the core alone (its top
+Three instruments, five designs — never merge their numbers. `make fit` is the core alone (its top
 never places: 231 `SB_IO` against sg48's 39, expected); `make soc-timing` is the SoC, which places
 and times; `make ecp5-timing` is that SoC on the other part; `make dual-ecp5-timing` is the dual
 top, ECP5 only.
@@ -578,6 +578,12 @@ top, ECP5 only.
   `mem_wdata` for every issuing instruction, so ORed across two harts it lost most of a smoke
   program's counted increments, invisibly to a bus-exclusivity check (ADR-0125). Read the
   producer's idle behaviour before joining two of anything.
+- **The UPduino board top is a fifth design, and `make board-timing` places it** (ADR-0255).
+  `littlesoc` placing says nothing about `upduino_top`: the wrapper's tie-offs and instance names move
+  its mapped count by 40 to 70 cells, and it stopped placing at 5,306 of 5,280 for as long as no job
+  placed it. Its synthesis runs a second ABC pass (`abc; ice40_opt` spelled out before `map_luts`, because yosys 0.70 removed `-abc2`) that maps about 70 cells fewer and costs
+  `littlesoc` about 6% of its median Fmax, so the SoC stays on one pass. Placed: 5,207 cells, 12.57 MHz
+  at the default seed, worst of thirteen draws 12.05.
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide; when it trips, fix the design.
   **The step above is 24** (`SB_HFOSC` gives 48 / 24 / 12 / 6), so the target for Fmax work is
@@ -898,6 +904,9 @@ make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ. W
                     # SOC_SEED override this grades the pinned placement (soc/pin.json,
                     # ADR-0171), PIN STALE on a source change. An explicit SOC_SEED
                     # (soc/timing_sweep.sh runs four) bypasses the pin
+make board-timing   # the UPduino top (soc/board_upduino.v) placed and timed at the default
+                    # seed against SOC_MIN_MHZ; the soc-timing CI job runs it. Its synthesis
+                    # runs a second ABC pass that littlesoc's does not (ADR-0255)
 make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entropy seeds
                     # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.
                     # SOC_SEARCH_SEEDS overrides the seed list, SOC_SEARCH_COUNT the
@@ -1214,7 +1223,7 @@ not sufficient.
 
 With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,549 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
 soc-timing` places at 5,265 of 5,280 `ICESTORM_LC` (99.7%), with sixteen paired seeds at 12.33–13.54 MHz (median 13.01; the same sixteen on the 5,209-cell tree read 12.27–13.30, median 12.91) and
-`soc/pin.json` holding seed 156842832 at 13.50 MHz, 12.50% over the requirement, from a twelve-seed search on this tree (12.44–13.50 MHz, median 13.04) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken).
+`soc/pin.json` holding seed 156842832 at 13.50 MHz, 12.50% over the requirement, from a twelve-seed search on this tree (12.44–13.50 MHz, median 13.04) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,207 cells and 12.57 MHz (ADR-0255).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
