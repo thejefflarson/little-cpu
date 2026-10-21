@@ -960,11 +960,11 @@ $(BUILD)/fit.json: $(FIT_SRCS) $(ICE40_ABC9) | $(BUILD)
 	@yosys -p 'read_verilog -sv $(FIT_SRCS); scratchpad -set abc9.script $(ICE40_ABC9); synth_ice40 -dsp -top littlecpu -json $@' \
 	  > $(BUILD)/fit.synth.log 2>&1 || { tail -40 $(BUILD)/fit.synth.log; exit 1; }
 
-# 4586 = 4492 + 40 + 54: this tree's local count (the job's is not yet measured, and the local
-# one was the higher on the tree before), the churn band and the toolchain gap of ADR-0220.
-FIT_MAX_LC := 4586
+# 4462 = 4422 + 40: the `fit` job's own count on yosys 0.70 and the churn band; the local count
+# reads 9 lower, so a local run sits inside it.
+FIT_MAX_LC := 4462
 
-FIT_LAST_LC := 4332
+FIT_LAST_LC := 4422
 
 FIT_TOOLS := yosys nextpnr-ice40
 

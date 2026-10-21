@@ -163,6 +163,11 @@ the worst seed was better in both and the median moved from a null to +2.7%, whi
 3.6% churn band, so the claim is the 88 cells and a worst seed no worse. The core alone (`make fit`,
 local) went 4,549 to 4,432 cells before the timeout change.
 
+**CI, yosys 0.70.** `littlesoc` packs at 5,198 of 5,280 and places at 13.45 MHz at the pinned seed
+(`soc-timing`); the board top at 5,144 and 12.44 MHz at the default seed; the core alone at 4,422
+(`fit`). `FIT_MAX_LC` is 4,462, the job's count plus the 40-cell churn band, replacing the
+local-plus-gap spelling since the job now reads higher than a local run by only 9.
+
 **ECP5 stays on `synth_ecp5`'s default.** Sixteen paired seeds (1 to 16, `--25k --package CABGA381
 --speed 6`, 200 MHz constraint, yosys 0.68+48, `littlesoc` on `main` before the timeout change) on the
 default against the stronger script with ECP5's own `-W 300`: default worst 37.30, median 38.86, best
