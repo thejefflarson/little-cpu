@@ -7963,7 +7963,7 @@ probe "a repo root that does not exist is red before anything is read" 1 \
 
 d=$(wr_fixture); mutate "$d/.github/workflows/riscv-formal-pin-bump.yml" 's/runs-on: little-cpu-runners/runs-on: ubuntu-latest/'
 probe "a job left on ubuntu-latest is red, and named" 1 \
-  "riscv-formal-pin-bump.yml:16: runs-on 'ubuntu-latest' is not little-cpu-runners" "$WR $d"
+  "(check-and-bump): runs-on 'ubuntu-latest' is not little-cpu-runners" "$WR $d"
 
 d=$(wr_fixture); mutate "$d/.github/workflows/adr-collision-check.yml" "s/runs-on: .*/runs-on: little-cpu-runners/"
 probe "a pull-request workflow naming the pool bare is red" 1 \

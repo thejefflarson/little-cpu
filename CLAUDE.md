@@ -1145,8 +1145,10 @@ on every PR (`.github/workflows/ci.yml`); read the required set live from
 `gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments. **Every
 workflow job runs on `little-cpu-runners`**; `ubuntu-latest` appears only as the fallback arm of
 the fork-PR expression (a fork's code must never run on the pool, so a pull-request workflow
-names the pool through that expression and never bare), or in a workflow listed in
-`test/workflow_runner_test.py`'s `EXCEPTIONS` with a written reason, which `make test` grades.
+names the pool through that expression and never bare), or in a job listed in
+`test/workflow_runner_test.py`'s `EXCEPTIONS` with a written reason, which `make test` grades; the
+one exception today is `compare-product-schedule.yml`'s `publish`, the only job holding write
+scopes, kept off the pool its measurement tools run on (ADR-0233).
 The runners are self-hosted ARC pods declared in the sibling `cluster` repo (`argocd/apps/runners.yaml`,
 `charts/actions/runners/values.yaml`): read their CPU and memory limits there, and record the date
 a decision was measured against them. `nproc` and `free` inside a pod report the host.

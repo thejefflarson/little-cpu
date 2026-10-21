@@ -1,0 +1,2235 @@
+checks[full]: 76 checks, 76 to run (skipping is off), 10 jobs
+ok   nano-tt-area-workflow-test  (1s)
+ok   nano-qspi-window-test  (1s)
+ok   gen-inputs  (2s)
+ok   dual-build  (2s)
+ok   macro-register-test  (2s)
+ok   board-elaborate  (2s)
+ok   nano-timer-test  (4s)
+ok   nano-qspi-latency-test  (4s)
+ok   nano-memmap-test  (4s)
+ok   nano-tt-test  (6s)
+ok   nano-stale-build-test  (7s)
+ok   zkt-isolation-test  (1s)
+ok   pin-bump-test  (2s)
+ok   pin-bump-token-test  (1s)
+FAIL compare-product-schedule-token-test  (1s)
+*** the publish job does not run on ubuntu-latest, so the one job holding write scopes shares the self-hosted pool with the tools.
+make[1]: *** [compare-product-schedule-token-test] Error 1
+---- compare-product-schedule-token-test exited 2
+ok   window-test  (10s)
+ok   tool-cache-test  (2s)
+ok   riscv-gcc-pin-test  (2s)
+ok   riscv-gcc-search-test  (3s)
+ok   memmap-test  (3s)
+ok   adr-numbering-test  (1s)
+ok   hazard3-config-test  (1s)
+ok   compare-geometry-test  (2s)
+ok   vexriscv-path-test  (1s)
+ok   compare-doc-test  (2s)
+ok   imem-share-test  (17s)
+ok   port-connect-test  (3s)
+ok   retired-term-test  (5s)
+ok   tmp-path-test  (1s)
+ok   march-test  (3s)
+ok   exec-mode-test  (1s)
+ok   compare-product-schedule-publish-test  (15s)
+ok   fixture-freshness-test  (1s)
+ok   tracked-ignored-test  (2s)
+ok   test-units  (24s)
+ok   mutation-coverage-test  (4s)
+ok   band-source-test  (6s)
+ok   lut4-site-test  (3s)
+ok   pll-clock-test  (1s)
+ok   seed-probe-test  (1s)
+ok   figure-stamp-test  (8s)
+ok   entropy-geometry-test  (2s)
+ok   entropy-assess-test  (2s)
+ok   nist90b-grade-test  (2s)
+ok   comment-density-test  (9s)
+ok   mutation-probe  (32s)
+ok   icelink-eject-test  (7s)
+ok   board-tools-test  (3s)
+ok   ill-e-wiring-test  (2s)
+ok   probes-header-test  (2s)
+ok   board-sudoers-test  (5s)
+ok   stall-sites-test  (2s)
+ok   nano-sim  (39s)
+ok   formal-ci-coverage-test  (2s)
+ok   pin-help-text-test  (2s)
+ok   dhry-board-parity-test  (5s)
+ok   nano-startup-test  (2s)
+ok   workflow-runner-test  (1s)
+ok   yosys-script-oneline-test  (1s)
+ok   memcheck-depth-test  (1s)
+ok   abc-engine-test  (3s)
+ok   nano-qspi-loop-run  (47s)
+ok   makefile-target-test  (2s)
+ok   nano-littlecpu-test  (13s)
+ok   checks-manifest-test  (9s)
+ok   entropy-upduino-test  (33s)
+ok   nano-qspi-control-test  (25s)
+ok   board-verdict-test  (38s)
+ok   entropy-stream-test  (50s)
+ok   checks-test  (41s)
+ok   sim  (103s)
+ok   suite-test  (17s)
+ok   nano-test  (90s)
+ok   nano-qspi-pins-test  (140s)
+ok   nano-qspi-loop-probe  (457s)
+FAIL probe-gates  (724s)
+
+== test/check_suite_shape.sh
+  ok   control: a suite matching its manifest is green
+  ok   wrong argument count is a usage error, not a silent pass
+  ok   a missing asm directory is named
+  ok   a mistyped manifest path cannot yield an empty expected set
+  ok   an empty manifest matches an empty suite and is rejected
+  ok   a manifest entry that names no program is a typo, not a phantom
+  ok   a duplicated manifest line would make comm non-symmetric
+  ok   an empty asm directory is red rather than a suite of size zero
+  ok   a SHRUNK suite: the manifest names a program the tree does not have
+  ok   a SHRUNK suite is caught when the missing program is the C one
+  ok   the other direction: a .S that landed without a manifest line
+  ok   the other direction for a .c: the glob has to see it too
+  (2s)
+
+== nano/tb/nano_elaborate_strict.sh
+  ok   control: a clean module elaborates with zero promoted warnings
+  ok   an implicit net, which yosys check reports as undriven, is red and shown
+  ok   a yosys that fails outright is red before warnings are graded
+  ok   a file-located frontend warning with no bare-prefixed echo is red
+  ok   the deep-recursion notice alone is allowlisted
+  ok   any other warning beside the allowlisted one is still red
+  ok   a stubbed file:line warning is red
+  (3s)
+
+== nano_qspi_memory.v's own accounting identity (real build)
+  (1s)
+
+== formal/check-baseline.sh
+  ok   control: a full-pass check set against an empty baseline is green
+  ok   wrong argument count is exit 2 -- the inputs are broken, not the checks
+  ok   a missing baseline file is exit 2, not an empty expected set
+  ok   an UNREADABLE baseline is refused, not read as an empty one
+  ok   and the same for the check-set baseline
+  ok   a check set that was never generated is exit 2, not zero checks passing
+  ok   a pre-ADR-0036 one-field baseline line is named, not half-matched
+  ok   a status sby cannot produce is rejected at format time
+  ok   PASS in a failure set is a comparison whose only branch is failure
+  ok   baselining ERROR would re-create the btorsim hole with this gate's blessing
+  ok   NO-STATUS is a broken harness and is not baselineable either
+  ok   sby's trailing engine numbers are not part of the status
+  ok   a check that went red is red here
+  ok   control: a baselined red check at the baselined status is green
+  ok   still red, but for a DIFFERENT reason: FAIL baselined, ERROR on disk
+  ok   control: TIMEOUT is a real verdict and IS baselineable
+  ok   a generated check that was never scheduled resolves to NO-STATUS
+  ok   a check that APPEARED needs a line -- the shape check runs both ways
+  ok   a lost [depth] line trips the shape check AND the verdict check
+  ok   a status sby has never written here is reported on its own
+  (3s)
+
+== soc/baseline_sweep.sh
+  ok   a part this repo does not place stops the sweep before any placement
+  ok   an empty seed list stops the sweep instead of placing the default
+  ok   control: a clean sweep on the same toolchain resumes and skips a placed seed
+  ok   a sweep placed by another toolchain is started afresh, not resumed
+  ok   a dirty tree never resumes, since its base names no placed content
+  (3s)
+
+== soc/cell_census.py
+  ok   control: a count matching the declaration is green
+  ok   the wrong count is named against the log's real one
+  ok   a cell type the log never mentions reads as zero, not a crash
+  ok   a census under the other gate names that gate, not the ice40 one
+  ok   and points at that flow's own declaration
+  (1s)
+
+== test/trng_tb.v
+  (0s)
+
+== test/tool_cache_test.sh
+  ok   control: agreeing paths outside the checkout are green
+  ok   the Makefile and test/cosim.py drifting apart is red
+  ok   a Sail install back inside the checkout is red
+  ok   an svlint install inside the checkout is red on its own
+  ok   the Sail download directory inside the checkout is red on its own
+  ok   the nano liberty install directory inside the checkout is red on its own
+  ok   the riscv-gcc install directory inside the checkout is red on its own
+  ok   the SP 800-90B install directory inside the checkout is red on its own
+  ok   a relative install directory is red before it is compared
+  (2s)
+
+== test/memmap_test.sh
+  ok   the harness giving the UART its own baud rate is red
+  ok   the cxxrtl runner's kRamBase drifting is red
+  ok   a UART base off its own window is red
+  ok   the SPI controller moving in the proof's copy alone is red
+  ok   a RAM half the size in the core's copy is red
+  ok   the timer moving in the proof's copy alone is red
+  (8s)
+
+== test/board_verdict_test.sh
+  ok   a root-binary check that skips the libraries it loads is red (22s)
+  ok   a flash grader that accepts any FLASH line whatever its id is red (31s)
+  ok   a board suite that sudo-runs a path the check did not resolve is red (26s)
+  ok   a path walk that accepts a getfacl that printed nothing is red (26s)
+  (107s)
+
+== test/exec_mode_test.py
+  ok   control: every script the shipping Makefile runs directly is executable
+  ok   control: a recipe running an executable script is green
+  ok   a recipe running a script git records as 100644 is red, and located
+  ok   a script run after a separator on a continuation line is graded too
+  ok   a script run inside a make conditional is graded too
+  ok   an interpreter's argument is not a direct run, so nothing is graded
+  ok   an exec-mode scan of a tree git cannot list is red, not green
+  (2s)
+
+== formal/check-interrupt-tie-off.py --core nano
+  ok   control: nano's harnesses tie off and its trap harness stays free, both directions
+  ok   an unknown --core is exit 2
+  ok   a nano harness that stopped tying the input off is red
+  ok   a nano harness that stopped tying the timer input off is red
+  ok   the free trap harness tied low would grade no interrupt entry, and is red
+  ok   the free trap harness with only the timer input tied low is red too
+  ok   the free harness with no line in the baseline is red
+  ok   a FREE line with no harness behind it is red
+  ok   an input held constant that no baseline declares is red
+  ok   a harness named both HARNESS and FREE is red
+  (2s)
+
+== soc/compare/dhry_dmips.py
+  ok   control: a good run reports both cores' figures
+  ok   a clock turns the per-MHz figure into an absolute one
+  ok   two cores whose RAMs differ are red, not a 1.2x result
+  ok   a RAM comparison over no words is named as unable to fail
+  ok   a run that never made the cross-core check is red
+  ok   a core that reached the start of the loop and not the end is red
+  ok   the benchmark's own FAIL verdict stops the number being quoted
+  ok   one side alone is not a cross-core figure
+  ok   a simulation this cannot parse is a run that did not happen
+  ok   zero runs would divide the work by nothing
+  ok   a clock for a core nobody graded is named rather than ignored
+  ok   a placement at zero MHz is not a placement
+  ok   --cores naming no core at all is red before anything is parsed
+  ok   control: a good three-way run reports all three cores' figures
+  ok   the wait-state bias is disclosed as a percentage of hazard3's own cycles
+  ok   the SECOND core's RAM diverging is graded, not only the first
+  ok   a missing ramdiff for the SECOND core is red, not silently skipped
+  ok   a solo run needs no ramdiff line -- there is no reference to compare
+  (3s)
+
+== formal/traps-tval-probe.py
+  ok   control: the arm proves for the shipping core and fails on both values
+  ok   a model that cannot prove the shipping core makes both reds meaningless
+  ok   an arm that admits rs1 where the effective address belongs is red
+  ok   an arm that admits a zero where the faulting word belongs is red
+  ok   a proof going red somewhere else is not evidence about the mtval arm
+  ok   ...and the same for the second mutation, which shares that line
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled mtval comparison stops rather than pinning nothing
+  ok   a respelled address arm stops rather than proving the shipping core
+  ok   a respelled word arm stops the same way
+  ok   the model moving away takes this probe with it too
+  ok   no components.sby is exit 2 here too, not a green control
+  ok   a renamed task stops this probe rather than moving its control
+  (5s)
+
+== formal/busarbiter-probe.py
+  ok   control: both arms admit the shipping arbiter and fail on their mutation
+  ok   a harness that is red at rest makes the two mutations meaningless
+  ok   a cover the shipping arbiter cannot reach is red before any mutation
+  ok   a wait bound that admits a starved hart is red
+  ok   a lock arm that admits a grant mid-AMO is red
+  ok   starvation going red somewhere other than the bound is not evidence
+  ok   two arms that cannot be told apart are not two arms
+  ok   a torn atomic going red at the wait bound is not evidence either
+  ok   an anti-vacuity cover that cannot go red is not a control
+  ok   a cover red for some other goal says nothing about the lock
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled indivisibility arm stops rather than pinning nothing
+  ok   a respelled wait bound stops rather than pinning nothing
+  ok   a respelled lock cover stops rather than pinning nothing
+  ok   a respelled mutation site stops rather than proving the shipping core thrice
+  ok   the harness moving away takes the probe with it, loudly
+  (7s)
+
+== test/workflow_runner_test.py
+  ok   control: every workflow job runs on the pool or the fork fallback
+  ok   a repo root that does not exist is red before anything is read
+  ok   a job left on ubuntu-latest is red, and named
+  ok   a pull-request workflow naming the pool bare is red
+  ok   pull_request_target is red
+  (1s)
+
+== test/lut4_site_test.sh
+  ok   control: every allowed site is covered and nothing else carries the string
+  ok   a repo root that does not exist is red before anything is scanned
+  ok   a plain directory git cannot list is a scan of nothing, not green
+  ok   an unlisted site is red and named, with the file:line quoted
+  ok   and the diagnostic explains which unit is safe to read instead
+  ok   a lookalike sibling is not covered by the directory entry above it
+  ok   an allow-list entry whose site lost the string is red
+  (4s)
+
+== soc/compare/run_product.sh
+  ok   control: a seed list of 'default' and digits reaches the next refusal
+  ok   a seed word carrying shell syntax is refused before it is expanded
+  ok   a glob seed word stays a literal and is refused, not expanded to file names
+  ok   control: nothing changing during the run is unmoved
+  ok   an input edited during the run refuses to stamp
+  ok   the artifact the run itself rewrites does not count as the tree moving
+  ok   an ignored opponent clone gaining an uncommitted change refuses to stamp
+  ok   an ignored opponent clone moving to another commit refuses to stamp
+  ok   control: run_product.sh evals no tool string and splices no variable into python3 -c
+  ok   a variable spliced into python3 -c text is red
+  ok   a tool version string handed back to eval is red
+  (6s)
+
+== nano/synth_script.sh
+  ok   control: a plain liberty and source produce the expected yosys script
+  ok   a semicolon in the liberty path stays inside its own quoted token
+  ok   a space in a source path does not split it into a second yosys argument
+  ok   every excluded cell reaches dfflibmap and abc as -dont_use
+  ok   a missing excluded-cell list is refused, not read as none
+  ok   a cell name that is not a bare sky130 cell is refused, not spliced into the script
+  (1s)
+
+== test/entropy_stream_test.py
+  ok   a gap check that never sees a gap is red (31s)
+  ok   a resume that does not check the sidecar is red
+  (33s)
+
+== test/board_tools_test.py
+  ok   the suite runner running the loader with no time limit is red
+  ok   a Makefile board read with no eject ahead of it is red (33s)
+  (35s)
+
+== test/compare_product_schedule_token_test.py
+  RED  control: the shipping schedule workflow confines its credential to the publish step
+     -> exited 1, expected 0
+        *** the publish job does not run on ubuntu-latest, so the one job holding write scopes shares the self-hosted pool with the tools.
+  ok   a publish job that checks out main instead of the measured commit is red
+  ok   a publish job that never verifies the stamp is red
+  ok   a job with no main-only guard is red, since workflow_dispatch can target any ref
+  ok   a checkout that leaves the token in .git/config is red
+  ok   a token handed to a step other than the publish step is red
+  ok   the publish step with no GH_TOKEN at all is red
+  ok   a workflow that reinstalls a global credential helper is red
+  ok   a publish job that runs make beside the write token is red
+  ok   a publish job that runs any make target but compare-doc is red
+  ok   a publish job that rides a second target on make compare-doc is red
+  ok   a publish job that never regenerates the comparison document is red
+  ok   a measure job holding a write scope is red
+  ok   a publish job on the self-hosted pool is red
+  ok   a publish job that ignores the measure job's moved output is red
+  ok   a workflow-level write scope inherited by every job is red
+  ok   a missing schedule workflow file is an error, not an empty pass
+  (1s)
+
+== test/compare_product_schedule_publish_test.py
+  ok   an issue body that stops naming the hand-updated cycle floor is red (10s)
+  (11s)
+
+== test/tmp_path_test.sh
+  ok   control: the shipping tree has no literal /tmp/ outside its exceptions
+  ok   a fixed /tmp/ scratch name in a script is red, and located
+  ok   a fixed /tmp/ scratch name in the Makefile is red, and located
+  ok   a tmp-path allow-list entry whose site lost its /tmp/ is red
+  ok   a tmp-path scan of a tree git cannot list is red, not green
+  (4s)
+
+== test/checks_test.py
+  ok   a driver that runs full-tier rows in the fast tier is red (41s)
+  (41s)
+
+== test/checks_manifest_test.py
+  (17s)
+error: a graded comparison did not go red where it was supposed to.
+Read the probe above: either the grader stopped checking something, or
+its diagnostic changed and this file has to be updated to match.
+
+== test/run_tests.sh
+  ok   control: a passing suite against an empty baseline is green
+  ok   wrong argument count is a usage error
+  ok   a mistyped baseline path cannot compare nothing and pass
+  ok   a mistyped floor path cannot make every floor lookup miss
+  ok   the suite's shape is asserted before a single program is assembled
+  ok   a floor line this loop cannot parse is a floor that is not enforced
+  ok   a non-numeric floor is named rather than compared arithmetically
+  ok   a floor too long for the shell's integers is named, not compared
+  ok   a C floor copied out of the measured table is rejected, not honoured
+  ok   a pre-ADR-0035 one-field baseline line is rejected, not half-matched
+  ok   a half-installed toolchain says so once, up front
+  ok   objcopy is probed, not assumed to exist because gcc did
+  ok   a failing assembler is ASSEMBLE-ERROR
+  ok   assembler output on a successful build is still a defect
+  ok   a failing objcopy names the region that failed
+  ok   the quiet one: objcopy exits 0 having written no bytes
+  ok   runner exit 1 is FAIL, carrying the test number
+  ok   runner exit 2 is TIMEOUT
+  ok   runner exit 4 is MONITOR-ERROR, carrying the monitor's code
+  ok   runner exit 5 is TRAP-TO-ZERO, not a timeout with no cause
+  ok   runner exit 6 is MONITOR-SILENT: the oracle never looked
+  ok   an unexpected runner status is RUNNER-ERROR, carrying it
+  ok   an unstartable runner is RUNNER-ERROR 127, never FAIL
+  ok   a PASS with no counts line is not a pass
+  ok   a non-numeric retire count is NO-COUNTS, not a silent PASS
+  ok   a non-numeric spec-checked count is NO-COUNTS too
+  ok   a retire count too long for the shell's integers is NO-COUNTS
+  ok   a spec-checked count too long for the shell's integers is NO-COUNTS
+  ok   a program that went quiet is BELOW-FLOOR on retires
+  ok   retires that stopped being spec-checked is its own status
+  ok   control: a baselined failure that fails exactly that way is green
+  ok   a baselined test that starts failing a DIFFERENT way is red
+  ok   an unexpected PASS is red too -- the baseline is not a ceiling
+  ok   control: STALL_REPORT prints the accounting and keeps the suite green
+  ok   a stall reason the accounting cannot name is red even with every test passing
+  ok   columns that no longer add up to the cycle count are red
+  ok   a runner that reports no cycles at all cannot produce a clean table
+  (14s)
+
+== nano/tb/nano_sim_icarus.sh
+  ok   control: PASS with a real retire count exits 0
+  ok   FAIL carries the test number and exits 1
+  ok   TIMEOUT exits 2
+  ok   an RVFI monitor error exits 4
+  ok   a trap taken exits 5
+  ok   an X reaching a retire exits 7, not the monitor-error 4
+  ok   0 retires overrides every verdict above to exit 6, the blind oracle
+  ok   output this script does not recognize is exit 3, not guessed at
+  ok   --vcd <path> reaches vvp as +VCD=<path>
+  ok   a run without --vcd passes vvp no +VCD
+  ok   --vcd with no path is a usage error, exit 3, not a program FAIL
+  (4s)
+
+== nano_qspi_memory.v's own accounting identity (real build)
+  ok   control: the shipping model's accounting identity holds on a real build (47s)
+  (48s)
+
+== formal/check-complete-exclusions.py
+  ok   control: the shipping exclusion set matches its baseline both ways
+  ok   wrong argument count is exit 2
+  ok   the two definitions the predicates are built from are pinned literally
+  ok   a predicate keyed on a decoder flag is rejected, not parsed
+  ok   a wire that does not carry its class's name is named
+  ok   a predicate matching an opcode its declaration does not is named
+  ok   a declared-but-unwired exclusion over-reports the restriction
+  ok   insn_excluded must be a plain disjunction, not an expression
+  ok   widening a declared mnemonic list without the baseline is red
+  ok   a baseline line with no predicate behind it is red too
+  ok   a baseline opcode that is not seven binary digits is named
+  ok   a baseline funct3 that is not three binary digits is named
+  ok   control: a model file OUTSIDE isa_rv32imc.txt is not one this check can see
+  ok   the isa list is what wires a model in, not the insns/ directory alone
+  ok   an unreadable clone makes 'no spec model' unmeasurable, and fatal
+  ok   an exclusion with no reason written under it is rejected
+  ok   control: an opcode+funct3 predicate is accepted
+  ok   control: an opcode+funct3+funct7 predicate is accepted
+  ok   a wire that names a funct7 without a funct3 is rejected, not parsed
+  ok   a class-wide predicate over an opcode the pin partly models is rejected
+  ok   a funct3-only predicate is rejected when a funct7 still separates two modelled rows
+  (5s)
+
+== soc/paired_sweep.sh
+  ok   no base ref names nothing to sweep against
+  ok   a part this repo does not place is refused before any placement
+  ok   a ref that names no commit here is refused before any placement
+  ok   up5k names fewer than twelve seeds and is refused before any placement
+  ok   ecp5 names fewer than twelve seeds and is refused before any placement
+  ok   a failed extraction of the base ref stops the sweep
+  ok   ...and leaves no partial tree for the next run to reuse
+  (2s)
+
+== soc/bram_reset_check.py
+  ok   control: block RAM resets tied to a constant are green
+  ok   a block RAM read through its own reset is refused
+  ok   the refusal names the cell and the port, not just a count
+  ok   the refusal points at the spelling that fixes it
+  ok   a netlist with no block RAM at all is refused, not silently green
+  ok   an unreadable netlist is refused rather than read as clean
+  ok   the refusal names the flow that stopped, not another part's
+  (2s)
+
+== test/trng_tb.v
+  ok   control: the shipping trng passes its own bench
+  (2s)
+
+== make sail-setup
+  ok   a download whose bytes are not the pin is refused before extraction
+  ok   the refused download is neither unpacked nor kept to be served again
+  ok   a tarball already in the cache is reused, and still meets the digest
+  (3s)
+
+== test/memmap_test.sh
+  ok   control: the shipping files describe one machine
+  ok   a SoC with no UART at all does not pass by silence
+  ok   the co-sim runner's kRamBase drifting is red on its own
+  ok   the address the printing program writes is checked against the UART
+  ok   a MAP_TOP inside the topmost window is red
+  ok   the timer moving in the core's copy alone is red
+  ok   the proof describes the part's text window, not the harness's
+  (12s)
+
+== test/board_verdict_test.sh
+  ok   control: hostile UART verdicts are rejected and nothing executes (25s)
+  ok   an iCESugar suite summary line that skips the display filter is red (28s)
+  ok   a flash grader that does not require the SFDP signature is red (30s)
+  ok   a path walk that word-splits a directory name is red (33s)
+  ok   a path walk that reads a failed Darwin ACL read as no ACL is red (31s)
+  (148s)
+
+== test/adr_numbering_test.sh
+  ok   control: the shipping index has one row per file and no number twice
+  ok   a repo root that does not exist is red before anything is scanned
+  ok   two files claiming the same number is named
+  ok   a file with two rows in the index is named
+  ok   a file with no row in the index is named as orphaned
+  ok   a row naming a file that does not exist is named
+  ok   a gap in the sequence is not a defect
+  ok   a row's number duplicated onto a different, real file is named
+  (4s)
+
+== formal/check-multihart-tie-off.py
+  ok   control: the shipping harnesses tie off, both directions
+  ok   wrong argument count is exit 2
+  ok   a declared harness that does not tie the input off is red
+  ok   a harness with no line in the baseline is red
+  ok   a line with no harness behind it is red too
+  ok   a declared port littlecpu does not have is red
+  ok   a tie-off at every harness that no baseline declares is red
+  ok   a malformed baseline line is named rather than skipped
+  ok   a missing parser stops the run rather than grading with a second one
+  (5s)
+
+== soc/compare/coremark_fit.py
+  ok   control: the measured CoreMark image reports the shortfall it has
+  ok   a core that cannot hold the CoreMark image is named, not left to the reader
+  ok   a CoreMark testbench simulating a different map than the image is linked for is red
+  ok   a CoreMark parameter this cannot read stops rather than comparing nothing
+  ok   CoreMark data past the end of the simulated RAM is red, not silent
+  ok   a CoreMark census with no block RAM line is a synthesis that did not finish
+  ok   an empty CoreMark image is named rather than reported as fitting easily
+  (1s)
+
+== soc/netlist_digest.py
+  ok   control: a netlist digests, and the digest is a sha256
+  ok   control: the digest states what its two verdicts mean
+  ok   control: two identical netlists are equal
+  ok   every source line moving is the comment class, and is forgiven
+  ok   an attribute that is not a source line is not forgiven
+  ok   a dead net still in the file is a difference, not a forgiveness
+  ok   a one-bit constant is a different digest
+  ok   ...and the report names the parameter, not merely 'changed'
+  ok   a renamed cell is named by path
+  ok   a cell type that moved is reported as a count, both ways
+  ok   a port that appeared is named, which is what a tie-off adds
+  ok   a module that appeared is named too
+  ok   a toolchain that moved is a different digest, and is named first
+  ok   a netlist that is not there is refused, not read as equal
+  ok   an empty netlist is a synthesis that wrote nothing
+  ok   a truncated netlist is refused, which is what a full disk leaves
+  ok   JSON that is not a netlist is refused
+  ok   a netlist with no top module names no one design
+  ok   a top module with no cells in it is a failed synthesis
+  (5s)
+
+== formal/check-memcheck-depth.py
+  ok   control: a depth exactly at the floor passes
+  ok   a depth one below the floor is red, naming F and G
+  ok   control: a one-retire floor is F+2, not F+G+2
+  ok   a harness directory with no checks.cfg is named, not measured as empty
+  ok   a named .sby that does not exist is refused
+  ok   a missing depth line in the .sby stops rather than comparing nothing
+  ok   a <retires> argument that is not 1 or 2 is refused
+  ok   wrong argument count is exit 2
+  ok   a cover .sby deeper than its bmc sibling is red, not a deeper proof
+  ok   a memcheck with no cover sibling has an untied depth, and is red
+  ok   a cover .sby with no depth line is untied the same way its bmc sibling is
+  ok   a .sby stating depth twice is refused, since sby searches to the last
+  ok   a depth line outside [options] is not the depth sby searches
+  ok   a checks.cfg with no #derive G is refused by name, not a traceback
+  (1s)
+
+== nano/formal/ill-e-probe.py
+  ok   ill_e catches a wrong RV32E rule, and the shipping core still passes
+  ok   a shipping core that fails ill_e is red before any mutant runs
+  ok   a wrong-rule mutant that still passes is not a control
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled rule line stops rather than pinning nothing
+  ok   the sby script moving away takes the ill_e probe with it, loudly
+  ok   the check moving away takes the ill_e probe with it, loudly
+  ok   the RTL moving away takes the ill_e probe with it, loudly
+  ok   no riscv-formal checkout is exit 2, not an ill_e probe against nothing
+  (2s)
+
+== test/workflow_rtl_list_test.sh
+  ok   control: a single rtl/*.v mention is prose, not a list
+  ok   a repo root that does not exist is red before anything is scanned
+  ok   a repo with no .github/workflows is red rather than a scan of nothing
+  ok   two rtl/*.v paths on one line is a second copy, and is red
+  ok   and the diagnostic points at make elaborate-strict, not a rewrite here
+  ok   the same path repeated on one line is not a second copy
+  (0s)
+
+== test/probe_gates.sh: mutate, mutate_remove and fixture_anchor
+  ok   control: mutate on a real match rewrites the file and returns 0
+  ok   a mutate whose sed expression matches nothing is fixture-stale, named
+  ok   control: mutate_remove deletes a file that is there
+  ok   mutate_remove on a path that was never there is fixture-stale, not silent
+  ok   control: fixture_anchor finds its literal in the real file
+  ok   fixture_anchor whose literal left the real file is fixture-stale, named
+  (0s)
+
+== nano/timing_script.sh
+  ok   control: a plain liberty and source produce the expected yosys script
+  ok   a semicolon in the liberty path stays inside its own quoted token
+  ok   a semicolon in the stat-json path stays inside its own quoted token
+  ok   a source list feeds read_verilog the same way synth_script.sh's does
+  ok   every excluded cell reaches the timing run's dfflibmap and abc too
+  ok   a missing excluded-cell list is refused by the timing run too
+  ok   the timing run refuses a cell name that is not a bare sky130 cell too
+  (1s)
+
+== test/entropy_stream_test.py
+  ok   control: the gapless capture's bits, sequence numbers and CRCs agree with the intervals (32s)
+  ok   a run that counts the previous design's frames before the port goes silent is red
+  ok   a resume of data with no sidecar is red
+  (35s)
+
+== test/nist90b_grade_test.py
+  ok   control: the report grader passes the board's figures
+  ok   a grader that never compares H_original with the floor is red
+  ok   a grader that never compares the restart figure with the floor is red
+  ok   a grader that ignores a failed restart test is red
+  ok   a grader that accepts a pass line printed twice is red
+  ok   a grader that accepts a pass line beside a failure marker is red
+  ok   a grader that trusts the printed restart minimum is red
+  ok   a grader that does not require H_c is red
+  ok   a grader that accepts an H_I other than ea_non_iid's is red
+  ok   a grader that accepts a figure printed twice is red
+  ok   a grader that accepts an H_I that changes inside the report is red
+  ok   a grader that accepts a NaN figure is red
+  ok   a grader that skips an H_bitstring line is red
+  ok   a grader that crashes on an unreadable figure is red
+  (3s)
+
+== test/board_tools_test.py
+  ok   control: the board tooling agrees with its known-answer inputs
+  ok   a clock grader that passes a 25 MHz core against an expected 30 is red
+  ok   a Makefile loader call with no eject ahead of it is red (33s)
+  (37s)
+
+== test/compare_product_schedule_publish_test.py
+  ok   control: the shipping publish script pushes one branch and opens one issue (11s)
+  ok   a refresh branch without the run id is red (6s)
+  (18s)
+
+== soc/compare/comparison.py
+  ok   control: the committed document matches a fresh render of the committed stamp
+  ok   a document with one number edited by hand is red
+  ok   a stamp that moved under the committed document is red
+  ok   a missing document is red
+  ok   control: littlecpu's cycle columns match the committed floor
+  ok   a cycle factor under its floor is a regression
+  ok   a cycle factor over its floor owes a floor update
+  ok   a stamped benchmark with no floor line is red
+  ok   a floor line matching no stamped pair is red
+  ok   a floor stated for a different ISA is a new row, not a pass
+  ok   every opponent row names the build it ran
+  ok   a pair publishing one build of a two-build core says the other is not stamped
+  ok   a stamp carrying the performance build renders it under its named build
+  ok   a pair carrying both Hazard3 builds still renders the area build under its name
+  ok   a core in the stamp with no configuration label is refused, not skipped
+  ok   a stamp string that would break out of its code span is refused
+  ok   a stamp string carrying markup is refused
+  ok   a stamp whose base is not a full SHA is refused
+  ok   a tool version carrying HTML is refused
+  ok   a target core carrying a mention is refused
+  ok   a target core that is not one of its pair's cores is refused
+  ok   a product named for a core with no configuration label is refused
+  ok   a word count that is a string is refused
+  ok   a word count that is a boolean is refused
+  ok   a clock sample count that is not one per seed is refused
+  ok   a clock figure that is not a number is refused
+  ok   a ratio that is not its two products' quotient is refused
+  ok   a pair name product_write.py would never write is refused
+  ok   a pair that is not an object is refused, not skipped
+  ok   a stamped feature-matched pair renders under the RV32IMAC section
+  ok   a stamp with no feature-matched pair says the section is not stamped yet
+  ok   a stamped feature-matched pair with no floor line is red
+  ok   a feature-matched cycle factor under its floor is a regression
+  ok   a feature-matched core with no configuration label is refused
+  ok   a pair naming a core that missed the step says it is out of the comparison
+  ok   an out-of-comparison note carrying markup is refused
+  (3s)
+
+== test/checks_test.py
+  ok   control: the shipping check driver passes its own grader (33s)
+  ok   a driver blind to the toolchain skips past a tool upgrade (21s)
+  (54s)
+
+== test/checks_manifest_test.py
+  ok   control: the shipping Makefile and test/CHECKS agree (10s)
+  (24s)
+247 graded comparisons, every failure path executed.
+
+== nano/asm/run_nano_tests.sh
+  ok   control: nano's own suite is graded the same way, and it is green
+  ok   nano's floor is one column, and one that does not parse is named
+  ok   nano's suite goes through the same shape check first
+  ok   nano's runner exit 4 is MONITOR-ERROR too, carrying nano's own code
+  ok   control: nano's real divider defect is a baselined green, not a hidden one
+  ok   an unexpected PASS is red for nano's suite too
+  ok   nano's baseline is checked for a one-field line too
+  (4s)
+
+== nano/tb/nano_vcd_probe.sh
+  ok   control: a wrapper that dumps only when named is green
+  ok   a wrapper that dumps with no --vcd is red
+  ok   a wrapper that ignores --vcd is red
+  (2s)
+
+== nano_qspi_memory.v's own accounting identity (real build)
+  ok   one reason tied permanently low is a real build's own accounting mismatch (53s)
+  (55s)
+
+== test/sanitize_monitor.py
+  ok   control: the tracked monitor sanitizes, and rule 3 fires
+  ok   control: rule 6 gates the trap comparison and writes its compensation
+  ok   usage: a missing argument is exit 2
+  ok   rule 1 declares a site count, so a generator change cannot ship unapplied
+  ok   rule 2 likewise -- ADR-0019's DIV/REM repair cannot silently stop applying
+  ok   layer 1: the trap comparison moved INTO the span is refused, not gated
+  ok   layer 2: the enclosed handle_error multiset is pinned, not merely counted
+  ok   layer 3: error 101 vanishing from the OUTPUT is caught after every rule
+  ok   rule 4: the port has nowhere to go if the generator drops its anchor
+  ok   rule 5: a port the channel never reads is caught, not shipped
+  ok   rule 6: a respelled trap comparison stops rather than gating nothing
+  ok   the compensation going missing is caught after every rule
+  (4s)
+
+== soc/pnr_check.sh
+  ok   control: a clean nextpnr run is accepted
+  ok   control: a design that only missed its clock is still a placement
+  ok   a placement failure is fatal even with an .asc left on disk
+  ok   ...and the .asc it refuses is deleted rather than left to be read
+  ok   an exit of 1 with no timing verdict behind it is fatal
+  ok   a signal is fatal even when the log already holds a timing verdict
+  ok   an empty .asc is no placement
+  ok   a nextpnr that cannot place fails the recipe, stale .asc beside it
+  ok   ...and the stale report and .asc are gone, so no sweep can read them
+  ok   control: a placed design that missed its clock still builds the .asc
+  ok   a nextpnr that cannot place the board top fails board-timing, stale .asc beside it
+  ok   ...and the stale board report and .asc are gone, so no timing is read from them
+  ok   control: a placed board top clearing 12 MHz is green
+  ok   a placed board top under 12 MHz is red
+  (8s)
+
+== soc/ecp5_report.py
+  ok   control: a well-formed report publishes the frequency
+  ok   control: the caveats travel with the number, on every run
+  ok   a configuration for another corner is refused, not reported
+  ok   an empty configuration means nothing was expressible on the part
+  ok   a configuration nextpnr never wrote is a failed run, not a fast design
+  ok   a report that does not exist is named, not read as zero
+  ok   a truncated report blames the run rather than parsing what is left
+  ok   no constraint found is red, which is the shape of the recorded defects
+  ok   a report naming some other clock does not stand in for this one
+  ok   two clocks named clk makes the frequency a guess, so it refuses to guess
+  ok   an fmax entry that stopped carrying both halves is refused, not read
+  ok   a constraint that is not the declared one is a different measurement
+  ok   a design that MET the target has measured the target
+  ok   a report with no utilisation table is missing half the measurement
+  ok   a frequency with no path under it is not a measurement
+  ok   a hop class nothing classifies would move the split silently
+  ok   a path that does not reconcile blames the script, not the design
+  ok   control: a nextpnr that wrote its pair is graded, exit 1 and all
+  ok   a nextpnr that died early is NOT graded on the last run's pair
+  ok   the REPORT goes too, which .DELETE_ON_ERROR cannot do for a non-target
+  ok   a configuration truncated to nothing is caught, which test -e cannot be
+  ok   a configuration written without its report is half a run, not a run
+  (14s)
+
+== test/trng_tb.v
+  ok   no repetition count on the corrected bits lets an alternating source through (22s)
+  (22s)
+
+== test/memmap_test.sh
+  ok   a repo root that does not exist is red before anything is parsed
+  ok   a SoC with no SPI controller at all does not pass by silence
+  ok   the timer address the programs arm is checked against the timer
+  ok   the UART moving in the core's copy alone is red
+  ok   the ROM image built to a different size than the ROM is red
+  ok   the default text window is the part's, not the harness's
+  (10s)
+
+== test/board_verdict_test.sh
+  ok   a verdict parser that stops validating the UART text is red (31s)
+  ok   a replay parser that reads the cut tail instead of the last whole block is red (30s)
+  ok   a flash grader that accepts a capture holding only debugger chatter is red (32s)
+  ok   a path walk that reads only the mode bits, not the ACL, is red (18s)
+  (114s)
+
+== test/makefile_target_test.sh
+  ok   control: the shipping Makefile defines no target twice
+  ok   one recipe name with two bodies is red, naming both lines
+  ok   ...and the report names the target make actually overrode
+  ok   a tree with no Makefile is red, not a scan of nothing
+  ok   a Makefile make cannot parse does not pass by silence
+  (3s)
+
+== soc/compare/placed_vs_synth.py
+  ok   control: a placement holding the whole core is green
+  ok   a core yosys folded away is red, not a fast design
+  ok   no utilisation table means nothing was placed, not that nothing was lost
+  ok   no standalone count leaves nothing to compare against
+  ok   a standalone synthesis of zero cells is named, not divided by
+  ok   control: the ECP5 arm reads its own fabric's two cell names
+  ok   an ECP5 placement read with ice40 names names the part, not a bad log
+  ok   a core folded away on ECP5 is red against the same floor
+  ok   a part with no cell-name row is refused rather than defaulted
+  (2s)
+
+== soc/compare/coremark_dmips.py
+  ok   control: a good CoreMark run reports all three cores' figures
+  ok   a clock turns the CoreMark per-MHz figure into an absolute one
+  ok   the CoreMark wait-state bias is disclosed as a percentage of hazard3's own cycles
+  ok   two CoreMark cores whose RAMs differ are red, not a ratio
+  ok   a CoreMark RAM comparison over no words is named as unable to fail
+  ok   a CoreMark run that never made the cross-core check is red
+  ok   the SECOND CoreMark core's RAM diverging is graded, not only the first
+  ok   a missing ramdiff for the SECOND CoreMark core is red, not silently skipped
+  ok   a CoreMark core that reached the start of the section and not the end is red
+  ok   CoreMark's own FAIL verdict stops the number being quoted
+  ok   one CoreMark side alone is not a cross-core figure
+  ok   a CoreMark simulation this cannot parse is a run that did not happen
+  ok   zero CoreMark iterations would divide the work by nothing
+  ok   a CoreMark clock for a core nobody graded is named rather than ignored
+  ok   a CoreMark placement at zero MHz is not a placement
+  ok   --cores naming no CoreMark core at all is red before anything is parsed
+  (6s)
+
+== soc/soc_pin.py
+  ok   control: a pin whose sources match checks OK
+  ok   control: a matching pin names its own seed and MHz
+  ok   the digest is over the sources, so it does not move when only the tools do
+  ok   moved sources say so, naming both digests
+  ok   a stale pin warns and does not fail, because the gate is Fmax
+  ok   the warning says a regression can hide behind a pin that still clears
+  ok   a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
+  ok   ...and a margin under the floor writes no pin file at all
+  ok   a pin file that does not exist is refused, not read as absent-is-fine
+  ok   a hand-edited pin that no longer parses is as invalid as unwritten
+  ok   a partial pin missing required fields is not a pin
+  (2s)
+
+== nano/formal/complete-cover-probe.py
+  ok   control: the shipping harness reaches every goal and the stalled-bus mutant reaches none
+  ok   a shipping harness that cannot reach its own goals is red
+  ok   an anti-vacuity cover that cannot go red is not a control
+  ok   a stalled-bus mutant red for only some goals is not full evidence
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled anchor stops rather than pinning nothing
+  ok   the sby script moving away takes the probe with it, loudly
+  ok   the harness moving away takes the probe with it, loudly
+  ok   the RTL moving away takes the probe with it, loudly
+  ok   a goal reached at or beyond complete's own depth is red
+  ok   complete.sby moving away leaves the depth tie with nothing to read
+  ok   a depth line this cannot parse leaves the tie unenforced, so it stops instead
+  ok   a reached line whose wording hides its step stops rather than switching the tie off
+  ok   complete.sby stating depth twice stops the tie rather than grading the first
+  ok   no riscv-formal checkout is exit 2, not a probe against nothing
+  (6s)
+
+== nano/formal/check-rvfi-insn-check.py
+  ok   control: the fork matches the pin once its header and RISCV_FORMAL_E block are undone
+  ok   a hand-drifted fork is red, and its residual diff is printed
+  (0s)
+
+== test/mutation_coverage_test.sh
+  ok   control: the shipping manifest rules on every rtl/*.v file
+  ok   a repo root that does not exist is red before anything is parsed
+  ok   a new rtl file with no line is red, naming the file
+  ok   deleting an rtl file and leaving its line is red
+  ok   a line naming a mutation test/mutations/ does not have is red
+  ok   an unpaired line whose named grader is not a real bench or formal task is red
+  ok   a bare unpaired with no grader does not pass by silence
+  ok   a file named twice is red rather than averaging into one pass
+  ok   a mutation line with a stray extra field is red rather than read as the name
+  (4s)
+
+== test/fixture_freshness_test.py
+  ok   control: the shipping fixtures are all mutate/mutate_remove, every anchor holds
+  ok   a raw sed -i outside mutate/mutate_remove is red, naming the line
+  ok   a hand-typed fixture with no anchor and no cp of a real file is red
+  ok   a hand-typed fixture is red on an unquoted heredoc delimiter too
+  ok   an allow-listed sed -i that no longer appears anywhere is red too
+  ok   an allow-listed fixture that gained a real anchor is red until the entry is deleted
+  ok   a name defined twice is checked at both definitions, not just the last
+  ok   a fixture that opens its body on the head line is still inspected
+  ok   a nested helper's own closing brace does not end the outer fixture early
+  ok   a mid-word # does not hide a real sed -i after it
+  ok   an escaped apostrophe outside quotes does not mask a real sed -i
+  ok   sed --in-place is a raw edit exactly like sed -i
+  ok   sed -i is a raw edit even when it is not the first flag
+  ok   perl -pi is a raw edit like sed -i
+  ok   awk -i inplace is a raw edit like sed -i
+  ok   a backslash-continued sed -i is still a raw edit
+  ok   a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
+  ok   two heredocs opened off one line are both masked, in the order their opening markers appear
+  ok   an indented line equal to a plain heredoc's token does not close it early
+  ok   an escaped apostrophe inside a $'...' string does not close it early
+  (3s)
+
+== make nano-liberty-setup
+  ok   a liberty download whose bytes are not the pin is refused before it is kept
+  ok   the refused liberty download is not kept to be served again
+  (3s)
+
+== test/entropy_stream_test.py
+  ok   a framer sending a different sample bit than rtl/trng.v reads is red (30s)
+  ok   a from-boot run that starts anywhere but sequence 0 is red
+  ok   a captured file of the wrong size resumed is red
+  (33s)
+
+== test/board_sudoers_test.sh
+  ok   control: the sudoers rule installer agrees with its stubs
+  ok   a sudoers rule installed without visudo's check is red
+  ok   a binary granted without the root-owned check is red
+  ok   a path that would misparse in sudoers written into the rule is red
+  ok   a rule staged in a user-writable file before the install is red
+  (12s)
+
+== test/board_tools_test.py
+  ok   a device with the board's VID and another PID taken for the board is red
+  ok   a clock graded from too few T lines is red
+  ok   a suite runner loading before it ejects is red (33s)
+  (39s)
+
+== test/compare_product_schedule_publish_test.py
+  ok   a missing publish script is an error, not an empty pass
+  ok   opening a pull request with the workflow's own token instead of an issue is red (7s)
+  (8s)
+
+== test/yosys_script_oneline_test.py
+  ok   control: a one-line quoted yosys -p script is green
+  ok   a backslash-newline inside a single-quoted yosys -p script is red
+  ok   a backslash-newline inside a double-quoted yosys -p script is red
+  ok   a yosys whose -p and quoted script sit on a continuation line is red
+  ok   a backslash-newline inside a quoted $(YOSYS) -p script is red
+  ok   a backslash-newline after the closing quote, between recipe arguments, is green
+  ok   a tree with no Makefile is an error, not an empty pass
+  (0s)
+
+== test/checks_test.py
+  ok   a driver that never skips reruns a check on an unchanged tree (50s)
+  (50s)
+
+== test/checks_manifest_test.py
+  ok   a check the Makefile lists and test/CHECKS dropped is red, and named (8s)
+  (22s)
+182 graded comparisons, every failure path executed.
+
+== nano/bench/run_startup_test.sh
+  ok   control: nano's startup check is graded the same way, and it is green
+  ok   a FAIL verdict from the underlying sim is red for nano's startup check too
+  ok   a single, fully-excluded manifest is red: a run that tests nothing is not a pass
+  ok   control: every line of nano's own manifest marked EXCLUDED is red, not a quiet 0/0
+  ok   control: every line of the littlecpu-subset manifest marked EXCLUDED is red too
+  ok   control: an excluded program whose own build genuinely fails stays excluded
+  ok   an excluded program that assembles and passes anyway is red, not silently trusted
+  ok   a retire count below the floor is graded BELOW-FLOOR, not silently PASS
+  ok   a run reporting no retire count at all is graded NO-COUNTS
+  ok   a non-numeric retire count is graded NO-COUNTS, not compared as an integer
+  ok   a floor longer than 10 digits is malformed, not a giant integer
+  ok   EXCLUDED owes a reason; a bare EXCLUDED with nothing after it is malformed
+  ok   a non-.S program cannot carry a real floor; this runner only globs .S
+  ok   a floor line that is neither a number nor EXCLUDED is named
+  ok   control: an explicit linker script replaces ASM_DIR/nano.lds
+  ok   a linker script override that does not exist is refused, not defaulted
+  ok   control: an explicit cycle budget is accepted as the seventh argument
+  ok   more than seven arguments is a usage error too
+  (9s)
+
+== nano/bench/qspi_timing_report.py
+  ok   control: a QSPI timing log whose buckets sum to its cycle count reports a row
+  ok   a QSPI timing log whose buckets do not sum to its window is refused as malformed
+  ok   a QSPI timing row labelled with another build's loop kind is refused
+  ok   a QSPI timing row labelled with another build's preamble is refused
+  ok   a QSPI timing log whose served fetches differ from its retires is refused
+  (3s)
+
+== nano_qspi_memory.v's own accounting identity (real build)
+  ok   two reasons overlapping is a real build's own accounting mismatch too (43s)
+  (43s)
+
+== formal/genchecks-audit.py
+  ok   no harness-directory argument is a usage error, not a silent default
+  ok   running the generator from the wrong directory is refused, not done
+  ok   a missing riscv-formal clone is named, not blamed on the ISA string
+  ok   a nano [depth] entry lowered below its own floor fails generation, not just the baseline diff
+  ok   control: nano's declared fork redirects every generated insn_* check
+  ok   a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused
+  ok   an #insn-check naming a file that does not exist is refused
+  ok   two #insn-check lines are refused rather than one silently winning
+  ok   a generator whose checker path no longer matches is refused, not read as a redirected set
+  (3s)
+
+== soc/print_toolchain.sh
+  ok   control: a tool that answers is stamped with its version and its path
+  ok   a tool that prints nothing is refused, not stamped blank
+  ok   a tool that exits nonzero while printing is refused on its status
+  ok   one red tool leaves no partial stamp on stdout
+  ok   a tool that is not installed names itself rather than the list
+  ok   control: icetime whose chip database resolves is stamped like any tool
+  ok   icetime that cannot resolve its chip database is refused before a version is stamped
+  ok   the Trellis database cannot be stamped without the tool it belongs to
+  ok   and an empty TRELLIS_DB is refused rather than stamped as nothing
+  (2s)
+
+== check-unit-benches
+  ok   control: the declared list matches the tree exactly
+  ok   a bench in test/ that make does not run is named
+  ok   a declared bench with no file is named the other way
+  ok   a declared bench with no UNIT_BENCH_SRC_* would build with no design under test
+  (4s)
+
+== test/trng_tb.v
+  ok   a repetition count that misses the first bit of a run is red
+  (2s)
+
+== test/memmap_test.sh
+  ok   the harness sizing its own RAM again is red
+  ok   a harness with no data RAM at all does not pass by silence
+  ok   a gap opening between the data RAM and the timer is red
+  ok   the UART moving in the proof's copy alone is red
+  ok   a simulated ROM smaller than the part's is red
+  ok   an integrator telling the core a text size its ROM has not got
+  (10s)
+
+== the linker scripts' layout ASSERTs
+  ok   control: all five shipping scripts link at the inset layout
+  ok   boot.lds putting .data back at ram's origin is red
+  ok   boot.lds putting the stack back at the top of ram is red
+  ok   sections.lds putting .data back at ram's origin is red
+  ok   bench.lds putting .data back at ram's origin is red
+  ok   bench.lds putting the stack back at the top of ram is red
+  ok   coremark.lds putting .data back at ram's origin is red
+  ok   coremark.lds putting the stack back at the top of ram is red
+  ok   board.lds putting .data back at ram's origin is red
+  ok   board.lds putting the stack back at the top of ram is red
+  (2s)
+
+== test/board_verdict_test.sh
+  ok   a display filter that lets an escape sequence through is red (26s)
+  ok   a results line that reads a missing verdict as a pass is red (24s)
+  ok   a root-binary check that stops at the first library hop is red (27s)
+  ok   a library check that trusts all of /System is red (30s)
+  (109s)
+
+== test/retired_term_test.sh
+  ok   control: the shipping tree keeps the retired term inside its allow-list
+  ok   a repo root that does not exist is red before anything is scanned
+  ok   the word coming back in a formal harness comment is red, and located
+  ok   and the diagnostic says what to write instead, not just what is wrong
+  ok   a capitalised spelling is the same word and is caught too
+  ok   control: an untracked file is out of scope and does not fail the build
+  ok   a lookalike sibling is not covered by the directory entry above it
+  ok   an allow-list entry whose site no longer has the word is red
+  ok   a tree git cannot list is a scan of nothing, not a green one
+  ok   the stale ISA name coming back in a formal harness comment is red
+  ok   and the diagnostic names the ISA the core does claim
+  ok   control: the formal flow's lower-case rv32imc is a different thing
+  ok   an allow-list entry whose site lost the stale ISA name is red
+  ok   a casing keyword the table does not define stops rather than guessing
+  ok   a term with no allow-list behind it stops rather than grading nothing
+  ok   an empty term table is a scan of nothing, not a green one
+  (14s)
+
+== soc/compare/step_gate.py
+  ok   control: a core over the step passes and is compared on cycles
+  ok   margin above the step is reported as unspendable, not as speed
+  ok   a core under the step FAILS rather than scoring a fraction
+  ok   and the refusal names the clock it would actually have to run at
+  ok   a step between the oscillator's own is refused, not graded against
+  ok   no critical path is a failed placement, not a core that cleared the step
+  (1s)
+
+== soc/compare/run_coremark_compare.sh
+  ok   control: an unmodified vendor tree reaches the stub compiler
+  ok   a mutated vendored byte fails the pin, and says so
+  ok   a file the manifest stopped naming is red before shasum ever runs
+  ok   an unlisted core_portme.h would shadow the port's header, and is caught
+  (4s)
+
+== test/pin_help_text_test.sh
+  ok   control: the shipping Makefile agrees with check-sources' warn-not-fail exit
+  ok   a help text that says a mismatch fails the build is red
+  ok   check-sources actually refusing on a mismatch is red even if the text still warns
+  (3s)
+
+== formal/memcheck-cover-probe.py
+  ok   control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not
+  ok   control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not
+  ok   control: nano's dmemcheck reaches its goal and the stalled-bus mutant does not
+  ok   control: nano's imemcheck reaches its goal and the stalled-bus mutant does not
+  ok   control: nano's ill_e reaches its goal and the stalled-bus mutant does not
+  ok   an ill_e cover that cannot go red is not a control
+  ok   an ill_e shipping harness that cannot reach its own cover goal is red
+  ok   ill_e asked of littlecpu's harness is refused, not run
+  ok   a shipping harness that cannot reach its own cover goal is red
+  ok   an anti-vacuity cover that cannot go red is not a control
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled anchor stops rather than pinning nothing
+  ok   the sby script moving away takes the probe with it, loudly
+  ok   the RTL moving away takes the probe with it, loudly
+  ok   no riscv-formal checkout is exit 2 here too, not a probe against nothing
+  ok   a traceless stalled-bus mutant is red, since its FAIL holds for a trivially true goal too
+  ok   a log that names no cover statement is exit 2, not a goal set of none
+  ok   a littlecpu harness whose core port moved stops rather than tying nothing
+  (12s)
+
+== test/ill_e_wiring_test.py
+  ok   control: RISCV_FORMAL_E is not yet wired, so there is nothing to check it against
+  ok   RISCV_FORMAL_E live with no ill_e.sv is red
+  ok   RISCV_FORMAL_E live with an ill_e.sv that does not instantiate the real core is red
+  ok   RISCV_FORMAL_E live with a real-core ill_e.sv and no wrong-rule probe label is red
+  ok   RISCV_FORMAL_E live with a real-core ill_e.sv and a wrong-rule probe label present is not red
+  ok   a missing checks.cfg is refused rather than read as not-live
+  (1s)
+
+== soc/compare/product_check.py
+  ok   control: a fresh stamp with nothing changed prints clean and exits 0
+  ok   control: a legacy stamp with no digest is still graded, by its base commit, and fresh
+  ok   a legacy stamp's rtl/ change since its base is STALE, and the file is named
+  ok   a soc/compare/ change since the stamp's base is STALE, and the file is named
+  ok   the artifact moving does not make its own stamp stale
+  ok   excluding the artifact does not blind the check to a real soc/compare/ change
+  ok   a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field
+  ok   a ROM/RAM geometry change is checked the same generic way as CFLAGS
+  ok   a stamp measured on a dirty tree is STALE even if nothing has moved since
+  ok   a not-yet-measured pair is reported, not graded as stale
+  ok   a benchmark this artifact never recorded is refused, not read as fresh
+  ok   a missing artifact refuses rather than reporting on nothing
+  ok   an empty --current value is refused, not compared as though it were the field's value
+  ok   a digest-bearing stamp is STALE when rtl/ changes, naming the file
+  ok   an uncommitted Makefile, which the base diff never watched, makes the digest STALE
+  ok   a test/bench source is a measured input
+  ok   formal/pin.mk is a measured input
+  ok   the files the stamp itself feeds are excluded, so it never goes stale on its own output
+  ok   a stamp whose base commit no longer resolves is still graded fresh by its digest
+  ok   control: the stamped compiler name and pinned version agree
+  ok   a renamed compiler is itself a reason, keyed by name
+  ok   a pinned compiler version the stamp did not measure is STALE
+  ok   a stamp with no tools block is STALE, not read as having nothing to compare
+  ok   a floating tool is recorded and never graded, so a new yosys is not STALE
+  ok   a --current field the stamp does not record is STALE, not a pass
+  ok   a compiler_version with no compiler is STALE, not skipped
+  ok   control: a stamp recording the release suffix agrees with the same release
+  ok   a different release of the same compiler version is STALE when the stamp records the release
+  ok   base_resolvable refuses a ref name that is not a full SHA
+  (30s)
+
+== test/comment_density_test.py
+  ok   control: a file within the comment-density budget is not reported
+  ok   a file pushed over the comment-density budget is named and red
+  ok   a comment-only file's single pointer line is excused by MIN_COMMENT_LINES
+  (1s)
+
+== the Makefile's tool-path prepend
+  ok   control: the cached suite is put first when nothing claims PATH
+  ok   TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
+  ok   a make that fails only under TOOLS_ON_PATH is red, not read as respected
+  (1s)
+
+== test/entropy_stream_test.py
+  ok   sequence numbers that do not advance are red (28s)
+  ok   a from-boot run revived by a later sequence 0 is red
+  (30s)
+
+== test/entropy_upduino_test.py
+  ok   control: the UPduino capture path decodes ftread's text, finds a period and writes the flash (31s)
+  ok   a reader that leaves ftread's escapes undecoded is red (31s)
+  ok   a periodicity limit no pattern can reach is red (31s)
+  ok   a periodicity scan that reads drift as a repeating pattern is red (30s)
+  ok   a load into SRAM, which leaves this board unconfigured, is red (31s)
+  ok   a flash write taken as loaded without VERIFY OK is red (15s)
+  ok   a reboot that does not read the flash is red (30s)
+  ok   a capture top that breaks the oscillator's port is red (31s)
+  (230s)
+
+== test/board_tools_test.py
+  ok   the reader accepting several matching nodes is red
+  ok   a capture frame with a wrong trailer accepted is red
+  ok   an eject that matches a prefix of the mount point is red (33s)
+  (37s)
+
+== test/compare_product_schedule_publish_test.py
+  ok   the pre-fix commit line -- '-m' and '-F' together -- is red for the reason it used to fail (7s)
+  ok   an issue body whose compare link does not open the pull request form is red (8s)
+  (16s)
+
+== formal/pin-bump-decide.sh
+  ok   control: a moved, settled upstream with no branch here proceeds
+  ok   a branch already on this repository stops the bump
+  ok   a commit under the age floor stops the bump, naming its age
+  ok   a multi-line answer from the remote is refused, not truncated to its first line
+  (3s)
+
+== test/checks_test.py
+  ok   a driver that trusts every stamp skips a check whose input was edited (15s)
+  (16s)
+
+== test/probe_gates.sh --merge
+  ok   control: shards whose labels together equal the manifest are accepted
+  ok   a shard that lost a probe is red, and the label is named
+  ok   a probe two shards both ran is red
+  ok   a shard that never wrote its labels is red
+  (1s)
+
+== test/checks_manifest_test.py
+  ok   a row the Makefile no longer lists is red, and named (9s)
+  (19s)
+181 graded comparisons, every failure path executed.
+
+== test_macros.h's testreg vacuity guards
+  ok   control: TEST_CASE with an ordinary testreg still assembles
+  ok   TEST_CASE refuses x9 as testreg, named at the assembler
+  ok   TEST_CASE refuses s1 (== x9) as testreg too
+  ok   control: TEST_CASE_D32 with ordinary testregs still assembles
+  ok   TEST_CASE_D32 refuses x9 as testreg1
+  ok   TEST_CASE_D32 refuses s1 as testreg1 too
+  ok   TEST_CASE_D32 refuses x15 as testreg1, the data pointer
+  ok   TEST_CASE_D32 refuses a5 (== x15) as testreg1 too
+  ok   TEST_CASE_D32 refuses x15 as testreg2, the data pointer
+  ok   TEST_CASE_D32 refuses a5 (== x15) as testreg2 too
+  ok   RVC_TEST_CASE inherits TEST_CASE's guard rather than bypassing it
+  (1s)
+
+== nano/bench/qspi_control_check.sh
+  ok   control: a zero-wait log that matches QSPI_CONTROL passes
+  ok   a zero-wait log one cycle off QSPI_CONTROL is refused
+  ok   a zero-wait log with no BENCH line is refused, not read as zero
+  ok   a QSPI_CONTROL line recorded at another run count is refused
+  ok   a QSPI_CONTROL with no line for the benchmark is refused
+  ok   a QSPI_CONTROL with two lines for one benchmark is refused
+  ok   a QSPI_CONTROL line with a non-numeric cycle count is refused
+  (1s)
+
+== nano_qspi_memory.v's own accounting identity (real build)
+  ok   a served fetch moved to parcel wait keeps one reason a cycle and fails the retire count (56s)
+  (56s)
+
+== formal/remeasure-fg.py
+  ok   a core sweep whose lowest value already passes is refused a flip point, not reported one
+  ok   a generated .sby whose depth drifted from what the core's sweep asked for is refused, not read anyway
+  ok   a generated .sby whose reset window drifted from what the core's sweep asked for is refused, not read anyway
+  ok   a sweep window narrowed back to BELOW=2, ABOVE=1 cannot bracket a flip point three cycles out
+  (4s)
+
+== soc/bands.py
+  ok   control: a derived part states both figures and names itself
+  ok   control: the note a delta is read against carries the part too
+  ok   control: ecp5 is derived too, and a single sweep states its own figure
+  ok   an underived part says so rather than borrowing another part's band
+  ok   a caller that needs the figures rather than the prose is refused
+  ok   and is told that another part's does not transfer
+  ok   a part this repo does not place is refused, not added by asking
+  ok   a part this repo stopped placing is refused too, not kept as a row
+  ok   --list answers for every part, derived or not
+  (3s)
+
+== test/fetchqueue_tb.v
+  ok   control: the shipping fetchqueue passes its own bench
+  ok   a push landing only one word instead of two is red across every occupancy
+  ok   a fault bit that never reaches its own stored word is red
+  ok   a push surviving a flush lets the overtaken request's reply land
+  ok   ...and a second flush one settling cycle later fails the same way
+  ok   a retried response gated on a stale, registered req_valid is red
+  ok   a room check that forgets the response landing this cycle is red
+  (3s)
+
+== test/trng_tb.v
+  ok   a repetition count that counts a phantom bit at reset is red
+  (2s)
+
+== test/memmap_test.sh
+  ok   the SoC restating the timer base is red too
+  ok   a linker script back on the old 4 KB ram is red
+  ok   a timer base aligned only for one hart is red
+  ok   a gap opening between the UART and the SPI controller is red
+  ok   a respelled parameter stops rather than comparing nothing
+  ok   the harness passing a literal instead of the size it sized
+  (9s)
+
+== the board suite's ROM size
+  ok   control: rvc.S links and fits a 16 KB board ROM
+  ok   rvc.S in an 8 KB board ROM is red
+  ok   build_batch.sh not passing the ROM size to the linker is red
+  ok   control: the packer keeps rvc.S out of a batch it overflows
+  ok   a packer that trusts its size estimate over the linker is red
+  (6s)
+
+== test/board_verdict_test.sh
+  ok   a UART summary line that skips the display filter is red (24s)
+  ok   a replay block left over from another batch is read as this batch's is red (26s)
+  ok   a system-library prefix that can be climbed out of with .. is red (31s)
+  ok   an installer that leaves all of /System unbundled is red (31s)
+  (113s)
+
+== test/tracked_ignored_test.sh
+  ok   control: a tracked file with no matching ignore rule is clean
+  ok   a repo root that does not exist is red before anything is scanned
+  ok   a plain directory git cannot list is a scan of nothing, not green
+  ok   a tracked file matching its own .gitignore rule is red and named
+  ok   and the diagnostic says git rm --cached, not an edit to the rule
+  ok   control: an ignored file that was never tracked is not a defect
+  ok   control: a rule from this developer's core.excludesFile is not this repository's to grade
+  ok   control: a rule from this clone's $GIT_DIR/info/exclude is not this repository's to grade
+  ok   control: a rule from this developer's init.templateDir is not this repository's to grade
+  ok   control: a rule from this developer's $GIT_TEMPLATE_DIR is not this repository's to grade
+  (4s)
+
+== soc/compare/geometry_test.sh
+  ok   control: the shipping harness states one geometry
+  ok   a repo root that does not exist is red before anything is parsed
+  ok   one core's ROM growing behind the other's is red
+  ok   one core's data RAM shrinking behind the other's is red
+  ok   a linker script linking past the harness ROM is red
+  ok   a linker script promising RAM the harness does not have is red
+  ok   the program addressing RAM somewhere the harness has none is red
+  ok   the linker script's RAM origin drifting from the RTL's base is red
+  ok   a file that moved out from under the check is fatal, not skipped
+  ok   a declaration this cannot read stops rather than comparing empty strings
+  ok   the third core's ROM drifting behind the other two is red
+  ok   a fourth core's ROM_WORDS with no Makefile entry to reach it is red
+  ok   a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
+  ok   a linker script the Makefile does not link and nothing else names is red
+  ok   a linker script named by another soc/compare script is not orphaned
+  ok   a longer name sharing the substring does not stand in for the real one
+  ok   a soc/compare script naming no .lds at all does not sink the scan
+  (9s)
+
+== test/port_connect_test.py
+  ok   control: every site names every port of littlecpu
+  ok   a repo root that does not exist is red before anything is parsed
+  ok   a port the comparison harness stops naming is red, and located
+  ok   and the diagnostic says what it costs, not just that it is missing
+  ok   a port named with nothing in the parentheses is red too
+  ok   a connection to a port littlecpu no longer has is red
+  ok   half of a macro-guarded group is red, where none of it is not
+  ok   an unconditional port connected only inside an ifdef is red
+  ok   a formal harness that stops wiring rvfi at all is red
+  ok   an exception whose port is connected now is red
+  ok   a connection by position stops rather than being half-read
+  ok   a stray comma in a connection list is named as one
+  ok   a port declaration the parser cannot read stops the run
+  ok   the module file moving away takes the check with it, loudly
+  ok   a tree that instantiates the core nowhere is not a clean one
+  ok   a tree git cannot list is a scan of nothing, not a green one
+  (6s)
+
+== soc/netlist_determinism.sh
+  ok   control: a deterministic placer and a forgiven mutant pass
+  ok   one netlist placed twice giving two bitstreams voids the gate
+  ok   a mutant the digest calls equal placing elsewhere voids it too
+  ok   a mutant that left no trace demonstrates nothing, and says so
+  ok   a canonical form that stopped forgiving the class is red
+  ok   a placer that wrote no bitstream placed nothing, which is not a pass
+  ok   a bitstream the placer never finished writing is not a placement
+  ok   a dead tie-off that never reached the netlist exercises no class
+  ok   ...and one the purge did not remove means the digest is equal by luck
+  ok   a synthesis that failed is not a passed control either
+  ok   no yosys on PATH is refused rather than skipped
+  ok   no placer on PATH is refused the same way
+  ok   an injection site that moved stops the control, loudly
+  ok   a signal in scope only in an earlier module stops it too
+  ok   ...and so does the file it injects into going away
+  ok   the comment class lands nowhere if its own file is gone
+  ok   an empty part table synthesises nothing, so it is refused
+  (20s)
+
+== formal/cover-depth-tie.py
+  ok   control: every goal first reached before complete's depth passes the tie
+  ok   a goal first reached at complete's own depth is red
+  ok   a reached line whose wording hides its step is exit 2, not a tie of nothing
+  ok   a log naming no reached goal is exit 2
+  ok   a bmc .sby stating depth twice is exit 2 here too
+  ok   a cover run that left no log is exit 2
+  ok   wrong argument count is exit 2
+  (1s)
+
+== test/dual_build.sh
+  ok   control: programs that build and are paired are green
+  ok   an exemption naming no program is red, not a program quietly excused
+  ok   control: an exemption whose program exists is accepted
+  ok   a program both exempt and paired is red
+  ok   wrong argument count is a usage error, not a silent pass
+  ok   a dual directory that is not there is the failure this exists to see
+  ok   a mistyped pairings path cannot leave every program unclaimed and pass
+  ok   a directory the glob stopped matching is red, not a suite of size zero
+  ok   a pairing naming a program nobody wrote is red
+  ok   the other direction: a program no pairing claims to catch anything
+  ok   a mutation with no program leg is a real entry, not a missing file
+  ok   a half-installed toolchain says so once, up front
+  ok   objcopy is probed, not assumed to exist because gcc did
+  ok   a program that stopped assembling is ASSEMBLE-ERROR
+  ok   assembler output on a successful build is still a defect
+  ok   an objcopy that refuses names the region it refused for
+  ok   an image objcopy wrote nothing into is red, not empty and accepted
+  (5s)
+
+== soc/compare/product_digest.py
+  ok   control: a plain tree digests
+  ok   a symlink leaving the repo is refused
+  ok   a symlink is digested by its target's bytes, not its path
+  ok   records are NUL-separated, so a file name cannot imitate a record boundary
+  (1s)
+
+== nano/area_report.py
+  ok   control: a measurement within budget is green
+  ok   total above the ratchet names the figure and the budget
+  ok   a missing stat.json is refused, not read as a zero-area design
+  ok   a truncated stat.json is refused, not read as an empty report
+  ok   zero cells is refused, not read as a zero-area design
+  ok   a cell type outside the read liberty is refused, not priced at zero
+  ok   a missing liberty file is refused before the JSON is even opened
+  ok   a liberty file that does not match the pinned digest is refused
+  ok   a report with no 'design' key at all is refused, not read as zero
+  ok   a design entry missing area/num_cells/by_type is refused, not read as what is left
+  ok   a non-finite area in the JSON is refused, not compared as if it were real
+  ok   a non-finite --max-um2 is refused before the ratchet compares anything
+  ok   the trend against a recorded figure is printed beside the verdict
+  ok   a report that uses a cell the flow excludes is refused, not measured
+  ok   control: a macro is priced from its LEF and printed apart from the soft logic
+  ok   the macro's footprint counts against the ratchet, not only the soft logic
+  ok   a macro the report does not carry is refused, not priced at zero
+  ok   a second instance of the macro is refused, not priced once
+  ok   a macro in the report that the run did not name is refused, not dropped
+  ok   a macro LEF with no SIZE line is refused, not priced at zero
+  ok   a macro LEF that does not match its pinned digest is refused
+  ok   naming a macro without its LEF is refused, not priced at zero
+  (4s)
+
+== mk/toolchain.mk in the formal sub-makes
+  ok   control: formal/Makefile also puts the cached suite first
+  ok   TOOLS_ON_PATH stops formal/Makefile shadowing a fixture's stubs too
+  ok   control: nano/formal/Makefile also puts the cached suite first
+  ok   TOOLS_ON_PATH stops nano/formal/Makefile shadowing a fixture's stubs too
+  ok   a missing bitwuzla is refused by name before sby ever runs
+  ok   a stray file named after the check-solver target does not skip the guard
+  ok   nano's check-solver guard also runs past a stray file of its name
+  ok   nano's check-solver guard runs on a clean tree, not only when a file forces it
+  ok   a missing btorsim is refused by name before formal's own sweep runs
+  ok   a missing btorsim is refused by name before nano's own sweep runs
+  ok   formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
+  ok   nano's remeasure-fg still lists check-solver-btorsim as a prerequisite
+  ok   components_executor still lists check-solver-bitwuzla as a prerequisite
+  (2s)
+
+== test/entropy_stream_test.py
+  ok   a trailer that is not the CRC of the bytes is red (30s)
+  ok   a lock left by a dead holder never reclaimed is red
+  (34s)
+
+== test/board_tools_test.py
+  ok   a control byte reaching the terminal unescaped is red
+  ok   the entropy reader accepting several matching nodes is red
+  ok   an eject wrapper that lets a hung helper's timeout escape is red (34s)
+  (38s)
+
+== test/compare_product_schedule_publish_test.py
+  ok   a push aimed at main instead of the refresh branch is red (13s)
+  ok   publishing with a refresh issue or PR already open is red (11s)
+  (24s)
+
+== formal/bump-riscv-formal-pin.sh
+  ok   the regenerate step refuses to run holding a token
+  ok   wrong argument count is exit 2
+  (0s)
+
+== test/checks_test.py
+  ok   a driver with no unclaimed-file rule skips past a file no row claims (24s)
+  (24s)
+
+== test/checks_manifest_test.py
+  ok   the forced-red sweep moved into the fast tier is red (7s)
+  (18s)
+189 graded comparisons, every failure path executed.
+
+== test/macro_register_test.sh
+  ok   control: both headers naming only x0-x15 is green
+  ok   a repo root with neither header is red, not an empty pass
+  ok   upstream's own x29 scratch reappearing is named and located
+  ok   an ABI alias outside x0-x15 (a7 = x17) is caught the same way
+  ok   the second header is scanned too, not just test_macros.h
+  ok   an unreadable header is refused, not read as an empty file
+  ok   a grep exit of 2 or more is a real error, not `|| true`'s silent no-match
+  (2s)
+
+== nano_qspi_memory.v's own accounting identity (real build)
+  (0s)
+
+== formal/remeasure-fg.py against nano/formal
+  ok   a sweep whose lowest value already passes is refused a flip point, not reported one
+  ok   a generated .sby whose depth drifted from what was swept is refused, not read anyway
+  ok   a harness directory with no checks.cfg is named, not measured as empty
+  (2s)
+
+== test/band_source_test.py
+  ok   control: the shipping tree states every band figure in one place
+  ok   a prose copy of a band figure goes red where it is written
+  ok   and is named as a percentage beside the word that makes it a claim
+  ok   a copy wrapped across lines is caught, not read as two harmless ones
+  ok   the rulebook quoting a figure the source no longer states is red
+  ok   and a rulebook that does not name the source is red too
+  ok   a dated ADR stating an old band figure is NOT red
+  ok   a tree with no source file at all is red rather than vacuously green
+  (5s)
+
+== test/trng_tb.v
+  ok   no adaptive proportion test lets a biased source through (36s)
+  (37s)
+
+== test/memmap_test.sh
+  ok   the baud rate is still refused beside the clock a top may set
+  ok   a linker script that moves ram off the decoded base is red
+  ok   a peripheral inside the timer's reserved span is red
+  ok   an SPI base off its own window is red
+  ok   a file that moved away takes the check with it, loudly
+  ok   an integrator that stopped stating it at all is red, not defaulted
+  (13s)
+
+== nano/asm/nano.lds's timer window ASSERT
+  ok   control: nano.lds puts the timer block where nano_testbench.v hardcodes it
+  ok   the timer block moving off nano_testbench.v's address is red
+  (0s)
+
+== test/board_verdict_test.sh
+  ok   a root-binary check that ignores group and world write is red (32s)
+  ok   a baselined program with no report matching its baseline is red (26s)
+  ok   a root-binary check that walks only the file and its parent is red (15s)
+  ok   a library check that ignores an ELF's RUNPATH is red (25s)
+  (99s)
+
+== test/march_test.sh
+  ok   control: the shipping tree names one ISA at every site
+  ok   a repo root that does not exist is red before anything is scanned
+  ok   one build site left at the narrower ISA is red, and located
+  ok   ...and the count that site was declared with is red too
+  ok   the Dhrystone flags drifting from the suite's ISA is red
+  ok   ...and their second copy is compared whole, not just its ISA
+  ok   two copies of the flags agreeing about -march and nothing else
+  ok   moving the declared string alone, with every site unchanged, is red
+  ok   the generated check set's isa line swept along with the flags is red
+  ok   the monitor generator's -i swept along with them is red as well
+  ok   a new site naming an ISA nothing declared is red, and located
+  ok   an exception whose site stopped naming that ISA is red
+  ok   a second occurrence of a counted exception value is red
+  ok   a fifth rv32im in the generated comparison is red, not exempted
+  ok   a different ISA in the generated comparison is red, and located
+  ok   a lookalike sibling is not covered by the directory entry above it
+  ok   a respelled flag declaration stops rather than comparing nothing
+  ok   a tree git cannot list is a scan of nothing, not a green one
+  (28s)
+
+== soc/compare/hazard3_config_test.py
+  ok   control: the shipping bench and build file agree
+  ok   the performance build losing its single-cycle multiply is red
+  ok   a parameter both builds share drifting in the bench is red
+  ok   a parameter the bench sets and the build file does not list is red
+  ok   PERF moving a parameter the authors' builds agree on is red
+  ok   the C build differing from the performance build in a second parameter is red
+  ok   the C build losing its C extension in the bench is red
+  ok   the cut-to-fit build differing from the C build in a third parameter is red
+  ok   the cut-to-fit build keeping Zifencei in the bench is red
+  ok   a build file pinned to a different Hazard3 than the Makefile is red
+  ok   a build-file line this cannot read stops rather than being skipped
+  ok   control: the authors' examples agree with the build file
+  ok   the authors' area example enabling a predictor the build file denies is red
+  ok   the authors' performance example dropping its fast multiply is red
+  ok   the authors' two performance examples disagreeing is red
+  ok   an example spelling a build parameter as a sized literal is red, not read as the core default
+  ok   an example whose setting is commented out does not set it
+  ok   a commented-out setting beside the live one does not override it
+  ok   a commented-out bench parameter is not read as set
+  ok   --require-clone with no clone present is red, not a skipped leg
+  ok   without --require-clone an absent clone is said aloud
+  (4s)
+
+== formal/traps-region-probe.py
+  ok   control: all three arms fail, each at its own line
+  ok   an arm that admits a fault the core never commits is red
+  ok   an arm that admits the wrong cause is red
+  ok   an arm that admits a read-only seed access that never traps is red
+  ok   a seed proof going red somewhere else is not evidence
+  ok   a respelled illegal term stops: a core that still traps proves nothing
+  ok   a must-trap proof going red somewhere else is not evidence
+  ok   a cause proof going red somewhere else is not evidence either
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled cause comparison stops rather than pinning nothing
+  ok   a respelled must-trap assertion stops rather than pinning nothing
+  ok   a respelled fault site stops rather than building the shipping core twice
+  ok   a respelled ls_fault stops: a core that still faults proves nothing
+  ok   the model moving away takes the probe with it, loudly
+  ok   no components.sby is exit 2, not a probe against an invented script
+  ok   a renamed task stops rather than probing some other design
+  (7s)
+
+== soc/netlist_base.sh
+  ok   control: another commit's canonical netlist is built from its own tree
+  ok   a tree that names no synth script of its own says whose was used
+  ok   a base tree whose synth flags moved is digested with ITS flags, and says so
+  ok   a base tree whose make fails is refused, not quietly given ours
+  ok   a ref that names no commit is refused, not compared
+  ok   a source this tree synthesises that the base lacks is not comparable
+  (4s)
+
+== nano/formal/probe_common.py
+  ok   a missing traps.sby is caught before any solver runs
+  (0s)
+
+== test/bench/run_coremark.sh
+  ok   control: an unmodified vendor tree passes the manifest and pin checks
+  ok   a mutated vendored byte fails the pin, and says so
+  ok   a file the manifest stopped naming is red before shasum ever runs
+  ok   an unlisted core_portme.h would shadow the port's header, and is caught
+  ok   a malformed manifest line is red under --strict, not a silent pass
+  ok   a mutated validation CRC literal in coremark_port.c is caught before a compiler runs
+  ok   a mutated performance CRC literal is caught the same way
+  (5s)
+
+== soc/compare/product_verify.py
+  ok   control: a stamp taken at this commit over this tree verifies
+  ok   a stamp whose digest is not this tree's is refused
+  ok   a stamp whose base is not the checked-out commit is refused
+  ok   a measured pair with no digest is refused
+  ok   a stamp with no measured pair is refused rather than vacuously verified
+  ok   a --sha that is not a full commit SHA is refused
+  ok   a stamp whose strings the issue would print unvalidated is refused before publishing
+  (9s)
+
+== nano/timing_report.py
+  ok   control: one register-file build reports its area and delay
+  ok   control: both register-file builds are reported from one call
+  ok   a missing synthesis log is refused, not read as a zero-delay design
+  ok   a log with no ABC stime Delay line is refused
+  ok   a missing stat.json is refused, not read as a zero-area design
+  ok   a stat.json missing area/num_cells/by_type is refused, not read as what is left
+  ok   a cell type outside the read liberty is refused, not priced at zero
+  ok   a liberty file that does not match the pinned digest is refused
+  ok   a missing liberty file is refused before any variant is read
+  ok   a missing correlation record is refused, not silently skipped
+  ok   a correlation record missing a required field is refused
+  ok   control: the correlation prints its factor and both halves' provenance
+  (3s)
+
+== formal/check-shard.sh
+  ok   control: a shard runs its slice and writes a status for every check in it
+  ok   a check that wrote no status fails the shard, named, rather than reaching the baseline
+  ok   a shard spec that is not <i>/<n> is refused before anything runs
+  ok   asking for shard i of n where i exceeds n is refused
+  ok   a slice that selects no checks is an error, not an empty success
+  ok   a checks directory that was never generated is named, not treated as empty
+  (1s)
+
+== test/entropy_stream_test.py
+  ok   a frame check that is the additive sum, blind to a byte swap, is red
+  ok   a lock taken from a live holder is red
+  (2s)
+
+== test/board_tools_test.py
+  ok   a node name with an escape byte printed raw is red
+  ok   a capture tag with a shell metacharacter accepted is red
+  ok   an eject that runs diskutil with no time limit is red (46s)
+  (50s)
+
+== test/seed_probe_test.py
+  ok   control: the seed probe prints its first ES16 cycle and the NIST run takes the lock
+  ok   a seed probe that re-latches the first ES16 cycle on every status change is red
+  ok   a seed probe whose word line omits the first ES16 cycle is red
+  ok   a NIST board run with no default lock is red
+  ok   a NIST board run that does not pass the lock through is red
+  (1s)
+
+== test/compare_product_schedule_publish_test.py
+  ok   a push carrying no per-command credential helper is red (11s)
+  ok   an already-open refresh issue that the guard does not read is red (13s)
+  (24s)
+
+== formal/publish-pin-bump.sh
+  ok   a missing regenerate output is refused rather than committing nothing
+  ok   wrong argument count is exit 2
+  (1s)
+
+== test/checks_test.py
+  ok   a driver that forgets the epoch repeats the checks that already passed (40s)
+  (41s)
+
+== test/checks_manifest_test.py
+  ok   a recipe file no input pattern claims is red, and named (10s)
+  (19s)
+
+== test/probes_header_test.py
+  ok   control: the shipping PROBES_EXPECTED header is present and not in C order
+  ok   a PROBES_EXPECTED run through a whole-file LC_ALL=C sort is refused
+  ok   a PROBES_EXPECTED with its header deleted is refused
+  ok   a PROBES_EXPECTED header that lost only its multiset line is refused
+  (0s)
+146 graded comparisons, every failure path executed.
+
+== nano/tb/nano_dual_leg_test.sh
+  ok   control: two legs that report the same PASS/retires agree
+  ok   the cxxrtl leg failing its own baseline is red before any comparison
+  ok   the iverilog leg failing its own baseline is red before any comparison
+  ok   two legs that both pass but disagree on retires are red
+  ok   a runner that passes but prints no per-program line leaves nothing to compare
+  (7s)
+
+== nano_qspi_memory.v's own accounting identity (real build)
+  (0s)
+
+== test/run_cosim.sh
+  ok   control: a suite that agrees against an empty baseline is green
+  ok   wrong argument count is a usage error
+  ok   a mistyped baseline path cannot compare nothing and pass
+  ok   a cosim.py that cannot be executed stops the run
+  ok   a one-field baseline line is rejected before the suite runs
+  ok   the manifest is checked here too, and before the setup probe
+  ok   a missing Sail install stops the run rather than scoring it
+  ok   a run that printed no COSIM-STATUS is COSIM-ERROR, not a verdict
+  ok   status AGREE with a nonzero exit is a broken harness, not agreement
+  ok   and the reverse: a divergence reported with exit 0
+  ok   control: a baselined divergence at the baselined point is green
+  ok   a baselined program that diverges SOMEWHERE ELSE is red
+  ok   an unexpected agreement is red -- both directions, as everywhere
+  (4s)
+
+== soc/timing_split.py
+  ok   control: a report clearing the floor is green
+  ok   a report under the floor fails, because the floor is the board clock
+  ok   no critical path in the report is a failed measurement, not a fast design
+  ok   a hop sum that does not reconcile blames the script, not the design
+  ok   a carry hop is counted apart from a LUT level
+  ok   the carry chain's own interconnect is charged to the carry hop
+  ok   a path with no LUT level at all reports zero rather than dividing by it
+  (3s)
+
+== test/zkt_isolation_test.py
+  ok   control: the shipping executor reaches x_busy only through its one gate
+  ok   a reg_rs1 bit routed into x_busy is red, at x_busy's own site
+  ok   reg_rs1 laundered through out.rd_data's own register is still red
+  ok   cmp_eq carrying reg_rs1/reg_rs2 into x_busy is red
+  ok   x_busy reading mul_div_counter directly is red (finding 1)
+  ok   a dead generate-if(0) decoy does not hide the same leak (finding 2)
+  ok   a new wide input port with no classification is red (finding 3)
+  ok   a CONTROL_FIELDS entry wider than a register NUMBER is red
+  ok   dx_output.rs1 widened past 5 bits is red, unclassified
+  ok   a classification naming a port the netlist has never seen is red
+  ok   a stall reason with no driving cell stops the run
+  ok   a graph with no edges out of reg_rs1 is red, not a vacuous pass
+  ok   wrong argument count is exit 2
+  ok   a decoder.v that does not exist is exit 2, not a vacuous pass
+  (9s)
+
+== test/trng_tb.v
+  ok   no starvation timeout lets a beat pattern through (31s)
+  (31s)
+
+== test/stall_report.py
+  ok   control: an accounting that adds up prints the table
+  ok   the dominant reason is the suite's, not the first program's
+  ok   columns that do not add up blame the report, not the core
+  ok   a stall nothing in the list explains is a reason nobody wrote down
+  ok   a field the runner stopped printing is named, not counted as zero
+  ok   hazard's three causes losing a cycle between them is red
+  ok   control: the locality counters are reported under the table
+  ok   control: each subset is printed as a share of that number
+  ok   a run with no stalled cycles gets a report, not a ZeroDivisionError
+  ok   more accesses near an edge than there were accesses is red
+  ok   the same for the bypass counter, per program rather than in total
+  ok   a locality counter that stopped being printed is named too
+  ok   control: the jalr share and the return guess are reported under the table
+  ok   a one-entry hit rate above the unbounded stack's is red
+  ok   more returns than jalr is red
+  ok   more cycles saved than the jalr redirects cost is red
+  ok   a redirect counter that stopped being printed is named too
+  ok   a count that is not a number stops rather than summing to nonsense
+  ok   a field with no value is a malformed line
+  ok   no programs at all would report a clean 0 of 0
+  (5s)
+
+== test/memmap_test.sh
+  ok   the clock-rate exception belongs to the UART alone
+  ok   a suite script linking against a rom the harness has not got
+  ok   control: a peripheral above the reserved span is accepted
+  ok   the address the flash-reading program uses is checked against the controller
+  ok   a size the parser cannot read stops rather than comparing as zero
+  ok   the proof's copy of the RAM base drifting from the RAM is red
+  (13s)
+
+== test/dhry_board_parity_test.sh
+  ok   control: the shipping build stays byte-identical outside DHRY_UART
+  ok   DHRY_BOARD_CFLAGS drifting away from DHRY_CFLAGS is red
+  ok   an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
+  ok   DHRY_UART no longer gating any code in dhry_port.c is red
+  (7s)
+
+== test/board_verdict_test.sh
+  ok   a root-binary check that ignores the owner is red (26s)
+  ok   a dual grader that accepts any DUAL line whatever its c1 is red (26s)
+  ok   a path walk that trusts a symlinked ancestor unresolved is red (6s)
+  ok   a RUNPATH relative to the caller's directory is red (29s)
+  (89s)
+
+== soc/fit_report.py
+  ok   control: a measurement within budget is green
+  ok   over budget names the count and the budget
+  ok   no utilisation table is a failure, not a 0% fit
+  ok   the trend against the recorded count is printed beside the verdict
+  ok   a move far outside the churn band still cannot fail the job
+  ok   a trip prints the trend too, since that is the run that needs it
+  (1s)
+
+== soc/compare/vexriscv_path_test.sh
+  ok   a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
+  ok   a Makefile naming $(VEXRISCV_V) nowhere is red, not vacuously clean
+  ok   control: the LR/SC build's bench is the stock bench but for the core's module name
+  ok   an LR/SC bench adapter that differs beyond its module name is red
+  (1s)
+
+== formal/decoder-zkt-probe.py
+  ok   control: the Zkt-isolation assertion fails at its own line
+  ok   an ls_access with an extra encoding proving is red
+  ok   the encoding proof going red somewhere else is not evidence
+  ok   an encoding failure reported only by the induction leg is not evidence
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled ls_access site stops rather than building the shipping core twice
+  ok   the RTL moving away takes the probe with it, loudly
+  ok   no components.sby is exit 2, not a probe against an invented script
+  ok   a renamed task stops rather than probing some other design
+  (3s)
+
+== formal/retune-checks.py
+  ok   control: the insn checks move to pono and the others do not
+  ok   a non-insn check keeps its engine and its skip
+  ok   a suite with no pono stops before rewriting anything
+  ok   a checks directory that is not there is refused
+  ok   a generation that produced no checks at all is refused
+  ok   a check set with no insn_* family is refused, not retuned silently
+  ok   an engine genchecks no longer emits is refused
+  ok   a check with no skip line is refused, not handed to pono anyway
+  (1s)
+
+== formal/nonperturbation-probe.py
+  ok   control: nano's shipping core passes the gate and the leak fails it
+  ok   control: littlecpu's shipping core passes the gate and the leak fails it
+  ok   a shipping core that already fails the gate proves nothing about a leak
+  ok   a gate that passes a leaking core is not standing in front of anything
+  ok   a red that is not a structural difference is not the red this probe wants
+  ok   a checker that cannot run on the leaking mutant is exit 2, not a red proof
+  ok   a respelled anchor stops rather than probing the shipping core twice
+  ok   no riscv-formal checkout is exit 2, not a probe against nothing
+  ok   a missing source is exit 2 before anything runs
+  (2s)
+
+== make revendor-coremark
+  ok   control: an archive matching the vendored tree exactly is endorsed
+  ok   a substituted, non-archive download is refused for every file, not silently skipped
+  ok   a real archive with one byte-mutated file is caught, and named
+  ok   a real archive missing one vendored member is caught, and named
+  (9s)
+
+== soc/compare/product_write.py
+  ok   control: matching tool stamps, a digest and a sample per seed write a pair
+  ok   a clock factor and a cycle factor measured with different tools are not a product
+  ok   a missing cycle tools block is refused, not defaulted to the clock side's
+  ok   a tools block that is not '# NAME: VALUE' lines is refused as unreadable
+  ok   a tools block naming one tool twice is refused rather than the later line winning
+  ok   a missing content digest is refused
+  ok   merging drops a digest-less measured pair instead of relabelling it
+  ok   merging drops a pair run_product.sh no longer measures
+  ok   a pair name run_product.sh does not measure is refused
+  ok   a sweep with fewer samples than seeds is refused
+  ok   control: a complete --measured call writes a valid pair
+  ok   control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite
+  ok   a lone target core with no other core is refused, not written as an empty pair
+  ok   --clock-ns and --cycle-factor naming different core sets is refused
+  ok   cores given with no --target-core among them is refused
+  ok   a --measured call with no --tools-block is refused rather than stamping an unknown toolchain
+  ok   a --measured call with no --isa is refused the same way as a missing --cflags
+  (2s)
+
+== nano/figure_stamp.py
+  ok   control: the shipping shape states the grammar once and stamps every figure
+  ok   control: nano-area's output passes the stamp check
+  ok   a nano figure with the stamp suppressed is red
+  ok   a stamp missing design is red and names the field
+  ok   a stamp naming a design outside the enum is red
+  ok   control: two rows of one design and target combine into a ratio
+  ok   a ratio requested across two designs is refused naming design
+  ok   a ratio across two targets of one design is refused naming target
+  ok   the grammar restated in a second file is red
+  ok   the separator restated in a second file is red
+  ok   a nano figure in a doc with the bracket stripped is red
+  ok   an ADR past the cutover is held to the stamp rule
+  ok   a new nano emitter that prints a figure and skips the emitter is named
+  ok   an emitter handed build flags with no -march refuses to stamp
+  ok   control: nano-timing's area, delay and correlation lines all pass the stamp check
+  ok   control: the Dhrystone report's lines all pass the stamp check
+  ok   control: the CoreMark report's lines all pass the stamp check
+  ok   control: a QSPI timing row carries a stamp column that passes the check
+  (7s)
+
+== test/pll_clock_test.py
+  ok   control: the shipping board agrees with its own PLL and constraint file
+  ok   a constraint file that describes a different oscillator is red
+  ok   a PLL told its input is something the pad is not is red
+  ok   a feedback path the divider formula does not describe is red
+  ok   dividers that make a frequency CORE_HZ does not state is red
+  ok   a ratio with no whole-hertz answer cannot be stated as CLOCK_HZ
+  ok   a VCO outside the range the part locks over is red
+  ok   the attribute nextpnr places against disagreeing with CORE_HZ is red
+  ok   the UART divided by anything but the graded figure is red
+  ok   a PLL fed by something other than the constrained pad is red
+  ok   the defect this exists for: a core clocked from the pad, not the PLL
+  ok   no frequency constraint at all cannot pass for agreement
+  ok   two constraints on one pad are two chances to disagree
+  ok   a pad frequency that is not whole hertz cannot be compared exactly
+  ok   a missing PLL file is refused rather than read as agreement
+  (2s)
+
+== test/entropy_stream_test.py
+  ok   a framer reset that leaves the epoch alone is red (28s)
+  ok   data bound to one bitstream accepted for another is red
+  (29s)
+
+== test/board_tools_test.py
+  ok   a loader that outlives its limit and reports success is red
+  ok   a capture divider with a yosys command separator accepted is red
+  (3s)
+
+== test/pin_bump_token_test.py
+  ok   control: the shipping pin-bump workflow keeps credentials off the upstream-code step
+  ok   a token handed to the step that executes upstream code is red
+  ok   a checkout that leaves the token in .git/config is red
+  ok   renaming the upstream-code step out of reach stops rather than passing
+  ok   a missing workflow file is an error, not an empty pass
+  (1s)
+
+== test/compare_product_schedule_publish_test.py
+  ok   a commit that stages more than the stamp is red (11s)
+  ok   an open issue from anyone but the bot suppressing a refresh is red (7s)
+  (19s)
+
+== test/riscv_gcc_pin_test.sh
+  ok   control: PATH resolving only the pinned install is green
+  ok   a different riscv-none-elf-gcc earlier on PATH is red, not silently used
+  ok   no riscv-none-elf-gcc on PATH at all is red
+  (1s)
+
+== test/checks_test.py
+  ok   a driver that ignores lanes overlaps two checks that share one (31s)
+  (31s)
+
+== test/checks_manifest_test.py
+  ok   a file the recipe's script names, left unclaimed, is red (9s)
+  (29s)
+181 graded comparisons, every failure path executed.
+
+== nano/tb/nano_x_probe.sh
+  ok   control: the load and store paths both report an X exactly when one is there
+  ok   the shipping build itself reporting an X on the load path is red before any mutant runs
+  ok   storing a register this program wrote first is not a store-path control
+  ok   storing a never-written register that reports no X leaves the store path unproven
+  ok   a mutant that reports no X on the load path is not a control
+  ok   a respelled zeroing loop stops rather than mutating nothing
+  ok   a build artifact missing is exit 2, not a probe against nothing
+  ok   the RTL moving away takes the X probe with it, loudly
+  (8s)
+
+== nano_qspi_memory.v's own accounting identity (real build)
+  (1s)
+
+== test/cosim.py
+  ok   control: identical register traces and verdicts AGREE
+  ok   a differing value is a divergence, located by change index
+  ok   a change the core never made is a length divergence
+  ok   an EXTRA architectural write the model never made is caught
+  ok   the reference model hitting its budget is INCONCLUSIVE, not a finding
+  ok   the core hitting its cycle budget is INCONCLUSIVE too
+  ok   control: both sides failing the same test number still AGREE
+  ok   identical traces with different verdicts is DISAGREE VERDICT
+  ok   a runner that printed no CS END terminator is a broken harness
+  ok   an unrecognised CS line is a hard error, never guessed at
+  ok   a reference model that produced no trace is fatal
+  ok   an empty trace is fatal rather than an empty comparison
+  ok   a failing assembler is fatal, not a divergence
+  ok   a non-comparable CSR value is exempted -- and every exemption printed
+  ok   the exemption does not extend to a write of the WRONG register
+  (6s)
+
+== soc/baseline_summary.py
+  ok   control: a stamped sweep summarises
+  ok   control: two sweeps measured the same way are subtracted
+  ok   an unstamped file is rejected rather than summarised
+  ok   a block with no end is truncated, and a truncated one is not read
+  ok   a block short of a tool is named, not summarised around
+  ok   a stamp with no table under it is a failed measurement
+  ok   a table with no placements in it is one too
+  ok   a row whose period is not a number stops the read
+  ok   two base commits refuse the delta rather than warning above it
+  ok   two toolchains are named, which is the disagreement that flipped a sign
+  ok   a dirty tree names no base, so its sweep is not subtracted either
+  ok   the override prints the mismatch it was passed to get past
+  ok   and prints the delta beside it, not instead of it
+  ok   three sweeps have no one difference, so they are refused
+  ok   a sweep file that is not there reads as missing, not as empty
+  ok   control: an ECP5 sweep summarises against its own instrument
+  ok   control: and names the corner and constraint it was placed against
+  ok   a part with no icetime walk reads NA rather than a fabricated zero
+  ok   and says why it is NA, so it is not read as a path with no logic on it
+  ok   the cell count names its own unit rather than borrowing the other's
+  ok   a sweep that names no part says which instrument is missing
+  ok   a part this script cannot grade a stamp for is rejected, not guessed at
+  ok   an ECP5 stamp carrying up5k's tools is missing its own
+  ok   and an up5k stamp carrying an ECP5 tool is rejected on the foreign field
+  ok   two parts are refused rather than subtracted
+  ok   and --allow-mismatch does NOT cover a cross-part subtraction
+  ok   the refusal is the part, not the four tool mismatches it also produces
+  ok   control: two seeds clear a --min-seeds of one
+  ok   a verdict under twelve seeds is refused with the count named
+  ok   --allow-mismatch does not cover the seed-count refusal either
+  ok   --paired: a base ref against a dirty working tree produces a verdict
+  ok   --paired still refuses a toolchain mismatch
+  ok   --paired still refuses a placer mismatch
+  ok   --paired excuses only the candidate's dirty tree, not the base's
+  ok   without --paired the same differing bases still refuse
+  ok   control: paired_sweep.sh hands the summary --paired
+  ok   a paired_sweep.sh that drops --paired is caught
+  (11s)
+
+== soc/routing_bins.py
+  ok   control: a stamped sweep with its reports behind it is binned
+  ok   control: the block RAM is named at the end of the path it sits at
+  ok   control: the pc hop reaches the pc bin, by the declared net's bits
+  ok   two walks disagreeing about what routing is refuse to print a histogram
+  ok   a report with no routing hop in it is a failed read, not a wired design
+  ok   a row with no placement behind it stops the read, not just that seed
+  ok   a sweep of the part with no icetime is refused, not walked
+  ok   a netlist from another tree is named, not binned as `neither`
+  ok   a netlist with no pc net would leave that bin empty for ever
+  ok   an unstamped sweep is refused here too, by the reader it shares
+  (4s)
+
+== test/trng_tb.v
+  ok   buffering words during the start-up window is red
+  (4s)
+
+== test/stall_sites_test.py
+  ok   control: the shipping tree names the seven stall signals and the six CPI reasons consistently
+  ok   a stall-sites repo root that does not exist is red before anything is scanned
+  ok   a reason dropped from one downstream site is red, and named
+  ok   a reason dropped from the decoder's own composition is red, and named
+  ok   a future kill wrongly ORed into the OR-identity is red, and named
+  ok   ...and the message routes kill to the cycle-accounting identity instead
+  ok   the hold branch holding on something other than x_busy is red, and named
+  ok   the FORMAL hold-assert naming something other than x_busy is red
+  (3s)
+
+== test/memmap_test.sh
+  ok   a parameter list spread over several lines is refused, not skimmed
+  ok   the benchmark script must keep linking against the part's rom
+  ok   a gap opening between the timer's reservation and the UART is red
+  ok   the SPI controller moving in the core's copy alone is red
+  ok   the core's copy of the RAM base drifting from the RAM is red
+  ok   a RAM half the size in the proof's copy is red
+  (8s)
+
+== test/board_verdict_test.sh
+  ok   a root-binary check that runs a #! script is red (35s)
+  ok   a dual grader that accepts a capture holding only debugger chatter is red (27s)
+  ok   a root-binary check that prints the unresolved path it was handed is red (25s)
+  ok   a path walk that reads an unreadable ACL as no ACL is red (32s)
+  (119s)
+
+== formal/check-interrupt-tie-off.py
+  ok   control: the shipping harnesses tie off, both directions
+  ok   wrong argument count is exit 2
+  ok   a declared harness that does not tie the input off is red
+  ok   a harness with no line in the baseline is red
+  ok   a line with no harness behind it is red too
+  ok   a pin that makes another check read rvfi_intr is red
+  ok   a baselined upstream file that stopped mentioning it is red
+  ok   a pin that models an interrupt CSR makes the tie-off an argument again
+  ok   a malformed baseline line is named rather than skipped
+  ok   an unreadable clone makes the re-derivation impossible, and fatal
+  (1s)
+
+== soc/compare/dhry_fit.py
+  ok   control: the measured image reports the shortfall it has
+  ok   a core that cannot hold the image is named, not left to the reader
+  ok   an image whose RAM outgrows the part's SPRAM does not fit either
+  ok   control: with the part's own four SPRAM the same image fits
+  ok   a testbench simulating a different map than the image is linked for is red
+  ok   a parameter this cannot read stops rather than comparing nothing
+  ok   data past the end of the simulated RAM is red, not silent
+  ok   a census with no block RAM line is a synthesis that did not finish
+  ok   an empty image is named rather than reported as fitting easily
+  (1s)
+
+== formal/executor-zkt-probe.py
+  ok   control: the MUL constant-latency assertion fails at its own line
+  ok   the mutated core proving is red
+  ok   the proof going red somewhere else is not evidence
+  ok   a failure reported only by the induction leg is not evidence
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled constant-latency assertion stops rather than pinning nothing
+  ok   a respelled mul case item stops rather than building the shipping core
+  ok   a respelled divide case item stops the same way
+  ok   a respelled op_is_divu latch stops the same way too
+  ok   the RTL moving away takes the probe with it, loudly
+  ok   no components.sby is exit 2, not a probe against an invented script
+  ok   a renamed task stops rather than probing some other design
+  (4s)
+
+== formal/busarbiter-probe.py
+  ok   control: both arms admit the shipping arbiter and fail on their mutation
+  ok   a harness that is red at rest makes the two mutations meaningless
+  ok   a cover the shipping arbiter cannot reach is red before any mutation
+  ok   a wait bound that admits a starved hart is red
+  ok   a lock arm that admits a grant mid-AMO is red
+  ok   starvation going red somewhere other than the bound is not evidence
+  ok   two arms that cannot be told apart are not two arms
+  ok   a torn atomic going red at the wait bound is not evidence either
+  ok   an anti-vacuity cover that cannot go red is not a control
+  ok   a cover red for some other goal says nothing about the lock
+  ok   a solver that wrote no verdict is exit 2, not a red arm
+  ok   an empty status file is refused rather than read as a verdict
+  ok   a respelled indivisibility arm stops rather than pinning nothing
+  ok   a respelled wait bound stops rather than pinning nothing
+  ok   a respelled lock cover stops rather than pinning nothing
+  ok   a respelled mutation site stops rather than proving the shipping core thrice
+  ok   the harness moving away takes the probe with it, loudly
+  (9s)
+
+== test/formal_ci_coverage_test.py
+  ok   control: every target in both designs' all lists is run by ci.yml
+  ok   a repo root that does not exist is red before anything is read
+  ok   a nano target CI stopped running is red, and named
+  ok   nano's trap proof with no CI step is red
+  ok   a target added to nano's all with no CI step is red
+  ok   a target added to littlecpu's all with no CI step is red
+  ok   a matrix proof dropped from the workflow is red
+  ok   check is run only when the shards and the baseline collector are both there
+  ok   a commented-out CI step does not count as run
+  ok   a design whose Makefile is gone is exit-nonzero, not skipped
+  (2s)
+
+== test/netlist_digest_gate_test.py
+  ok   control: the shipping Makefile owes nothing but themselves to the two targets
+  ok   a repo root with no Makefile is red before anything is parsed
+  ok   a graded target quietly depending on netlist-digest is red, and named
+  ok   and the diagnostic states the corollary this check is enforcing
+  ok   netlist-diff reaches the same check as netlist-digest does
+  ok   control: .PHONY declaring netlist-digest is not a dependency edge
+  ok   a renamed or deleted netlist-digest target stops the check rather than passing it
+  (1s)
+
+== soc/compare/product_diff.py
+  ok   control: two identical snapshots print a null delta and no news
+  ok   --require-news against an unchanged repo and matching --current is quiet
+  ok   --require-news is news the moment --current disagrees with the older stamp
+  ok   --require-news is news the moment rtl/ moved under the older stamp too
+  ok   a pair measured for the first time is news on its own, with no --current at all
+  ok   --require-news refuses on its own status, not on "no news"
+  ok   a base that is not a 40-character SHA is refused as malformed, not graded stale
+  ok   product_write.py refuses a --base that is not a 40-character commit SHA
+  ok   a --field naming a key the schema already reserves is refused
+  ok   --field stamps an extra provenance field verbatim
+  ok   --step-mhz replaces each core's own placed clock with one fixed step in its product
+  ok   --step-mhz refuses a core whose worst placement is under the step
+  ok   --require-news's own artifact does not make itself the news
+  ok   excluding --require-news's artifact does not blind it to a real soc/compare/ change
+  ok   an orphaned base on a legacy stamp recovers --require-news as news rather than refusing the run
+  ok   an orphaned base on a digest-bearing stamp is not news, the digest still matching
+  (14s)
+
+== nano/srcs_guard.sh
+  ok   control: every named source present proceeds
+  ok   no named source at all is reported, and is not a failure
+  ok   one source present and a second missing is refused, not read as nothing landed
+  (1s)
+
+== test/entropy_geometry_test.py
+  ok   control: the shipping entropy source sits between the jitter floor and the edge timeout
+  ok   an edge period too short for the jitter to fill is red
+  ok   an edge period that an oscillator 20% slow would push past the timeout is red
+  ok   the defect this exists for: the seed source tied low on the board
+  (1s)
+
+== test/entropy_stream_test.py
+  ok   a run that ignores the epoch and takes a reset for a wrap is red
+  ok   a capture written in place instead of moved whole into place is red
+  (3s)
+
+== test/board_tools_test.py
+  ok   the Makefile running the loader with no time limit is red
+  ok   control: every board command ejects the iCELink volume first (32s)
+  (35s)
+
+== test/nano_tt_area_workflow_test.py
+  ok   control: the shipping workflow resolves its mode once and saves its PDK cache unconditionally
+  ok   the defect this exists for: a summary line re-deriving the mode from inputs.
+  ok   a PDK cache save step with no if: always() only saves on job success
+  ok   a workflow that never fetches the register-file macro is refused
+  ok   a collector that drops the post-route STA's per-corner reports is refused
+  ok   a combined actions/cache step in place of restore is refused
+  ok   a missing workflow file is an error, not an empty pass
+  (1s)
+
+== test/compare_product_schedule_publish_test.py
+  ok   a commit that leaves the regenerated comparison document behind is red (11s)
+  (12s)
+
+== test/riscv_gcc_search_test.sh
+  ok   control: the shipping tree has no fallback search outside its exceptions
+  ok   a repo root that does not exist is red before anything is scanned
+  ok   a reintroduced fallback search in a live consumer is red, and located
+  ok   an allow-list entry whose site lost both retired names is red
+  ok   a tree git cannot list is a scan of nothing, not a green one
+  (2s)
+
+== test/checks_test.py
+  ok   a driver that ignores needs starts a check before the one it needs (38s)
+  (38s)
+
+== test/checks_manifest_test.py
+  ok   an input pattern that matches no file is red (13s)
+  (30s)
+197 graded comparisons, every failure path executed.
+error: a probe shard failed; read its output above.
+make[1]: *** [probe-gates] Error 1
+---- probe-gates exited 2
+checks[full]: 76 ran, 0 skipped, 2 failed, 780s wall
+FAILED: compare-product-schedule-token-test probe-gates
+     724s  probe-gates
+     457s  nano-qspi-loop-probe
+     140s  nano-qspi-pins-test
+     103s  sim
+      90s  nano-test
+      50s  entropy-stream-test
+      47s  nano-qspi-loop-run
+      41s  checks-test
+make: *** [test-full] Error 1

@@ -194,7 +194,7 @@ jobs:
     name: publish
     needs: measure
     if: github.ref == 'refs/heads/main' && needs.measure.outputs.moved == 'true'
-    runs-on: little-cpu-runners
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write # git push, for the branch carrying the refreshed stamp

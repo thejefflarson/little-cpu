@@ -15,7 +15,7 @@ A `runs-on:` value is accepted when it is
 A workflow triggered by `pull_request_target` is refused outright: it runs with the base
 repository's token against the PR's contents.
 
-EXCEPTIONS is {workflow file: reason} for a file allowed other runners. It is empty.
+EXCEPTIONS is {"file.yml::job": reason} for a job allowed another runner.
 
 Hermetic: file reads only.
 """
@@ -24,7 +24,12 @@ import pathlib
 import re
 import sys
 
-EXCEPTIONS = {}
+EXCEPTIONS = {
+    "compare-product-schedule.yml::publish": (
+        "the one job holding write scopes stays off the pool the measurement tools run on, "
+        "so a compromised tool cannot reach the token"
+    ),
+}
 
 FALLBACK = (
     "${{ (github.event_name != 'pull_request' || "
@@ -32,6 +37,7 @@ FALLBACK = (
     "&& 'little-cpu-runners' || 'ubuntu-latest' }}"
 )
 
+JOB = re.compile(r"^  ([\w-]+):\s*$")
 RUNS_ON = re.compile(r"^\s*runs-on:\s*(.*?)\s*$")
 PR_TRIGGER = re.compile(r"^(on:\s*pull_request\s*$|\s+pull_request:)", re.M)
 PR_TARGET = re.compile(r"^(on:\s*pull_request_target\b|\s+pull_request_target:)", re.M)
@@ -39,22 +45,25 @@ PR_TARGET = re.compile(r"^(on:\s*pull_request_target\b|\s+pull_request_target:)"
 
 def problems(path):
     text = path.read_text()
-    if path.name in EXCEPTIONS:
-        return []
     found = []
     if PR_TARGET.search(text):
         found.append(f"{path.name}: pull_request_target runs on the base repo's token")
     on_pr = bool(PR_TRIGGER.search(text))
     seen = 0
+    job = "?"
     for number, line in enumerate(text.splitlines(), 1):
+        if JOB.match(line):
+            job = JOB.match(line).group(1)
         match = RUNS_ON.match(line)
         if not match:
             continue
         seen += 1
+        if f"{path.name}::{job}" in EXCEPTIONS:
+            continue
         value = match.group(1)
         if value == FALLBACK:
             continue
-        where = f"{path.name}:{number}"
+        where = f"{path.name}:{number} ({job})"
         if value == "little-cpu-runners":
             if on_pr:
                 found.append(f"{where}: bare little-cpu-runners in a pull-request workflow "
