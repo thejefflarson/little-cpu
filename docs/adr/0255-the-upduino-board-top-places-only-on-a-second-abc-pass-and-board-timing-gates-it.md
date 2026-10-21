@@ -131,4 +131,4 @@ median and the spread. The default-seed reading is 12.79 MHz (`make board-timing
 `-dff` (5,167 cells, 12.56 worst) was declined: it adds sequential optimisation to a netlist no
 simulation or proof runs, and with the longer script it packed 5,080 cells and read 12.19 worst.
 
-Yosys 0.70's count on CI is recorded in the pull request that landed this amendment.
+On CI's yosys 0.70 the `soc-timing` job's `make board-timing` places the board top at 5,110 of 5,280 cells, 13.25 MHz at the default seed, against 5,170 cells and 12.18 MHz for the classic-pass spelling on the same toolchain the day before.
