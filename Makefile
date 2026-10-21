@@ -947,9 +947,7 @@ coremark: sim
 	@./test/bench/run_coremark.sh ./sim $(COREMARK_ITERATIONS) $(COREMARK_CYCLES) \
 	  '$(COREMARK_CFLAGS)'
 
-# The ABC9 script every ice40 synthesis of littlecpu, littlesoc and the board top maps with:
-# yosys's default plus a second `&syn2; &dc2; &dch -f -r` round. One file, so no flow maps
-# with a different script than the one it is graded against.
+# One ABC9 script for every ice40 synthesis of this design (ADR-0255).
 ICE40_ABC9 := soc/ice40_abc9.script
 
 # Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
