@@ -947,14 +947,19 @@ coremark: sim
 	@./test/bench/run_coremark.sh ./sim $(COREMARK_ITERATIONS) $(COREMARK_CYCLES) \
 	  '$(COREMARK_CFLAGS)'
 
+# The ABC9 script every ice40 synthesis of littlecpu, littlesoc and the board top maps with:
+# yosys's default plus a second `&syn2; &dc2; &dch -f -r` round. One file, so no flow maps
+# with a different script than the one it is graded against.
+ICE40_ABC9 := soc/ice40_abc9.script
+
 # Count logic cells from nextpnr, never cell counts from yosys: the two disagree in
 # magnitude and in sign on the same netlist.
 FIT_SRCS := rtl/structs.v rtl/accessor.v rtl/csrs.v rtl/trng.v rtl/decoder.v rtl/executor.v \
             rtl/fetcher.v rtl/regfile.v rtl/regsel.v rtl/writeback.v rtl/littlecpu.v
 
-$(BUILD)/fit.json: $(FIT_SRCS) | $(BUILD)
+$(BUILD)/fit.json: $(FIT_SRCS) $(ICE40_ABC9) | $(BUILD)
 	@echo 'yosys: synthesising littlecpu for ice40 (log: $(BUILD)/fit.synth.log)'
-	@yosys -p 'read_verilog -sv $^; synth_ice40 -dsp -top littlecpu -json $@' \
+	@yosys -p 'read_verilog -sv $(FIT_SRCS); scratchpad -set abc9.script $(ICE40_ABC9); synth_ice40 -dsp -top littlecpu -json $@' \
 	  > $(BUILD)/fit.synth.log 2>&1 || { tail -40 $(BUILD)/fit.synth.log; exit 1; }
 
 # 4586 = 4492 + 40 + 54: this tree's local count (the job's is not yet measured, and the local
@@ -1032,10 +1037,11 @@ soc-rom:
 # digest and the placement it grades describe different builds.
 SOC_SYNTH := read_verilog -sv $(SOC_SRCS); \
              $(SOC_ROM_CHPARAM) \
+             scratchpad -set abc9.script $(ICE40_ABC9); \
              synth_ice40 -device u -dsp -spram -top littlesoc
 SOC_PNR   := nextpnr-ice40 --up5k --package sg48 --pcf soc/littlesoc.pcf
 
-$(BUILD)/soc.json: $(SOC_SRCS) soc-rom | $(BUILD)
+$(BUILD)/soc.json: $(SOC_SRCS) $(ICE40_ABC9) soc-rom | $(BUILD)
 	@echo 'yosys: synthesising littlesoc for ice40 (log: $(BUILD)/soc.synth.log)'
 	@yosys -p '$(SOC_SYNTH) -json $@' \
 	  > $(BUILD)/soc.synth.log 2>&1 || { tail -40 $(BUILD)/soc.synth.log; exit 1; }
@@ -1064,7 +1070,7 @@ endif
 
 .PHONY: soc-pin-check
 soc-pin-check: soc-rom
-	@python3 soc/soc_pin.py check-sources $(SOC_PIN) $(SOC_SRCS) $(SOC_ROM_HEX)
+	@python3 soc/soc_pin.py check-sources $(SOC_PIN) $(SOC_SRCS) $(ICE40_ABC9) $(SOC_ROM_HEX)
 
 $(BUILD)/soc.asc: $(BUILD)/soc.json soc/littlesoc.pcf $(if $(SOC_SEED_PINNED),soc-pin-check)
 	@rm -f $@ $(BUILD)/soc.timing.rpt
@@ -1514,11 +1520,9 @@ noop-rom:
 board-elaborate: $(BOARD_SRCS) $(BOARD_ROM)
 	@./soc/board_elaborate.sh yosys $(BOARD_TOP) $(BOARD_SRCS)
 
-BOARD_ABC9 := soc/board_abc9.script
-
-$(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) $(BOARD_ABC9) | $(BUILD)
+$(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) $(ICE40_ABC9) | $(BUILD)
 	@echo 'yosys: synthesising $(BOARD_TOP) for ice40 (log: $(BUILD)/board.synth.log)'
-	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); scratchpad -set abc9.script $(BOARD_ABC9); synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@' \
+	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); scratchpad -set abc9.script $(ICE40_ABC9); synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@' \
 	  > $(BUILD)/board.synth.log 2>&1 || { tail -40 $(BUILD)/board.synth.log; exit 1; }
 	@python3 soc/cell_census.py $(BUILD)/board.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
 	  "the board wrapper changed how rtl/memory.v maps -- the SoC underneath it is the same design"

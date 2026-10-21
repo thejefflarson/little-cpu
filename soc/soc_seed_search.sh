@@ -66,7 +66,7 @@ if ! awk -v m="$margin_pct" -v need="$MIN_MARGIN_PCT" 'BEGIN{exit !(m>=need)}'; 
   exit 1
 fi
 
-digest=$(python3 soc/soc_pin.py digest $(make -s print-SOC_SRCS) $(make -s print-SOC_ROM_HEX))
+digest=$(python3 soc/soc_pin.py digest $(make -s print-SOC_SRCS) $(make -s print-ICE40_ABC9) $(make -s print-SOC_ROM_HEX))
 
 python3 soc/seed_search_distribution.py "$samples" "$best_seed" "$seeds_source" > "$dist"
 
