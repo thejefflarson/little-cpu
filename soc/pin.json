@@ -1,65 +1,65 @@
 {
-  "date": "2026-10-18",
+  "date": "2026-10-21",
   "distribution": {
-    "chosen_seed": 156842832,
+    "chosen_seed": 195147338,
     "note": "Seeds 1..N are a structured lattice in nextpnr-ice40's xorshift RNG state (state(3) = state(1) XOR state(2) over GF(2)), not an independent sample -- read the spread here as one search's outcome, not as the design's placement distribution. See ADR-0171.",
     "samples": [
       {
-        "mhz": 13.2,
+        "mhz": 13.53,
         "seed": 195147338
       },
       {
-        "mhz": 13.08,
+        "mhz": 13.29,
         "seed": 218749127
       },
       {
-        "mhz": 13.16,
+        "mhz": 13.5,
         "seed": 20740127
       },
       {
-        "mhz": 12.44,
+        "mhz": 13.41,
         "seed": 125781539
       },
       {
-        "mhz": 13.01,
+        "mhz": 13.49,
         "seed": 14871351
       },
       {
-        "mhz": 13.5,
+        "mhz": 13.51,
         "seed": 156842832
       },
       {
-        "mhz": 12.58,
+        "mhz": 13.52,
         "seed": 233595587
       },
       {
-        "mhz": 13.07,
+        "mhz": 13.19,
         "seed": 20382078
       },
       {
-        "mhz": 12.91,
+        "mhz": 13.06,
         "seed": 105970731
       },
       {
-        "mhz": 12.59,
+        "mhz": 12.86,
         "seed": 67306537
       },
       {
-        "mhz": 13.29,
+        "mhz": 13.37,
         "seed": 188692556
       },
       {
-        "mhz": 12.99,
+        "mhz": 13.35,
         "seed": 56599761
       }
     ],
     "seeds_source": "sha256(little-cpu-soc-seed-<i>) default, count=12"
   },
-  "margin_pct": 12.5,
-  "measured_mhz": 13.5,
+  "margin_pct": 12.75,
+  "measured_mhz": 13.53,
   "min_mhz": 12.0,
-  "seed": 156842832,
-  "sources_digest": "sha256:74bfd7cda9af18b72408b33549f17f89924647c804af9f1562b7881ca5e03671",
+  "seed": 195147338,
+  "sources_digest": "sha256:71bf57f5f493f7ecab98a5499cabb298aaed2cca2ac18e1ac370cecbb4a81d9b",
   "synth_knob": null,
   "toolchain": "# yosys: Yosys 0.68+48 (git sha1 ff5817c34-dirty, Release, Clang /usr/local/osxcross/target/bin/aarch64-apple-darwin25.5-clang++ 21.1.8) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/yosys]\n# nextpnr-ice40: \"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11-1-g62e659ed) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/nextpnr-ice40]\n# icetime: oss-cad-suite 20260811 sha256:25a4ecb76c094f00 [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/icetime]"
 }

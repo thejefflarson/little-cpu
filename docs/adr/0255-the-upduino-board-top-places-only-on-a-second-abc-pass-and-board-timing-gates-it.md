@@ -132,3 +132,41 @@ median and the spread. The default-seed reading is 12.79 MHz (`make board-timing
 simulation or proof runs, and with the longer script it packed 5,080 cells and read 12.19 worst.
 
 On CI's yosys 0.70 the `soc-timing` job's `make board-timing` places the board top at 5,110 of 5,280 cells, 13.25 MHz at the default seed, against 5,170 cells and 12.18 MHz for the classic-pass spelling on the same toolchain the day before.
+
+## Amendment 2026-10-21: `littlesoc` and the core alone map with the same script
+
+`soc/board_abc9.script` is now `soc/ice40_abc9.script`, and every ice40 synthesis of this design
+reads it: `$(BUILD)/soc.json` and `NETLIST_SYNTH` (which is `SOC_SYNTH`, so `netlist-digest`,
+`netlist-determinism` and `netlist-diff` follow, and so do `soc-timing`, `soc/timing_sweep.sh`,
+`soc/baseline_sweep.sh`, `soc/paired_sweep.sh` and `make soc-seed-search`, all of which call
+`make soc-timing`), `$(BUILD)/fit.json` and `$(BUILD)/board.json`. `soc/pin.json`'s sources digest
+now covers the script, so editing it reads PIN STALE. The compare harness's up5k rows
+(`$(BUILD)/compare.*.json` and `.core.log`) do not share `SOC_SYNTH` and stay on the default
+script: they synthesise two opponents beside this core, and one mapper for all three is that
+harness's standard. `test/imem_share_test.sh` and the entropy capture top are single modules and
+stay too.
+
+**Why.** The previous amendment's `littlesoc` cost was measured on the classic `abc` second pass,
+which is gone in yosys 0.70. The ABC9 script is a different mapper, and `littlesoc` is the tightest
+design: with the Zkr timeout change it did not place on CI at all (5,306 of 5,280 `ICESTORM_LC`).
+
+**Sixteen paired seeds** (default and 1 to 15, `soc/paired_sweep.sh`, yosys 0.68+48 and nextpnr
+0.11-1-g62e659ed, base `main` at 29f687e2, candidate this tree including the 16,384-cycle timeout):
+
+| | packed `ICESTORM_LC` | worst MHz | median MHz | best MHz | spread |
+|---|---|---|---|---|---|
+| default script, `main` | 5,265 | 12.33 | 13.01 | 13.54 | 9.8% |
+| shared script | 5,177 | 12.60 | 13.37 | 13.58 | 7.8% |
+
+A first sweep before the timeout change, on the same base, read 5,174 cells, worst 12.48, median 12.93:
+the worst seed was better in both and the median moved from a null to +2.7%, which is inside the
+3.6% churn band, so the claim is the 88 cells and a worst seed no worse. The core alone (`make fit`,
+local) went 4,549 to 4,432 cells before the timeout change.
+
+**ECP5 stays on `synth_ecp5`'s default.** Sixteen paired seeds (1 to 16, `--25k --package CABGA381
+--speed 6`, 200 MHz constraint, yosys 0.68+48, `littlesoc` on `main` before the timeout change) on the
+default against the stronger script with ECP5's own `-W 300`: default worst 37.30, median 38.86, best
+40.02 MHz (7.3% spread); stronger 37.36 / 38.42 / 40.36 (8.0%). Paired differences run -4.4% to
++5.8% with a median of -0.38%, and the stronger script was faster at 7 of 16. LUT4 fell 5,221 to
+4,946 and placed `TRELLIS_COMB` 6,391 to 6,118 of 24,288. The clock is a null and the part is 26%
+full, so the area buys nothing and the flow does not change.

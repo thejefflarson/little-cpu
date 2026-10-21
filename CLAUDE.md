@@ -582,8 +582,7 @@ top, ECP5 only.
 - **The UPduino board top is a fifth design, and `make board-timing` places it** (ADR-0255).
   `littlesoc` placing says nothing about `upduino_top`: the wrapper's tie-offs and instance names move
   its mapped count by 40 to 70 cells, and it stopped placing at 5,306 of 5,280 for as long as no job
-  placed it. Its synthesis maps with a longer ABC9 script, `soc/board_abc9.script` (the default's `&dch` and `&syn2` round run twice; yosys 0.70 removed `synth_ice40 -abc2`, the classic `abc` pass it used to run), that packs about 140 cells fewer than one default pass and costs
-  `littlesoc` about 6% of its median Fmax under the older classic-pass spelling, so the SoC stays on the default script. Placed on CI's yosys 0.70: 5,110 cells, 13.25 MHz
+  placed it. Every ice40 synthesis here (the board top, `littlesoc` and the core alone) maps with one longer ABC9 script, `soc/ice40_abc9.script` (the default's `&dch` and `&syn2` round run twice; yosys 0.70 removed `synth_ice40 -abc2`, the classic `abc` pass it used to run): about 140 cells fewer than one default pass on the board top, 88 fewer on `littlesoc`, and no worse at the worst of sixteen seeds on either. The ECP5 flows stay on `synth_ecp5`'s default, where the same script reads a null on clock (ADR-0255, amended). The compare harness's up5k rows stay on the default script, one mapper for three cores. Placed on CI's yosys 0.70: 5,110 cells, 13.25 MHz
   at the default seed; on 0.68, 5,163 cells and worst of sixteen seeds 12.34 (ADR-0255, amended).
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide; when it trips, fix the design.
