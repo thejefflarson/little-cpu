@@ -11,6 +11,10 @@ module upduino_top #(
   inout  wire  spi_miso_txd,
   inout  wire  spi_ssn
 );
+  // The divide sets trng's edge period (about 9,600 cycles); test/entropy_geometry_test.py grades it.
+  localparam integer CORE_HZ = 12_000_000;
+  localparam integer ENTROPY_DIV_LOG2 = 3;
+
   logic clk;
 
   generate
@@ -51,12 +55,17 @@ module upduino_top #(
     .D_IN_0(ssn_pin)
   );
 
-  logic entropy_raw;
+  logic lfosc_out;
   SB_LFOSC lfosc (
     .CLKLFPU(1'b1),
     .CLKLFEN(1'b1),
-    .CLKLF(entropy_raw)
+    .CLKLF(lfosc_out)
   );
+
+  logic [ENTROPY_DIV_LOG2-1:0] entropy_count = '0;
+  always_ff @(posedge lfosc_out) entropy_count <= entropy_count + 1'b1;
+  logic entropy_raw;
+  assign entropy_raw = entropy_count[ENTROPY_DIV_LOG2-1];
 
   littlesoc soc (
     .clk(clk),

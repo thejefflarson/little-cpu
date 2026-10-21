@@ -302,29 +302,30 @@ so no value-dependent timing exists and `test/zkt_isolation_test.py` stays green
 `rtl/trng.v`, inside `rtl/csrs.v`: a slow oscillator reaches the core on the `entropy_raw` input,
 and the module measures the interval between its rising edges in `clk` cycles, takes the low two
 bits, runs a von Neumann corrector and an 8-to-1 XOR fold, and buffers 16 bits. Four hardware health
-tests report DEAD, sticky and never alongside entropy: no edge for 8,192 cycles; a 64-sample aligned
+tests report DEAD, sticky and never alongside entropy: no edge for 16,384 cycles; a 64-sample aligned
 block of raw samples with no corrected bit (a beat pattern emits nothing and would otherwise sit in
 WAIT forever); the 32nd repeat of the previous corrected bit in a row (a repetition count on the folded output, which
 also catches a period-2 emitted pattern); and an adaptive proportion over 512-sample windows, dead
 when one value fills 410 (NIST SP 800-90B 4.4.2, a claimed 0.5 bit per sample at 2^-20). BIST lasts
 until 1,024 raw samples have passed all four, and words produced before then are discarded.
-**Two boards have a Zkr source and one of them is measured.** The iCESugar-Pro is measured: its
+**Two boards have a Zkr source and both are measured.** The iCESugar-Pro: its
 `soc/icesugar_pro_entropy.v` divides `OSCG` (DIV 128, 2.435 MHz) by 2^9 in fabric, 6,342 core
 cycles per edge at 30 MHz (2^8, 3,171 cycles, shipped first). The repo's own estimators over 24 frames of 4,096 intervals
 (`soc/entropy_assess.py`) read 0.63 to 0.78 bit of min-entropy per sample with 0 of 192
 adaptive-proportion windows tripping, but **NIST's `ea_non_iid` on 1,000,000 consecutive samples
 read 0.4994 at 2^8 (0.4134 with the core on the 25 MHz pad), under the 0.5 the cutoff assumes**; the
 longer 2^9 period reads 0.810 and its restart test 0.803, so min is 0.803, and with the core on the
-25 MHz pad it reads 0.742 with a restart min of 0.742, one draw each (ADR-0252, amended);
-`test/entropy_geometry_test.py` holds the period between 3,000 cycles and 80% of the edge timeout,
-and a divide of 2^7 measured 0.28 and tripped the proportion test, so the period is not a free
-parameter. The UPduino's `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
-(10.004 kHz, 1,199.5 cycles per edge at 12 MHz, a hard macro costing no cell) and **fails the 0.5 bit**:
-NIST's `ea_non_iid` reads 0.0459 on a million samples, 895 of 1,953 proportion windows would set DEAD,
-and the sample bit follows a slow drift of the oscillator against the clock rather than its jitter. A
-fabric divide of 2^2 reads 0.437, 2^3 reads 0.705 (9,591 cycles, past the 8,192-cycle edge timeout) and
-2^4 reads 0.809; no periodic lock shows at the shipped setting (ADR-0245, amended 2026-10-18). Only the
-`SB_HFOSC` clock could be measured, because this board's crystal jumper is open. An `entropy_raw` held low, as every formal harness and the dual
+25 MHz pad it reads 0.742 with a restart min of 0.742, one draw each (ADR-0252, amended). The UPduino's
+`soc/board_upduino.v` divides the part's `SB_LFOSC` (10.004 kHz, a hard macro) by 2^3 in fabric, 9,591
+cycles per edge at 12 MHz: undivided it read 1,199.5 cycles and **0.0459** (895 of 1,953 proportion
+windows would set DEAD, the sample bit following the oscillator's slow drift against the clock rather
+than its jitter), 2^2 reads 0.437, **2^3 reads 0.7045 with a restart min of 0.7045** and 2^4 reads 0.809
+(ADR-0245, amended); measured on the core-less capture top with only the `SB_HFOSC` clock, because this board's crystal
+jumper is open. `rtl/trng.v`'s edge timeout is 16,384 cycles (one pass of a 14-bit counter) so 9,591 sits at
+59% of it, and `test/entropy_geometry_test.py` holds each board's nominal period between its own
+measured floor (3,000 cycles for OSCG, 9,000 for `SB_LFOSC`, where 4,797 failed and 9,591 passed) and
+80% of that timeout. A divide of 2^7 measured 0.28 on the iCESugar-Pro and tripped the proportion
+test, so the period is not a free parameter on either board; no periodic lock shows on either. An `entropy_raw` held low, as every formal harness and the dual
 top hold it, reads DEAD, which is spec-honest. **Zkr is in the ISA string**, `_zkr` at all seven sites `test/march_test.sh`
 grades. `mseccfg` (0x747) and `mseccfgh` (0x757) read zero and
 ignore writes: Zkr adds the SSEED and USEED fields, which the Zkr text allows to be read-only zero,
@@ -941,7 +942,7 @@ make entropy-nist-pll # the shipped seed source on the board: 1M consecutive sam
                     # held for each board access), ENTROPY_NIST_RESUME
 make entropy-nist-upduino # the UPduino's SB_LFOSC on the board: flash a core-less capture, 1M samples,
                     # ea_non_iid, a reboot matrix, ea_restart, graded against 0.5. ENTROPY_UPDUINO_FAB
-                    # is the fabric divide (log2), ENTROPY_UPDUINO_OSC the clock; holds the board lock
+                    # is the fabric divide (log2, default 3 as shipped), ENTROPY_UPDUINO_OSC the clock; holds the board lock
                     # for the whole matrix, hours. soc/entropy_upduino.py intervals|periodic are the
                     # interval capture and the repeating-pattern scan. Needs the board, off `make test`
 make icesugar-clock-check # load soc/clock_check.S, time its `T` lines on the host and fail when

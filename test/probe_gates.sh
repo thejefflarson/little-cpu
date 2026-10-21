@@ -10209,13 +10209,15 @@ EGEO="python3 $HERE/entropy_geometry_test.py"
 egeo_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/soc" "$d/rtl" "$d/test"
-  cp "$REPO/soc/icesugar_pro_entropy.v" "$REPO/soc/board_icesugar_pro.v" "$d/soc/"
+  cp "$REPO/soc/icesugar_pro_entropy.v" "$REPO/soc/board_icesugar_pro.v" "$REPO/soc/board_upduino.v" "$d/soc/"
   cp "$REPO/rtl/trng.v" "$d/rtl/"
+  mkdir -p "$d/mk"
+  cp "$REPO/mk/nist90b.mk" "$d/mk/"
   printf '%s' "$d"
 }
 
 d=$(egeo_fixture)
-probe "control: the shipping entropy source sits between the jitter floor and the edge timeout" 0 \
+probe "control: both boards' shipping entropy sources sit between the jitter floor and the edge timeout" 0 \
   "core cycles per edge" "$EGEO $d"
 
 d=$(egeo_fixture)
@@ -10224,7 +10226,7 @@ probe "an edge period too short for the jitter to fill is red" 1 \
   "under the 3000 at which the measured min-entropy reached 0.5" "$EGEO $d"
 
 d=$(egeo_fixture)
-mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 9/DIV_LOG2 = 10/'
+mutate "$d/soc/icesugar_pro_entropy.v" 's/DIV_LOG2 = 9/DIV_LOG2 = 11/'
 probe "an edge period that an oscillator 20% slow would push past the timeout is red" 1 \
   "edge timeout; an oscillator" "$EGEO $d"
 
@@ -10232,6 +10234,36 @@ d=$(egeo_fixture)
 mutate "$d/soc/board_icesugar_pro.v" "s/\\.entropy_raw(entropy_raw)/.entropy_raw(1'b0)/"
 probe "the defect this exists for: the seed source tied low on the board" 1 \
   "seed reads DEAD" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/board_upduino.v" 's/ENTROPY_DIV_LOG2 = 3/ENTROPY_DIV_LOG2 = 2/'
+probe "an UPduino divide one step short of the measured pass is red" 1 \
+  "UPduino: the nominal edge period is 4800 core cycles, under the 9000" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/board_upduino.v" 's/ENTROPY_DIV_LOG2 = 3/ENTROPY_DIV_LOG2 = 4/'
+probe "an UPduino divide one step long, past the edge timeout margin, is red" 1 \
+  "UPduino: the nominal edge period is 19200 core cycles" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/board_upduino.v" "s/\\.entropy_raw(entropy_raw)/.entropy_raw(1'b0)/"
+probe "the UPduino's seed source tied low is red" 1 \
+  "seed reads DEAD" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/soc/board_upduino.v" 's/posedge lfosc_out/posedge clk/'
+probe "an UPduino divider counting core clocks instead of the oscillator is red" 1 \
+  "does not count SB_LFOSC's own edges" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/mk/nist90b.mk" 's/ENTROPY_UPDUINO_FAB  ?= 3/ENTROPY_UPDUINO_FAB  ?= 0/'
+probe "a measurement target whose default divide is not the shipped one is red" 1 \
+  "so the default measurement would grade a source that does not ship" "$EGEO $d"
+
+d=$(egeo_fixture)
+mutate "$d/rtl/trng.v" 's/logic \[13:0\] ticks;/logic [12:0] ticks;/'
+probe "an edge timeout back at 8,192 cycles fails the UPduino's period" 1 \
+  "UPduino: the nominal edge period is 9600 core cycles, over 80% of rtl/trng.v's 8192-cycle" "$EGEO $d"
 
 begin_group "test/entropy_stream_test.py" spread
 

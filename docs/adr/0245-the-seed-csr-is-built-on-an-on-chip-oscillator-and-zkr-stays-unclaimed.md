@@ -299,3 +299,53 @@ read either.
 board lock is held for a restart matrix's whole run); `soc/entropy_upduino.py intervals` collects interval
 frames and `soc/entropy_upduino.py periodic FILE` scans a sample file. `test/entropy_upduino_test.py`
 grades the decoding, the scan and the loader without a board, with forced-red probes.
+
+## Amendment: the UPduino divides SB_LFOSC by 8 and the edge timeout is 16,384 cycles (2026-10-20)
+
+The change proposed above is made. Measured on `main` at a2ddcdc9 plus this change, yosys 0.68+48 and
+nextpnr 0.11-1-g62e659ed (OSS CAD Suite 20260811), one Apple-silicon host; the `fit` and `soc-timing`
+CI jobs are the figures of record and are not yet taken on this tree.
+
+**What changed.** `soc/board_upduino.v` counts `SB_LFOSC`'s own edges in three flops outside `littlesoc`
+and hands the top bit to `entropy_raw`: 9,591 core cycles per edge at 12 MHz, the setting the capture
+measured at **0.7045** (`ea_non_iid`, 1,000,000 samples) with a restart min of **0.7045** (`ea_restart`,
+1,000 x 1,000; the 2^3 rows above). `rtl/trng.v`'s no-edge timeout is 16,384 cycles, one pass of a 14-bit
+`ticks` counter that raises `dead` when it fills with no edge; it was 8,192, a 12-bit counter plus the
+`late` flag. 9,591 cycles is 58.5% of 16,384 and the iCESugar-Pro's 6,342 is 38.7%, both under the
+80% rule. `test/entropy_geometry_test.py` now grades both boards: each period is `CORE_HZ * 2^DIV_LOG2 /
+OSC_HZ` against its own floor, 3,000 cycles for `OSCG` (unchanged) and 9,000 for `SB_LFOSC`, where 4,797
+failed at 0.437 and 9,591 passed, and against 80% of the timeout read from `ticks`' width. It also
+requires `mk/nist90b.mk`'s default `ENTROPY_UPDUINO_FAB` to equal the board's divide, so
+`make entropy-nist-upduino` measures the source that ships. `test/trng_tb.v`'s slow source is one edge
+per 12,000 cycles (DEAD under the old timeout, alive under this one) and its dead-source waits are
+20,000 cycles.
+
+**Cells.** `littlesoc` packs 5,264 `ICESTORM_LC` against 5,265 on `main`, in this tree and toolchain. That
+is a draw, not a saving: the same logic spelled five ways packed 5,264 (shipped, an `if`/`else` on
+`edge_seen` around `ticks + 1` and `&ticks` for the timeout), 5,279 (a ternary, and a blank line added),
+5,284 (13-bit `ticks` plus `late`; a carry-out of `ticks + 1`) and 5,292 (a wrap term as its own wire),
+the last three over the part's 5,280 and unplaceable. Which spelling ships is therefore the measurement,
+and a respelling reopens it. `make fit` reads 4,524 against `FIT_MAX_LC` 4,586. The board top packs
+5,249 and `make board-timing` ratchets 13.36 MHz against 12.00 on the pre-ABC9 board flow (the ABC9
+change to that flow is separate and unmerged).
+
+**Timing.** Sixteen paired seeds on `littlesoc` (`soc/paired_sweep.sh origin/main`, seeds default and 1
+to 15, the same on both sides; MHz):
+
+| | worst | median | best | spread |
+|---|---|---|---|---|
+| `main` a2ddcdc9 | 12.33 | 13.01 | 13.54 | 9.8% |
+| this change | 12.17 | 12.68 | 13.08 | 7.5% |
+
+Worst +1.4% of period, median +2.6%, best +3.5%; all sixteen placements clear 12.0 MHz. All three
+deltas sit inside the 3.6% edit-churn band, with a spread that is narrower, not wider; a median inside the band is a null
+(ADR-0121). `make soc-timing` at the stale pin (PIN STALE) places at 12.78 MHz, 6.5%
+over the requirement, above the 5% margin `soc-seed-search` demands, so `soc/pin.json` is left. On
+`make ecp5-timing`, one placement, 38.03 MHz with 36 `DP16KD` and no block RAM reset driven by logic; twelve paired seeds read worst 37.04, median
+38.66, best 39.75 MHz against `main`'s 38.48, 39.12 and 40.02 (worst +3.9% of period inside that part's 10.3% spread). The iCESugar-Pro
+shipping top (`make icesugar-bitstream`) places and its core domain closes.
+
+**On the board.** The UPduino was not attached to the host when this was made, so the shipping bitstream has
+not run: `soc/seed_probe.S` reaching ES16 on `upduino_top`, and `make entropy-nist-upduino` at its new
+default divide of 3 on the shipped clock, are owed. The 0.7045 figures above are the core-less capture
+top's, whose divider is the same three flops on the same oscillator.
