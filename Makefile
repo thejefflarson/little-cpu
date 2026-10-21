@@ -365,9 +365,9 @@ else
 	@echo "svlint (the structural lint gate, \`make lint\`) is not packaged by"
 	@echo "apt. Get the pinned release archive with:"
 	@echo "  make lint-setup"
-	@echo "which fetches, SHA-256-verifies and unpacks it into $(SVLINT_DIR)/."
-	@echo "\`cargo install svlint --version $(SVLINT_VERSION)\` also works, but"
-	@echo "builds from an unpinned crates.io tarball -- prefer lint-setup."
+	@echo "which fetches, SHA-256-verifies and unpacks it into $(SVLINT_DIR)/;"
+	@echo "where no release asset is pinned (Linux/aarch64) it builds the pinned"
+	@echo "crate with cargo instead."
 endif
 
 ifneq ($(filter command line environment,$(origin SVLINT_VERSION)),)
@@ -415,9 +415,18 @@ lint:
 lint-setup:
 	@set -e; \
 	if [ -z '$(SVLINT_ASSET)' ] || [ -z '$(SVLINT_SHA256)' ]; then \
+	  PATH="$$HOME/.cargo/bin:$$PATH"; \
+	  if [ "$$(uname -s)" = Linux ] && command -v cargo >/dev/null 2>&1; then \
+	    echo "no svlint $(SVLINT_VERSION) release asset for $$(uname -m); building the crate" \
+	      "(--locked: cargo checks each dependency against the crates.io index checksum)"; \
+	    rm -rf '$(SVLINT_DIR)'; \
+	    cargo install --locked svlint --version =$(SVLINT_VERSION) --root '$(SVLINT_DIR)'; \
+	    '$(SVLINT_DIR)'/bin/svlint --version; \
+	    exit 0; \
+	  fi; \
 	  echo "no svlint $(SVLINT_VERSION) release pinned for" >&2; \
 	  echo "$$(uname -s)/$$(uname -m). Install it with 'brew install svlint'" >&2; \
-	  echo "or 'cargo install svlint --version $(SVLINT_VERSION)'. Fetching an" >&2; \
+	  echo "or 'cargo install --locked svlint --version =$(SVLINT_VERSION)'. Fetching an" >&2; \
 	  echo "asset this repo cannot verify is not an option this target offers." >&2; \
 	  exit 1; \
 	fi; \
@@ -725,6 +734,10 @@ stall-sites-test:
 formal-ci-coverage-test:
 	@python3 ./test/formal_ci_coverage_test.py
 
+.PHONY: workflow-runner-test
+workflow-runner-test:
+	@python3 ./test/workflow_runner_test.py
+
 # soc_pin.py's own usage block says check-sources exits 0 -- a mismatch warns, it does
 # not fail -- and this keeps the soc-timing recipe's help text saying the same thing.
 .PHONY: pin-help-text-test
@@ -817,7 +830,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
                nano-tt-test nano-timer-test stall-sites-test pin-help-text-test \
-               formal-ci-coverage-test yosys-script-oneline-test compare-doc-test suite-test \
+               formal-ci-coverage-test workflow-runner-test yosys-script-oneline-test compare-doc-test suite-test \
                checks-test checks-manifest-test
 
 .PHONY: print-test-checks

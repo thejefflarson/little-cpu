@@ -76,6 +76,7 @@ dhry-board-parity-test | fast | - | - | @all test/dhry_board_parity_test.sh test
 stall-sites-test | fast | - | - | @all test/stall_sites_test.py test/stall_report.py rtl/ test/cxxrtl.cc
 pin-help-text-test | fast | - | - | @all test/pin_help_text_test.sh Makefile
 formal-ci-coverage-test | fast | - | - | @all test/formal_ci_coverage_test.py .github/ formal/ nano/formal/
+workflow-runner-test | fast | - | - | @all test/workflow_runner_test.py .github/
 yosys-script-oneline-test | fast | - | - | @all test/yosys_script_oneline_test.py Makefile nano/
 memcheck-depth-test | fast | - | - | formal/ nano/formal/
 abc-engine-test | fast | - | - | formal/ Makefile
