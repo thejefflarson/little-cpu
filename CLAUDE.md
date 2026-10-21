@@ -856,7 +856,8 @@ make doctor         # resolve and verify the RISC-V compiler, yosys, nextpnr-ice
                     # icetime -- path, version, and icetime's chip database actually
                     # loading -- before a placement or a sweep is spent finding out
 make lint           # svlint over rtl/, RVFI macros off and on. A required CI check
-make lint-setup     # fetch the pinned svlint release into the tool cache
+make lint-setup     # the pinned svlint into the tool cache: SHA-256-checked release archive,
+                    # or `cargo install --locked` of the pinned crate on Linux/aarch64
 make riscv-gcc-setup # fetch the pinned xPack riscv-none-elf-gcc release into the tool
                     # cache; make test's riscv-gcc-pin-test grades that PATH resolves it
 make test           # the fast tier, for the edit-and-check loop: every check in test/CHECKS but the
@@ -1131,15 +1132,22 @@ gitignored, so an install inside the checkout is invisible from every worktree. 
 enforces it.
 
 Toolchain: `make riscv-gcc-setup` fetches the pinned RISC-V gcc on both platforms (ADR-0190); svlint
-is `brew install svlint` on macOS or `make lint-setup` on Linux. Tests are freestanding — `.S`, and
+is `brew install svlint` on macOS or `make lint-setup` on Linux: x86_64 verifies the release
+archive's SHA-256, and aarch64 (the runner pool), where svlint publishes no asset, builds the
+pinned crate with `cargo install --locked`, which checks every crate against the crates.io index
+checksum. Tests are freestanding — `.S`, and
 `.c` built `-nostdlib -ffreestanding` against `test/crt0.S` — so no multilib or newlib. Formal needs
 the YosysHQ OSS CAD Suite, which CI takes at the latest release; it is the one tool that floats.
 Everything else downloaded or vendored is pinned and refuses a command-line override: riscv-formal
 (`formal/pin.mk`), sail-riscv and svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), the RISC-V gcc
 (`RISCV_GCC_VERSION`), Hazard3 (`soc/compare/hazard3_pin.mk`) and CoreMark (`COREMARK_PIN`). CI runs
 on every PR (`.github/workflows/ci.yml`); read the required set live from
-`gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments. The runners
-are self-hosted ARC pods declared in the sibling `cluster` repo (`argocd/apps/runners.yaml`,
+`gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments. **Every
+workflow job runs on `little-cpu-runners`**; `ubuntu-latest` appears only as the fallback arm of
+the fork-PR expression (a fork's code must never run on the pool, so a pull-request workflow
+names the pool through that expression and never bare), or in a workflow listed in
+`test/workflow_runner_test.py`'s `EXCEPTIONS` with a written reason, which `make test` grades.
+The runners are self-hosted ARC pods declared in the sibling `cluster` repo (`argocd/apps/runners.yaml`,
 `charts/actions/runners/values.yaml`): read their CPU and memory limits there, and record the date
 a decision was measured against them. `nproc` and `free` inside a pod report the host.
 
