@@ -82,3 +82,53 @@ in two halves, `synth_ice40 ... -run :map_luts`, then `abc; ice40_opt`, then `sy
 -run map_luts:`, which are exactly the two commands 0.68 ran under `-abc2` ahead of `map_luts`. On
 0.68 the spelled-out form gives a netlist identical to the flag's (same JSON), so 5,207 cells and
 the 12.57 MHz default-seed reading stand. The count on 0.70 is whatever the CI job log prints.
+
+## Amendment 2026-10-19: the board top maps with a longer ABC9 script, not the classic `abc` pass
+
+Yosys removed classic ABC mapping from the `synth_*` flows (commit 44bab117d, 2026-08-19) and
+intends to remove more of it, so the spelled-out `abc; ice40_opt` of the previous amendment is on a
+deprecation path. `$(BUILD)/board.json` is now one `synth_ice40 -device u -dsp -spram -top upduino_top
+-json` with `scratchpad -set abc9.script soc/board_abc9.script` set first; the script is a Makefile
+prerequisite. `littlesoc`'s flows are untouched.
+
+**What differs from the default.** The default ABC9 script on 0.68 and 0.70 is
+`&scorr; &sweep; &dc2; &dch -f -r; &ps; &if -W 750 -v; &mfs`. The shipped script is
+`&scorr; &sweep; &dc2; &dch -f -r; &syn2; &dc2; &dch -f -r; &ps; &if -W 750 -v; &mfs; &ps -l`: a
+second `&syn2; &dc2; &dch -f -r` round before the mapper, and a closing `&ps -l`.
+
+**`-W 750` is hard-coded, and has to be.** It equals `synth_ice40.abc9.u.W`, the wire-delay constant
+`synth_ice40` passes for `-device u`. Yosys substitutes `{W}`, `{D}` and `{R}` only into an inline
+script (`+...`); a script file is handed to ABC as `source <file>` and the placeholders arrive
+literally. A first try with `&if {W} {D} {R} -v` packed 5,098 cells because ABC ignored the unparsed
+arguments and mapped with no delay constraint, which is not the default's mapping. 0.70's `abc9`
+reads `abc9.script` from the scratchpad (`passes/techmap/abc9_exe.cc`), the same as 0.68.
+
+**Which change carries the saving** (pack count after `nextpnr-ice40 --pack-only`, yosys 0.68+48,
+`ICESTORM_LC` of 5,280 available):
+
+| script | cells |
+|---|---|
+| default script, no extra pass | 5,306 |
+| default with `-r` dropped from `&dch` | 5,304 |
+| classic `abc; ice40_opt`, then the default script (previous amendment) | 5,207 |
+| second round, `&dch -f` without `-r` | 5,163 |
+| second round, `&dch -f -r` (shipped) | 5,163 |
+
+Dropping `-r` alone moves nothing (5,304 against 5,306). The second `&syn2; &dc2; &dch` round carries
+the whole saving, and it reads the same with or without `-r`, so the shipped script keeps the
+default's `-r` and differs from it by the added round only.
+
+**Sixteen paired seeds** (seeds 1 to 16, board top placed with `BOARD_PNR` plus `--seed`, timed with
+`icetime` as `make board-timing` does; 1 to 16 are not an independent sample, ADR-0171):
+
+| | cells | worst MHz | median MHz | best MHz | spread |
+|---|---|---|---|---|---|
+| classic `abc; ice40_opt` (previous amendment) | 5,207 | 12.23 | 12.63 | 13.36 | 9.2% |
+| shipped ABC9 script | 5,163 | 12.34 | 12.82 | 13.16 | 6.6% |
+
+The new spelling is smaller by 44 cells and no worse at the worst seed (12.34 against 12.23), the
+median and the spread. The default-seed reading is 12.79 MHz (`make board-timing`).
+`-dff` (5,167 cells, 12.56 worst) was declined: it adds sequential optimisation to a netlist no
+simulation or proof runs, and with the longer script it packed 5,080 cells and read 12.19 worst.
+
+On CI's yosys 0.70 the `soc-timing` job's `make board-timing` places the board top at 5,110 of 5,280 cells, 13.25 MHz at the default seed, against 5,170 cells and 12.18 MHz for the classic-pass spelling on the same toolchain the day before.

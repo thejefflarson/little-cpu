@@ -7943,6 +7943,36 @@ d=$(fc_fixture); rm "$d/nano/formal/Makefile"
 probe "a design whose Makefile is gone is exit-nonzero, not skipped" 1 \
   "cannot read" "$FC $d"
 
+begin_group "test/workflow_runner_test.py"
+
+WR="python3 $REPO/test/workflow_runner_test.py"
+
+wr_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/.github/workflows"
+  cp "$REPO"/.github/workflows/*.yml "$d/.github/workflows/"
+  printf '%s' "$d"
+}
+
+d=$(wr_fixture)
+probe "control: every workflow job runs on the pool or the fork fallback" 0 \
+  "WORKFLOW RUNNERS: PASS" "$WR $d"
+
+probe "a repo root that does not exist is red before anything is read" 1 \
+  "is not a directory" "$WR $d/nowhere"
+
+d=$(wr_fixture); mutate "$d/.github/workflows/riscv-formal-pin-bump.yml" 's/runs-on: little-cpu-runners/runs-on: ubuntu-latest/'
+probe "a job left on ubuntu-latest is red, and named" 1 \
+  "(check-and-bump): runs-on 'ubuntu-latest' is not little-cpu-runners" "$WR $d"
+
+d=$(wr_fixture); mutate "$d/.github/workflows/adr-collision-check.yml" "s/runs-on: .*/runs-on: little-cpu-runners/"
+probe "a pull-request workflow naming the pool bare is red" 1 \
+  "would run a fork's code on the pool" "$WR $d"
+
+d=$(wr_fixture); mutate "$d/.github/workflows/ci.yml" 's/^  pull_request:$/  pull_request_target:/'
+probe "pull_request_target is red" 1 \
+  "pull_request_target runs on the base repo's token" "$WR $d"
+
 begin_group "nano/formal/ill-e-probe.py"
 
 IE="python3 $REPO/nano/formal/ill-e-probe.py"

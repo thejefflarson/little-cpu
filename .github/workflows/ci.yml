@@ -14,7 +14,8 @@ permissions:
 
 # Every job picks its runner with an expression rather than a bare `runs-on:
 # little-cpu-runners`: the pool is self-hosted and the repo is public, so a fork PR's own
-# recipes must not run on it.
+# recipes must not run on it. `ubuntu-latest` appears only as that fork fallback;
+# test/workflow_runner_test.py refuses it anywhere else.
 jobs:
   elaborate:
     name: elaborate
@@ -159,7 +160,7 @@ jobs:
     name: mutation-check
     needs: mutation-check-shard
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     steps:
       - name: Require every shard to have passed
         run: |
@@ -321,7 +322,7 @@ jobs:
     # did not -- a skipped required check leaves the pull request waiting, not red.
     needs: components-proof
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     steps:
       - name: Require every component proof to have passed
         run: |
@@ -335,10 +336,8 @@ jobs:
 
   lint:
     name: lint
-    # NOT the self-hosted pool: it is Linux/aarch64 and svlint publishes no aarch64
-    # asset, so `make lint-setup` correctly refuses to fetch what it cannot verify.
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
+    timeout-minutes: 20
     steps:
       - name: Record job start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -956,7 +955,7 @@ jobs:
     name: formal
     needs: [formal-checks, formal-checks-nano, formal-extra]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
     steps:
       - name: Require every formal half to have passed
         run: |

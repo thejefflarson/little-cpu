@@ -582,9 +582,9 @@ top, ECP5 only.
 - **The UPduino board top is a fifth design, and `make board-timing` places it** (ADR-0255).
   `littlesoc` placing says nothing about `upduino_top`: the wrapper's tie-offs and instance names move
   its mapped count by 40 to 70 cells, and it stopped placing at 5,306 of 5,280 for as long as no job
-  placed it. Its synthesis runs a second ABC pass (`abc; ice40_opt` spelled out before `map_luts`, because yosys 0.70 removed `-abc2`) that maps about 70 cells fewer and costs
-  `littlesoc` about 6% of its median Fmax, so the SoC stays on one pass. Placed: 5,207 cells, 12.57 MHz
-  at the default seed, worst of thirteen draws 12.05.
+  placed it. Its synthesis maps with a longer ABC9 script, `soc/board_abc9.script` (the default's `&dch` and `&syn2` round run twice; yosys 0.70 removed `synth_ice40 -abc2`, the classic `abc` pass it used to run), that packs about 140 cells fewer than one default pass and costs
+  `littlesoc` about 6% of its median Fmax under the older classic-pass spelling, so the SoC stays on the default script. Placed on CI's yosys 0.70: 5,110 cells, 13.25 MHz
+  at the default seed; on 0.68, 5,163 cells and worst of sixteen seeds 12.34 (ADR-0255, amended).
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide; when it trips, fix the design.
   **The step above is 24** (`SB_HFOSC` gives 48 / 24 / 12 / 6), so the target for Fmax work is
@@ -857,7 +857,8 @@ make doctor         # resolve and verify the RISC-V compiler, yosys, nextpnr-ice
                     # icetime -- path, version, and icetime's chip database actually
                     # loading -- before a placement or a sweep is spent finding out
 make lint           # svlint over rtl/, RVFI macros off and on. A required CI check
-make lint-setup     # fetch the pinned svlint release into the tool cache
+make lint-setup     # the pinned svlint into the tool cache: SHA-256-checked release archive,
+                    # or `cargo install --locked` of the pinned crate on Linux/aarch64
 make riscv-gcc-setup # fetch the pinned xPack riscv-none-elf-gcc release into the tool
                     # cache; make test's riscv-gcc-pin-test grades that PATH resolves it
 make test           # the fast tier, for the edit-and-check loop: every check in test/CHECKS but the
@@ -1132,15 +1133,24 @@ gitignored, so an install inside the checkout is invisible from every worktree. 
 enforces it.
 
 Toolchain: `make riscv-gcc-setup` fetches the pinned RISC-V gcc on both platforms (ADR-0190); svlint
-is `brew install svlint` on macOS or `make lint-setup` on Linux. Tests are freestanding — `.S`, and
+is `brew install svlint` on macOS or `make lint-setup` on Linux: x86_64 verifies the release
+archive's SHA-256, and aarch64 (the runner pool), where svlint publishes no asset, builds the
+pinned crate with `cargo install --locked`, which checks every crate against the crates.io index
+checksum. Tests are freestanding — `.S`, and
 `.c` built `-nostdlib -ffreestanding` against `test/crt0.S` — so no multilib or newlib. Formal needs
 the YosysHQ OSS CAD Suite, which CI takes at the latest release; it is the one tool that floats.
 Everything else downloaded or vendored is pinned and refuses a command-line override: riscv-formal
 (`formal/pin.mk`), sail-riscv and svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), the RISC-V gcc
 (`RISCV_GCC_VERSION`), Hazard3 (`soc/compare/hazard3_pin.mk`) and CoreMark (`COREMARK_PIN`). CI runs
 on every PR (`.github/workflows/ci.yml`); read the required set live from
-`gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments. The runners
-are self-hosted ARC pods declared in the sibling `cluster` repo (`argocd/apps/runners.yaml`,
+`gh api repos/thejefflarson/little-cpu/branches/main/protection`, not from comments. **Every
+workflow job runs on `little-cpu-runners`**; `ubuntu-latest` appears only as the fallback arm of
+the fork-PR expression (a fork's code must never run on the pool, so a pull-request workflow
+names the pool through that expression and never bare), or in a job listed in
+`test/workflow_runner_test.py`'s `EXCEPTIONS` with a written reason, which `make test` grades; the
+one exception today is `compare-product-schedule.yml`'s `publish`, the only job holding write
+scopes, kept off the pool its measurement tools run on (ADR-0233).
+The runners are self-hosted ARC pods declared in the sibling `cluster` repo (`argocd/apps/runners.yaml`,
 `charts/actions/runners/values.yaml`): read their CPU and memory limits there, and record the date
 a decision was measured against them. `nproc` and `free` inside a pod report the host.
 
@@ -1224,7 +1234,7 @@ not sufficient.
 
 With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,549 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
 soc-timing` places at 5,265 of 5,280 `ICESTORM_LC` (99.7%), with sixteen paired seeds at 12.33–13.54 MHz (median 13.01; the same sixteen on the 5,209-cell tree read 12.27–13.30, median 12.91) and
-`soc/pin.json` holding seed 156842832 at 13.50 MHz, 12.50% over the requirement, from a twelve-seed search on this tree (12.44–13.50 MHz, median 13.04) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,207 cells and 12.57 MHz (ADR-0255).
+`soc/pin.json` holding seed 156842832 at 13.50 MHz, 12.50% over the requirement, from a twelve-seed search on this tree (12.44–13.50 MHz, median 13.04) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,110 cells and 13.25 MHz in the `soc-timing` job (ADR-0255, amended; 5,163 and 12.79 locally on yosys 0.68).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
