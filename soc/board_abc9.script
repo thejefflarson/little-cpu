@@ -1,0 +1,11 @@
+&scorr
+&sweep
+&dc2
+&dch -f -r
+&syn2
+&dc2
+&dch -f -r
+&ps
+&if -W 750 -v
+&mfs
+&ps -l
