@@ -1,10 +1,28 @@
 #!/bin/sh
-# Search SOC_SEED (soc/seed_hash.py's sha256 draw by default, never 1..N: small
+# Search the placer seed (soc/seed_hash.py's sha256 draw by default, never 1..N: small
 # integers span a low-dimensional subspace of nextpnr's xorshift state)
-# for a placement that clears SOC_MIN_MHZ with margin, then write soc/pin.json.
+# for a placement that clears SOC_MIN_MHZ with margin, then write the pin file.
+# Usage: soc_seed_search.sh soc|board (soc/pin.json, or soc/board_pin.json).
 set -eu
 
 cd "$(dirname "$0")/.."
+
+case "${1-}" in
+  soc)
+    target=soc-timing seed_var=SOC_SEED pin=soc/pin.json
+    sources="$(make -s print-SOC_SRCS) $(make -s print-ICE40_ABC9) $(make -s print-SOC_ROM_HEX)"
+    config_args=
+    ;;
+  board)
+    target=board-timing seed_var=BOARD_SEED pin=soc/board_pin.json
+    sources=$(make -s print-BOARD_PIN_SOURCES)
+    config_args="--config $(make -s print-BOARD_PIN_CONFIG)"
+    ;;
+  *)
+    echo "usage: soc/soc_seed_search.sh soc|board" >&2
+    exit 2
+    ;;
+esac
 
 MIN_MARGIN_PCT=5.0
 
@@ -31,7 +49,7 @@ trap 'rm -f "$samples" "$dist"' EXIT
 best_seed=
 best_mhz=0
 for seed in $seeds; do
-  out=$(make soc-timing SOC_SEED="$seed" SOC_MIN_MHZ=0 2>&1) || {
+  out=$(make "$target" "$seed_var=$seed" SOC_MIN_MHZ=0 2>&1) || {
     printf '%s\n' "$out" >&2
     echo "*** soc/soc_seed_search.sh: seed $seed failed to PLACE (nextpnr produced no" >&2
     echo "*** bitstream, or wrote no utilisation table) -- a toolchain or netlist" >&2
@@ -66,11 +84,11 @@ if ! awk -v m="$margin_pct" -v need="$MIN_MARGIN_PCT" 'BEGIN{exit !(m>=need)}'; 
   exit 1
 fi
 
-digest=$(python3 soc/soc_pin.py digest $(make -s print-SOC_SRCS) $(make -s print-ICE40_ABC9) $(make -s print-SOC_ROM_HEX))
+digest=$(python3 soc/soc_pin.py digest $config_args $sources)
 
 python3 soc/seed_search_distribution.py "$samples" "$best_seed" "$seeds_source" > "$dist"
 
-python3 soc/soc_pin.py write soc/pin.json \
+python3 soc/soc_pin.py write "$pin" $config_args \
   --digest "$digest" --seed "$best_seed" --mhz "$best_mhz" --min-mhz "$min_mhz" \
   --margin-pct "$margin_pct" --toolchain "$tools" \
   --distribution "$dist" --date "$(date -u '+%Y-%m-%d')"
