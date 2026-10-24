@@ -95,7 +95,9 @@ def wrapper_case(root, expect):
     with tempfile.TemporaryDirectory() as scratch:
         stub = os.path.join(scratch, "slow.sh")
         with open(stub, "w") as handle:
-            handle.write("#!/bin/bash\nsleep 30\n")
+            # exec: the timeout's kill must reach the sleep itself, or the orphan holds this
+            # process's output pipes open and whoever captures them waits out all 30 seconds.
+            handle.write("#!/bin/bash\nexec sleep 30\n")
         os.chmod(stub, 0o755)
         sys.path.insert(0, os.path.join(root, "soc"))
         try:
