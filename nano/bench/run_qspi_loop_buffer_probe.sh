@@ -19,8 +19,16 @@ trap 'rm -rf "$tmp"' EXIT
 jobs=${NANO_PROBE_JOBS:-1}
 launched=0
 
-run_mutation() {  # <label> <sed-expr> <expected-text>
-  local label=$1 expr=$2 want=$3
+# The compile is nearly all the cost, so a mutation builds only the one shape that catches it.
+none_sim="$tmp/nano-qspi-sim.none"
+if ! NANO_LOOP_SHAPES=none NANO_LOOP_SAVE_NONE="$none_sim" "$HERE/run_qspi_loop_buffer_test.sh" "$CFLAGS" \
+  "$REPO/nano/tb/nano_qspi_memory.v"; then
+  echo "error: the shipping model's no-loop-buffer simulator did not build" >&2
+  exit 1
+fi
+
+run_mutation() {  # <label> <shapes> <sed-expr> <expected-text>
+  local label=$1 shapes=${NANO_PROBE_SHAPES:-$2} expr=$3 want=$4
   local mutant="$tmp/$label.v"
   cp "$REPO/nano/tb/nano_qspi_memory.v" "$mutant"
   sed -i.bak -e "$expr" "$mutant"
@@ -32,7 +40,8 @@ run_mutation() {  # <label> <sed-expr> <expected-text>
 
   local out rc
   set +e
-  out=$("$HERE/run_qspi_loop_buffer_test.sh" "$CFLAGS" "$mutant" 2>&1)
+  out=$(NANO_LOOP_SHAPES="none $shapes" NANO_LOOP_NONE_SIM="$none_sim" \
+    "$HERE/run_qspi_loop_buffer_test.sh" "$CFLAGS" "$mutant" 2>&1)
   rc=$?
   set -e
   if [ "$rc" -eq 0 ] || ! grep -qF -- "$want" <<< "$out"; then
@@ -59,46 +68,46 @@ report_mutations() {
 }
 
 status=0
-launch "loop-hit-gated-on-xfer-active" \
+launch "loop-hit-gated-on-xfer-active" "tagged" \
   "s/loop_hit_now ? 1'b1 :/loop_hit_now ? xfer_active :/" \
   "FETCH/RETIRE MISMATCH"
-launch "one-of-two-hits-a-cycle-late" \
+launch "one-of-two-hits-a-cycle-late" "tagged" \
   "s/loop_hit_now ? 1'b1 :/loop_hit_now ? (xfer_active || !mem_addr[1]) :/" \
   "FETCH/RETIRE MISMATCH"
-launch "one-of-two-hits-booked-as-a-handshake" \
+launch "one-of-two-hits-booked-as-a-handshake" "tagged" \
   "s/assign reason_loop_hit = mem_valid \&\& mem_instr \&\& loop_hit_now;/assign reason_loop_hit = mem_valid \&\& mem_instr \&\& loop_hit_now \&\& !mem_addr[1];/;s/assign reason_handshake = mem_valid \&\& mem_instr \&\& !loop_hit_now \&\& !preamble_active_now \&\& mem_ready;/assign reason_handshake = mem_valid \&\& mem_instr \&\& (!loop_hit_now || mem_addr[1]) \&\& !preamble_active_now \&\& mem_ready;/" \
   "loop-buffer hits over"
-launch "cam-lookup-never-hits" \
+launch "cam-lookup-never-hits" "cam" \
   "s/if (cam_valid\[i\] && cam_idx\[i\] == target_index) cam_has0 = 1'b1;/if (1'b0) cam_has0 = 1'b1;/" \
   "still pays a marginal preamble/wait cost"
-launch "queue-head-follows-every-hit" \
+launch "queue-head-follows-every-hit" "tagged" \
   "s/if (target_index == fifo_head) fifo_head <= target_index + target_len;/fifo_head <= target_index + target_len;/" \
   "already handed over"
-launch "fetch-ready-before-its-last-parcel-arrives" \
+launch "fetch-ready-before-its-last-parcel-arrives" "tagged" \
   "s/aimed_now \&\& arrived_valid \&\& arrived_index >= target_last);/aimed_now \&\& arrived_valid);/" \
   "never fetched in its current run"
-launch "queue-lead-unsigned" \
+launch "queue-lead-unsigned" "cam" \
   "s/^  int produce_lead;/  int unsigned produce_lead;/" \
   "TIMEOUT"
-launch "queued-parcel-counted-as-hit" \
+launch "queued-parcel-counted-as-hit" "tagged" \
   "s/assign loop_hit_full = loop_hit_lookup \&\& !fifo_serves;/assign loop_hit_full = loop_hit_lookup;/" \
   "must be a handshake, not a hit"
-launch "aim-ignores-queue-head" \
+launch "aim-ignores-queue-head" "tagged" \
   "s/(stream_open || preamble_pending) \&\& fifo_head == target_index;/(stream_open || preamble_pending) \&\& target_index >= preamble_target;/" \
   "already handed over"
-launch "tagged-hit-skips-second-parcel-valid-bit" \
+launch "tagged-hit-skips-second-parcel-valid-bit" "tagged" \
   "s/tag_window_bits\[target_index_p1\[SLOTBITS-1:0\]\];/1'b1;/" \
   "never entered the buffer"
-launch "cam-lookup-ignores-valid-bit" \
+launch "cam-lookup-ignores-valid-bit" "cam" \
   "s/cam_valid\[i\] \&\& cam_idx\[i\] == target_index) cam_has0/cam_idx[i] == target_index) cam_has0/;s/cam_valid\[i\] \&\& cam_idx\[i\] == target_index + 1) cam_has1/cam_idx[i] == target_index + 1) cam_has1/" \
   "never entered the buffer"
-launch "tag-compare-dropped" \
+launch "tag-compare-dropped" "tagged" \
   "s/target_index\[31:SLOTBITS\] == tag_window_tag \&\&//;s/target_index_p1\[31:SLOTBITS\] == tag_window_tag \&\&//" \
   "never entered the buffer"
-launch "cam-holds-twice-its-window" \
+launch "cam-holds-twice-its-window" "cam" \
   "s/localparam int CAM_SLOTS = SLOTS;/localparam int CAM_SLOTS = 2 * SLOTS;/" \
   "already evicted"
-launch "resync-first-cycle-charged-to-parcel-wait" \
+launch "resync-first-cycle-charged-to-parcel-wait" "tagged" \
   "s/(preamble_pending || (redirect_now \&\& !loop_hit_full))/(redirect_now \&\& !loop_hit_full)/" \
   "still in its address phase"
 

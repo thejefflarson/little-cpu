@@ -76,23 +76,40 @@ run_sim() {  # $1 = sim tag, $2 = elf name -> writes $tmp/<tag>.<elf>.log
   }
 }
 
-build_sim none 0 0 & build_none=$!
-build_sim tagged 1 8 & build_tagged=$!
-build_sim cam 2 8 & build_cam=$!
+# The probe builds only the shapes a mutation reaches and hands in the shipping no-loop-buffer simulator.
+SHAPES=${NANO_LOOP_SHAPES:-none tagged cam}
+shape_args() {  # tag -> loop kind and loop window
+  case $1 in none) echo "0 0" ;; tagged) echo "1 8" ;; cam) echo "2 8" ;; esac
+}
+LOOP_TAGS=""
+pids=""
+for tag in $SHAPES; do
+  [ "$tag" = none ] || LOOP_TAGS="$LOOP_TAGS $tag"
+  if [ "$tag" = none ] && [ -n "${NANO_LOOP_NONE_SIM:-}" ]; then
+    cp "$NANO_LOOP_NONE_SIM" "$tmp/nano-qspi-sim.none"
+  else
+    # shellcheck disable=SC2086
+    build_sim "$tag" $(shape_args "$tag") & pids="$pids $!"
+  fi
+done
 built=1
-for pid in "$build_none" "$build_tagged" "$build_cam"; do
+for pid in $pids; do
   wait "$pid" || built=0
 done
 if [ "$built" -ne 1 ]; then
   exit 1
 fi
+if [ -n "${NANO_LOOP_SAVE_NONE:-}" ]; then
+  cp "$tmp/nano-qspi-sim.none" "$NANO_LOOP_SAVE_NONE"
+  exit 0
+fi
 assemble straight.elf -DKIND=0
 
-for tag in none tagged cam; do
+for tag in none $LOOP_TAGS; do
   run_sim "$tag" straight.elf
 done
 baseline=$(grep '^BUCKETS ' "$tmp/none.straight.elf.log")
-for tag in tagged cam; do
+for tag in $LOOP_TAGS; do
   other=$(grep '^BUCKETS ' "$tmp/$tag.straight.elf.log")
   if [ "$baseline" != "$other" ]; then
     echo "FAIL: branch-free cycles differ with the loop buffer on ($tag)" >&2
@@ -114,7 +131,7 @@ HITS_LOST_TAGGED=2
 HITS_LOST_CAM=1
 assemble loop_lo.elf -DKIND=1 -DREPS=$REPS_LO
 assemble loop_hi.elf -DKIND=1 -DREPS=$REPS_HI
-for tag in tagged cam; do
+for tag in $LOOP_TAGS; do
   run_sim "$tag" loop_lo.elf
   run_sim "$tag" loop_hi.elf
   lo="$tmp/$tag.loop_lo.elf.log"
@@ -147,7 +164,7 @@ done
 
 assemble straddle_lo.elf -DKIND=2 -DREPS=$REPS_LO
 assemble straddle_hi.elf -DKIND=2 -DREPS=$REPS_HI
-for tag in tagged cam; do
+for tag in $LOOP_TAGS; do
   run_sim "$tag" straddle_lo.elf
   run_sim "$tag" straddle_hi.elf
 done
@@ -157,7 +174,7 @@ echo "ok   a loop with a load and a block-straddling instruction runs to PASS in
 REPS_LONG=50
 assemble long_loop.elf -DKIND=3 -DREPS=$REPS_LONG
 assemble wide_loop.elf -DKIND=4 -DREPS=$REPS_LONG
-for tag in tagged cam; do
+for tag in $LOOP_TAGS; do
   run_sim "$tag" long_loop.elf
   run_sim "$tag" wide_loop.elf
 done
