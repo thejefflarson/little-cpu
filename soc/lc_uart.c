@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "lc-uart: milliseconds must be 1 to %lu\n", MAX_MS);
     return 2;
   }
-  char num[16];
+  char num[24];
   snprintf(num, sizeof num, "%lu", ms);
   char *args[] = {(char *)REAL_FTREAD, BAUD, num, NULL};
   static char *envp[] = {"PATH=/usr/bin:/bin", "LC_ALL=C", NULL};
