@@ -416,6 +416,7 @@ a manifest entry that names no program is a typo, not a phantom
 a matrix proof dropped from the workflow is red
 a measure job holding a write scope is red
 a measured pair with no digest is refused
+a measurement target whose default divide is not the shipped one is red
 a memcheck with no cover sibling has an untied depth, and is red
 a mid-word # does not hide a real sed -i after it
 a missing PLL file is refused rather than read as agreement
@@ -860,6 +861,9 @@ an LR/SC bench adapter that differs beyond its module name is red
 an RVFI monitor error exits 4
 an SPI base off its own window is red
 an UNREADABLE baseline is refused, not read as an empty one
+an UPduino divide one step long, past the edge timeout margin, is red
+an UPduino divide one step short of the measured pass is red
+an UPduino divider counting core clocks instead of the oscillator is red
 an X reaching a retire exits 7, not the monitor-error 4
 an allow-list entry whose site lost both retired names is red
 an allow-list entry whose site lost the stale ISA name is red
@@ -880,6 +884,7 @@ an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
 an edge period that an oscillator 20% slow would push past the timeout is red
 an edge period too short for the jitter to fill is red
+an edge timeout back at 8,192 cycles fails the UPduino's period
 an eject that matches a prefix of the mount point is red
 an eject that runs diskutil with no time limit is red
 an eject wrapper that lets a hung helper's timeout escape is red
@@ -1099,6 +1104,7 @@ control: another commit's canonical netlist is built from its own tree
 control: block RAM resets tied to a constant are green
 control: both arms admit the shipping arbiter and fail on their mutation
 control: both arms admit the shipping arbiter and fail on their mutation
+control: both boards' shipping entropy sources sit between the jitter floor and the edge timeout
 control: both headers naming only x0-x15 is green
 control: both register-file builds are reported from one call
 control: both sides failing the same test number still AGREE
@@ -1187,7 +1193,6 @@ control: the shipping bench and build file agree
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
 control: the shipping check driver passes its own grader
-control: the shipping entropy source sits between the jitter floor and the edge timeout
 control: the shipping exclusion set matches its baseline both ways
 control: the shipping executor reaches x_busy only through its one gate
 control: the shipping fetchqueue passes its own bench
@@ -1367,6 +1372,7 @@ the Trellis database cannot be stamped without the tool it belongs to
 the UART divided by anything but the graded figure is red
 the UART moving in the core's copy alone is red
 the UART moving in the proof's copy alone is red
+the UPduino's seed source tied low is red
 the address the flash-reading program uses is checked against the controller
 the address the printing program writes is checked against the UART
 the artifact moving does not make its own stamp stale

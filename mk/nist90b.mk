@@ -53,7 +53,7 @@ entropy-nist-pad: nist90b-setup
 entropy-nist: entropy-nist-pll entropy-nist-pad
 
 ENTROPY_UPDUINO_OSC  ?= internal
-ENTROPY_UPDUINO_FAB  ?= 0
+ENTROPY_UPDUINO_FAB  ?= 3
 ENTROPY_UPDUINO_LOCK ?= $(TOOL_CACHE)/upduino.lock
 
 .PHONY: entropy-nist-upduino

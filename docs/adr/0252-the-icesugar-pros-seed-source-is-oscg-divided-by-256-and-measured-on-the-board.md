@@ -277,3 +277,12 @@ each setting is one draw; the 2^8 setting's repeat captures spread by about 0.00
 
 The "SB_LFOSC capture on the UPduino is not taken" above is taken: ADR-0245's amendment of the same date
 holds it. The same method, with the same estimators, reads 0.046 bit for the shipped source there.
+
+## Amendment: the edge timeout doubles (2026-10-20)
+
+`rtl/trng.v`'s no-edge timeout is 16,384 cycles, up from 8,192, so the UPduino's divided `SB_LFOSC` fits
+(ADR-0245, amended). On this board the 6,342-cycle period at 30 MHz is 38.7% of the timeout, where it was
+77% of 8,192, which widens the margin before an oscillator reads DEAD: a source 61% slower than nominal
+now trips it, against 23% before. The 3,000-cycle floor and the divide are unchanged, and
+`test/entropy_geometry_test.py` grades both boards. The shipping top still places and its 30 MHz core
+domain closes. The 2^9 NIST figures above stand: the timeout does not enter the sample bit.

@@ -302,29 +302,30 @@ so no value-dependent timing exists and `test/zkt_isolation_test.py` stays green
 `rtl/trng.v`, inside `rtl/csrs.v`: a slow oscillator reaches the core on the `entropy_raw` input,
 and the module measures the interval between its rising edges in `clk` cycles, takes the low two
 bits, runs a von Neumann corrector and an 8-to-1 XOR fold, and buffers 16 bits. Four hardware health
-tests report DEAD, sticky and never alongside entropy: no edge for 8,192 cycles; a 64-sample aligned
+tests report DEAD, sticky and never alongside entropy: no edge for 16,384 cycles; a 64-sample aligned
 block of raw samples with no corrected bit (a beat pattern emits nothing and would otherwise sit in
 WAIT forever); the 32nd repeat of the previous corrected bit in a row (a repetition count on the folded output, which
 also catches a period-2 emitted pattern); and an adaptive proportion over 512-sample windows, dead
 when one value fills 410 (NIST SP 800-90B 4.4.2, a claimed 0.5 bit per sample at 2^-20). BIST lasts
 until 1,024 raw samples have passed all four, and words produced before then are discarded.
-**Two boards have a Zkr source and one of them is measured.** The iCESugar-Pro is measured: its
+**Two boards have a Zkr source and both are measured.** The iCESugar-Pro: its
 `soc/icesugar_pro_entropy.v` divides `OSCG` (DIV 128, 2.435 MHz) by 2^9 in fabric, 6,342 core
 cycles per edge at 30 MHz (2^8, 3,171 cycles, shipped first). The repo's own estimators over 24 frames of 4,096 intervals
 (`soc/entropy_assess.py`) read 0.63 to 0.78 bit of min-entropy per sample with 0 of 192
 adaptive-proportion windows tripping, but **NIST's `ea_non_iid` on 1,000,000 consecutive samples
 read 0.4994 at 2^8 (0.4134 with the core on the 25 MHz pad), under the 0.5 the cutoff assumes**; the
 longer 2^9 period reads 0.810 and its restart test 0.803, so min is 0.803, and with the core on the
-25 MHz pad it reads 0.742 with a restart min of 0.742, one draw each (ADR-0252, amended);
-`test/entropy_geometry_test.py` holds the period between 3,000 cycles and 80% of the edge timeout,
-and a divide of 2^7 measured 0.28 and tripped the proportion test, so the period is not a free
-parameter. The UPduino's `soc/board_upduino.v` supplies the oscillator from the part's `SB_LFOSC`
-(10.004 kHz, 1,199.5 cycles per edge at 12 MHz, a hard macro costing no cell) and **fails the 0.5 bit**:
-NIST's `ea_non_iid` reads 0.0459 on a million samples, 895 of 1,953 proportion windows would set DEAD,
-and the sample bit follows a slow drift of the oscillator against the clock rather than its jitter. A
-fabric divide of 2^2 reads 0.437, 2^3 reads 0.705 (9,591 cycles, past the 8,192-cycle edge timeout) and
-2^4 reads 0.809; no periodic lock shows at the shipped setting (ADR-0245, amended 2026-10-18). Only the
-`SB_HFOSC` clock could be measured, because this board's crystal jumper is open. An `entropy_raw` held low, as every formal harness and the dual
+25 MHz pad it reads 0.742 with a restart min of 0.742, one draw each (ADR-0252, amended). The UPduino's
+`soc/board_upduino.v` divides the part's `SB_LFOSC` (10.004 kHz, a hard macro) by 2^3 in fabric, 9,591
+cycles per edge at 12 MHz: undivided it read 1,199.5 cycles and **0.0459** (895 of 1,953 proportion
+windows would set DEAD, the sample bit following the oscillator's slow drift against the clock rather
+than its jitter), 2^2 reads 0.437, **2^3 reads 0.7045 with a restart min of 0.7045** and 2^4 reads 0.809
+(ADR-0245, amended); measured on the core-less capture top with only the `SB_HFOSC` clock, because this board's crystal
+jumper is open. `rtl/trng.v`'s edge timeout is 16,384 cycles (one pass of a 14-bit counter) so 9,591 sits at
+59% of it, and `test/entropy_geometry_test.py` holds each board's nominal period between its own
+measured floor (3,000 cycles for OSCG, 9,000 for `SB_LFOSC`, where 4,797 failed and 9,591 passed) and
+80% of that timeout. A divide of 2^7 measured 0.28 on the iCESugar-Pro and tripped the proportion
+test, so the period is not a free parameter on either board; no periodic lock shows on either. An `entropy_raw` held low, as every formal harness and the dual
 top hold it, reads DEAD, which is spec-honest. **Zkr is in the ISA string**, `_zkr` at all seven sites `test/march_test.sh`
 grades. `mseccfg` (0x747) and `mseccfgh` (0x757) read zero and
 ignore writes: Zkr adds the SSEED and USEED fields, which the Zkr text allows to be read-only zero,
@@ -581,8 +582,7 @@ top, ECP5 only.
 - **The UPduino board top is a fifth design, and `make board-timing` places it** (ADR-0255).
   `littlesoc` placing says nothing about `upduino_top`: the wrapper's tie-offs and instance names move
   its mapped count by 40 to 70 cells, and it stopped placing at 5,306 of 5,280 for as long as no job
-  placed it. Its synthesis maps with a longer ABC9 script, `soc/board_abc9.script` (the default's `&dch` and `&syn2` round run twice; yosys 0.70 removed `synth_ice40 -abc2`, the classic `abc` pass it used to run), that packs about 140 cells fewer than one default pass and costs
-  `littlesoc` about 6% of its median Fmax under the older classic-pass spelling, so the SoC stays on the default script. Placed on CI's yosys 0.70: 5,110 cells, 13.25 MHz
+  placed it. Every ice40 synthesis here (the board top, `littlesoc` and the core alone) maps with one longer ABC9 script, `soc/ice40_abc9.script` (the default's `&dch` and `&syn2` round run twice; yosys 0.70 removed `synth_ice40 -abc2`, the classic `abc` pass it used to run): about 140 cells fewer than one default pass on the board top, 88 fewer on `littlesoc`, and no worse at the worst of sixteen seeds on either. The ECP5 flows stay on `synth_ecp5`'s default, where the same script reads a null on clock (ADR-0255, amended). The compare harness's up5k rows stay on the default script, one mapper for three cores. Placed on CI's yosys 0.70: 5,110 cells, 13.25 MHz
   at the default seed; on 0.68, 5,163 cells and worst of sixteen seeds 12.34 (ADR-0255, amended).
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide; when it trips, fix the design.
@@ -942,7 +942,7 @@ make entropy-nist-pll # the shipped seed source on the board: 1M consecutive sam
                     # held for each board access), ENTROPY_NIST_RESUME
 make entropy-nist-upduino # the UPduino's SB_LFOSC on the board: flash a core-less capture, 1M samples,
                     # ea_non_iid, a reboot matrix, ea_restart, graded against 0.5. ENTROPY_UPDUINO_FAB
-                    # is the fabric divide (log2), ENTROPY_UPDUINO_OSC the clock; holds the board lock
+                    # is the fabric divide (log2, default 3 as shipped), ENTROPY_UPDUINO_OSC the clock; holds the board lock
                     # for the whole matrix, hours. soc/entropy_upduino.py intervals|periodic are the
                     # interval capture and the repeating-pattern scan. Needs the board, off `make test`
 make icesugar-clock-check # load soc/clock_check.S, time its `T` lines on the host and fail when
@@ -1231,9 +1231,9 @@ that it advances by exactly the non-trapping issues; `test/asm/minstret.S`, `tes
 `make -C formal check` as "the core is correct"** — an empty `formal/EXPECTED_FAIL` is necessary,
 not sufficient.
 
-With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,549 packed cells locally against `FIT_MAX_LC` 4,586 (the `fit` job's own count is not yet taken on this tree; it was 4,347 local and 4,332 in the job before), and `make
-soc-timing` places at 5,265 of 5,280 `ICESTORM_LC` (99.7%), with sixteen paired seeds at 12.33–13.54 MHz (median 13.01; the same sixteen on the 5,209-cell tree read 12.27–13.30, median 12.91) and
-`soc/pin.json` holding seed 156842832 at 13.50 MHz, 12.50% over the requirement, from a twelve-seed search on this tree (12.44–13.50 MHz, median 13.04) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,110 cells and 13.25 MHz in the `soc-timing` job (ADR-0255, amended; 5,163 and 12.79 locally on yosys 0.68).
+With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,422 packed cells in the `fit` job (4,413 locally) against `FIT_MAX_LC` 4,462, with the shared ABC9 script (4,549 locally before it), and `make
+soc-timing` places at 5,198 of 5,280 `ICESTORM_LC` (98.5%) in the job, 13.45 MHz at the pinned seed (locally 5,177 cells; sixteen paired seeds 12.60–13.58 MHz, median 13.37, against 12.33–13.54 and 13.01 on the default script, ADR-0255, amended) and
+`soc/pin.json` holding seed 195147338 at 13.53 MHz, 12.75% over the requirement, from a twelve-seed search on this tree (12.86–13.53 MHz, median 13.37) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,144 cells and 12.44 MHz at the default seed in the `soc-timing` job (ADR-0255, amended; 5,110 and 13.25 before the Zkr timeout change).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
