@@ -2806,7 +2806,7 @@ board_fixture() {  # $1 = the critical path's total in ns; stdin = the stub next
   printf '%s' "$d"
 }
 board_make() {  # <fixture>
-  printf 'make -C %s -o %s/build/board.json BUILD=%s/build BOARD_PNR=%s/nextpnr BOARD_ICETIME=%s/icetime board-timing' \
+  printf 'make -C %s -o %s/build/board.json BUILD=%s/build BOARD_SEED=1 BOARD_PNR=%s/nextpnr BOARD_ICETIME=%s/icetime board-timing' \
     "$REPO" "$1" "$1" "$1" "$1"
 }
 
@@ -6844,6 +6844,101 @@ d=$(sp_pin_matching)
 printf '{"seed": 1}\n' > "$d/pin.json"
 probe "a partial pin missing required fields is not a pin" 2 \
   "missing sources_digest" "$SP check-sources $d/pin.json $d/a.v $d/b.v"
+
+
+# The pinned placement: a stub nextpnr logs its arguments, so the probes read the seed that
+# actually reached the placer through board-timing and through the shipping board.asc.
+board_pin_fixture() {  # -> a case dir with a stub nextpnr and a pin matching its sources
+  local d; d=$(board_fixture 10 <<< "")
+  printf 'module a; endmodule\n' > "$d/a.v"
+  { echo '#!/bin/sh'; echo "echo \"\$@\" > $d/args"; board_places; } > "$d/nextpnr"
+  local digest; digest=$($SP digest --config osc=crystal "$d/a.v")
+  echo '{}' > "$d/dist.json"
+  $SP write "$d/pin.json" --digest "$digest" --config osc=crystal --seed 125781539 --mhz 12.61 \
+    --min-mhz 12.0 --margin-pct 5.08 --toolchain stub --date 2026-10-23 \
+    --distribution "$d/dist.json" > /dev/null
+  printf '%s' "$d"
+}
+board_pin_make() {  # <fixture> <target> [extra make args]
+  printf 'make -C %s -o soc-rom -o %s/build/board.json BUILD=%s/build BOARD_PNR=%s/nextpnr BOARD_ICETIME=%s/icetime BOARD_PIN=%s/pin.json BOARD_PIN_SOURCES=%s/a.v %s %s' \
+    "$REPO" "$1" "$1" "$1" "$1" "$1" "$1" "${3-}" "$2"
+}
+
+d=$(board_pin_fixture)
+probe "board-timing with no BOARD_SEED places at the pinned seed" 0 "--seed 125781539" \
+  "$(board_pin_make "$d" board-timing) > /dev/null && cat $d/args"
+
+d=$(board_pin_fixture)
+probe "the shipping board.asc places at the same pinned seed as board-timing" 0 "--seed 125781539" \
+  "$(board_pin_make "$d" "$d/build/board.asc") > /dev/null && cat $d/args"
+
+d=$(board_pin_fixture)
+probe "an explicit BOARD_SEED bypasses the pin and reaches nextpnr" 0 "--seed 7 " \
+  "$(board_pin_make "$d" board-timing BOARD_SEED=7) > /dev/null && cat $d/args"
+
+d=$(board_pin_fixture)
+probe "control: a matching board pin checks OK" 0 "pin OK" \
+  "$(board_pin_make "$d" board-timing)"
+
+d=$(board_pin_fixture)
+printf 'module a; /* edited */ endmodule\n' > "$d/a.v"
+probe "moved board sources warn PIN STALE, and do not fail" 0 "PIN STALE" \
+  "$(board_pin_make "$d" board-timing) 2>&1"
+probe "...and still place at the pinned seed" 0 "--seed 125781539" \
+  "cat $d/args"
+
+d=$(board_pin_fixture)
+probe "another BOARD_OSC does not claim the crystal pin's measurement" 0 "PIN STALE" \
+  "$(board_pin_make "$d" board-timing BOARD_OSC=internal)"
+
+# soc_pin.py's --config: the board clock source changes the netlist and no file.
+d=$(board_pin_fixture)
+probe "a pin written without --config still digests the same files" 0 "sha256:" \
+  "$SP digest $d/a.v"
+probe "the digest moves with --config, so a pin cannot claim another build option" 0 "differ" \
+  "test \"\$($SP digest --config osc=crystal $d/a.v)\" != \"\$($SP digest --config osc=internal $d/a.v)\" && echo differ"
+
+# soc/soc_seed_search.sh board: a stub make stands in for the flow, so the search's own
+# refusal and its write path are what is graded.
+ss_fixture() {  # <mhz the stub reports for every seed>
+  local d; d=$(new_case)
+  mkdir -p "$d/soc" "$d/bin"
+  cp "$REPO/soc/soc_seed_search.sh" "$REPO/soc/soc_pin.py" "$REPO/soc/seed_hash.py" \
+     "$REPO/soc/seed_search_distribution.py" "$d/soc/"
+  printf 'module a; endmodule\n' > "$d/a.v"
+  cat > "$d/bin/make" <<STUB
+#!/bin/sh
+echo "\$@" >> $d/make.log
+case "\$*" in
+  *print-SOC_MIN_MHZ) echo 12.0 ;;
+  *print-BOARD_PIN_SOURCES) echo $d/a.v ;;
+  *print-BOARD_PIN_CONFIG) echo osc=crystal ;;
+  *soc-timing-toolchain) echo '# stub' ;;
+  *board-timing*) echo 'critical path : 70 ns ($1 MHz)' ;;
+esac
+STUB
+  chmod +x "$d/bin/make"
+  printf '%s' "$d"
+}
+ss_run() { printf 'PATH=%s/bin:$PATH SOC_SEARCH_COUNT=2 sh %s/soc/soc_seed_search.sh %s' "$1" "$1" "$2"; }
+
+d=$(ss_fixture 13.50)
+probe "control: a board search clearing the margin writes soc/board_pin.json" 0 "wrote soc/board_pin.json" \
+  "$(ss_run "$d" board)"
+probe "...with the search's seed handed to make as BOARD_SEED" 0 "board-timing BOARD_SEED=" \
+  "cat $d/make.log"
+probe "...and the pin records the build option it was taken under" 0 '"config": "osc=crystal"' \
+  "cat $d/soc/board_pin.json"
+
+d=$(ss_fixture 12.20)
+probe "a board search under the 5% margin is refused and pins nothing" 1 "Nothing was pinned" \
+  "$(ss_run "$d" board)"
+probe "...so no board pin file exists" 0 "absent" \
+  "test -e $d/soc/board_pin.json && echo present || echo absent"
+
+d=$(ss_fixture 13.50)
+probe "a search with no mode is a usage error, not a default" 2 "usage" \
+  "$(ss_run "$d" '')"
 
 begin_group "test/pin_help_text_test.sh"
 

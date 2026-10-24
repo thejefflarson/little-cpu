@@ -1128,7 +1128,11 @@ soc-timing: soc-timing-toolchain $(BUILD)/soc.asc
 
 .PHONY: soc-seed-search
 soc-seed-search: soc-timing-toolchain
-	@soc/soc_seed_search.sh
+	@soc/soc_seed_search.sh soc
+
+.PHONY: board-seed-search
+board-seed-search: soc-timing-toolchain
+	@soc/soc_seed_search.sh board
 
 ECP5_DEVICE  := --25k
 ECP5_PACKAGE := CABGA381
@@ -1527,11 +1531,35 @@ $(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) $(ICE40_ABC9) | $(BUILD)
 
 BOARD_PNR := nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF)
 
-$(BUILD)/board.asc: $(BUILD)/board.json $(BOARD_PCF)
+# No BOARD_SEED override: board-timing and bitstream place at the pin (soc/board_pin.json), which describes
+# the crystal clock and the default soc-rom; any other build reads PIN STALE.
+BOARD_SEED ?=
+BOARD_PIN := soc/board_pin.json
+BOARD_PIN_SOURCES := $(BOARD_SRCS) $(ICE40_ABC9) $(BOARD_PCF) $(SOC_ROM_HEX)
+BOARD_PIN_CONFIG := osc=$(BOARD_OSC)
+ifeq ($(origin BOARD_SEED),command line)
+BOARD_SEED_PINNED :=
+else
+BOARD_SEED_PINNED := 1
+endif
+
+.PHONY: board-pin-check
+board-pin-check: $(BOARD_ROM)
+	@python3 soc/soc_pin.py check-sources --config '$(BOARD_PIN_CONFIG)' $(BOARD_PIN) $(BOARD_PIN_SOURCES)
+
+$(BUILD)/board.asc: $(BUILD)/board.json $(BOARD_PCF) $(if $(BOARD_SEED_PINNED),board-pin-check)
 	@echo 'nextpnr: placing $(BOARD_TOP) on up5k/sg48 (log: $(BUILD)/board.pnr.log)'
 	@rm -f $@ $(BUILD)/board.timing.rpt
-	@status=0; $(BOARD_PNR) --json $< \
-	  --asc $@ > $(BUILD)/board.pnr.log 2>&1 || status=$$?; \
+	@seed='$(BOARD_SEED)'; \
+	if [ -n '$(BOARD_SEED_PINNED)' ]; then \
+	  seed=$$(python3 soc/soc_pin.py seed $(BOARD_PIN)) || exit 1; \
+	fi; \
+	status=0; \
+	if [ -n "$$seed" ]; then \
+	  $(BOARD_PNR) --json $(BUILD)/board.json --seed "$$seed" --asc $@ > $(BUILD)/board.pnr.log 2>&1 || status=$$?; \
+	else \
+	  $(BOARD_PNR) --json $(BUILD)/board.json --asc $@ > $(BUILD)/board.pnr.log 2>&1 || status=$$?; \
+	fi; \
 	sh soc/pnr_check.sh 'make bitstream' "$$status" $(BUILD)/board.pnr.log $@
 
 $(BUILD)/board.bin: $(BUILD)/board.asc
