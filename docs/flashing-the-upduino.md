@@ -7,7 +7,7 @@ elsewhere). This page explains why, and what happens to the serial port afterwar
 
 Root must not execute a binary the user can write: `iceprog` from the OSS CAD Suite and `build/ftread`
 both live in user-owned directories. Run `make install-board-tools` once (and again after a new
-`iceprog` or a rebuilt `ftread`). It copies both, owned by root and mode 755, into
+`iceprog` or a rebuilt `ftread`). It copies both, plus the two wrappers it compiles (below), owned by root and mode 755, into
 `/usr/local/libexec/little-cpu/bin` (`BOARD_TOOLS_DIR` moves the prefix) and asks for your password
 through `sudo`. The OSS CAD Suite's `bin/iceprog` is a bash wrapper, not the program: copied alone it
 cannot find its siblings, and under `sudo` its `#!/usr/bin/env bash` would run whichever `bash` the
@@ -18,7 +18,8 @@ dylibs into `lib/ftread/` and repoints `ftread` and each copy at them with `inst
 (re-signing ad hoc, which arm64 requires after an edit). They stay apart from iceprog's `lib/` so two
 builds of one library name cannot collide.
 
-Whenever `ICEPROG_SUDO` is non-empty, `make prog` and `make suite-board` run those copies by path and
+Whenever `ICEPROG_SUDO` is non-empty, `make prog` and `make suite-board` run the `lc-flash` and `lc-uart`
+wrappers (built and installed with those copies, see below) by path and
 first refuse any binary that is a symlink, is not a Mach-O or ELF executable (a `#!` script included),
 or is not owned by root or is group- or world-writable, or carries an ACL that grants write. The same
 test runs on every directory from `/` down (after `realpath`, so macOS's `/var` to `/private/var` is
@@ -37,20 +38,39 @@ If `/usr/local` or
 
 macOS's `sudo` caches a password per terminal, and a shell with no terminal (an editor's task
 runner, or an agent) never sees that cache. `make install-board-sudoers` writes
-`/etc/sudoers.d/little-cpu`, which lets you run the two root-owned copies above with no password,
-with any arguments. It refuses unless both pass the same root-owned check the board targets run. The
-rule never sits in a file you can write: it is piped into a root-owned file in `/etc/sudoers.d`,
+`/etc/sudoers.d/little-cpu`, which lets you run two root-owned wrappers with no password, with any
+arguments: `lc-flash` and `lc-uart` in `BOARD_TOOLS_DIR/bin`. The real `iceprog` and `ftread` beside
+them are not in the rule. The wrappers are small compiled programs (`soc/lc_flash.c`, `soc/lc_uart.c`;
+`make install-board-tools` builds them against the installed copies' absolute paths and installs them
+with those). The rule refuses unless both wrappers pass the same root-owned check the board targets run.
+It never sits in a file you can write: it is piped into a root-owned file in `/etc/sudoers.d`,
 named with a dot so sudo ignores it until it is moved into place, and `visudo -cf` checks that
-file before `mv` installs it at mode 0440. Probe it with
-`sudo -n /usr/local/libexec/little-cpu/bin/iceprog --help`; `sudo -n true` stays refused. Remove
-it with `sudo rm /etc/sudoers.d/little-cpu`.
+file before `mv` installs it at mode 0440. Probe it with `sudo -n /usr/local/libexec/little-cpu/bin/lc-uart`
+(it prints its usage and exits 2 without touching the board); `sudo -n true` stays refused. Remove it with `sudo rm /etc/sudoers.d/little-cpu`.
 
-**The rule is root-equivalent for any process running as you.** sudo cannot restrict the
-arguments, and `iceprog` takes a path: `iceprog -r FILE` writes FILE as root, and `iceprog FILE`
-reads FILE as root and writes it to the board's flash, where `-r` can read it back. So the rule
-removes the password between your account and root. It does not add a separate privilege boundary.
-Install it only on a machine where that trade is acceptable, and remove it when the board work is
-done.
+**What the rule lets a process running as you do.** sudo cannot restrict arguments, so the wrappers do,
+and each refuses everything outside the shape the board targets use:
+
+- `lc-flash [-d i:VID:PID] FILE` writes FILE to the configuration flash. `lc-flash [-d i:VID:PID] -t`
+  reboots the FPGA from it, writing nothing. No other iceprog flag is passed on, so `-r` (which writes
+  its argument as root), `-R`, `-o`, `-S` and the rest are refused.
+- FILE is opened with your user and group ids, not root's, so a file you cannot read is refused by the
+  kernel (the privileged process takes your identity from the `SUDO_UID` and `SUDO_GID` that sudo sets,
+  and refuses to run without them). The wrapper then judges the open file, not the name: its canonical
+  path, after every symlink and `..`, must sit under a `build/` directory, it must be a regular file of
+  yours, and it must be 1 byte to 4 MiB. Because the checks read the descriptor, a symlink swapped in after
+  the open changes nothing. iceprog is handed `/dev/fd/N` for that descriptor rather than a path, and
+  runs with a scrubbed environment (`PATH` and `LC_ALL` only).
+- `lc-uart MILLISECONDS` reads the UART at 115200 baud for 1 to 3,600,000 ms. Nothing else is accepted.
+
+So the rule no longer hands a process of yours root. What it still allows is writing any bitstream-sized
+file of yours that lives under a `build/` directory into the board's flash, and holding the USB
+adapter for up to an hour. The `build/` requirement is a statement of what the target is for, not a
+privilege boundary: any directory you create named `build` satisfies it, because the privilege boundary is
+the file being opened as you. `test/board_wrappers_test.sh` compiles both wrappers against stub tools and
+drives each refusal (`-r`, an out-of-tree path, a symlink escaping `build/`, an unreadable file, among
+others), each with a forced-red probe in `make probe-gates`. It runs unprivileged, so the
+root-to-user identity switch is not exercised there.
 
 ## Why flashing needs root
 
