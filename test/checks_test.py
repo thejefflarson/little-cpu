@@ -7,6 +7,7 @@ Usage: checks_test.py [path/to/checks.py]
 """
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,7 @@ first | fast | - | - | src/a.txt | sleep 1; echo f >> runs/dep
 after | fast | - | first | src/a.txt | echo a >> runs/dep
 """
 
+DRIVER_TIMEOUT_S = 20
 failures = []
 
 
@@ -50,12 +52,14 @@ def reset_counts(repo):
 def driver(repo, *args, tier="fast", env=None):
     e = dict(os.environ)
     e.update(env or {})
-    r = subprocess.run(
-        [sys.executable, DRIVER, "--tier", tier, "--root", repo,
-         "--manifest", os.path.join(repo, "test", "CHECKS"),
-         "--state", os.path.join(repo, "state-x"), "--jobs", "4", *args],
-        capture_output=True, text=True, env=e)
-    return r
+    try:
+        return subprocess.run(
+            [sys.executable, DRIVER, "--tier", tier, "--root", repo,
+             "--manifest", os.path.join(repo, "test", "CHECKS"),
+             "--state", os.path.join(repo, "state-x"), "--jobs", "4", *args],
+            capture_output=True, text=True, env=e, timeout=DRIVER_TIMEOUT_S)
+    except subprocess.TimeoutExpired as t:
+        return subprocess.CompletedProcess(t.cmd, 124, "", "driver timed out: a check never started")
 
 
 def make_repo(root):
@@ -194,6 +198,82 @@ def main():
               "two checks in one lane never overlap")
         dep = open(os.path.join(repo, "runs", "dep")).read().split()
         check(dep == ["f", "a"], "a check runs after the one it needs")
+
+        print("slot weights")
+
+        def overlap_manifest(slots_a, slots_b):
+            return ("one | fast | - | - | !always " + slots_a + " | echo s1 >> runs/order; sleep 1; echo e1 >> runs/order\n"
+                    "two | fast | - | - | !always " + slots_b + " | echo s2 >> runs/order; sleep 1; echo e2 >> runs/order\n")
+
+        def order_of(manifest, jobs, env=None):
+            edit(repo, "test/CHECKS", manifest)
+            reset_counts(repo)
+            r = driver(repo, "--no-skip", "--jobs", str(jobs), env=env)
+            got = open(os.path.join(repo, "runs", "order")).read().split() \
+                if os.path.exists(os.path.join(repo, "runs", "order")) else []
+            return r, got
+
+        serial = (["s1", "e1", "s2", "e2"], ["s2", "e2", "s1", "e1"])
+        r, got = order_of(overlap_manifest("", ""), 3)
+        check(got not in serial, "control: two unweighted checks overlap when jobs allow")
+        r, got = order_of(overlap_manifest("!slots=2", "!slots=2"), 3)
+        check(got in serial, "two checks of weight 2 do not overlap in 3 jobs")
+        r, got = order_of(overlap_manifest("!slots=9", "!slots=9"), 2)
+        check(r.returncode == 0 and got in serial,
+              "a check heavier than the jobs still runs, alone")
+        r, got = order_of(overlap_manifest("!slots=SHARDS_X:1", "!slots=SHARDS_X:1"), 3,
+                          env={"SHARDS_X": "2"})
+        check(got in serial, "a weight named by an environment variable follows it")
+        r, got = order_of(overlap_manifest("!slots=SHARDS_X:1", "!slots=SHARDS_X:1"), 3)
+        check(got not in serial, "and falls back to its default when the variable is unset")
+        edit(repo, "test/CHECKS", MANIFEST + "bad | fast | - | - | src/a.txt !slots=two | true\n")
+        r = driver(repo)
+        check(r.returncode == 2 and "!slots=two" in r.stderr, "a malformed slot weight is refused")
+
+        print("SIGTERM mid-run")
+        edit(repo, "test/CHECKS",
+             "hang | fast | - | - | src/a.txt | trap 'exit 0' TERM; sleep 60 & echo $! > runs/gc; echo $$ > runs/pid; wait\n"
+             "quick | fast | - | - | src/a.txt | echo q >> runs/quick\n")
+        reset_counts(repo)
+        shutil.rmtree(os.path.join(repo, "state-x"), ignore_errors=True)
+        p = subprocess.Popen(
+            [sys.executable, DRIVER, "--tier", "fast", "--root", repo,
+             "--manifest", os.path.join(repo, "test", "CHECKS"),
+             "--state", os.path.join(repo, "state-x"), "--jobs", "4"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        gc = os.path.join(repo, "runs", "gc")
+        for _ in range(100):
+            if os.path.exists(gc) and open(gc).read().strip() and count(repo, "quick") == 1:
+                break
+            time.sleep(0.1)
+        pids = [int(open(os.path.join(repo, "runs", f)).read()) for f in ("pid", "gc")]
+        p.send_signal(signal.SIGTERM)
+        try:
+            p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.communicate()
+            check(False, "the driver exits promptly on SIGTERM")
+        check(p.returncode not in (0, None), "an interrupted run exits non-zero")
+        stamps = os.path.join(repo, "state-x", "stamps")
+        stamped = os.listdir(stamps) if os.path.isdir(stamps) else []
+        check("hang" not in stamped, "an unfinished check is not stamped")
+        check("quick" in stamped, "a check that finished before the signal keeps its stamp")
+        check(not os.path.exists(os.path.join(repo, "state-x", "files-fast.json")),
+              "an interrupted run writes no green snapshot")
+
+        def alive(pid):
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
+        for _ in range(50):
+            if not any(alive(x) for x in pids):
+                break
+            time.sleep(0.1)
+        check(not alive(pids[0]), "the interrupted check's shell is gone")
+        check(not alive(pids[1]), "and so is the child in its process group")
 
         print("a manifest that lies")
         edit(repo, "test/CHECKS", MANIFEST + "bad | fast | - | nosuch | src/a.txt | true\n")

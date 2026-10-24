@@ -11,11 +11,11 @@ name | tier | lane | needs | inputs | command
 
 | column | meaning |
 |---|---|
-| `name` | The Makefile target the check runs (`make -s <name>`), unless `command` is given. Unique. |
+| `name` | The Makefile target the check runs (`make -s <name>`, run from the repo root), unless `command` is given. Unique. |
 | `tier` | `fast` runs under `make test` and `make test-full`; `full` runs only under `make test-full`, which is what CI's `test` job runs. |
 | `lane` | Checks that share a lane run one at a time, in manifest order. `-` is a lane of its own. A lane is how two checks that write the same path stay out of each other's way. |
 | `needs` | Comma-separated rows that must have passed first, or `-`. A `fast` row cannot need a `full` one. |
-| `inputs` | Space-separated patterns over `git ls-files --cached --others --exclude-standard`. A pattern ending in `/` claims everything under it; anything else is an `fnmatch` glob in which `*` crosses `/`. A lone `*` means the check always runs and claims nothing. |
+| `inputs` | Space-separated patterns over `git ls-files --cached --others --exclude-standard`. A pattern ending in `/` claims everything under it; anything else is an `fnmatch` glob in which `*` crosses `/`. Three tokens are not patterns: `!always` (the check runs every time and claims nothing), `@all` (its stamp covers every file) and `!slots=` (below). |
 | `command` | Optional shell command replacing `make -s <name>`. |
 
 ## How skipping decides
@@ -34,7 +34,7 @@ name | tier | lane | needs | inputs | command
    that passed, and a further edit to the unclaimed file runs them all again.
 
 `make test-full` never skips (`--no-skip`), and CI runs it from a clean checkout. `TEST_NO_SKIP=1
-make test` is the same override locally. A tool that is not on `PATH` records as `absent`.
+make test` is the same override locally. A tool that is not on `PATH` records as `absent`. The tier's snapshot is written only when every selected check passed.
 
 A pattern that matches no file is an error, and every tracked file a check's recipe names must be
 claimed by that check's row: `test/checks_manifest_test.py` reads the recipe from `make -n`. It
@@ -46,3 +46,20 @@ names declares the wider directory.
 Checks run in parallel at `TEST_JOBS` (default: the CPU count). Two checks that write one fixed
 path under `build/`, or that rebuild one artifact, share a lane. `needs` orders a check after the
 build that produces an artifact it reads.
+
+## Slot weights
+
+`TEST_JOBS` (or `--jobs`) counts slots, and a check holds one while it runs. A check that fans
+out into its own children says so with `!slots=` among its inputs, so the machine is not
+oversubscribed: `!slots=3` holds three, and `!slots=PROBE_SHARDS:8` holds as many as the
+environment variable `PROBE_SHARDS` names, else 8 (`probe-gates` runs that many shards). A check
+starts only when its weight fits in the free slots. A weight above the job count is clamped to it,
+so that check waits for an idle machine and then runs alone; it is never left waiting forever.
+
+## Interruption
+
+SIGTERM or Ctrl-C stops the run. The driver sends SIGTERM to the process group of every running
+check (each runs in its own session, so its children are in it), waits up to 10 seconds, sends
+SIGKILL to what is left, and exits 130. A check that had not finished gets no stamp, even if it
+exited 0 while shutting down, and no green snapshot is written, so the next run re-runs it. A
+check that finished before the signal keeps its stamp.
