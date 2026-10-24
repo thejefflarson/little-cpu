@@ -99,6 +99,7 @@ def check(root):
         return answers.pop(0)
 
     eu.sudo = fake
+    eu.time.sleep = lambda seconds: None
     answers[:] = [(0, b"", b"VERIFY OK\ncdone: high\n")]
     expect("a flash write that verifies is a load", eu.load("b.bin", "/x/iceprog") is True)
     expect("the load writes the flash: iceprog with the file and no -S", calls[-1] == ["/x/iceprog", "b.bin"])
