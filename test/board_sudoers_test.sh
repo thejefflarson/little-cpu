@@ -27,7 +27,7 @@ run() {
 bad() { echo "*** board-sudoers: $1"; fail=1; }
 
 run good visudo_ok check_ok || bad "a valid rule was not installed: $(cat "$WORK/good/log")"
-want="$(id -un) ALL=(root) NOPASSWD: /opt/lc/bin/iceprog, /opt/lc/bin/ftread"
+want="$(id -un) ALL=(root) NOPASSWD: /opt/lc/bin/lc-flash, /opt/lc/bin/lc-uart"
 [ "$(cat "$WORK/good/rule" 2>/dev/null)" = "$want" ] || bad "the rule is not exactly the two binaries for this user"
 grep -q -- "install -m 0600 -o root -g wheel /dev/null" "$WORK/good/sudo.log" 2>/dev/null || bad "the rule is not staged in a root-owned file"
 case $(ls -l "$WORK/good/rule" 2>/dev/null) in -r--r-----*) ;; *) bad "the installed rule is not mode 0440";; esac
@@ -46,5 +46,5 @@ run notroot visudo_ok check_bad && bad "a binary that fails the root-owned check
 run comma visudo_ok check_comma && bad "a path holding a comma was written into the rule"
 [ -e "$WORK/comma/rule" ] && bad "a path a sudoers rule would misread reached the rule"
 
-[ "$fail" = 0 ] && echo "board-sudoers: the rule names only the two root-owned binaries, visudo-checked, installed 0440 with no user-writable copy."
+[ "$fail" = 0 ] && echo "board-sudoers: the rule names only the two root-owned wrappers, visudo-checked, installed 0440 with no user-writable copy."
 exit "$fail"
