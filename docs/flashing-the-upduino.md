@@ -129,3 +129,42 @@ never idles. `soc/entropy_bit_framer.v` has a `FILL` parameter that sends a zero
 for that reason. `ftread` also prints a byte outside 0x20 to 0x7e as `<xx>`, which
 `soc/entropy_upduino.py` decodes. A flash write under a heavily loaded host takes minutes, not the 6 s of
 an idle one; the write must not be interrupted, because the erase has already happened.
+
+## A flash write after a streaming design hangs unless a read drains the FT232H first
+
+`iceprog` returns the FT232H to UART mode when it exits, and a design that streams on the UART
+(`soc/entropy_capture_upduino.v`, `soc/seed_probe.S`) fills the chip's receive FIFO from then on. The next
+`iceprog` purges that FIFO as it switches to MPSSE, but one or two bytes arrive after the purge and
+survive it. They shift every byte `iceprog` reads back by that many places. The shift is visible in the
+flash ID line (`0xFF 0xEF 0x70 0x16` for a W25Q32, `0xFF 0xFF 0xEF ...` for two strays) and in the reset
+step's `cdone: high` where a good run reads low. The erase then polls a status byte that is always 0xFF,
+which reads as "busy" forever, so `iceprog` sits at 0% CPU until killed; with two strays the erase
+completes and the write verifies wrong (exit 3). A read-only `iceprog -t` does not mind the shift, takes
+the strays itself, and the write after it starts clean.
+
+Measured on the UPduino v3.0 on 2026-10-24 (the root-owned `iceprog` and `ftread`, the streaming capture
+bitstream, one board, no replug):
+
+| Sequence | First attempt |
+|---|---|
+| `ftread` 5 s, then `iceprog FILE` | 1 clean of 5; 3 hung at the first erase (stopped at 30 or 90 s), 1 wrote and failed verify (exit 3) |
+| `iceprog FILE` twice back to back | 2 of 2 clean |
+| `iceprog FILE` after the board sat streaming for minutes | 1 hung at the first erase, then 3 of 3 clean |
+| `ftread` 5 s, `iceprog -t`, `iceprog FILE` | 9 of 9 clean; the ID line of `-t` showed a stray `0xFF` in 9 of the session's 12 runs |
+| `soc/entropy_upduino.py`'s loader after `ftread` 5 s | 8 of 8 clean on the first attempt, 7.1 to 10.2 s each |
+
+A killed hung `iceprog` is recoverable: the next write succeeded in 3 of 4 tries and failed once with the
+same shifted ID (exit 2). After the very first hang of the day, `iceprog -t` failed twice in a row
+(`Write error (single byte, rc=-1, expected 1)`, then forty `unexpected rx byte: FF`) until one `ftread`
+ran, whose `BITMODE_RESET` and purge cleared the chip. A replug and a host-side FTDI reset were not run:
+the board was not touched by hand, and the drain above made them unnecessary to find the cause. A clean
+write of the 104 KB capture bitstream takes about 9 s, so a hang is 30 s of silence rather than a long
+wait for one.
+
+`soc/entropy_upduino.py` therefore runs `iceprog -t` before every flash write and stops a write that prints
+nothing on either stream for `STALL_S` (30 s) or runs past `LOAD_S` (180 s), then drains and retries, up to
+`LOAD_TRIES` (4) attempts. A tool that reports no board on USB (`Can't find iCE FTDI USB device` from
+`iceprog`, `open:` from `ftread`) stops the whole run at once, so a restart matrix whose board left the bus
+resumes from the rows on disk after a replug rather than spending its failure allowance. The capture's
+timeout in `soc/entropy_nist.py` is the lock wait plus `capture_budget`, the sum of every load attempt, the
+reboot and the read, and the reader refuses a `--budget` below that sum.

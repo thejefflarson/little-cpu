@@ -28,6 +28,7 @@ SOC = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SOC)
 BUILD_S, CAPTURE_S, TOOL_S, RESTART_S = 1800, 1500, 3600, 4 * 3600
 ROW_SAMPLES = 1000
+READ_S = 900
 HOLDOFF_LOG2 = 25
 
 
@@ -105,10 +106,15 @@ def main():
 
     if not os.path.exists(samples_file):
         argv = [sys.executable, os.path.join(SOC, reader), "capture", "--samples", str(args.samples),
-                "--out", samples_file, "--seconds", "900", "--bit", bit] + extra
+                "--out", samples_file, "--seconds", str(READ_S), "--bit", bit] + extra
+        capture_s = CAPTURE_S
+        if upduino:
+            import entropy_upduino
+            capture_s = entropy_upduino.LOCK_WAIT_S + entropy_upduino.capture_budget(READ_S)
+            argv += ["--budget", str(capture_s - entropy_upduino.LOCK_WAIT_S)]
         if args.lock:
             argv += ["--lock", args.lock]
-        if run(argv, timeout=CAPTURE_S):
+        if run(argv, timeout=capture_s):
             sys.exit("*** no consecutive capture of %d samples from the board's start" % args.samples)
     if run([os.path.join(args.bin, "ea_non_iid"), "-v", samples_file, "1"], out=non_iid_txt):
         sys.exit("*** ea_non_iid failed; read %s" % non_iid_txt)
