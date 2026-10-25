@@ -3776,6 +3776,57 @@ d=$(tg_fixture "s/word_done \&\& !full \&\& warm/word_done \&\& !full/")
 probe "buffering words during the start-up window is red" 1 \
   "nothing is buffered in the start-up window" "tg_run $d"
 
+begin_group "test/flash_share_tb.v"
+
+fsh_fixture() {  # $1 = sed expression applied to a copy of soc/flash_share.v, or "" for the control
+  local d; d=$(new_case)
+  cp "$REPO/soc/flash_share.v" "$d/flash_share.v"
+  if [ -n "$1" ]; then mutate "$d/flash_share.v" "$1"; fi
+  printf '%s' "$d"
+}
+
+fsh_run() {  # $1 = fixture dir
+  iverilog -g2012 -o "$1/fs.vvp" "$REPO/soc/miso_share_enable.v" "$REPO/soc/pin_lockout.v" \
+    "$1/flash_share.v" "$REPO/rtl/spiflash.v" "$REPO/test/spiflash_model.v" "$REPO/test/flash_share_tb.v" \
+    && vvp "$1/fs.vvp"
+}
+
+d=$(fsh_fixture "")
+probe "control: the shipping flash_share passes its own bench" 0 \
+  "PASSED: flash_share" "fsh_run $d"
+
+d=$(fsh_fixture "s/assign txd_oe = miso_enable || grant;/assign txd_oe = cs_n || grant;/")
+probe "a UART that ignores a host's select and drives pin 14 into the host is red" 1 \
+  "a host select: the UART is off pin 14" "fsh_run $d"
+
+d=$(fsh_fixture "s/assign txd_oe = miso_enable || grant;/assign txd_oe = ssn_in || grant;/")
+probe "a UART that returns the cycle the chip select reads high, with no synchroniser, is red" 1 \
+  "the UART takes pin 14 back at least two cycles after the chip select goes high" "fsh_run $d"
+
+d=$(fsh_fixture "s/assign txd_d  = grant ? mosi : uart_tx;/assign txd_d  = uart_tx;/")
+probe "a pin 14 that never carries the controller's data is red" 1 \
+  "JEDEC manufacturer through the shared pins" "fsh_run $d"
+
+d=$(fsh_fixture "s/assign ssn_oe = grant || grant_q;/assign ssn_oe = grant;/")
+probe "a deselect that floats the chip select instead of driving it high first is red" 1 \
+  "deselect: the chip select is driven high for exactly one cycle" "fsh_run $d"
+
+d=$(fsh_fixture "s/assign sck_oe = grant;/assign sck_oe = !cs_n;/")
+probe "SCK driven on the request, not on the grant, is red against a host holding the select" 1 \
+  "a host holds the select: the controller never drives SCK" "fsh_run $d"
+
+d=$(fsh_fixture "s/assign ssn_oe = grant || grant_q;/assign ssn_oe = !cs_n || grant_q;/")
+probe "a chip select driven on the request, not on the grant, is red against a host holding the select" 1 \
+  "a host holds the select: the controller never drives the chip select" "fsh_run $d"
+
+d=$(fsh_fixture "s/parameter int IDLE_LIMIT = 128/parameter int IDLE_LIMIT = 16/")
+probe "an idle bound shorter than the gap compiled firmware leaves between bytes is red" 1 \
+  "30 idle cycles between bytes: JEDEC type" "fsh_run $d"
+
+d=$(fsh_fixture "s/\.busy(sck),/.busy(1'b1),/")
+probe "a lockout that is always busy never bounds an idle grant" 1 \
+  "an idle grant is dropped and regranted inside 160 cycles" "fsh_run $d"
+
 begin_group "test/stall_report.py"
 
 SR="python3 $REPO/test/stall_report.py"
@@ -4603,6 +4654,26 @@ d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/\${dev:+-d "\$dev"} //g'
 probe "a flash that drops the device argument is red" 1 \
   "dropped the device" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if (ok) { print "I"/if (1) { print "I"/'
+probe "a replay frame check that counts a damaged block as intact is red" 1 \
+  "a damaged last block hid an intact passing one" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/if \[ -z "\$failing" \] && ! block_all_pass "\$cur"; then failing=\$cur; fi/:/'
+probe "a grader that lets an earlier passing block hide an intact failing one is red" 1 \
+  "an intact failing block was not preferred" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
+mutate "$d/run_suite_board.sh" 's/grade_blocks "\$raw"/uart_last_block "$raw"/'
+probe "a suite runner that grades only the last replay block is red" 1 \
+  "grades something other than every replay block" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
+
+d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
+mutate "$d/run_suite_board.sh" 's/icepack -s /icepack /'
+probe "a suite runner that packs without -s is red" 1 \
+  "packs without -s" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/if (ok) { print "I"/if (1) { print "I"/'
