@@ -319,9 +319,9 @@ longer 2^9 period reads 0.810 and its restart test 0.803, so min is 0.803, and w
 `soc/board_upduino.v` divides the part's `SB_LFOSC` (10.004 kHz, a hard macro) by 2^3 in fabric, 9,591
 cycles per edge at 12 MHz: undivided it read 1,199.5 cycles and **0.0459** (895 of 1,953 proportion
 windows would set DEAD, the sample bit following the oscillator's slow drift against the clock rather
-than its jitter), 2^2 reads 0.437, **2^3 reads 0.7045 with a restart min of 0.7045** and 2^4 reads 0.809
-(ADR-0245, amended); measured on the core-less capture top with only the `SB_HFOSC` clock, because this board's crystal
-jumper is open. `rtl/trng.v`'s edge timeout is 16,384 cycles (one pass of a 14-bit counter) so 9,591 sits at
+than its jitter), 2^2 reads 0.437, **2^3 reads 0.7045 with a restart min of 0.7045, and 0.742 with a restart min of 0.735 on a second draw**,
+and 2^4 reads 0.809 (ADR-0245, amended); measured on the core-less capture top with only the `SB_HFOSC` clock, because
+this board's crystal jumper is open. The shipping `upduino_top` reaches ES16 on the board and never DEAD. `rtl/trng.v`'s edge timeout is 16,384 cycles (one pass of a 14-bit counter) so 9,591 sits at
 59% of it, and `test/entropy_geometry_test.py` holds each board's nominal period between its own
 measured floor (3,000 cycles for OSCG, 9,000 for `SB_LFOSC`, where 4,797 failed and 9,591 passed) and
 80% of that timeout. A divide of 2^7 measured 0.28 on the iCESugar-Pro and tripped the proportion
