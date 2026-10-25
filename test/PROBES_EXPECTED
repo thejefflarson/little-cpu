@@ -375,6 +375,7 @@ a grader that accepts an H_I that changes inside the report is red
 a grader that crashes on an unreadable figure is red
 a grader that does not require H_c is red
 a grader that ignores a failed restart test is red
+a grader that lets an earlier passing block hide an intact failing one is red
 a grader that never compares H_original with the floor is red
 a grader that never compares the restart figure with the floor is red
 a grader that skips an H_bitstring line is red
@@ -649,6 +650,7 @@ a renamed task stops this probe rather than moving its control
 a repetition count that counts a phantom bit at reset is red
 a repetition count that misses the first bit of a run is red
 a replay block left over from another batch is read as this batch's is red
+a replay frame check that counts a damaged block as intact is red
 a replay parser that reads the cut tail instead of the last whole block is red
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed
@@ -813,6 +815,8 @@ a substituted, non-archive download is refused for every file, not silently skip
 a sudoers rule installed without visudo's check is red
 a suite runner loading before it ejects is red
 a suite runner that flashes without the drain and time limits is red
+a suite runner that grades only the last replay block is red
+a suite runner that packs without -s is red
 a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything
 a sweep file that is not there reads as missing, not as empty

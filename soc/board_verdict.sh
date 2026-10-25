@@ -17,6 +17,41 @@ uart_last_block() { awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{printf "%s", a[
 # Block $1 must open with the driver's "B<batch $2> <programs $3>" tag, so a buffered replay from an earlier batch is refused.
 block_tag_ok() { [ "${1%%$'\n'*}" = "B$2 $3" ]; }
 
+# Counts INTACT and DAMAGED blocks of capture $1 for batch $2 of $3 programs; intact is exactly "B<batch> <programs>", then "k <verdict>" in order (a digit flipped in place passes).
+# BLOCK is the first intact block showing a failure, else the first intact one.
+grade_blocks() {
+  local out line cur="" first="" failing=""
+  out=$(printf '%s' "$1" | awk -v b="$2" -v w="$3" '
+    function finish(   i, ok, f) {
+      if (nl == 0) return
+      ok = (seg[0] == "B" b " " w && nl == w + 1)
+      for (i = 1; ok && i <= w; i++) { f = seg[i]; sub(/ .*/, "", f); ok = (f == i - 1 && seg[i] ~ /^[0-9]+ [0-9]+$/) }
+      if (ok) { print "I"; for (i = 0; i <= w; i++) print seg[i]; print "." } else print "D"
+      nl = 0
+    }
+    /^\.$/ { finish(); next }
+    { seg[nl++] = $0 }')
+  BLOCK=""; INTACT=0; DAMAGED=0
+  while IFS= read -r line; do
+    case $line in
+      D) DAMAGED=$((DAMAGED+1));;
+      I) INTACT=$((INTACT+1)); cur="";;
+      .) [ -n "$first" ] || first=$cur
+         if [ -z "$failing" ] && ! block_all_pass "$cur"; then failing=$cur; fi;;
+      *) cur="$cur$line"$'\n';;
+    esac
+  done <<< "$out"
+  BLOCK=${failing:-$first}
+}
+
+block_all_pass() {
+  local line
+  while IFS= read -r line; do
+    case $line in B*|"") continue;; esac
+    [ "$(grade_verdict "${line#* }")" = PASS ] || return 1
+  done <<< "$1"
+}
+
 # Flashes $2 with tool $1 into log $3: a bounded read-only -t first drains the FT232H's stray UART bytes, which hang the write.
 flash_bitstream() {
   local bin=$1 file=$2 log=$3
