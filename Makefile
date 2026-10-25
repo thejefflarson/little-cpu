@@ -687,6 +687,10 @@ riscv-gcc-search-test:
 tmp-path-test:
 	@./test/tmp_path_test.sh
 
+.PHONY: early-exit-pipe-test
+early-exit-pipe-test:
+	@./test/early_exit_pipe_test.sh
+
 .PHONY: exec-mode-test
 exec-mode-test:
 	@./test/exec_mode_test.py
@@ -828,7 +832,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                compare-product-schedule-token-test compare-product-schedule-publish-test \
                tool-cache-test riscv-gcc-pin-test memmap-test adr-numbering-test \
                compare-geometry-test hazard3-config-test vexriscv-path-test retired-term-test \
-               port-connect-test march-test riscv-gcc-search-test tmp-path-test exec-mode-test \
+               port-connect-test march-test riscv-gcc-search-test tmp-path-test early-exit-pipe-test exec-mode-test \
                band-source-test figure-stamp-test zkt-isolation-test fixture-freshness-test window-test \
                imem-share-test memcheck-depth-test abc-engine-test makefile-target-test \
                mutation-probe dual-build board-elaborate tracked-ignored-test \

@@ -96,7 +96,7 @@ done
 for f in "$REPO"/soc/compare/bench_*.v; do
   base=$(basename "$f" .v)
   if grep -q 'parameter integer ROM_WORDS' "$f" \
-    && ! printf '%s\n' "$mk_tops" | grep -qx "$base"; then
+    && ! grep -qx "$base" <<< "$mk_tops"; then
     fail "soc/compare/$base.v declares parameter integer ROM_WORDS but no" \
          "'COMPARE_TOP := $base' line in the Makefile reaches it -- it is not" \
          "chparam'd and not compared"
@@ -137,10 +137,10 @@ done | sed 's/\.lds$//' | sort -u)
 
 for f in "$REPO"/soc/compare/*.lds; do
   base=$(basename "$f" .lds)
-  if printf '%s\n' "$mk_lds" | grep -qx "$base"; then
+  if grep -qx "$base" <<< "$mk_lds"; then
     continue
   fi
-  if ! printf '%s\n' "$referenced_lds" | grep -qx "$base"; then
+  if ! grep -qx "$base" <<< "$referenced_lds"; then
     fail "soc/compare/$base.lds is linked by nothing: not the Makefile's own" \
          "-T, and no soc/compare/*.sh or *.py names it -- its geometry is" \
          "graded by nothing"

@@ -15,7 +15,7 @@ display_safe() { LC_ALL=C tr -cd '[:print:]\n'; }
 uart_last_block() { awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{printf "%s", a[n-1]}'; }
 
 # Block $1 must open with the driver's "B<batch $2> <programs $3>" tag, so a buffered replay from an earlier batch is refused.
-block_tag_ok() { [ "$(printf '%s\n' "$1" | head -n 1)" = "B$2 $3" ]; }
+block_tag_ok() { [ "${1%%$'\n'*}" = "B$2 $3" ]; }
 
 # Flashes $2 with tool $1 into log $3: a bounded read-only -t first drains the FT232H's stray UART bytes, which hang the write.
 flash_bitstream() {
@@ -107,8 +107,8 @@ acl_grants() {
     return 2
   elif command -v getfacl >/dev/null 2>&1; then
     out=$(getfacl -cp "$1" 2>/dev/null) || return 2
-    printf '%s\n' "$out" | grep -q '^user::' || return 2
-    printf '%s\n' "$out" | grep -Eq '^(user|group):[^:]+:.w'
+    grep -q '^user::' <<< "$out" || return 2
+    grep -Eq '^(user|group):[^:]+:.w' <<< "$out"
   else
     echo "error: getfacl is not installed, so the ACL on $1 cannot be read; install the acl package" >&2
     return 2
