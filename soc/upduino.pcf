@@ -3,5 +3,7 @@ set_io -nowarn clk_pin 20
 set_io -nowarn ledr_n 41
 set_io -nowarn ledg_n 39
 
-set_io -nowarn spi_miso_txd 14
+set_io -nowarn spi_mosi_txd 14
+set_io -nowarn spi_sck      15
 set_io -nowarn spi_ssn      16
+set_io -nowarn spi_miso     17

@@ -1290,21 +1290,7 @@ two 32-bit banks, and at 16 bits wide a fetch window is four SPRAMs, the whole p
 `test/asm/rvc.S`, at 12 256 bytes, still cannot run on silicon, and `soc/run_suite_board.sh`
 batches.
 
-**The configuration flash has a read-only controller, `rtl/spiflash.v`. The iCESugar-Pro wires it
-and the UPduino does not yet** (ADR-0135). Eight bytes at `0x0002_0028`: a data register whose read gives
-`busy` in bit 8 above the byte the last exchange shifted in, and a write-only control register
-whose bit 0 is the chip select; it is a mode-0 shift register that knows no commands. `busy` sits
-beside the byte rather than in a register software writes because the reference model has plain
-memory here, and polling a stored bit would spin on Sail and compare nothing. What is wired is the
-UART's pin, and it is shared: the UPduino's pin 14 is `serial_txd` and `spi_miso` at once, so
-`soc/board_upduino.v` drives it only while pin 16, the flash's chip select, reads released —
-turn-on through a two-flop synchroniser, turn-off combinational, because a synchronised-only enable
-would drive against the flash's own driver for two clock periods (`soc/miso_share_enable.v`). That
-predicate answers "is the flash's driver off", not "is a host there" — `iceprog` parks the select
-high for most of a session — so it cannot grant the on-chip controller its own pins.
-`soc/pin_lockout.v` was built for that, ships bounded and graded standalone, and is not wired;
-`sck`, `mosi` and `cs_n` are tied off. Reaching the flash's data path owes a real-board measurement
-of that contention window first. The iCESugar-Pro has no such sharing: `soc/board_icesugar_pro.v`
+**The configuration flash has a read-only controller, `rtl/spiflash.v`. Both boards wire it; the iCESugar-Pro reads the flash, and the UPduino's read returns all ones** (ADR-0135, amended 2026-10-24). Eight bytes at `0x0002_0028`: a data register whose read gives `busy` in bit 8 above the byte the last exchange shifted in, and a write-only control register whose bit 0 is the chip select; it is a mode-0 shift register that knows no commands. `busy` sits beside the byte rather than in a register software writes because the reference model has plain memory here, and polling a stored bit would spin on Sail and compare nothing. **On the UPduino the pins are shared with the FT232H, and the repository had two of their roles backwards**: pin 14 is the iCE40's `SPI_SO`, the flash's data *input* and the UART's TX at once, and pin 17 is the flash's data output, so the flash never drives pin 14. `soc/flash_share.v` states every output enable: the controller's select is a request, `soc/pin_lockout.v` grants it when pin 16 read released, and in that one cycle pin 14 changes from the UART to MOSI and pins 15 and 16 are driven; a deselect drives pin 16 high for a cycle, and the UART returns after `soc/miso_share_enable.v` reads the pad high for two cycles (turn-off is combinational on the pad). **The grant's idle bound is a parameter, 128 cycles here**: sixteen dropped the select between bytes of compiled C (22 cycles apart on the board and in simulation). `iceprog` still parks the select high between transactions, so a grant can land in a live host; that limit is unchanged. **The board's JEDEC read returns `FFFFFF`**: pin 17 is held high within one cycle of the FPGA letting go, probably by the FT232H's RTS# in UART mode, and nothing a user process may run changes that. `soc/flash_share_probe.c` is the program that will show `EF7016`; it shifts only `0x9F`. The iCESugar-Pro has no such sharing: `soc/board_icesugar_pro.v`
 connects chip select, MOSI and MISO to the W25Q256JV's pins and reaches the clock through
 `USRMCLK`, the only route to the configuration clock pad after configuration (pins and their
 sources: `docs/pin-constraints.md`). `make icesugar-flash-id` loads `soc/flash_id.S` over JTAG,

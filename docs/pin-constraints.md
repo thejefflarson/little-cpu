@@ -19,6 +19,12 @@ V3.0 SILKSCREEN ERRATUM: the GND and 12M labels on the header are swapped. The d
 drawing is right and the board is wrong. This file constrains the FPGA pin, so it is
 unaffected -- but anything probed by the labels is not.
 
+PINS 14 TO 17 ARE THE FLASH'S AND THE FT232H'S AT ONCE. 14 is the FPGA's `SPI_SO`: the flash's data
+input and the UART's TX (the FT232H's RXD), named `spi_mosi_txd`. 15 is the flash's clock, 16 its
+select, 17 its data output (`spi_miso`). Read off the board on 2026-10-24 rather than a schematic:
+`docs/adr/0135`'s last amendment has the evidence and says what is inferred. This repository called
+14 the flash's MISO until then.
+
 ## `soc/littlesoc.pcf` -- The SoC on the iCEBreaker pinout (ice40 up5k, sg48)
 
 Pin constraints for rtl/littlesoc.v on an ice40 up5k in an sg48 package.
