@@ -31,13 +31,13 @@ independent draw on this placer), and writes the seed with the best margin
 over `SOC_MIN_MHZ` alongside the whole distribution it was chosen from, so a
 future reader can see it was a considered choice and not a lucky one.
 
-Usage: soc_pin.py digest        <source file>...
-       soc_pin.py check-sources <pin.json> <source file>...
+Usage: soc_pin.py digest        [--config <text>] <source file>...
+       soc_pin.py check-sources [--config <text>] <pin.json> <source file>...
        soc_pin.py seed          <pin.json>
        soc_pin.py write         <pin.json> --digest <hex> --seed <n> --mhz <f>
                                  --min-mhz <f> --toolchain <text>
                                  --distribution <json file, or - for stdin>
-                                 [--synth-knob <text>] [--date <text>]
+                                 [--synth-knob <text>] [--config <text>] [--date <text>]
 
 Exit (digest):        0 printed
       (check-sources): 0 always -- a mismatch warns on stderr, it does not fail
@@ -83,7 +83,7 @@ def load_pin(path):
                         "it was chosen with; a partial write is not a pin.")
     return pin
 
-def sources_digest(paths):
+def sources_digest(paths, config=None):
     """sha256:<hex> over the files synthesis reads, not the netlist it produces.
 
     A netlist digest cannot answer "is this pin stale": yosys is deterministic for
@@ -92,8 +92,15 @@ def sources_digest(paths):
     re-pin for a reason that is not a design change. Hashing the inputs asks the
     question that has a stable answer -- have the sources this seed was chosen for
     moved. A comment counts as moved, because a comment re-rolls the mapping.
+
+    `config` names a build option that changes the netlist without changing a
+    file (the board top's clock source), so a pin cannot claim a placement of a
+    build it never measured. It is hashed only when given, which keeps a pin
+    written without one valid.
     """
     h = hashlib.sha256()
+    if config is not None:
+        h.update(f"config:{config}".encode())
     for path in sorted(paths):
         body = pathlib.Path(path).read_bytes()
         h.update(path.encode())
@@ -103,7 +110,7 @@ def sources_digest(paths):
 def cmd_digest(args):
     """Printed rather than recomputed by each caller, so `check-sources` and
     `soc_seed_search.sh`'s write path can never compute this two different ways."""
-    print(sources_digest(args.sources))
+    print(sources_digest(args.sources, args.config))
     return 0
 
 def cmd_check_sources(args):
@@ -112,14 +119,16 @@ def cmd_check_sources(args):
     says whether a better seed may now exist. Refusing here would fail a build
     for a comment edit."""
     pin = load_pin(args.pin)
-    current = sources_digest(args.sources)
+    current = sources_digest(args.sources, args.config)
     pinned = pin.get("sources_digest")
     if current == pinned:
         print(f"pin OK: sources match {args.pin}")
         print(f"  seed {pin['seed']}, measured {pin['measured_mhz']:.2f} MHz "
               f"on {pin.get('date', '(no date recorded)')}")
         return 0
-    print(f"*** PIN STALE: the sources moved since {args.pin} was written.",
+    what = f"the sources or the build option ({args.config}) moved" if args.config \
+        else "the sources moved"
+    print(f"*** PIN STALE: {what} since {args.pin} was written.",
           file=sys.stderr)
     print(f"***   pinned:  {pinned}", file=sys.stderr)
     print(f"***   current: {current}", file=sys.stderr)
@@ -160,6 +169,7 @@ def cmd_write(args):
 
     pin = {
         "sources_digest": args.digest,
+        "config": args.config,
         "seed": args.seed,
         "synth_knob": args.synth_knob,
         "measured_mhz": args.mhz,
@@ -178,13 +188,16 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
+    config_help = "a build option that changes the netlist but no file, e.g. osc=crystal"
 
     digest_cmd = sub.add_parser("digest")
     digest_cmd.add_argument("sources", nargs="+", help="the files synthesis reads")
+    digest_cmd.add_argument("--config", default=None, help=config_help)
 
     check = sub.add_parser("check-sources")
     check.add_argument("pin", help="soc/pin.json")
     check.add_argument("sources", nargs="+", help="the files synthesis reads")
+    check.add_argument("--config", default=None, help=config_help)
 
     seed = sub.add_parser("seed")
     seed.add_argument("pin")
@@ -204,6 +217,7 @@ def main():
                        help="a JSON file (or - for stdin): the sweep this seed "
                        "was chosen from")
     write.add_argument("--synth-knob", default=None)
+    write.add_argument("--config", default=None, help=config_help)
     write.add_argument("--date", required=True)
 
     args = parser.parse_args()
