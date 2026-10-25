@@ -467,7 +467,7 @@ lint-setup:
 
 UNIT_BENCHES := exec_tb executor_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb \
                 monitor_tb timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb \
-                fetchqueue_tb fetcher_tb trng_tb
+                flash_share_tb fetchqueue_tb fetcher_tb trng_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_executor_tb := rtl/structs.v rtl/executor.v
@@ -483,6 +483,7 @@ UNIT_BENCH_SRC_uart_tb     := rtl/uart.v
 UNIT_BENCH_SRC_spiflash_tb := rtl/spiflash.v test/spiflash_model.v
 UNIT_BENCH_SRC_pin_lockout_tb := soc/pin_lockout.v
 UNIT_BENCH_SRC_miso_share_enable_tb := soc/miso_share_enable.v
+UNIT_BENCH_SRC_flash_share_tb := soc/miso_share_enable.v soc/pin_lockout.v soc/flash_share.v rtl/spiflash.v test/spiflash_model.v
 UNIT_BENCH_SRC_fetchqueue_tb := rtl/fetchqueue.v
 UNIT_BENCH_SRC_fetcher_tb := rtl/structs.v rtl/fetcher.v
 UNIT_BENCH_SRC_trng_tb := rtl/trng.v
@@ -1509,7 +1510,7 @@ coremark-board:
 
 BOARD ?= upduino
 
-BOARD_SRCS := $(SOC_SRCS) soc/miso_share_enable.v soc/board_upduino.v
+BOARD_SRCS := $(SOC_SRCS) soc/miso_share_enable.v soc/pin_lockout.v soc/flash_share.v soc/board_upduino.v
 BOARD_TOP  := upduino_top
 BOARD_PCF  := soc/upduino.pcf
 
@@ -1571,7 +1572,7 @@ $(BUILD)/board.asc: $(BUILD)/board.json $(BOARD_PCF) $(if $(BOARD_SEED_PINNED),b
 	sh soc/pnr_check.sh 'make bitstream' "$$status" $(BUILD)/board.pnr.log $@
 
 $(BUILD)/board.bin: $(BUILD)/board.asc
-	@icepack $< $@
+	@icepack -s $< $@
 	@echo "$(BUILD)/board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
 
 BOARD_ICETIME := icetime

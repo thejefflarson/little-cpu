@@ -1,6 +1,6 @@
 # 0135 — The flash is reachable, and fetch cannot move to the SPRAM
 
-Status: accepted
+Status: accepted. The 2026-10-24 amendment at the end corrects the UPduino pin roles the middle sections state and wires the controller.
 
 ## Context
 
@@ -397,3 +397,120 @@ the netlist those two numbers describe is not the one that ships.
   two, which means a magnitude comparison where two reductions are today — and
   `rtl/imemory.v` already records that the comparison it replaced measured a quarter of the whole
   period.
+
+## Amendment 2026-10-24: the controller is wired to the UPduino, the pin roles above were wrong, and the JEDEC read works once the flash is kept awake
+
+Measured on the UPduino v3.0 on 2026-10-24 and 25, `main` plus this tree, yosys 0.68+48 and nextpnr
+0.11-1-g62e659ed, with the board's internal 12 MHz oscillator. `soc/board_upduino.v` now connects
+`rtl/spiflash.v` to the flash's four pins through `soc/flash_share.v`, which holds
+`soc/miso_share_enable.v` and `soc/pin_lockout.v` and states every output enable.
+
+**The roles.** Pin 14 is the iCE40's `SPI_SO`, the FPGA's serial *output*, so it is the flash's data
+*input*: it is the controller's MOSI, and also the UART's TX, which is the FT232H's RXD. Pin 17 is
+`SPI_SI`, the FPGA's input, and carries the flash's data output. Pin 15 is SCK and pin 16 the chip
+select. The sections above call pin 14 the flash's MISO and describe a flash driver that goes live on
+it when the select falls; no flash driver was ever on pin 14. The contention on pin 14 is the FPGA's UART against the
+host's MPSSE data output (`iceprog` drives it for the whole session, with the select high as well as
+low), which is the "FF EF 70 16" and the write errors this record opened with. What showed it:
+
+| build | what it showed |
+|---|---|
+| controller reading pad 16 back | `000000`: with the controller granted, the pad reads low |
+| controller reading pad 17 back, sending `A5 5A 0F F0` | `A5 5A 0F F0`: pin 17 follows an FPGA drive |
+| controller reading pad 15 one cycle late | `00000000`: pin 15 follows an FPGA drive low |
+| pin 14 as MOSI, pin 17 as MISO, flash awake | `EF7016`; with the host's UART mode in the way as well, 46 of 72 undamaged lines and the rest the gap sweep's over-bound row |
+
+**What the schematic says** (tinyVision.ai `UPduino_v3.0.sch`, Rev 3.0 v0.1, read 2026-10-25 at
+`pages.hmc.edu/brake/class/e155/fa23/assets/doc/UPduino_v3.0.pdf`; the pin roles above were measured
+first and the schematic agrees with them):
+
+| FT232H pin | net | wired to |
+|---|---|---|
+| ADBUS0 | FT_SCK | FPGA pin 15 (`IOB_34a_SPI_SCK`) and the flash's CLK, a direct wire |
+| ADBUS1 | FLASH_MOSI | the flash's DI, and FPGA pin 14 (`IOB_32a_SPI_SO`) through R12, 0 ohm |
+| ADBUS2 | FLASH_MISO | the flash's DO, and FPGA pin 17 (`IOB_33b_SPI_SI`) through R13, 0 ohm |
+| ADBUS4 | FT_SSn | FPGA pin 16 (`IOB_35b_SPI_SS`) and the flash's CS, direct, with a 10 kohm pull-up (R8) |
+| ADBUS6, ADBUS7 | CDONE, CRESET_N | the FPGA's configuration pins |
+
+R11 and R27 are not fitted. In UART mode, which `ftread` sets and `iceprog` leaves behind, the FT232H's
+ADBUS0 is TXD, ADBUS2 is RTS# and ADBUS4 is DTR#, all outputs, and only ADBUS1, RXD, is an input. That
+is why the UART shares pin 14 safely, and it means **a controller transaction is a push-pull driver
+against a push-pull driver on three pins with no series resistance**: the FPGA drives pins 15 and 16
+against TXD and DTR#, and the flash drives pin 17 against RTS#. That fits the pin-17 snap-back
+measured above. The FT232H's rated drive is 4 to 16 mA, set in its EEPROM, and a shorted pair of
+drivers runs outside both parts' datasheets; nothing measured the current. The pads read the
+intended levels in every run (the FPGA's drive wins on 15 and 16, the flash's on 17), and an ID read
+lasts about 260 cycles, 22 microseconds at 12 MHz, with `soc/flash_share_probe.c` the only program
+that reads the flash. **A known hazard, accepted for the merge**: firmware that holds the select for
+long, such as booting from the flash, would make it a sustained fight. Leaving every FT232H pin an
+input removes it at the cost of the UART, and a host mode that did so (a bit-bang read that decodes
+the UART in software) was written, worked, and was dropped as unneeded for the ID.
+
+**The JEDEC read first returned `FFFFFF` because the flash was asleep, not because of the host.**
+`icepack` ends every bitstream with a deep-power-down command for the configuration flash unless it is
+given `-s`, and a flash in deep power-down answers nothing but the release command that `iceprog`
+sends first. `$(BUILD)/board.bin` is now `icepack -s`. The FT232H was suspected before that was found,
+and a read through the ordinary UART path returns `EF7016` all the same (46 of 72 undamaged ID lines;
+the rest are the gap sweep's over-bound row), so the host's drivers do not stop the flash winning
+pin 17. `soc/flash_share_probe.c` prints the ID: `make bitstream SOC_PROG=soc/flash_share_probe.c
+BOARD_OSC=internal`, then flash it.
+
+**The protocol, and what each part is for.**
+
+- The request is `cs_n` low. `pin_lockout` grants when pin 16 read high through its synchroniser and
+  freezes for the request; pins 15 and 16 are driven and pin 14 changes from the UART to MOSI in the
+  same cycle, one mux, so the FPGA never drives pin 14 from two sources.
+- The UART's enable is `released || grant`, where `released` is `soc/miso_share_enable.v`: turn-off is
+  combinational on the pad's read, turn-on needs it read high for two cycles. A host select therefore
+  silences the UART in the cycle the pad falls, and the chip select driven high by the controller's
+  release is read high for two cycles (167 ns at 12 MHz) before the UART returns, which the bench grades.
+- A deselect drives pin 16 high for one cycle before releasing it, so the flash sees the edge from a
+  driver and not from the pad's pull-up.
+- A UART character in flight when the select arrives is cut: its remaining bits are never on the
+  wire, but the transmitter continues, so the host sees a short frame and then the tail as a break. A
+  program drains the UART before selecting, which `soc/flash_share_probe.c` does. The host's UART
+  receiver also prints the 6 MHz MOSI waveform as noise while the controller shifts.
+- **A bounded grant must be longer than a program's gap between bytes.** `pin_lockout`'s sixteen
+  idle cycles ended every read: compiled C leaves 22 cycles between one byte completing and the next
+  starting (board and simulation agree to the cycle on `gap=22 span=260`), so the select dropped
+  between the command and its answer. `IDLE_LIMIT` is a parameter now, 128 on this board. On the
+  board, reads survive gaps up to 94 cycles of firmware delay and fail at 118 (`FFFFFF`), as in a
+  simulation of the whole `upduino_top` with the real ROM image. A program that is interrupted for
+  longer than 127 cycles between bytes ends its own transaction, so a reader masks interrupts across it.
+- Read-only stays firmware convention. `soc/flash_share_probe.c` shifts only `0x9F`.
+- The flash stays awake after configuration, so a design that never reads it also leaves it drawing
+  its standby current; a program that wants the sleep back sends the power-down command itself.
+
+**The window that was asked for.** The FPGA and the flash cannot drive pin 14 together, because the
+flash never does. The FPGA and a host can: when the host's select falls the UART lets go within the
+pad-to-LUT-to-pad delay, a few nanoseconds that this repo has no instrument to measure, and a host
+that drives its data output before it selects is on the wire throughout, which no predicate over pin 16
+sees. For the controller's own selects there is no window: the mux changes pin 14 once, in the cycle
+the select is driven. What could not be measured: nanosecond overlaps (no scope) and the current in the three-pin fight above.
+
+**Cost** (`upduino_top`, six instance names, packed `ICESTORM_LC` of 5,280; the name is a hash, ADR-0255):
+
+| name | main | this tree | delta |
+|---|---|---|---|
+| soc | 5,137 | 5,164 | +27 |
+| core | 5,119 | 5,168 | +49 |
+| cpu | 5,119 | 5,168 | +49 |
+| a | 5,163 | 5,209 | +46 |
+| top_soc | 5,142 | 5,179 | +37 |
+| s0 | 5,137 | 5,165 | +28 |
+
+The worst name packs 5,209, which leaves 71 cells; the mean is +39. Sixteen seeds (1 to 16, `soc`),
+placed and timed with `icetime`: main reads worst 12.35, median 12.88, best 13.31 MHz (7.8%
+spread); this tree reads 11.86, 12.59 and 13.05 (10.0%), a paired median of -2.0% (range -8.0% to
++1.6%) that is inside the 3.6% churn band, with one seed under the 12 MHz requirement. The period is
+the ROM-to-ROM loop and none of it passes through this module. `soc/pin.json` is `littlesoc`'s and is
+not touched. `soc/board_pin.json` is re-seeded on this tree: twelve high-entropy seeds read 11.97 to
+12.76 MHz, and the pin holds seed 125781539 at 12.76 MHz, 6.33% over the requirement
+(`make board-timing`: 5,164 cells, pin OK).
+
+`make suite-board` over the shared UART: the replayed report arrives with damaged blocks on `main`'s
+board top as well (20 of 94 blocks in one run) and on this tree's (4 of 110, 30 of 98, 21 of 117 and
+31 of 105 in four runs), and the script grades only the last complete block, so a run is a draw: `main`
+scored 79 of 79, this tree 78, 75, 78 and 78, each miss a damaged last block. In every batch of the
+last run the first undamaged block reports every program as passing, so none of the 79 failed; the
+damage is the host's read and was not attributed further.
