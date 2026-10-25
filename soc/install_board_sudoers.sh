@@ -1,5 +1,5 @@
 #!/bin/bash
-# Grants passwordless sudo for DEST/bin/iceprog and ftread only, each after the board targets' root-owned check.
+# Grants passwordless sudo for DEST/bin/lc-flash and lc-uart only (fixed-argument wrappers; the real tools stay unnamed), each after the board targets' root-owned check.
 set -euo pipefail
 DEST=${1:?usage: $0 DEST GROUP}; GROUP=${2:?usage: $0 DEST GROUP}
 SUDO=${BOARD_SUDO:-sudo}
@@ -11,7 +11,7 @@ NAME=$(id -un)
 case $NAME in ''|*[!A-Za-z0-9._-]*) echo "error: user name '$NAME' cannot be written into a sudoers rule" >&2; exit 1;; esac
 
 paths=()
-for b in iceprog ftread; do
+for b in lc-flash lc-uart; do
   p=$("$CHECK" "$DEST/bin/$b") || {
     echo "error: $DEST/bin/$b is not a root-owned binary; run \`make install-board-tools\` first" >&2; exit 1; }
   case $p in /*) ;; *) echo "error: $b resolved to '$p', not an absolute path" >&2; exit 1;; esac

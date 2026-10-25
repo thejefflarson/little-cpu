@@ -764,6 +764,10 @@ board-verdict-test:
 board-sudoers-test:
 	@./test/board_sudoers_test.sh
 
+.PHONY: board-wrappers-test
+board-wrappers-test:
+	@./test/board_wrappers_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -829,7 +833,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
                icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test entropy-upduino-test \
                nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
-               dhry-board-parity-test board-verdict-test board-sudoers-test nano-test nano-startup-test \
+               dhry-board-parity-test board-verdict-test board-sudoers-test board-wrappers-test nano-test nano-startup-test \
                macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
@@ -1368,9 +1372,9 @@ ftread: $(BUILD)/ftread
 .PHONY: suite-board
 suite-board: $(BUILD)/ftread
 	@echo 'Runs the .S suite on the part, in batches. The script runs as you; only'
-	@echo 'iceprog and ftread run under ICEPROG_SUDO, as `make prog` does. Roughly ten minutes.'
+	@echo 'The flash and UART wrappers run under ICEPROG_SUDO, as `make prog` does. Roughly ten minutes.'
 	@echo
-	@ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/run_suite_board.sh $(if $(ICEPROG_SUDO),--iceprog '$(BOARD_ICEPROG)' --ftread '$(BOARD_FTREAD)',--ftread '$(abspath $(BUILD))/ftread')
+	@ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/run_suite_board.sh $(if $(ICEPROG_SUDO),--iceprog '$(BOARD_FLASH)' --ftread '$(BOARD_UART)',--ftread '$(abspath $(BUILD))/ftread')
 
 .PHONY: icesugar-suite-board
 icesugar-suite-board:
@@ -1566,10 +1570,10 @@ bitstream: $(BUILD)/board.bin
 
 ICEPROG_DEV  ?=
 ICEPROG_SUDO ?= $(if $(filter Darwin,$(shell uname -s)),sudo,)
-# Under sudo, run only root-owned copies from BOARD_TOOLS_DIR (docs/flashing-the-upduino.md).
+# Under sudo, run only the root-owned fixed-argument wrappers from BOARD_TOOLS_DIR (docs/flashing-the-upduino.md).
 BOARD_TOOLS_DIR ?= /usr/local/libexec/little-cpu
-BOARD_ICEPROG   ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/bin/iceprog,iceprog)
-BOARD_FTREAD    ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/bin/ftread,$(abspath $(BUILD))/ftread)
+BOARD_FLASH     ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/bin/lc-flash,iceprog)
+BOARD_UART      ?= $(if $(ICEPROG_SUDO),$(BOARD_TOOLS_DIR)/bin/lc-uart,$(abspath $(BUILD))/ftread)
 BOARD_TOOLS_GROUP ?= $(if $(filter Darwin,$(shell uname -s)),wheel,root)
 
 .PHONY: install-board-tools
@@ -1587,14 +1591,14 @@ install-board-sudoers:
 
 .PHONY: prog
 prog: $(BUILD)/board.bin
-	@command -v '$(BOARD_ICEPROG)' >/dev/null || { \
-	  echo '*** $(BOARD_ICEPROG) not found. Without sudo, iceprog ships with the OSS CAD Suite'; \
+	@command -v '$(BOARD_FLASH)' >/dev/null || { \
+	  echo '*** $(BOARD_FLASH) not found. Without sudo, iceprog ships with the OSS CAD Suite'; \
 	  echo '*** that `make setup` caches -- put its bin/ first on PATH. Under sudo, run'; \
 	  echo '*** `make install-board-tools`.'; \
 	  exit 1; \
 	}
 	@echo 'Flashing $(BOARD). On macOS this needs root -- see docs/flashing-the-upduino.md.'
-	@bin='$(BOARD_ICEPROG)'; \
+	@bin='$(BOARD_FLASH)'; \
 	$(if $(ICEPROG_SUDO),bin=$$(./soc/check_root_binary.sh "$$bin") || exit 1;) \
 	echo "$(ICEPROG_SUDO) $$bin"; \
 	$(ICEPROG_SUDO) "$$bin" $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') $(BUILD)/board.bin
