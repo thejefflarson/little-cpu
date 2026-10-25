@@ -269,12 +269,18 @@ a document with one number edited by hand is red
 a double-quoted heredoc delimiter is masked, so its stray apostrophe cannot hide a real sed -i after it
 a download whose bytes are not the pin is refused before extraction
 a driver blind to the toolchain skips past a tool upgrade
+a driver that counts every check as one slot oversubscribes a weighted pair
+a driver that does not clamp a heavy weight never starts the check
 a driver that forgets the epoch repeats the checks that already passed
 a driver that ignores lanes overlaps two checks that share one
 a driver that ignores needs starts a check before the one it needs
+a driver that ignores the environment variable naming a weight is red
+a driver that never signals the running checks leaves their children behind
 a driver that never skips reruns a check on an unchanged tree
 a driver that runs full-tier rows in the fast tier is red
+a driver that stamps a check that exited cleanly during shutdown is red
 a driver that trusts every stamp skips a check whose input was edited
+a driver with no SIGTERM handler leaves the running check behind
 a driver with no unclaimed-file rule skips past a file no row claims
 a dual directory that is not there is the failure this exists to see
 a dual grader that accepts a capture holding only debugger chatter is red
