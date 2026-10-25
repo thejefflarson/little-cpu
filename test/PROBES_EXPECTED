@@ -118,6 +118,8 @@ a SoC with no SPI controller at all does not pass by silence
 a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
 a UART summary line that skips the display filter is red
+a UART wrapper that accepts a second argument is red
+a UART wrapper with no upper bound is red
 a VCO outside the range the part locks over is red
 a backslash-continued sed -i is still a raw edit
 a backslash-newline after the closing quote, between recipe arguments, is green
@@ -309,6 +311,13 @@ a fixture that opens its body on the head line is still inspected
 a flash grader that accepts a capture holding only debugger chatter is red
 a flash grader that accepts any FLASH line whatever its id is red
 a flash grader that does not require the SFDP signature is red
+a flash wrapper that hands iceprog the caller's environment is red
+a flash wrapper that judges the name given and not the file opened is red
+a flash wrapper that lets iceprog's -r through is red
+a flash wrapper that opens a directory is red
+a flash wrapper that opens a file its caller cannot read is red
+a flash wrapper that opens a path outside build/ is red
+a flash wrapper that passes any -d value to iceprog is red
 a flash write taken as loaded without VERIFY OK is red
 a floating tool is recorded and never graded, so a new yosys is not STALE
 a floor line matching no stamped pair is red
@@ -597,8 +606,8 @@ a real archive missing one vendored member is caught, and named
 a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
 a reason dropped from the decoder's own composition is red, and named
-a recipe file no input pattern claims is red, and named
 a reboot that does not read the flash is red
+a recipe file no input pattern claims is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a recipe running a script git records as 100644 is red, and located
 a red that is not a structural difference is not the red this probe wants
@@ -1170,6 +1179,7 @@ control: the arm proves for the shipping core and fails on both values
 control: the authors' examples agree with the build file
 control: the block RAM is named at the end of the path it sits at
 control: the board tooling agrees with its known-answer inputs
+control: the board wrappers agree with their stubs
 control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
 control: the committed document matches a fresh render of the committed stamp

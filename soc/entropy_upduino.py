@@ -8,9 +8,10 @@
 
 The board is the UPduino's FT232H, which a user process cannot open: iceprog writes the bitstream to the
 configuration flash once (`iceprog -S` leaves CDONE low on this board), `iceprog -t` then reboots the
-FPGA from it without writing, and ftread reads the UART, all as the root-owned copies in
-/usr/local/libexec/little-cpu/bin run through `sudo -n`. ftread prints a byte outside 0x20-0x7e as
-`<xx>`, which `unescape` undoes; the frames' CRC and sum catch the rare byte pair that reads the same
+FPGA from it without writing, and ftread reads the UART. All three go through the root-owned wrappers
+lc-flash and lc-uart in /usr/local/libexec/little-cpu/bin run through `sudo -n`: lc-flash takes a bitstream
+under a build/ directory or -t, lc-uart takes milliseconds, and neither takes anything else. ftread prints
+a byte outside 0x20-0x7e as `<xx>`, which `unescape` undoes; the frames' CRC and sum catch the rare byte pair that reads the same
 either way. The frames are soc/entropy_interval_capture.v's and soc/entropy_bit_framer.v's.
 """
 
@@ -26,7 +27,6 @@ import entropy_stream
 
 SOC = os.path.dirname(os.path.abspath(__file__))
 TOOLS = "/usr/local/libexec/little-cpu/bin"
-BAUD = 115200
 ESCAPED = re.compile(rb"<([0-9a-f]{2})>")
 MAX_LAG = 4096
 NEIGHBOURS = 8
@@ -41,10 +41,10 @@ def unescape(data):
 
 
 def root_binary(name, check=True):
-    """The path of an installed root-owned tool, after soc/check_root_binary.sh has walked its parents.
+    """The path of an installed root-owned wrapper, after soc/check_root_binary.sh has walked its parents.
 
     The walk reads every directory from / down and takes minutes on a loaded machine; check=False
-    leaves the guarantee to the sudoers rule, which names these two paths and no others.
+    leaves the guarantee to the sudoers rule, which names these two wrappers and no others.
     """
     if not check:
         return os.path.join(TOOLS, name)
@@ -56,7 +56,7 @@ def root_binary(name, check=True):
 
 
 def sudo(argv, seconds):
-    """Run a root-owned tool and return (status, stdout, stderr); a tool still running after `seconds`
+    """Run a root-owned wrapper and return (status, stdout, stderr); a tool still running after `seconds`
     is sent SIGTERM through sudo, which relays it, and reads as status None."""
     proc = subprocess.Popen(["sudo", "-n"] + argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
@@ -71,13 +71,13 @@ def sudo(argv, seconds):
     return proc.returncode, out, err
 
 
-def load(bit, iceprog):
+def load(bit, flash):
     """Write the bitstream to the configuration flash and verify it; the FPGA then boots it.
 
     iceprog -S is not used: on the UPduino it ends with the FPGA's CDONE low, unconfigured.
     """
     for attempt in range(LOAD_TRIES):
-        status, out, err = sudo([iceprog, bit], LOAD_S)
+        status, out, err = sudo([flash, bit], LOAD_S)
         if status == 0 and b"VERIFY OK" in out + err:
             return True
         if attempt + 1 < LOAD_TRIES:
@@ -85,36 +85,36 @@ def load(bit, iceprog):
     return False
 
 
-def reboot(iceprog):
+def reboot(flash):
     """Reset the FPGA so it configures itself from the flash again, reading the flash and writing nothing."""
-    return sudo([iceprog, "-t"], 60)[0] == 0
+    return sudo([flash, "-t"], 60)[0] == 0
 
 
-def read(ftread, seconds):
+def read(uart, seconds):
     """What the UART sent in `seconds`, decoded."""
-    return unescape(sudo([ftread, str(BAUD), str(int(seconds * 1000))], seconds + 30)[1])
+    return unescape(sudo([uart, str(int(seconds * 1000))], seconds + 30)[1])
 
 
 def run_from_boot(tools, samples, seconds, first_zero=True):
     """Reboot, read, and keep the frames; with first_zero only if they begin at sequence 0 and never skip."""
     run = entropy_stream.Run(samples, first_zero=first_zero)
-    if not reboot(tools["iceprog"]):
+    if not reboot(tools["flash"]):
         return None, run
-    run.feed(read(tools["ftread"], seconds))
+    run.feed(read(tools["uart"], seconds))
     return run.result(), run
 
 
 def tools_for(args):
-    return {name: root_binary(name, not args.no_root_check) for name in ("iceprog", "ftread")}
+    return {name.split("-")[1]: root_binary(name, not args.no_root_check) for name in ("lc-flash", "lc-uart")}
 
 
 def intervals(args):
     tools = tools_for(args)
     started = time.monotonic()
     with entropy_stream.locked(args.lock, LOCK_WAIT_S):
-        if not load(args.bit, tools["iceprog"]):
+        if not load(args.bit, tools["flash"]):
             sys.exit("*** iceprog did not load %s" % args.bit)
-        frames, dropped = entropy_assess.extract_frames(bytearray(read(tools["ftread"], args.seconds)))
+        frames, dropped = entropy_assess.extract_frames(bytearray(read(tools["uart"], args.seconds)))
     runs = frames[: args.frames]
     with open(args.out, "w") as handle:
         for run in runs:
@@ -138,11 +138,11 @@ def capture(args):
     tools = tools_for(args)
     started = time.monotonic()
     with entropy_stream.locked(args.lock, LOCK_WAIT_S):
-        if not load(args.bit, tools["iceprog"]):
+        if not load(args.bit, tools["flash"]):
             sys.exit("*** iceprog did not write and verify %s" % args.bit)
-        if not reboot(tools["iceprog"]):
+        if not reboot(tools["flash"]):
             sys.exit("*** iceprog -t did not reboot the board")
-        frames, _ = entropy_stream.parse_frames(bytearray(read(tools["ftread"], args.seconds)))
+        frames, _ = entropy_stream.parse_frames(bytearray(read(tools["uart"], args.seconds)))
     samples, splices = spliced(frames, args.samples)
     if len(samples) < args.samples:
         print("entropy_upduino: %d samples from %d frames, short of %d" % (len(samples), len(frames), args.samples))
@@ -168,7 +168,7 @@ def restart(args):
     if done >= args.rows:
         return 0
     with entropy_stream.locked(args.lock, LOCK_WAIT_S), open(args.out, "ab") as handle:
-        if not load(args.bit, tools["iceprog"]):
+        if not load(args.bit, tools["flash"]):
             sys.exit("*** iceprog did not write and verify %s" % args.bit)
         while done < args.rows:
             samples, _ = run_from_boot(tools, args.samples, args.seconds)
@@ -235,10 +235,10 @@ def main():
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name in ("intervals", "capture", "restart"):
         p = sub.add_parser(name)
-        p.add_argument("--bit", required=True, help="the capture bitstream to load into SRAM first")
+        p.add_argument("--bit", required=True, help="the capture bitstream to write to the flash first; lc-flash accepts only a path under a build/ directory")
         p.add_argument("--out", required=True)
         p.add_argument("--no-root-check", action="store_true",
-                       help="skip soc/check_root_binary.sh; the sudoers rule names the two tools")
+                       help="skip soc/check_root_binary.sh; the sudoers rule names the two wrappers")
         p.add_argument("--lock", help="a directory made for the length of each board access and removed after")
     sub.choices["intervals"].add_argument("--frames", type=int, default=24)
     sub.choices["intervals"].add_argument("--seconds", type=float, default=60.0)

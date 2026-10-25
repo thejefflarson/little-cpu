@@ -11,6 +11,7 @@ top must elaborate for both clocks and both captures.
 Usage: entropy_upduino_test.py [repo-root]     # defaults to this script's parent
 """
 
+import argparse
 import importlib.util
 import math
 import os
@@ -108,6 +109,11 @@ def check(root):
     expect("a flash write that times out is not a load", eu.load("b.bin", "/x/iceprog") is False)
     answers[:] = [(0, b"", b"Bye.\n")]
     expect("a reboot is a status-zero iceprog -t", eu.reboot("/x/iceprog") is True and calls[-1] == ["/x/iceprog", "-t"])
+    answers[:] = [(0, b"ab", b"")]
+    expect("a UART read hands the wrapper milliseconds alone", eu.read("/x/lc-uart", 4.5) == b"ab" and calls[-1] == ["/x/lc-uart", "4500"])
+    expect("the tools are the two wrappers, keyed by role",
+           eu.tools_for(argparse.Namespace(no_root_check=True)) == {"flash": os.path.join(eu.TOOLS, "lc-flash"),
+                                                                    "uart": os.path.join(eu.TOOLS, "lc-uart")})
 
     if not os.environ.get("ENTROPY_UPDUINO_SKIP_YOSYS"):
         for osc, stream, fab in ((0, 0, 0), (1, 1, 0), (1, 0, 3), (0, 1, 2)):
