@@ -99,7 +99,7 @@ while read -r progs; do
   printf '\n'
 done < "$OUT/plan"
 
-pass=0; fail=0; missing=0
+pass=0; fail=0; missing=0; replays_intact=0; replays_damaged=0
 i=0
 while read -r progs; do
   i=$((i+1))
@@ -118,7 +118,7 @@ while read -r progs; do
      || ! icebram "$OUT/ph_odd.hex" soc/rom_odd.hex < "$OUT/b0.asc" > "$OUT/b1.asc" 2>>"$OUT/ib.log"; then
     echo "   ROM SWAP FAILED:"; sed 's/^/      /' "$OUT/ib.log" | head -6; continue
   fi
-  icepack "$OUT/b1.asc" build/board.bin || { echo "   PACK FAILED"; continue; }
+  icepack -s "$OUT/b1.asc" build/board.bin || { echo "   PACK FAILED"; continue; }
   echo "   swap:  $(wc -c < build/board.bin | tr -d ' ') bytes, no re-placement  [$((SECONDS-t0))s]"
 
   t0=$SECONDS
@@ -144,14 +144,13 @@ while read -r progs; do
     raw=$($ICEPROG_SUDO "$FTREAD" "${UART_ARGS[@]}" 2>"$OUT/read.err")
     printf '%s' "$raw" > "$RAWDIR/batch$i.attempt$attempt.txt"
     nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n' | display_safe)
-    block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')
-    block_tag_ok "$block" "$i" "$want" || block=""
-    got=$(printf '%s' "$block" | grep -c '^[0-9]' || true)
-    echo "   read:  ${nbytes:-0} bytes, $got of $want verdicts (attempt $attempt) [$((SECONDS-t0))s]"
-    [ "$got" -ge "$want" ] && break
+    grade_blocks "$raw" "$i" "$want"; block=$BLOCK
+    replays_intact=$((replays_intact+INTACT)); replays_damaged=$((replays_damaged+DAMAGED))
+    echo "   read:  ${nbytes:-0} bytes, $INTACT intact and $DAMAGED damaged blocks (attempt $attempt) [$((SECONDS-t0))s]"
+    [ "$INTACT" -gt 0 ] && break
   done
 
-  [ -n "$block" ] || echo "   (no replay tagged for this batch -- every program below reads as NO REPORT)"
+  [ -n "$block" ] || echo "   (no intact replay for this batch -- every program below reads as NO REPORT)"
 
   if [ -n "${SHOW_RAW:-}" ]; then
     echo "   ---- raw capture ----"; printf '%s' "$raw" | display_safe | sed 's/^/      /'
@@ -187,6 +186,7 @@ done < "$OUT/plan"
 echo
 echo "=================================================="
 echo "on hardware: $pass passed, $fail failed, $missing no report"
+echo "replays: $replays_intact intact, $replays_damaged damaged"
 echo "skipped (larger than the ROM): $SKIP"
 echo
 echo "baseline says these fail under simulation:"

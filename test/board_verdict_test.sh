@@ -90,6 +90,23 @@ block=$(printf '%s' "$capture" | uart_last_block)
 [ "$(block_tag_ok $'B3 11\n0 1\n' 3 11 && echo y)" = y ] || { echo "FAIL: a matching batch tag was refused" >&2; fail=1; }
 block_tag_ok $'B2 11\n0 1\n' 3 11 && { echo "FAIL: stale batch tag accepted" >&2; fail=1; }
 block_tag_ok $'0 1\n1 1\n' 3 2 && { echo "FAIL: an untagged block accepted" >&2; fail=1; }
+good=$'B2 3\n0 1\n1 1\n2 1\n.\n'
+bad_last=$'B2 3\n0 1\n1 1\n2 \n.\n'
+fails=$'B2 3\n0 1\n1 7\n2 1\n.\n'
+grade_blocks "$good$bad_last" 2 3
+[ "$INTACT/$DAMAGED" = 1/1 ] && [ "$BLOCK" = $'B2 3\n0 1\n1 1\n2 1\n' ] \
+  || { echo "FAIL: a damaged last block hid an intact passing one ($INTACT/$DAMAGED)" >&2; fail=1; }
+grade_blocks $'@cdone:0\n'"$good" 2 3
+[ "$INTACT/$DAMAGED" = 0/1 ] || { echo "FAIL: debugger chatter ahead of a replay's tag counted as intact ($INTACT/$DAMAGED)" >&2; fail=1; }
+grade_blocks "$good$fails$bad_last" 2 3
+[ "$INTACT/$DAMAGED" = 2/1 ] && [ "$BLOCK" = $'B2 3\n0 1\n1 7\n2 1\n' ] \
+  || { echo "FAIL: an intact failing block was not preferred ($INTACT/$DAMAGED)" >&2; fail=1; }
+grade_blocks "$bad_last$bad_last" 2 3
+[ "$INTACT/$DAMAGED/$BLOCK" = 0/2/ ] || { echo "FAIL: damaged blocks only did not read as no intact block" >&2; fail=1; }
+for damaged in $'B1 3\n0 1\n1 1\n2 1\n' $'B2 3\n0 1\n2 1\n' $'B2 3\n0 1\n1 1\n2 1\n3 1\n' $'B2 3\n0 1\n2 1\n1 1\n' $'B2 3\n0 1\n1 1\n2 1x\n' $'B2 3\n0 1\n1 1 1\n2 1\n'; do
+  grade_blocks "$damaged." 2 3
+  [ "$INTACT" = 0 ] || { echo "FAIL: a block that is not the exact frame counted as intact: $damaged" >&2; fail=1; }
+done
 [ "$(baseline_class a.S 'FAIL 3' a.S)" = ok ] || { echo "FAIL: a baselined FAIL did not match" >&2; fail=1; }
 for s in MISSING PARSE-ERROR LOAD-FAILED SWAP-FAILED LINK-FAILED; do
   [ "$(baseline_class a.S "$s" a.S)" = unexpected ] || { echo "FAIL: baselined $s matched the baseline" >&2; fail=1; }
@@ -287,6 +304,10 @@ flash_case 1 "" hang "a write that hangs after VERIFY OK"
 t0=$SECONDS
 flash_case 0 hang "" "a hung -t"
 [ $((SECONDS - t0)) -lt 15 ] || { echo "FAIL: flash_bitstream waited out a hung -t ($((SECONDS - t0))s)" >&2; fail=1; }
+grep -qF 'grade_blocks "$raw"' "$SUITE" \
+  || { echo "FAIL: $SUITE grades something other than every replay block" >&2; fail=1; }
+grep -qF 'icepack -s ' "$SUITE" \
+  || { echo "FAIL: $SUITE packs without -s, so the flash sleeps on every suite image" >&2; fail=1; }
 grep -qF 'flash_bitstream "$ICEPROG_BIN"' "$SUITE" \
   || { echo "FAIL: $SUITE flashes without flash_bitstream's -t drain and time limits" >&2; fail=1; }
 
