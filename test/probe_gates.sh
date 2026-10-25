@@ -11404,10 +11404,11 @@ CK="python3 $HERE/checks_test.py"
 probe "control: the shipping check driver passes its own grader" 0 \
   "skipping, lanes, tiers and refusals all behave" "$CK"
 
-ck_driver() {  # $1 = sed expression applied to a copy of the driver
-  local d; d=$(new_case)
+ck_driver() {  # [-E] <sed expression> applied to a copy of the driver
+  local d ext=""; d=$(new_case)
+  if [ "$1" = "-E" ]; then ext="-E"; shift; fi
   cp "$HERE/checks.py" "$d/checks.py"
-  mutate "$d/checks.py" "$1"
+  mutate $ext "$d/checks.py" "$1"
   printf '%s' "$d/checks.py"
 }
 
@@ -11442,6 +11443,30 @@ probe "a driver that runs full-tier rows in the fast tier is red" 1 \
 drv=$(ck_driver 's/for argv in tool_probes():/for argv in ():/')
 probe "a driver blind to the toolchain skips past a tool upgrade" 1 \
   "RED  a changed tool version re-runs the checks" "$CK $drv"
+
+drv=$(ck_driver 's/if used + weight(c, jobs) > jobs or c.lane in busy_lanes:/if len(running) >= jobs or c.lane in busy_lanes:/')
+probe "a driver that counts every check as one slot oversubscribes a weighted pair" 1 \
+  "RED  two checks of weight 2 do not overlap in 3 jobs" "$CK $drv"
+
+drv=$(ck_driver 's/return max(1, min(w, jobs))/return max(1, w)/')
+probe "a driver that does not clamp a heavy weight never starts the check" 1 \
+  "RED  a check heavier than the jobs still runs, alone" "$CK $drv"
+
+drv=$(ck_driver 's/raw = name if name.isdigit() else os.environ.get(name) or default or "1"/raw = default or "1"/')
+probe "a driver that ignores the environment variable naming a weight is red" 1 \
+  "RED  a weight named by an environment variable follows it" "$CK $drv"
+
+drv=$(ck_driver 's/signal.signal(signal.SIGTERM, signal.default_int_handler)/pass/')
+probe "a driver with no SIGTERM handler leaves the running check behind" 1 \
+  "RED  the interrupted check's shell is gone" "$CK $drv"
+
+drv=$(ck_driver -E 's/^( *)killpg\(p, signal\.SIG(TERM|KILL)\)$/\1pass/')
+probe "a driver that never signals the running checks leaves their children behind" 1 \
+  "RED  and so is the child in its process group" "$CK $drv"
+
+drv=$(ck_driver 's/            elif stopping.is_set():/            elif False:/')
+probe "a driver that stamps a check that exited cleanly during shutdown is red" 1 \
+  "RED  an unfinished check is not stamped" "$CK $drv"
 
 begin_group "test/probe_gates.sh --merge"
 

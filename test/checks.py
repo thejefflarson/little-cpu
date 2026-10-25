@@ -23,6 +23,8 @@ import threading
 import time
 
 TIERS = ("fast", "full")
+INTERRUPT_GRACE_S = 10
+SLOTS_TOKEN = re.compile(r"!slots=(\d+|[A-Z_][A-Z0-9_]*(:\d+)?)$")
 TOOL_PROBES = (
     ["yosys", "-V"],
     ["iverilog", "-V"],
@@ -40,9 +42,29 @@ class Check:
         self.needs = needs
         self.always = "!always" in tokens
         self.scan_all = "@all" in tokens
+        self.slots = [t[len("!slots="):] for t in tokens if t.startswith("!slots=")]
         self.inputs = [t for t in tokens if t[0] not in "!@"]
         self.command = command
         self.row = row
+
+
+def weight(check, jobs):
+    """How many of the `jobs` slots a check holds while it runs.
+
+    `!slots=N` is a count; `!slots=NAME[:N]` reads the environment variable NAME (else N, else 1),
+    so a check that fans out into NAME children is charged for them. A weight above `jobs` is
+    clamped to `jobs`: the check then waits for an idle machine and runs alone, never forever.
+    """
+    if not check.slots:
+        return 1
+    spec = check.slots[0]
+    name, _, default = spec.partition(":")
+    raw = name if name.isdigit() else os.environ.get(name) or default or "1"
+    try:
+        w = int(raw)
+    except ValueError:
+        w = 1
+    return max(1, min(w, jobs))
 
 
 def die(msg):
@@ -72,8 +94,8 @@ def load_manifest(path):
             if not tokens:
                 die(f"{path}:{n}: {name} declares no inputs; write !always to say it always runs")
             for t in tokens:
-                if t[0] in "!@" and t not in ("!always", "@all"):
-                    die(f"{path}:{n}: {t} is not !always or @all")
+                if t[0] in "!@" and t not in ("!always", "@all") and not SLOTS_TOKEN.match(t):
+                    die(f"{path}:{n}: {t} is not !always, @all or !slots=N|NAME[:N]")
             checks.append(Check(
                 name, tier,
                 name if lane == "-" else lane,
@@ -176,6 +198,14 @@ def child_env():
     return env
 
 
+def killpg(proc, sig):
+    """Signals a check's whole process group; its children are its own session's."""
+    try:
+        os.killpg(proc.pid, sig)
+    except OSError:
+        pass
+
+
 def decide(selected, all_checks, hashes, state, tier, no_skip, global_key):
     """Returns (plan, keys, epoch, headline); plan maps a name to why it runs, or None to skip.
 
@@ -227,7 +257,9 @@ def run_checks(root, state, selected, plan, keys, epoch, jobs, verbose):
     results = {}
     running = {}
     busy_lanes = set()
+    used = 0
     procs = {}
+    stopping = threading.Event()
     cond = threading.Condition()
     env = child_env()
 
@@ -241,6 +273,8 @@ def run_checks(root, state, selected, plan, keys, epoch, jobs, verbose):
                 p = subprocess.Popen(argv, cwd=root, stdout=log, stderr=subprocess.STDOUT,
                                      env=env, start_new_session=True)
                 procs[c.name] = p
+                if stopping.is_set():
+                    killpg(p, signal.SIGTERM)
                 rc = p.wait()
             with open(path, "rb") as f:
                 body = f.read().decode(errors="replace").rstrip("\n")
@@ -249,6 +283,7 @@ def run_checks(root, state, selected, plan, keys, epoch, jobs, verbose):
         return rc, time.time() - start, body
 
     def worker(c):
+        nonlocal used
         rc, secs, body = execute(c)
         with cond:
             print(f"{'ok  ' if rc == 0 else 'FAIL'} {c.name}  ({secs:.0f}s)", flush=True)
@@ -257,12 +292,15 @@ def run_checks(root, state, selected, plan, keys, epoch, jobs, verbose):
             if rc != 0:
                 print(f"---- {c.name} exited {rc}", flush=True)
                 failed[c.name] = rc
+            elif stopping.is_set():
+                failed[c.name] = "interrupted"
             else:
                 write_json(os.path.join(stamps, c.name),
                            {"key": keys[c.name], "epoch": epoch, "secs": round(secs, 1)})
                 times[c.name] = round(secs, 1)
                 done.add(c.name)
             results[c.name] = secs
+            used -= weight(c, jobs)
             del running[c.name]
             busy_lanes.discard(c.lane)
             cond.notify_all()
@@ -279,9 +317,10 @@ def run_checks(root, state, selected, plan, keys, epoch, jobs, verbose):
                          if c.lane not in busy_lanes and all(d in done for d in c.needs)]
                 ready.sort(key=lambda c: -times.get(c.name, 0))
                 for c in ready:
-                    if len(running) >= jobs or c.lane in busy_lanes:
+                    if used + weight(c, jobs) > jobs or c.lane in busy_lanes:
                         continue
                     del todo[c.name]
+                    used += weight(c, jobs)
                     running[c.name] = c
                     busy_lanes.add(c.lane)
                     t = threading.Thread(target=worker, args=(c,), daemon=True)
@@ -290,11 +329,16 @@ def run_checks(root, state, selected, plan, keys, epoch, jobs, verbose):
                 if todo or running:
                     cond.wait(timeout=5.0)
     except KeyboardInterrupt:
+        stopping.set()
         for p in list(procs.values()):
-            try:
-                os.killpg(p.pid, signal.SIGTERM)
-            except OSError:
-                pass
+            killpg(p, signal.SIGTERM)
+        deadline = time.time() + INTERRUPT_GRACE_S
+        for t in threads:
+            t.join(max(0.0, deadline - time.time()))
+        for p in list(procs.values()):
+            killpg(p, signal.SIGKILL)
+        for t in threads:
+            t.join()
         raise
     for t in threads:
         t.join()
@@ -304,6 +348,7 @@ def run_checks(root, state, selected, plan, keys, epoch, jobs, verbose):
 
 def main():
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--tier", choices=TIERS, required=True)
     ap.add_argument("--jobs", type=int, default=int(os.environ.get("TEST_JOBS") or 0))
@@ -340,8 +385,13 @@ def main():
         return 0
 
     t0 = time.time()
-    failed, results = run_checks(root, state, selected, plan, keys, epoch, jobs,
-                                 os.environ.get("TEST_VERBOSE", "") not in ("", "0"))
+    try:
+        failed, results = run_checks(root, state, selected, plan, keys, epoch, jobs,
+                                     os.environ.get("TEST_VERBOSE", "") not in ("", "0"))
+    except KeyboardInterrupt:
+        print("checks: interrupted; running checks stopped, nothing unfinished stamped",
+              file=sys.stderr, flush=True)
+        return 130
     wall = time.time() - t0
     slow = sorted(results.items(), key=lambda kv: -kv[1])[:8]
     print(f"checks[{args.tier}]: {n_run} ran, {len(selected) - n_run} skipped, "
