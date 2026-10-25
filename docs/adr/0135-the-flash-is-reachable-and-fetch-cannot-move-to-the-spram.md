@@ -420,17 +420,39 @@ low), which is the "FF EF 70 16" and the write errors this record opened with. W
 | controller reading pad 15 one cycle late | `00000000`: pin 15 follows an FPGA drive low |
 | pin 14 as MOSI, pin 17 as MISO, flash awake | `EF7016`; with the host's UART mode in the way as well, 46 of 72 undamaged lines and the rest the gap sweep's over-bound row |
 
+**What the schematic says** (tinyVision.ai `UPduino_v3.0.sch`, Rev 3.0 v0.1, read 2026-10-25 at
+`pages.hmc.edu/brake/class/e155/fa23/assets/doc/UPduino_v3.0.pdf`; the pin roles above were measured
+first and the schematic agrees with them):
+
+| FT232H pin | net | wired to |
+|---|---|---|
+| ADBUS0 | FT_SCK | FPGA pin 15 (`IOB_34a_SPI_SCK`) and the flash's CLK, a direct wire |
+| ADBUS1 | FLASH_MOSI | the flash's DI, and FPGA pin 14 (`IOB_32a_SPI_SO`) through R12, 0 ohm |
+| ADBUS2 | FLASH_MISO | the flash's DO, and FPGA pin 17 (`IOB_33b_SPI_SI`) through R13, 0 ohm |
+| ADBUS4 | FT_SSn | FPGA pin 16 (`IOB_35b_SPI_SS`) and the flash's CS, direct, with a 10 kohm pull-up (R8) |
+| ADBUS6, ADBUS7 | CDONE, CRESET_N | the FPGA's configuration pins |
+
+R11 and R27 are not fitted. In UART mode, which `ftread` sets and `iceprog` leaves behind, the FT232H's
+ADBUS0 is TXD, ADBUS2 is RTS# and ADBUS4 is DTR#, all outputs, and only ADBUS1, RXD, is an input. That
+is why the UART shares pin 14 safely, and it means **a controller transaction is a push-pull driver
+against a push-pull driver on three pins with no series resistance**: the FPGA drives pins 15 and 16
+against TXD and DTR#, and the flash drives pin 17 against RTS#. That fits the pin-17 snap-back
+measured above. The FT232H's rated drive is 4 to 16 mA, set in its EEPROM, and a shorted pair of
+drivers runs outside both parts' datasheets; nothing measured the current. The pads read the
+intended levels in every run (the FPGA's drive wins on 15 and 16, the flash's on 17), and an ID read
+lasts about 260 cycles, 22 microseconds at 12 MHz, with `soc/flash_share_probe.c` the only program
+that reads the flash. **A known hazard, accepted for the merge**: firmware that holds the select for
+long, such as booting from the flash, would make it a sustained fight. Leaving every FT232H pin an
+input removes it at the cost of the UART, and a host mode that did so (a bit-bang read that decodes
+the UART in software) was written, worked, and was dropped as unneeded for the ID.
+
 **The JEDEC read first returned `FFFFFF` because the flash was asleep, not because of the host.**
 `icepack` ends every bitstream with a deep-power-down command for the configuration flash unless it is
 given `-s`, and a flash in deep power-down answers nothing but the release command that `iceprog`
-sends first. `$(BUILD)/board.bin` is now `icepack -s`. Before that was found the FT232H was suspected:
-in UART mode its TXD and RTS# are outputs on the pins that carry SCK and the flash's output, and
-with pull-up off pin 17 returned high within one 83 ns cycle of the FPGA letting go, which something
-drives. A read through the ordinary UART path returns `EF7016` all the same (46 of 72 undamaged
-ID lines; the rest are the gap sweep's over-bound row), so that driver does not stop the flash
-winning the line. Releasing every FT232H pin for the read, with a bit-bang host mode that was written and then dropped, was tried and was not needed: the deep-power-down command was the cause. What is still unmeasured is the current
-the FPGA draws pulling pin 15 low against the FT232H's TXD while the controller holds the select.
-`soc/flash_share_probe.c` prints the ID: `make bitstream SOC_PROG=soc/flash_share_probe.c
+sends first. `$(BUILD)/board.bin` is now `icepack -s`. The FT232H was suspected before that was found,
+and a read through the ordinary UART path returns `EF7016` all the same (46 of 72 undamaged ID lines;
+the rest are the gap sweep's over-bound row), so the host's drivers do not stop the flash winning
+pin 17. `soc/flash_share_probe.c` prints the ID: `make bitstream SOC_PROG=soc/flash_share_probe.c
 BOARD_OSC=internal`, then flash it.
 
 **The protocol, and what each part is for.**
@@ -464,8 +486,7 @@ flash never does. The FPGA and a host can: when the host's select falls the UART
 pad-to-LUT-to-pad delay, a few nanoseconds that this repo has no instrument to measure, and a host
 that drives its data output before it selects is on the wire throughout, which no predicate over pin 16
 sees. For the controller's own selects there is no window: the mux changes pin 14 once, in the cycle
-the select is driven. What could not be measured: nanosecond overlaps (no scope) and the current on
-pin 15.
+the select is driven. What could not be measured: nanosecond overlaps (no scope) and the current in the three-pin fight above.
 
 **Cost** (`upduino_top`, six instance names, packed `ICESTORM_LC` of 5,280; the name is a hash, ADR-0255):
 
