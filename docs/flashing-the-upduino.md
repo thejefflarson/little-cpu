@@ -93,6 +93,22 @@ the interface, not the libusb build.
 Don't try to unload the driver. It's a DriverKit extension (a dext), not a kernel extension, so
 advice to run `kextunload` is out of date and `kextstat` lists nothing.
 
+## The suite on the part
+
+`make suite-board` ran on an UPduino v3.0 on 2026-10-24 at 650aa07c (plus the flash drain below): **79 of 79
+programs passed, 0 failed, 0 without a report, in eight batches** of 4, 6, 7, 7, 10, 13, 20 and 12, every
+batch on the first flash and the first read. Each read opened with its own `B<batch> <count>` tag. The
+runner skips `rvc.S` (12,256 bytes against the 8,192-byte ROM), so the run covers 79 of the 80 `.S` files
+in `test/OBSERVED_FLOOR`; the manifest's one `.c` program, `datainit.c`, is outside the board runner's `.S` glob.
+The whole run was through the root-owned `lc-flash` and `lc-uart` wrappers under `sudo`, their first
+use on the board, and both worked: eight bitstream writes (7 to 9 s each) and eight reads, no password.
+
+The runner writes each bitstream through `flash_bitstream` (`soc/board_verdict.sh`): a read-only
+`lc-flash -t` first, then the write, each under `soc/bounded.py` (30 s and 180 s). The `-t` takes the stray UART
+bytes an earlier design leaves in the FT232H, which otherwise shift the write's reads and hang its erase.
+`bounded.py` sends SIGTERM and waits ten seconds before SIGKILL, because `sudo` relays only SIGTERM to a root
+child.
+
 ## Reading the UART after `iceprog`
 
 The FT232H is both the programmer and the serial port. `iceprog` leaves it in MPSSE mode, and

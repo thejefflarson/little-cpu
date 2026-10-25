@@ -262,5 +262,33 @@ if grep -nE '/System/\*|/System/Volumes/[^)]*\) *continue' "$INSTALL"; then
   echo "FAIL: $INSTALL trusts all of /System, the writable data volume included" >&2; fail=1
 fi
 
+# flash_bitstream: the read-only -t drain comes first, a write that hangs is stopped even after it printed VERIFY OK, a hung -t does not block the write.
+BOUNDED="$(PATH=${PATH#"$WORK/stubs:"}; command -v python3) $HERE/../soc/bounded.py"; ICEPROG_SUDO=""
+cat > "$WORK/fakeflash" <<'FAKE'
+#!/bin/bash
+echo "$1" >> "$FAKE_LOG"
+if [ "$1" = -t ]; then [ "${FAKE_PRIME-}" = hang ] && sleep 30; exit 0; fi
+[ "${FAKE_WRITE-}" = noverify ] || echo "VERIFY OK"
+[ "${FAKE_WRITE-}" = hang ] && sleep 30
+exit 0
+FAKE
+chmod 755 "$WORK/fakeflash"
+export FAKE_LOG="$WORK/fakeflash.log"
+flash_case() {
+  : > "$FAKE_LOG"; local rc=0
+  FAKE_PRIME=${2-} FAKE_WRITE=${3-} PRIME_S=1 FLASH_S=1 flash_bitstream "$WORK/fakeflash" image.bin "$WORK/flash.out" || rc=$?
+  [ "$rc" = "$1" ] || { echo "FAIL: flash_bitstream ($4) returned $rc, expected $1" >&2; fail=1; }
+}
+flash_case 0 "" "" "a clean write"
+[ "$(tr '\n' ' ' < "$FAKE_LOG")" = "-t image.bin " ] \
+  || { echo "FAIL: flash_bitstream did not run -t before the write: $(tr '\n' ' ' < "$FAKE_LOG")" >&2; fail=1; }
+flash_case 1 "" noverify "a write that never verified"
+flash_case 1 "" hang "a write that hangs after VERIFY OK"
+t0=$SECONDS
+flash_case 0 hang "" "a hung -t"
+[ $((SECONDS - t0)) -lt 15 ] || { echo "FAIL: flash_bitstream waited out a hung -t ($((SECONDS - t0))s)" >&2; fail=1; }
+grep -qF 'flash_bitstream "$ICEPROG_BIN"' "$SUITE" \
+  || { echo "FAIL: $SUITE flashes without flash_bitstream's -t drain and time limits" >&2; fail=1; }
+
 [ "$fail" -eq 0 ] || exit 1
 echo "board verdict parse OK: hostile verdicts rejected, nothing executed, display filtered, root binaries checked"

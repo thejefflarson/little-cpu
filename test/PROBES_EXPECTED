@@ -73,6 +73,7 @@ a --field naming a key the schema already reserves is refused
 a --measured call with no --isa is refused the same way as a missing --cflags
 a --measured call with no --tools-block is refused rather than stamping an unknown toolchain
 a --sha that is not a full commit SHA is refused
+a -t drain with no time limit is red
 a .sby stating depth twice is refused, since sby searches to the last
 a <retires> argument that is not 1 or 2 is refused
 a C floor copied out of the measured table is rejected, not honoured
@@ -334,6 +335,8 @@ a flash wrapper that opens a file its caller cannot read is red
 a flash wrapper that opens a path outside build/ is red
 a flash wrapper that passes any -d value to iceprog is red
 a flash write taken as loaded without VERIFY OK is red
+a flash write that hangs and still counts as flashed is red
+a flash write that skips the -t drain before it is red
 a flash write that skips the FIFO-draining read first is red
 a flash write with no stall bound is red
 a floating tool is recorded and never graded, so a new yosys is not STALE
@@ -421,6 +424,7 @@ a linker script that moves ram off the decoded base is red
 a linker script the Makefile does not link and nothing else names is red
 a littlecpu harness whose core port moved stops rather than tying nothing
 a load into SRAM, which leaves this board unconfigured, is red
+a loader stopped with SIGKILL alone, orphaning a root child behind sudo, is red
 a loader that outlives its limit and reports success is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
@@ -819,6 +823,7 @@ a stubbed file:line warning is red
 a substituted, non-archive download is refused for every file, not silently skipped
 a sudoers rule installed without visudo's check is red
 a suite runner loading before it ejects is red
+a suite runner that flashes without the drain and time limits is red
 a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything
 a sweep file that is not there reads as missing, not as empty

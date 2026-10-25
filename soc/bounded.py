@@ -2,8 +2,10 @@
 """Run a command under a wall-clock limit: bounded.py SECONDS COMMAND [ARG...].
 
 macOS has no timeout(1), and a stalled CMSIS-DAP transfer never returns, so a loader run unbounded hangs
-the whole script around it. On expiry the command's process group is killed and the exit status is 124,
-timeout(1)'s own, so a caller can tell a stall from a refusal. Otherwise the command's status is returned.
+the whole script around it. On expiry the command's process group gets SIGTERM, then SIGKILL if it outlives GRACE_S, and the exit
+status is 124, timeout(1)'s own, so a caller can tell a stall from a refusal. Otherwise the command's status
+is returned. SIGTERM goes first because sudo relays it to a root child and cannot relay SIGKILL, which would
+orphan an iceprog in mid-write.
 """
 
 import os
@@ -12,16 +14,21 @@ import subprocess
 import sys
 
 TIMED_OUT = 124
+GRACE_S = 10
 
 
-def run(seconds, argv):
+def run(seconds, argv, grace=GRACE_S):
     proc = subprocess.Popen(argv, start_new_session=True)
     try:
         return proc.wait(timeout=seconds)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait()
-        sys.stderr.write("*** %s still running after %gs; killed\n" % (argv[0], seconds))
+        os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            proc.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+        sys.stderr.write("*** %s still running after %gs; stopped\n" % (argv[0], seconds))
         return TIMED_OUT
 
 
