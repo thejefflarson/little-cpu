@@ -31,7 +31,7 @@ want="$(id -un) ALL=(root) NOPASSWD: /opt/lc/bin/lc-flash, /opt/lc/bin/lc-uart"
 [ "$(cat "$WORK/good/rule" 2>/dev/null)" = "$want" ] || bad "the rule is not exactly the two binaries for this user"
 grep -q -- "install -m 0600 -o root -g wheel /dev/null" "$WORK/good/sudo.log" 2>/dev/null || bad "the rule is not staged in a root-owned file"
 case $(ls -l "$WORK/good/rule" 2>/dev/null) in -r--r-----*) ;; *) bad "the installed rule is not mode 0440";; esac
-ls -A "$WORK/good" | grep -q '^\.rule\.new$' && bad "the staged rule was left behind"
+grep -q '^\.rule\.new$' <<< "$(ls -A "$WORK/good")" && bad "the staged rule was left behind"
 
 run race visudo_ok check_ok 1
 [ "$(cat "$WORK/race/rule" 2>/dev/null)" = "$want" ] || bad "a same-user process swapped the rule between visudo's check and the install"

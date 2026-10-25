@@ -4704,7 +4704,7 @@ probe "a path walk that reads an unreadable ACL as no ACL is red" 1 \
   "a host without getfacl passed the root-binary check" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
-mutate "$d/board_verdict.sh" "/^    printf '%s\\\\n' \"\$out\" | grep -q '\\^user::' || return 2\$/d"
+mutate "$d/board_verdict.sh" "/^    grep -q '\\^user::' <<< \"\$out\" || return 2\$/d"
 probe "a path walk that accepts a getfacl that printed nothing is red" 1 \
   "a getfacl that prints nothing passed the root-binary check" "$BV $d/board_verdict.sh"
 
@@ -7627,7 +7627,7 @@ if grep -q "assume(mem_ready" complete.sv; then
   status=${STUB_STALLED:-FAIL}
   if [ "$status" = FAIL ]; then
     if [ -n "${STUB_STALLED_PARTIAL:-}" ]; then
-      unreached_line "$(echo "$lines" | head -1)"
+      unreached_line "${lines%%$'\n'*}"
     else
       for l in $lines; do unreached_line "$l"; done
     fi
@@ -11442,6 +11442,66 @@ probe "a tmp-path allow-list entry whose site lost its /tmp/ is red" 1 \
 d=$(new_case)
 probe "a tmp-path scan of a tree git cannot list is red, not green" 1 \
   "cannot enumerate any tracked files" "$TPT $d"
+
+begin_group "test/early_exit_pipe_test.sh"
+
+EEP="$HERE/early_exit_pipe_test.sh"
+# The shape under test is spelled with a variable so this file does not contain it.
+P='|'
+M='early-exit-pipe:'' intended'
+
+eep_fixture() {  # $1 = shebang, $2 = one line of script body
+  local d; d=$(new_case)
+  printf '%s\nset -euo pipefail\n%s\n' "$1" "$2" > "$d/x.sh"
+  printf '#!/bin/bash\ntrue\n' > "$d/clean.sh"
+  git -c init.defaultBranch=main -C "$d" init -q
+  git -C "$d" add -A
+  printf '%s' "$d"
+}
+
+d=$(eep_fixture '#!/bin/bash' 'grep -q needle <<< "$text"')
+probe "control: a bash script that reads a here-string is clean" 0 \
+  "none in 2 bash scripts" "$EEP $d"
+
+d=$(eep_fixture '#!/bin/bash' "printf '%s\\n' \"\$text\" $P grep -q needle")
+probe "a bash script piping printf into grep -q is red, and located" 1 \
+  "x.sh:3: a reader that quits early" "$EEP $d"
+
+d=$(eep_fixture '#!/bin/bash' "mount $P grep -qxF needle")
+probe "grep -qxF at the end of any pipeline is red" 1 \
+  "x.sh:3:" "$EEP $d"
+
+d=$(eep_fixture '#!/bin/bash' "mount $P grep -Eq needle")
+probe "grep -Eq, with the q after another flag, is red" 1 \
+  "x.sh:3:" "$EEP $d"
+
+d=$(eep_fixture '#!/usr/bin/env bash' "echo \"\$text\" $P head -n 1")
+probe "echo piped into head under an env bash shebang is red" 1 \
+  "x.sh:3:" "$EEP $d"
+
+d=$(eep_fixture '#!/bin/bash' "sed -n p file $P head -1")
+probe "head after an external writer is out of scope: it writes once" 0 \
+  "none in 2 bash scripts" "$EEP $d"
+
+d=$(eep_fixture '#!/bin/sh' "printf x $P grep -q x")
+probe "a #!/bin/sh script runs without pipefail and is out of scope" 0 \
+  "none in 1 bash scripts" "$EEP $d"
+
+d=$(eep_fixture '#!/bin/bash' "# printf x $P grep -q x")
+probe "the shape in a comment is not a pipeline" 0 \
+  "none in 2 bash scripts" "$EEP $d"
+
+d=$(eep_fixture '#!/bin/bash' "printf x $P grep -q x # $M")
+probe "a marked line keeps the shape when it is the thing under test" 0 \
+  "none in 2 bash scripts" "$EEP $d"
+
+d=$(eep_fixture '#!/bin/bash' "grep -q x file # $M")
+probe "a marker on a line that lost the shape is red" 1 \
+  "no longer has the shape" "$EEP $d"
+
+d=$(new_case)
+probe "an early-exit scan of a tree git cannot list is red, not green" 1 \
+  "cannot enumerate any tracked files" "$EEP $d"
 
 begin_group "soc/compare/comparison.py"
 

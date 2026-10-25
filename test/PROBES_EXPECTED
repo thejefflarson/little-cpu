@@ -67,6 +67,7 @@ TIMEOUT exits 2
 TOOLS_ON_PATH stops formal/Makefile shadowing a fixture's stubs too
 TOOLS_ON_PATH stops nano/formal/Makefile shadowing a fixture's stubs too
 TOOLS_ON_PATH stops the real tools shadowing a fixture's stubs
+a #!/bin/sh script runs without pipefail and is out of scope
 a --current field the stamp does not record is STALE, not a pass
 a --field naming a key the schema already reserves is refused
 a --measured call with no --isa is refused the same way as a missing --cflags
@@ -142,6 +143,7 @@ a baselined program that diverges SOMEWHERE ELSE is red
 a baselined program with no report matching its baseline is red
 a baselined test that starts failing a DIFFERENT way is red
 a baselined upstream file that stopped mentioning it is red
+a bash script piping printf into grep -q is red, and located
 a bench in test/ that make does not run is named
 a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
 a benchmark this artifact never recorded is refused, not read as fresh
@@ -441,6 +443,8 @@ a malformed baseline line is named rather than skipped
 a malformed baseline line is named rather than skipped
 a malformed manifest line is red under --strict, not a silent pass
 a manifest entry that names no program is a typo, not a phantom
+a marked line keeps the shape when it is the thing under test
+a marker on a line that lost the shape is red
 a matrix proof dropped from the workflow is red
 a measure job holding a write scope is red
 a measured pair with no digest is refused
@@ -917,6 +921,7 @@ an arm that admits a zero where the faulting word belongs is red
 an arm that admits rs1 where the effective address belongs is red
 an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
+an early-exit scan of a tree git cannot list is red, not green
 an edge period that an oscillator 20% slow would push past the timeout is red
 an edge period too short for the jitter to fill is red
 an edge timeout back at 8,192 cycles fails the UPduino's period
@@ -1065,6 +1070,7 @@ control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a r
 control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
+control: a bash script that reads a here-string is clean
 control: a board search clearing the margin writes soc/board_pin.json
 control: a clean module elaborates with zero promoted warnings
 control: a clean nextpnr run is accepted
@@ -1276,6 +1282,7 @@ data past the end of the simulated RAM is red, not silent
 deleting an rtl file and leaving its line is red
 dividers that make a frequency CORE_HZ does not state is red
 dx_output.rs1 widened past 5 bits is red, unclassified
+echo piped into head under an env bash shebang is red
 ecp5 names fewer than twelve seeds and is refused before any placement
 every excluded cell reaches dfflibmap and abc as -dont_use
 every excluded cell reaches the timing run's dfflibmap and abc too
@@ -1286,8 +1293,11 @@ excluding the artifact does not blind the check to a real soc/compare/ change
 fixture_anchor whose literal left the real file is fixture-stale, named
 formal's remeasure-fg still lists check-solver-btorsim as a prerequisite
 formal/pin.mk is a measured input
+grep -Eq, with the q after another flag, is red
+grep -qxF at the end of any pipeline is red
 half of a macro-guarded group is red, where none of it is not
 hazard's three causes losing a cycle between them is red
+head after an external writer is out of scope: it writes once
 icetime that cannot resolve its chip database is refused before a version is stamped
 identical traces with different verdicts is DISAGREE VERDICT
 ill_e asked of littlecpu's harness is refused, not run
@@ -1505,6 +1515,7 @@ the sby script moving away takes the probe with it, loudly
 the sby script moving away takes the probe with it, loudly
 the second header is scanned too, not just test_macros.h
 the separator restated in a second file is red
+the shape in a comment is not a pipeline
 the shipping board.asc places at the same pinned seed as board-timing
 the shipping build itself reporting an X on the load path is red before any mutant runs
 the stale ISA name coming back in a formal harness comment is red

@@ -110,10 +110,10 @@ echo
 echo "== no script opens the pull request or dispatches CI"
 for f in propose-pin-bump.sh bump-riscv-formal-pin.sh; do
   check "$f does not open a pull request" 0 "no pr create call" \
-    '! grep -v "^ *#" "$REPO/formal/'"$f"'" | grep -q "gh pr create" \
+    '! grep -q "gh pr create" <<< "$(grep -v "^ *#" "$REPO/formal/'"$f"'")" \
        && echo "no pr create call"'
   check "$f does not dispatch CI" 0 "no dispatch call" \
-    '! grep -v "^ *#" "$REPO/formal/'"$f"'" | grep -q "gh workflow run" \
+    '! grep -q "gh workflow run" <<< "$(grep -v "^ *#" "$REPO/formal/'"$f"'")" \
        && echo "no dispatch call"'
 done
 
