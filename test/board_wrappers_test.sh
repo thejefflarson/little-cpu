@@ -87,19 +87,8 @@ refuses "lc-uart took an unbounded read" "$WORK/lc-uart" 99999999999
 refuses "lc-uart took a read over an hour" "$WORK/lc-uart" 3600001
 refuses "lc-uart took a non-number" "$WORK/lc-uart" 10x
 refuses "lc-uart took an empty argument" "$WORK/lc-uart" ""
-accepts "lc-uart -q refused a bounded read" "$WORK/lc-uart" -q 8000
-[ "$(cat "$STUB_OUT/ftread.args" 2>/dev/null)" = "115200 8000 quiet" ] || bad "lc-uart -q did not ask ftread for quiet mode at the fixed baud: '$(cat "$STUB_OUT/ftread.args" 2>/dev/null)'"
-refuses "lc-uart -q took no time" "$WORK/lc-uart" -q
-refuses "lc-uart -q took a baud as well" "$WORK/lc-uart" -q 9600 8000
-refuses "lc-uart -q took zero milliseconds" "$WORK/lc-uart" -q 0
-refuses "lc-uart -q took a read over an hour" "$WORK/lc-uart" -q 3600001
-refuses "lc-uart -q took a negative number" "$WORK/lc-uart" -q -5
-refuses "lc-uart -q took a non-number" "$WORK/lc-uart" -q 10x
-refuses "lc-uart took -q after the time" "$WORK/lc-uart" 8000 -q
-refuses "lc-uart took another flag" "$WORK/lc-uart" -x 8000
-refuses "lc-uart took a mode word" "$WORK/lc-uart" quiet 8000
 
 if [ "$fail" = 0 ]; then
-  echo "board-wrappers: lc-flash takes only a build/ bitstream opened as the caller or -t, lc-uart only a bounded read, quiet or not; every other shape is refused."
+  echo "board-wrappers: lc-flash takes only a build/ bitstream opened as the caller or -t, lc-uart only a bounded read; every other shape is refused."
 fi
 exit "$fail"

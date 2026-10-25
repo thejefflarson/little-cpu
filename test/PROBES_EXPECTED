@@ -128,7 +128,6 @@ a UART summary line that skips the display filter is red
 a UART that ignores a host's select and drives pin 14 into the host is red
 a UART that returns the cycle the chip select reads high, with no synchroniser, is red
 a UART wrapper that accepts a second argument is red
-a UART wrapper whose -q never reaches ftread's quiet mode is red
 a UART wrapper with no upper bound is red
 a VCO outside the range the part locks over is red
 a backslash-continued sed -i is still a raw edit
@@ -152,8 +151,6 @@ a bench in test/ that make does not run is named
 a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
 a benchmark this artifact never recorded is refused, not read as fresh
 a binary granted without the root-owned check is red
-a bit width never refined against the long runs is red
-a bit width that counts the short runs of an aliased bus is red
 a bitstream the placer never finished writing is not a placement
 a block RAM read through its own reset is refused
 a block short of a tool is named, not summarised around
@@ -624,8 +621,6 @@ a push aimed at main instead of the refresh branch is red
 a push carrying no per-command credential helper is red
 a push landing only one word instead of two is red across every occupancy
 a push surviving a flush lets the overtaken request's reply land
-a quiet UART wrapper that accepts a second argument is red
-a quiet UART wrapper with no upper bound is red
 a ratio across two targets of one design is refused naming target
 a ratio requested across two designs is refused naming design
 a ratio that is not its two products' quotient is refused
@@ -639,9 +634,6 @@ a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
 a reason dropped from the decoder's own composition is red, and named
 a reboot that does not read the flash is red
-a receiver that delivers a frame with a low stop bit is red
-a receiver that never rechecks the start bit takes a glitch for a byte
-a receiver that truncates a fractional oversample is red
 a recipe file no input pattern claims is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a recipe running a script git records as 100644 is red, and located
@@ -1273,7 +1265,6 @@ control: the shipping pin-bump workflow keeps credentials off the upstream-code 
 control: the shipping publish script pushes one branch and opens one issue
 control: the shipping schedule workflow confines its credential to the publish step
 control: the shipping shape states the grammar once and stamps every figure
-control: the shipping soft receiver passes its own test
 control: the shipping tree has no fallback search outside its exceptions
 control: the shipping tree has no literal /tmp/ outside its exceptions
 control: the shipping tree keeps the retired term inside its allow-list

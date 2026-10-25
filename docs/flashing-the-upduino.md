@@ -62,11 +62,6 @@ and each refuses everything outside the shape the board targets use:
   the open changes nothing. iceprog is handed `/dev/fd/N` for that descriptor rather than a path, and
   runs with a scrubbed environment (`PATH` and `LC_ALL` only).
 - `lc-uart MILLISECONDS` reads the UART at 115200 baud for 1 to 3,600,000 ms. Nothing else is accepted.
-- `lc-uart -q MILLISECONDS` is the same read with every FT232H pin an input: bit-bang sampling at 20 times
-  the clock argument (about 1.17 million samples a second, 5 to 11% of them dropped), 8N1 decoded in
-  software from ADBUS1 (`soc/uart_soft_rx.h`, graded by `test/uart_soft_rx_test.c`), and on stderr each ADBUS
-  pin's high fraction. In UART mode the chip drives TXD, RTS# and DTR# (ADBUS0, 2 and 4); the flash-ID
-  read does not need the quiet mode, and about one line in five of a quiet read is damaged.
 
 So the rule no longer hands a process of yours root. What it still allows is writing any bitstream-sized
 file of yours that lives under a `build/` directory into the board's flash, and holding the USB

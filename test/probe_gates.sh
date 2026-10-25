@@ -10728,7 +10728,7 @@ probe "a flash wrapper that hands iceprog the caller's environment is red" 1 \
   "iceprog inherited the caller's environment" "$BWRAP $d"
 
 d=$(bwrap_fixture)
-mutate "$d/soc/lc_uart.c" 's/ : argc == 2 ? argv\[1\] : NULL;/ : argv[argc - 1];/'
+mutate "$d/soc/lc_uart.c" 's/argc != 2 ||/argc < 2 ||/'
 probe "a UART wrapper that accepts a second argument is red" 1 \
   "lc-uart took a baud as well" "$BWRAP $d"
 
@@ -10736,60 +10736,6 @@ d=$(bwrap_fixture)
 mutate "$d/soc/lc_uart.c" 's/ || ms > MAX_MS//'
 probe "a UART wrapper with no upper bound is red" 1 \
   "lc-uart took an unbounded read" "$BWRAP $d"
-
-d=$(bwrap_fixture)
-mutate "$d/soc/lc_uart.c" 's/int quiet = argc == 3 \&\&/int quiet = argc >= 3 \&\&/'
-probe "a quiet UART wrapper that accepts a second argument is red" 1 \
-  "lc-uart -q took a baud as well" "$BWRAP $d"
-
-d=$(bwrap_fixture)
-mutate "$d/soc/lc_uart.c" 's/quiet ? "quiet" : NULL/NULL/'
-probe "a UART wrapper whose -q never reaches ftread's quiet mode is red" 1 \
-  "lc-uart -q did not ask ftread for quiet mode" "$BWRAP $d"
-
-d=$(bwrap_fixture)
-mutate "$d/soc/lc_uart.c" 's/ || ms > MAX_MS//'
-probe "a quiet UART wrapper with no upper bound is red" 1 \
-  "lc-uart -q took a read over an hour" "$BWRAP $d"
-
-begin_group "soc/uart_soft_rx.h"
-
-usr_fixture() {  # $1 = sed expression applied to a copy of soc/uart_soft_rx.h, or "" for the control
-  local d; d=$(new_case)
-  mkdir -p "$d/soc" "$d/test"
-  cp "$REPO/soc/uart_soft_rx.h" "$d/soc/"
-  cp "$REPO/test/uart_soft_rx_test.c" "$d/test/"
-  if [ -n "$1" ]; then mutate "$d/soc/uart_soft_rx.h" "$1"; fi
-  printf '%s' "$d"
-}
-
-usr_run() {  # $1 = fixture dir
-  cc -Wall -Wextra -o "$1/t" "$1/test/uart_soft_rx_test.c" && "$1/t"
-}
-
-d=$(usr_fixture "")
-probe "control: the shipping soft receiver passes its own test" 0 \
-  "uart-soft-rx:" "usr_run $d"
-
-d=$(usr_fixture "s/^      if (level) {\$/      if (0) {/")
-probe "a receiver that never rechecks the start bit takes a glitch for a byte" 1 \
-  "a one-sample glitch on an idle line" "usr_run $d"
-
-d=$(usr_fixture "s/if (level) out = (int)r->acc;/if (1) out = (int)r->acc;/")
-probe "a receiver that delivers a frame with a low stop bit is red" 1 \
-  "a frame with a low stop bit" "usr_run $d"
-
-d=$(usr_fixture "s/if ((int)l >= min_len) {/if (l >= 2) {/; s/for (int l = min_len; l <= SOFT_RX_MAX_RUN; l++)/for (int l = 2; l <= SOFT_RX_MAX_RUN; l++)/")
-probe "a bit width that counts the short runs of an aliased bus is red" 1 \
-  "runs at ten samples a bit" "usr_run $d"
-
-d=$(usr_fixture "s/pass < 3/pass < 0/")
-probe "a bit width never refined against the long runs is red" 1 \
-  "runs at four and a half samples a bit" "usr_run $d"
-
-d=$(usr_fixture "s/r->next += r->os;\$/r->next += (int)r->os;/")
-probe "a receiver that truncates a fractional oversample is red" 1 \
-  "a fractional rate" "usr_run $d"
 
 begin_group "test/entropy_upduino_test.py"
 

@@ -418,8 +418,7 @@ low), which is the "FF EF 70 16" and the write errors this record opened with. W
 | controller reading pad 16 back | `000000`: with the controller granted, the pad reads low |
 | controller reading pad 17 back, sending `A5 5A 0F F0` | `A5 5A 0F F0`: pin 17 follows an FPGA drive |
 | controller reading pad 15 one cycle late | `00000000`: pin 15 follows an FPGA drive low |
-| host side, quiet read, ADBUS pins 0, 1, 2 and 4 | each shows lows only while the controller shifts, so the host sees pins 15, 14, 17 and 16 carry SCK, MOSI, the flash's output and the select |
-| pin 14 as MOSI, pin 17 as MISO, flash awake | `EF7016`, 314 of 319 undamaged lines |
+| pin 14 as MOSI, pin 17 as MISO, flash awake | `EF7016`; with the host's UART mode in the way as well, 46 of 72 undamaged lines and the rest the gap sweep's over-bound row |
 
 **The JEDEC read first returned `FFFFFF` because the flash was asleep, not because of the host.**
 `icepack` ends every bitstream with a deep-power-down command for the configuration flash unless it is
@@ -429,18 +428,10 @@ in UART mode its TXD and RTS# are outputs on the pins that carry SCK and the fla
 with pull-up off pin 17 returned high within one 83 ns cycle of the FPGA letting go, which something
 drives. A read through the ordinary UART path returns `EF7016` all the same (46 of 72 undamaged
 ID lines; the rest are the gap sweep's over-bound row), so that driver does not stop the flash
-winning the line, and `lc-uart -q` is not needed for the ID. What is still unmeasured is the current
+winning the line. Releasing every FT232H pin for the read, with a bit-bang host mode that was written and then dropped, was tried and was not needed: the deep-power-down command was the cause. What is still unmeasured is the current
 the FPGA draws pulling pin 15 low against the FT232H's TXD while the controller holds the select.
 `soc/flash_share_probe.c` prints the ID: `make bitstream SOC_PROG=soc/flash_share_probe.c
 BOARD_OSC=internal`, then flash it.
-
-**Quiet read, kept as an option.** `lc-uart -q MILLISECONDS` samples the FT232H in bit-bang mode with
-every pin an input and decodes 8N1 from ADBUS1 in software. The chip's sample rate is 20 times the
-clock it is given (1,166,000 samples/s at 57600, bit width 10.1 samples), not 16, and 5 to 11% of
-the samples are dropped; so the decoder takes the bit width from the line's own run lengths
-(`soc/uart_soft_rx.h`, graded by `test/uart_soft_rx_test.c`) and a read is damaged in about a line in
-five. The probe's flash lines read `EF7016` in 314 of 319 undamaged lines, one `EF701D`, and four
-gap-sweep lines over the bound.
 
 **The protocol, and what each part is for.**
 
