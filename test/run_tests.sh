@@ -191,8 +191,8 @@ for src in "${programs[@]}"; do
   fi
 
   if [ "$status" = "PASS" ] \
-     && { ! printf '%s' "$retires" | grep -qE '^[0-9]{1,10}$' \
-          || ! printf '%s' "$spec_retires" | grep -qE '^[0-9]{1,10}$'; }; then
+     && { ! grep -qE '^[0-9]{1,10}$' <<< "$retires" \
+          || ! grep -qE '^[0-9]{1,10}$' <<< "$spec_retires"; }; then
     status="NO-COUNTS"
   fi
 

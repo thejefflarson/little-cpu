@@ -48,7 +48,7 @@ expect_red() {  # $1 = stem, $2 = what the mutant does, $3 = the failure it must
     exit 1
   fi
   if ! grep -q "^FAIL .*$3" <<< "$out"; then
-    echo "$out" | head -5
+    sed -n 1,5p <<< "$out"
     echo "*** the $2 mutant was refused, but not by the check for '$3'." >&2
     exit 1
   fi

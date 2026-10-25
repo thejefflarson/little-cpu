@@ -187,7 +187,7 @@ chmod 755 "$WORK/a"
 printed=$(check_root_binary "$WORK/alias/b/tool" "$me" 2>/dev/null) || printed=""
 [ "$printed" = "$(cd -P "$WORK/a/b" && pwd -P)/tool" ] \
   || { echo "FAIL: the checked path printed is '$printed', not the resolved one a caller must run" >&2; fail=1; }
-resolve_path "$WORK/a/b" | grep -qxF "$(cd -P "$WORK/a/b" && pwd -P)" || { echo "FAIL: resolve_path" >&2; fail=1; }
+grep -qxF "$(cd -P "$WORK/a/b" && pwd -P)" <<< "$(resolve_path "$WORK/a/b")" || { echo "FAIL: resolve_path" >&2; fail=1; }
 grep -qF 'ICEPROG_BIN=$("$ROOT/soc/check_root_binary.sh" "$ICEPROG_BIN")' "$SUITE" \
   && grep -qF 'FTREAD=$("$ROOT/soc/check_root_binary.sh" "$FTREAD")' "$SUITE" \
   || { echo "FAIL: $SUITE runs a path other than the one check_root_binary.sh resolved" >&2; fail=1; }

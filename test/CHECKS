@@ -51,6 +51,7 @@ retired-term-test | fast | - | - | @all test/retired_term_test.sh docs/ CLAUDE.m
 port-connect-test | fast | - | - | @all test/port_connect_test.py rtl/ soc/compare/ test/ formal/
 march-test | fast | - | - | @all test/march_test.sh CLAUDE.md docs/ Makefile nano/tb.mk soc/ formal/ test/
 tmp-path-test | fast | - | - | @all test/tmp_path_test.sh Makefile mk/ test/probe_gates.sh
+early-exit-pipe-test | fast | - | - | @all test/early_exit_pipe_test.sh
 exec-mode-test | fast | - | - | @all test/exec_mode_test.py Makefile
 band-source-test | fast | - | - | @all test/band_source_test.py CLAUDE.md soc/ docs/ test/
 figure-stamp-test | fast | - | - | @all test/figure_stamp_test.py nano/ docs/ README test/

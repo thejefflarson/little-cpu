@@ -846,6 +846,14 @@ Baselines and grading:
 - **Never put a graded command in a pipeline in a CI `run:` block**: the default shell is errexit
   without pipefail, so the step's status becomes `tee`'s. This held the formal CI job accidentally
   green for its entire life.
+- **Never read a pipe with a reader that quits early (`grep -q`, `head`) in a bash script**: under
+  `set -o pipefail`, when the reader exits before the writer's last write, the writer dies of
+  SIGPIPE and the pipeline reports 141 for a match that was there. On a starved CPU (eight workers
+  on one) `printf … | grep -q` misses about once per 700 pipelines, which failed
+  `test/board_verdict_test.sh` (it runs hundreds) in 1 run of 10 and
+  `soc/compare/geometry_test.sh` in 1 of 200. Read a here-string (`grep -q PAT <<< "$text"`).
+  `test/early_exit_pipe_test.sh` refuses the shape in every tracked bash script; `#!/bin/sh`
+  scripts and Makefile recipes run without pipefail and are out of scope.
 
 ## Commands
 

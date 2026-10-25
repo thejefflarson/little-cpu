@@ -140,7 +140,7 @@ build_and_run() {  # $1 = src, $2 = base name for this attempt's tmp files
     retires=$(awk '/^RETIRES /{print $2; exit}' "$tmp/$base.run.log")
   fi
 
-  if [ "$status" = "PASS" ] && ! printf '%s' "$retires" | grep -qE '^[0-9]{1,10}$'; then
+  if [ "$status" = "PASS" ] && ! grep -qE '^[0-9]{1,10}$' <<< "$retires"; then
     status="NO-COUNTS"
   fi
 

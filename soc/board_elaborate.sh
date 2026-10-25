@@ -29,7 +29,7 @@ show_diagnostics() {  # $1 = log path
   local log=$1 matches
   matches=$(grep -E '(ERROR|Warning):' "$log")
   if [ -n "$matches" ]; then
-    echo "$matches" | head -5 | sed 's/^/       /'
+    sed -n '1,5s/^/       /p' <<< "$matches"
   else
     echo "       (no ERROR:/Warning: line matched -- last 10 lines of the log:)"
     tail -10 "$log" | sed 's/^/       /'

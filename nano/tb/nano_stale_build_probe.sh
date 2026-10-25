@@ -109,7 +109,7 @@ else
   echo "FAIL: the rule scan failed on a large database whose first line matches" >&2
   failed=1
 fi
-if { printf '%s\n' "$big" | grep -q '^nano-sim:'; } 2>/dev/null; then
+if { printf '%s\n' "$big" | grep -q '^nano-sim:'; } 2>/dev/null; then # early-exit-pipe: intended
   echo "FAIL: the pipe shape no longer fails a large database, so the scan above cannot fail" >&2
   failed=1
 else
