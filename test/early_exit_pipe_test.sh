@@ -1,14 +1,7 @@
 #!/bin/bash
-# Refuses, in a tracked bash script, a pipeline whose reader quits at the first match: `grep -q`
-# or `head` fed by a shell builtin or another pipeline. Under `set -o pipefail` the writer is
-# killed by SIGPIPE whenever the reader exits before the writer's last write, and the pipeline
-# then reports 141 for a match that was there. On a starved CPU that happens about once in a
-# thousand pipelines, which is often enough to fail a script that runs hundreds of them.
-# A here-string (`grep -q PATTERN <<< "$text"`) has no writer to kill.
-#
-# #!/bin/sh scripts and Makefile recipes run without pipefail, where the status is the
-# reader's alone, so they are not scanned. A line may keep the shape with a trailing
-# "early-exit-pipe: intended" when the shape is the thing under test.
+# Refuses `grep -q` or `head` reading a pipe in a pipefail bash script: an early exit SIGPIPEs the
+# writer and the pipeline returns 141 for a match that was there. #!/bin/sh and Makefile recipes have
+# no pipefail and are not scanned; a trailing "early-exit-pipe: intended" exempts a line under test.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
