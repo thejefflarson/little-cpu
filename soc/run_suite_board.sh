@@ -1,6 +1,6 @@
 #!/bin/bash
-# Runs the .S suite on the FPGA, in batches, and grades the verdicts. Runs as the user:
-# only iceprog and ftread need root, and ICEPROG_SUDO (the Makefile's) prefixes them.
+# Runs the .S suite on the FPGA, in batches, and grades the verdicts. Runs as the user; only flashing and the UART read need root,
+# via ICEPROG_SUDO (the Makefile's) and, under it, the lc-flash and lc-uart wrappers that --iceprog and --ftread name.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -33,6 +33,8 @@ rm -f build/.drv.$$.o
 : "${DRIVER_BYTES:=512}"
 BUDGET=${BUDGET:-$(( 8192 - DRIVER_BYTES - 600 ))}
 READ_MS=${READ_MS:-8000}
+UART_ARGS=(115200 "$READ_MS")
+[ -z "$ICEPROG_SUDO" ] || UART_ARGS=("$READ_MS")
 : "${ICEPROG_BIN:=$(command -v iceprog)}"
 : "${FTREAD:=$ROOT/build/ftread}"
 OUT=$(mktemp -d "${TMPDIR:-/tmp}/suiteboard.XXXXXX")
@@ -137,7 +139,7 @@ while read -r progs; do
   t0=$SECONDS
   want=$(printf '%s' "$progs" | wc -w | tr -d ' ')
   for attempt in 1 2 3; do
-    raw=$($ICEPROG_SUDO "$FTREAD" 115200 "$READ_MS" 2>"$OUT/read.err")
+    raw=$($ICEPROG_SUDO "$FTREAD" "${UART_ARGS[@]}" 2>"$OUT/read.err")
     printf '%s' "$raw" > "$RAWDIR/batch$i.attempt$attempt.txt"
     nbytes=$(sed -E 's/.*bytes=([0-9]+).*/\1/' < "$OUT/read.err" | tr -d '\n' | display_safe)
     block=$(printf '%s' "$raw" | awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{print a[n-1]}')

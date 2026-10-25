@@ -10606,6 +10606,66 @@ mutate "$d/soc/install_board_sudoers.sh" 's/^printf .%s\\n. "$RULE" | "$SUDO" te
 probe "a rule staged in a user-writable file before the install is red" 1 \
   "swapped the rule between" "$BSUDO $d"
 
+begin_group "test/board_wrappers_test.sh"
+
+BWRAP="$HERE/board_wrappers_test.sh"
+
+bwrap_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc"
+  cp "$REPO/soc/lc_flash.c" "$REPO/soc/lc_uart.c" "$d/soc/"
+  printf '%s' "$d"
+}
+
+d=$(bwrap_fixture)
+probe "control: the board wrappers agree with their stubs" 0 \
+  "board-wrappers:" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" '/^  if (reboot ? i != argc : i + 1 != argc) die/d' 's/open_as_user(argv\[i\]/open_as_user(argv[argc - 1]/'
+probe "a flash wrapper that lets iceprog's -r through is red" 1 \
+  "-r was accepted: iceprog -r writes its argument as root" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/if (!under_build(real)) die/if (!under_build(real) \&\& 0) die/'
+probe "a flash wrapper that opens a path outside build/ is red" 1 \
+  "a path outside build/ was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/if (!under_build(real))/if (!under_build(path))/'
+probe "a flash wrapper that judges the name given and not the file opened is red" 1 \
+  "a symlink in build/ that escapes it was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/^  int fd = open(path, O_RDONLY | O_NOCTTY);$/  (void)chmod(path, 0600);\n  int fd = open(path, O_RDONLY | O_NOCTTY);/'
+probe "a flash wrapper that opens a file its caller cannot read is red" 1 \
+  "a file the caller cannot read was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" '/^  if (!S_ISREG(st.st_mode)) die/d'
+probe "a flash wrapper that opens a directory is red" 1 \
+  "a directory under build/ was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/!device_ok(argv\[i + 1\])/!(device_ok(argv[i + 1]) || 1)/'
+probe "a flash wrapper that passes any -d value to iceprog is red" 1 \
+  "a -d value with a path in it was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/^  static char \*envp\[\] = .*$/  extern char **environ;\n  char **envp = environ;/'
+probe "a flash wrapper that hands iceprog the caller's environment is red" 1 \
+  "iceprog inherited the caller's environment" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_uart.c" 's/argc != 2 ||/argc < 2 ||/'
+probe "a UART wrapper that accepts a second argument is red" 1 \
+  "lc-uart took a baud as well" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_uart.c" 's/ || ms > MAX_MS//'
+probe "a UART wrapper with no upper bound is red" 1 \
+  "lc-uart took an unbounded read" "$BWRAP $d"
+
 begin_group "test/entropy_upduino_test.py"
 
 EUP="python3 $HERE/entropy_upduino_test.py"
@@ -10639,7 +10699,7 @@ probe "a periodicity scan that reads drift as a repeating pattern is red" 1 \
   "a bias that drifts slowly is not a repeating pattern" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
 
 d=$(eup_fixture)
-mutate "$d/soc/entropy_upduino.py" 's/sudo(\[iceprog, bit\], LOAD_S)/sudo([iceprog, "-S", bit], LOAD_S)/'
+mutate "$d/soc/entropy_upduino.py" 's/sudo(\[flash, bit\], LOAD_S)/sudo([flash, "-S", bit], LOAD_S)/'
 probe "a load into SRAM, which leaves this board unconfigured, is red" 1 \
   "the load writes the flash" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
 
@@ -10649,7 +10709,7 @@ probe "a flash write taken as loaded without VERIFY OK is red" 1 \
   "a flash write that never says VERIFY OK is not a load" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
 
 d=$(eup_fixture)
-mutate "$d/soc/entropy_upduino.py" 's/sudo(\[iceprog, "-t"\], 60)/sudo([iceprog, "-S"], 60)/'
+mutate "$d/soc/entropy_upduino.py" 's/sudo(\[flash, "-t"\], 60)/sudo([flash, "-S"], 60)/'
 probe "a reboot that does not read the flash is red" 1 \
   "a reboot is a status-zero iceprog -t" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
 

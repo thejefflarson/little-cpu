@@ -1,9 +1,13 @@
 #!/bin/bash
-# Installs iceprog and ftread root-owned under DEST/bin, iceprog's @executable_path/../lib dylibs under DEST/lib and ftread's
+# Installs iceprog and ftread root-owned under DEST/bin with the two wrappers the passwordless rule names (lc-flash and lc-uart,
+# compiled here against DEST/bin's copies), iceprog's @executable_path/../lib dylibs under DEST/lib and ftread's
 # own under DEST/lib/ftread, repointed; each is copied to one stage, checked there, and `sudo install`ed only from it.
 set -euo pipefail
 . "$(dirname "$0")/board_verdict.sh"
 DEST=${1:?usage: $0 DEST GROUP FTREAD}; GROUP=${2:?}; FTREAD=${3:?}
+SOC=$(cd "$(dirname "$0")" && pwd)
+case $DEST in /*) ;; *) echo "error: DEST '$DEST' is not an absolute path" >&2; exit 1;; esac
+case $DEST in *[!A-Za-z0-9/._-]*) echo "error: DEST '$DEST' holds a character that cannot be compiled into a wrapper" >&2; exit 1;; esac
 
 ICEPROG=$(command -v iceprog) || { echo "error: iceprog is not on PATH" >&2; exit 1; }
 # The OSS CAD Suite's bin/iceprog is a bash wrapper around libexec/iceprog.
@@ -14,7 +18,9 @@ trap 'rm -rf "$STAGE"' EXIT
 mkdir "$STAGE/bin" "$STAGE/lib" "$STAGE/lib/ftread"
 cp "$ICEPROG" "$STAGE/bin/iceprog"; cp "$FTREAD" "$STAGE/bin/ftread"
 chmod 755 "$STAGE/bin/iceprog" "$STAGE/bin/ftread"
-for b in "$STAGE/bin/iceprog" "$STAGE/bin/ftread"; do
+cc -O2 -Wall -Werror -D_FORTIFY_SOURCE=2 -DREAL_ICEPROG="\"$DEST/bin/iceprog\"" -o "$STAGE/bin/lc-flash" "$SOC/lc_flash.c"
+cc -O2 -Wall -Werror -D_FORTIFY_SOURCE=2 -DREAL_FTREAD="\"$DEST/bin/ftread\"" -o "$STAGE/bin/lc-uart" "$SOC/lc_uart.c"
+for b in "$STAGE/bin/iceprog" "$STAGE/bin/ftread" "$STAGE/bin/lc-flash" "$STAGE/bin/lc-uart"; do
   case $(native_magic "$b") in
     7f454c46|cffaedfe|cefaedfe|feedfacf|feedface|cafebabe) ;;
     *) echo "error: $b is not a Mach-O or ELF executable" >&2; exit 1;;
@@ -66,6 +72,8 @@ fi
 sudo install -d -o root -g "$GROUP" -m 755 "$DEST" "$DEST/bin" "$DEST/lib"
 sudo install -o root -g "$GROUP" -m 755 "$STAGE/bin/iceprog" "$DEST/bin/iceprog"
 sudo install -o root -g "$GROUP" -m 755 "$STAGE/bin/ftread" "$DEST/bin/ftread"
+sudo install -o root -g "$GROUP" -m 755 "$STAGE/bin/lc-flash" "$DEST/bin/lc-flash"
+sudo install -o root -g "$GROUP" -m 755 "$STAGE/bin/lc-uart" "$DEST/bin/lc-uart"
 [ "${#FTLIBS[@]}" -eq 0 ] || sudo install -d -o root -g "$GROUP" -m 755 "$DEST/lib/ftread"
 for name in ${FTLIBS[@]+"${FTLIBS[@]}"}; do
   sudo install -o root -g "$GROUP" -m 755 "$STAGE/lib/ftread/$name" "$DEST/lib/ftread/$name"
@@ -73,6 +81,6 @@ done
 for name in ${libs[@]+"${libs[@]}"}; do
   sudo install -o root -g "$GROUP" -m 755 "$STAGE/lib/$name" "$DEST/lib/$name"
 done
-for f in "$DEST/bin/iceprog" "$DEST/bin/ftread" ${libs[@]+"${libs[@]/#/$DEST/lib/}"}; do check_root_binary "$f" >/dev/null; done
+for f in "$DEST/bin/iceprog" "$DEST/bin/ftread" "$DEST/bin/lc-flash" "$DEST/bin/lc-uart" ${libs[@]+"${libs[@]/#/$DEST/lib/}"}; do check_root_binary "$f" >/dev/null; done
 n=$(( ${#libs[@]} + ${#FTLIBS[@]} ))
-echo "installed iceprog, ftread and $n bundled librar$( [ "$n" = 1 ] && echo y || echo ies), root-owned, in $DEST"
+echo "installed iceprog, ftread, lc-flash, lc-uart and $n bundled librar$( [ "$n" = 1 ] && echo y || echo ies), root-owned, in $DEST"
