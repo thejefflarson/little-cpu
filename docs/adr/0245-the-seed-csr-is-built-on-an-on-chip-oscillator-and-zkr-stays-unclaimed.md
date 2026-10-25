@@ -349,3 +349,37 @@ shipping top (`make icesugar-bitstream`) places and its core domain closes.
 not run: `soc/seed_probe.S` reaching ES16 on `upduino_top`, and `make entropy-nist-upduino` at its new
 default divide of 3 on the shipped clock, are owed. The 0.7045 figures above are the core-less capture
 top's, whose divider is the same three flops on the same oscillator.
+
+## Amendment: the shipped UPduino source measured on the board (2026-10-23)
+
+Both steps the amendment above owed are taken, on `main` at bad32f00, the same toolchain, one UPduino v3.0
+on the internal `SB_HFOSC` clock (the crystal jumper is still open).
+
+**The shipping top reaches ES16.** `upduino_top` built with `BOARD_OSC=internal` and `soc/seed_probe.S`
+in its ROM, flashed and read for 15 s, printed 35 sixteen-bit words, all different, with the status
+alternating WAIT and ES16 as the reads outran the source and never DEAD. DEAD is sticky, so an ES16 after
+the read began also rules it out for the part of the boot the read missed. The first ES16 read came at
+`mcycle` 14,674,896, 1.22 s after configuration at 12 MHz, and words arrived about every 4.98 million
+cycles (0.41 s).
+
+**`make entropy-nist-upduino` passes.** The run measures the core-less capture top at the shipped
+divide of 2^3 (bitstream sha256 4af4b8ef…f21a). 1,000,000 consecutive samples were taken in 922 s from
+17,503 frames, with six seams where the reader lost a frame, and ones are 0.4988 of them.
+
+| | estimate (bit per sample) |
+|---|---|
+| `ea_non_iid` H_original (the collision test, lowest of ten) | 0.742 |
+| `ea_restart` H_r (1,000 restarts x 1,000 samples) | 0.735 |
+| `ea_restart` H_c | 0.842 |
+| min | **0.735**, against the 0.5 the health tests' cutoffs assume |
+
+This is a second draw at this setting. The first, on 2026-10-18, read 0.7045 and a restart min of 0.7045,
+so both clear 0.5 with about 0.2 bit of margin. A restart row whose frames did not begin at sequence 0 or
+skipped one was discarded and re-taken, never kept. The matrix was filled in two sittings: the board
+left USB after row 218, and `ENTROPY_NIST_RESUME` kept the 218 rows already written.
+
+**The loader, not the source, made the run slow.** Three of four flashes of a board already running a
+streaming design hung in `iceprog` until the loader's 600 s per-attempt timeout, and the retry then
+succeeded. That outlasted the capture step's 1,500 s budget twice, so the capture above was run on its
+own and the assessment resumed from it. The source measurement is unaffected; the budget and the hang
+are tooling defects to fix separately.
