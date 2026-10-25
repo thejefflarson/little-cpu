@@ -149,6 +149,8 @@ a bench in test/ that make does not run is named
 a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
 a benchmark this artifact never recorded is refused, not read as fresh
 a binary granted without the root-owned check is red
+a bit width never refined against the long runs is red
+a bit width that counts the short runs of an aliased bus is red
 a bitstream the placer never finished writing is not a placement
 a block RAM read through its own reset is refused
 a block short of a tool is named, not summarised around

@@ -8,8 +8,10 @@
 #include "uart_soft_rx.h"
 
 // Quiet mode (docs/flashing-the-upduino.md): every ADBUS pin an input, UART decoded in software from ADBUS1.
+// The chip's sample rate is not what the baud argument says and samples can be dropped, so the bit width
+// is taken from the line's own run lengths and the line is rebuilt at four samples to the bit.
 #define TX_BIT 0x02
-static const int clock_bauds[] = {57600, 28800, 14400};
+#define MAX_RUNS (16L << 20)
 
 static double now_ms(void) {
   struct timeval t;
@@ -17,10 +19,11 @@ static double now_ms(void) {
   return t.tv_sec * 1000.0 + t.tv_usec / 1000.0;
 }
 
+// Samples per second delivered over `ms`, not counting the first read, which holds the chip's backlog.
 static double sample_for(struct ftdi_context *f, int ms, void (*sink)(unsigned char)) {
   static unsigned char buf[65536], zeros[1024];
   double start = now_ms(), first = 0, last = 0;
-  long n = 0;
+  long n = 0, after = 0;
   int feed = 0;
   while (now_ms() - start < ms) {
     int got = ftdi_read_data(f, buf, sizeof buf);
@@ -31,16 +34,31 @@ static double sample_for(struct ftdi_context *f, int ms, void (*sink)(unsigned c
       usleep(200);
       continue;
     }
-    if (!n) first = now_ms();
     for (int i = 0; i < got; i++) sink(buf[i]);
-    n += got;
     last = now_ms();
+    if (!n) first = last; else after += got;
+    n += got;
   }
-  return last > first ? n * 1000.0 / (last - first) : 0;
+  return last > first ? after * 1000.0 / (last - first) : 0;
 }
 
-static soft_rx rx;
-static long high[8], total_samples, bytes, printable, digits, eol;
+static unsigned *runs;
+static long run_count, total_samples, bytes, printable, digits, eol, high[8];
+static int run_level = -1, first_level;
+static unsigned run_len;
+
+static void drop_sample(unsigned char s) { (void)s; }
+
+static void store_sample(unsigned char s) {
+  int level = (s & TX_BIT) != 0;
+  total_samples++;
+  for (int b = 0; b < 8; b++) high[b] += (s >> b) & 1;
+  if (level == run_level) { run_len++; return; }
+  if (run_level >= 0 && run_count < MAX_RUNS) runs[run_count++] = run_len;
+  if (run_level < 0) first_level = level;
+  run_level = level;
+  run_len = 1;
+}
 
 static void emit(unsigned char c) {
   bytes++;
@@ -50,38 +68,30 @@ static void emit(unsigned char c) {
   if (c >= '0' && c <= '9') digits++;
 }
 
-static void decode_sample(unsigned char s) {
-  total_samples++;
-  for (int b = 0; b < 8; b++) high[b] += (s >> b) & 1;
-  int c = soft_rx_feed(&rx, s & TX_BIT);
-  if (c >= 0) emit((unsigned char)c);
-}
-
-static void drop_sample(unsigned char s) { (void)s; }
-
 static int read_quiet(struct ftdi_context *f, int baud, int ms) {
   ftdi_set_bitmode(f, 0x00, BITMODE_BITBANG);
   ftdi_set_latency_timer(f, 1);
   ftdi_read_data_set_chunksize(f, 65536);
-  int chosen = 0;
-  double rate = 0;
-  for (unsigned i = 0; i < sizeof clock_bauds / sizeof clock_bauds[0]; i++) {
-    ftdi_set_baudrate(f, clock_bauds[i]);
-    ftdi_tcioflush(f);
-    rate = sample_for(f, 400, drop_sample);
-    chosen = clock_bauds[i];
-    if (rate > 0.97 * 16.0 * clock_bauds[i]) break;
-  }
-  if (rate <= 0) {
-    fprintf(stderr, "quiet: the FT232H returned no samples\n");
-    return 1;
-  }
-  soft_rx_init(&rx, rate / baud);
+  ftdi_set_baudrate(f, 28800);
   ftdi_tcioflush(f);
-  double got = sample_for(f, ms, decode_sample);
+  double slow = sample_for(f, 400, drop_sample);
+  ftdi_set_baudrate(f, 57600);
+  ftdi_tcioflush(f);
+  double fast = sample_for(f, 400, drop_sample);
+  int clock = slow > 0 && fast >= 1.9 * slow ? 57600 : 28800;
+  ftdi_set_baudrate(f, clock);
+  ftdi_tcioflush(f);
+  runs = malloc(sizeof *runs * MAX_RUNS);
+  if (!runs) return 2;
+  double got = sample_for(f, ms, store_sample);
+  if (run_level >= 0 && run_count < MAX_RUNS) runs[run_count++] = run_len;
+  double width = soft_rx_bit_width(runs, run_count, (int)(0.75 * 15 * clock / baud));
+  soft_rx rx;
+  soft_rx_init(&rx, 4);
+  if (width > 0) soft_rx_decode_runs(&rx, runs, run_count, first_level, width, emit);
   fflush(stdout);
-  fprintf(stderr, "\n[quiet %d baud] clock=%d nominal=%.0f/s measured=%.0f/s oversample=%.2f samples=%ld framing=%ld glitches=%ld\n",
-          baud, chosen, 16.0 * chosen, got, rate / baud, total_samples, rx.framing, rx.glitches);
+  fprintf(stderr, "\n[quiet %d baud] trial 28800=%.0f/s 57600=%.0f/s clock=%d delivered=%.0f/s bit=%.2f samples rate=%.0f/s samples=%ld runs=%ld framing=%ld glitches=%ld\n",
+          baud, slow, fast, clock, got, width, width * baud, total_samples, run_count, rx.framing, rx.glitches);
   fprintf(stderr, "[quiet] adbus high %%:");
   for (int b = 0; b < 8; b++) fprintf(stderr, " %d=%.1f", b, total_samples ? 100.0 * high[b] / total_samples : 0.0);
   fprintf(stderr, "\n[baud %d] bytes=%ld printable=%ld digits=%ld eol=%ld\n", baud, bytes, printable, digits, eol);

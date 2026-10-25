@@ -10759,6 +10759,14 @@ d=$(usr_fixture "s/if (level) out = (int)r->acc;/if (1) out = (int)r->acc;/")
 probe "a receiver that delivers a frame with a low stop bit is red" 1 \
   "a frame with a low stop bit" "usr_run $d"
 
+d=$(usr_fixture "s/if ((int)l >= min_len) {/if (l >= 2) {/; s/for (int l = min_len; l <= SOFT_RX_MAX_RUN; l++)/for (int l = 2; l <= SOFT_RX_MAX_RUN; l++)/")
+probe "a bit width that counts the short runs of an aliased bus is red" 1 \
+  "runs at ten samples a bit" "usr_run $d"
+
+d=$(usr_fixture "s/pass < 3/pass < 0/")
+probe "a bit width never refined against the long runs is red" 1 \
+  "runs at four and a half samples a bit" "usr_run $d"
+
 d=$(usr_fixture "s/r->next += r->os;\$/r->next += (int)r->os;/")
 probe "a receiver that truncates a fractional oversample is red" 1 \
   "a fractional rate" "usr_run $d"

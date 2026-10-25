@@ -48,7 +48,48 @@ static void expect_text(const char *what, double line_os, double rx_os, int idle
   }
 }
 
+static unsigned char run_text[64];
+static int run_got;
+static void keep(unsigned char c) { run_text[run_got++] = c; }
+
+// The text as a line at `os` samples to the bit, behind a burst of two-sample runs the way a 6 MHz bus
+// sampled at a tenth of that looks, stored as runs and decoded without being told the rate.
+static void expect_runs(const char *what, double os, int min_len) {
+  static unsigned char line[20000];
+  static unsigned runs[4000];
+  static const unsigned char text[] = {'o', 'k', 0x00, 0xff, '\n', 'F', 'S', ' ', 'B'};
+  int n = (int)sizeof text, len = 0;
+  for (int k = 0; k < 60; k++) line[len++] = (unsigned char)((k / 2) & 1);
+  for (int k = 0; k < 30; k++) line[len++] = 1;
+  for (int i = 0; i < n; i++) {
+    len = frame(line, len, text[i], os, 1);
+    for (int k = 0; k < 7; k++) line[len++] = 1;
+  }
+  for (int k = 0; k < 30; k++) line[len++] = 1;
+  long count = 0;
+  for (int i = 0; i < len;) {
+    int j = i;
+    while (j < len && line[j] == line[i]) j++;
+    runs[count++] = (unsigned)(j - i);
+    i = j;
+  }
+  double width = soft_rx_bit_width(runs, count, min_len);
+  soft_rx r;
+  soft_rx_init(&r, 4);
+  run_got = 0;
+  soft_rx_decode_runs(&r, runs, count, line[0], width, keep);
+  if (width < os - 0.6 || width > os + 0.6 || run_got < n || memcmp(run_text + run_got - n, text, (size_t)n)) {
+    char msg[200];
+    snprintf(msg, sizeof msg, "%s: bit width %.2f for %.2f, tail decoded %d bytes", what, width, os, run_got);
+    bad(msg);
+  }
+}
+
 int main(void) {
+  expect_runs("runs at ten samples a bit", 10.0, 6);
+  expect_runs("runs at four and a half samples a bit", 4.5, 3);
+  expect_runs("runs at eleven samples a bit", 11.04, 6);
+
   expect_text("eight samples a bit, frames back to back", 8, 8, 0);
   expect_text("eight samples a bit, idle between frames", 8, 8, 5);
   expect_text("a fractional rate", 7.6, 7.6, 3);
