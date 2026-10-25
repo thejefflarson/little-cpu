@@ -76,6 +76,11 @@ def check(root):
            lines == ["1.5000\tx", "1.5000\tT"] and tail == 5)
 
     expect("a command that outlives its limit exits 124", bd.run(0.3, ["sleep", "30"]) == 124)
+    with tempfile.TemporaryDirectory() as scratch:
+        marker = os.path.join(scratch, "term")
+        stubborn = 'trap "touch %s" TERM; while :; do sleep 0.05; done' % marker
+        expect("a command that ignores its limit is sent SIGTERM first and then killed",
+               bd.run(0.3, ["sh", "-c", stubborn], grace=0.5) == 124 and os.path.exists(marker))
     expect("a command inside its limit keeps its own status", bd.run(5, ["sh", "-c", "exit 3"]) == 3)
 
     period = cg.PERIOD

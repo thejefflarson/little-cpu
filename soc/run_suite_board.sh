@@ -6,6 +6,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 . "$ROOT/soc/board_verdict.sh"
 ICEPROG_SUDO=${ICEPROG_SUDO-}
+BOUNDED="python3 $ROOT/soc/bounded.py"
 # Root-run binaries come from the command line, never the environment; under sudo they are required and checked.
 ICEPROG_BIN=""; FTREAD=""
 while [ $# -gt 0 ]; do
@@ -124,8 +125,9 @@ while read -r progs; do
   flashed=""
   for attempt in 1 2 3 4; do
     echo "   flashing (iceprog, attempt $attempt):"
-    if $ICEPROG_SUDO "$ICEPROG_BIN" build/board.bin 2>&1 | tee "$OUT/flash.log" | display_safe | sed 's/^/      | /' \
-       && grep -q 'VERIFY OK' "$OUT/flash.log"; then
+    flash_bitstream "$ICEPROG_BIN" build/board.bin "$OUT/flash.log"; rc=$?
+    display_safe < "$OUT/flash.log" | sed 's/^/      | /'
+    if [ "$rc" = 0 ]; then
       flashed=yes; break
     fi
     if grep -q 'unexpected rx byte\|Write error' "$OUT/flash.log"; then

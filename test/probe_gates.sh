@@ -4544,6 +4544,26 @@ probe "a UART summary line that skips the display filter is red" 1 \
   "UART text reaches the terminal unfiltered" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" '/ -t > "\$log.prime"/d'
+probe "a flash write that skips the -t drain before it is red" 1 \
+  "did not run -t before the write" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/> "\$log" 2>&1 || return 1/> "$log" 2>\&1/'
+probe "a flash write that hangs and still counts as flashed is red" 1 \
+  "a write that hangs after VERIFY OK) returned" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/\$BOUNDED "\${PRIME_S:-30}" //'
+probe "a -t drain with no time limit is red" 1 \
+  "waited out a hung -t" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
+mutate "$d/run_suite_board.sh" 's/flash_bitstream "\$ICEPROG_BIN"/flash_other "$ICEPROG_BIN"/'
+probe "a suite runner that flashes without the drain and time limits is red" 1 \
+  "flashes without flash_bitstream" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/8#022/8#000/'
 probe "a root-binary check that ignores group and world write is red" 1 \
   "writable file: got accept" "$BV $d/board_verdict.sh"
@@ -10810,6 +10830,11 @@ d=$(btools_fixture)
 mutate "$d/soc/run_suite_icesugar.sh" 's|python3 soc/bounded.py "\$LOAD_S" ||'
 probe "the suite runner running the loader with no time limit is red" 1 \
   "run_suite_icesugar.sh runs the loader only under soc/bounded.py" "$BTOOLS $d"
+
+d=$(btools_fixture)
+mutate "$d/soc/bounded.py" 's/os.killpg(proc.pid, signal.SIGTERM)/os.killpg(proc.pid, signal.SIGKILL)/'
+probe "a loader stopped with SIGKILL alone, orphaning a root child behind sudo, is red" 1 \
+  "is sent SIGTERM first" "$BTOOLS $d"
 
 d=$(btools_fixture)
 mutate "$d/soc/clock_grade.py" 's/ok = abs(error) <= tol_ppm/ok = True/'
