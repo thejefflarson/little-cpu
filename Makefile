@@ -1629,7 +1629,7 @@ prog: $(BUILD)/board.bin
 	@bin='$(BOARD_FLASH)'; \
 	$(if $(ICEPROG_SUDO),bin=$$(./soc/check_root_binary.sh "$$bin") || exit 1;) \
 	echo "$(ICEPROG_SUDO) $$bin"; \
-	$(ICEPROG_SUDO) "$$bin" $(if $(ICEPROG_DEV),-d '$(ICEPROG_DEV)') $(BUILD)/board.bin
+	ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/flash_board.sh "$$bin" $(BUILD)/board.bin '$(ICEPROG_DEV)'
 
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
 

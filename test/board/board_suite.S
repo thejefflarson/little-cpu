@@ -20,6 +20,7 @@ _board_start:
   j     run_next
 
 // BEFORE EVERY PROGRAM, NOT ONCE PER BATCH, and hardware is what taught this.
+  .globl init_memory
 init_memory:
   la    t0, __data_load
   la    t1, __data_start

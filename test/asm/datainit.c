@@ -15,9 +15,16 @@ unsigned initialised[TABLE_WORDS] = {
 
 unsigned uninitialised[TABLE_WORDS];
 
+#ifdef BOARD_SUITE
+__attribute__((noreturn)) void board_report(unsigned word);
+#endif
+
 __attribute__((noreturn)) static void finish(unsigned tohost_word) {
   tohost[1] = 0;
   tohost[0] = tohost_word;
+#ifdef BOARD_SUITE
+  board_report(tohost_word);
+#endif
   for (;;) {
   }
 }
