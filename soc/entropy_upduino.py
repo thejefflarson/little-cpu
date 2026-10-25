@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 import entropy_assess
@@ -32,7 +33,10 @@ MAX_LAG = 4096
 NEIGHBOURS = 8
 PROMINENCE_LIMIT = 0.02
 LOCK_WAIT_S = 2 * 3600
-LOAD_TRIES, LOAD_S = 6, 600
+LOAD_TRIES, LOAD_S, STALL_S, PRIME_S, PAUSE_S = 4, 180, 30, 30, 3
+REBOOT_S, READ_SLACK_S = 60, 30
+SUDO = ["sudo", "-n"]
+NO_DEVICE = b"Can't find iCE FTDI USB device"
 
 
 def unescape(data):
@@ -55,44 +59,81 @@ def root_binary(name, check=True):
     return done.stdout.strip()
 
 
-def sudo(argv, seconds):
-    """Run a root-owned wrapper and return (status, stdout, stderr); a tool still running after `seconds`
-    is sent SIGTERM through sudo, which relays it, and reads as status None."""
-    proc = subprocess.Popen(["sudo", "-n"] + argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        out, err = proc.communicate(timeout=seconds)
-    except subprocess.TimeoutExpired:
-        proc.terminate()
-        try:
-            out, err = proc.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            out = err = b""
-        return None, out, err
-    return proc.returncode, out, err
+def sudo(argv, seconds, stall=None):
+    """Run a root-owned wrapper and return (status, stdout, stderr); a tool still running after `seconds`, or
+    silent on both streams for `stall` seconds, is sent SIGTERM through sudo, which relays it, and reads
+    as status None. A tool that finds no board stops the script, whatever it was asked to do."""
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(SUDO + argv, stdout=out, stderr=err)
+        started = quiet_since = time.monotonic()
+        written, stopped = -1, False
+        while proc.poll() is None:
+            now = time.monotonic()
+            size = os.fstat(out.fileno()).st_size + os.fstat(err.fileno()).st_size
+            if size != written:
+                written, quiet_since = size, now
+            if now - started > seconds or (stall and now - quiet_since > stall):
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                stopped = True
+                break
+            time.sleep(0.2)
+        status = None if stopped else proc.returncode
+        out.seek(0)
+        err.seek(0)
+        got = (status, out.read(), err.read())
+    if NO_DEVICE in got[1] + got[2] or (status == 2 and got[2].startswith(b"open: ")):
+        sys.exit("*** %s found no UPduino on USB; replug it and rerun (an interrupted restart matrix resumes "
+                 "from its rows on disk)" % os.path.basename(argv[0]))
+    return got
+
+
+def prime(flash):
+    """Reset the FPGA once with a read, so the FT232H's receive FIFO is empty when a flash write starts.
+
+    The FT232H returns to UART mode when iceprog exits, and a design that streams fills its FIFO. On the
+    next iceprog one or two of those bytes survive its purge and shift every read, the flash ID first
+    (`0xFF 0xEF 0x70 0x16`), so the erase polls a status byte that never clears and the write hangs or
+    verifies wrong. A read-only `lc-flash -t` takes the strays instead, and the write after it is clean.
+    """
+    return sudo([flash, "-t"], PRIME_S)[0] == 0
 
 
 def load(bit, flash):
     """Write the bitstream to the configuration flash and verify it; the FPGA then boots it.
 
-    iceprog -S is not used: on the UPduino it ends with the FPGA's CDONE low, unconfigured.
+    iceprog -S is not used: on the UPduino it ends with the FPGA's CDONE low, unconfigured. An attempt
+    that prints nothing for STALL_S is a hung one, and is stopped and retried.
     """
     for attempt in range(LOAD_TRIES):
-        status, out, err = sudo([flash, bit], LOAD_S)
+        prime(flash)
+        status, out, err = sudo([flash, bit], LOAD_S, STALL_S)
         if status == 0 and b"VERIFY OK" in out + err:
             return True
+        print("entropy_upduino: load attempt %d of %d failed (%s)" % (
+            attempt + 1, LOAD_TRIES, "stopped after silence or timeout" if status is None else "status %d, no VERIFY OK" % status),
+            flush=True)
         if attempt + 1 < LOAD_TRIES:
-            time.sleep(3)
+            time.sleep(PAUSE_S)
     return False
+
+
+def capture_budget(read_seconds):
+    """The longest a capture may take without the lock wait: every load attempt, the reboot and the read."""
+    return LOAD_TRIES * (PRIME_S + LOAD_S + PAUSE_S) + REBOOT_S + read_seconds + READ_SLACK_S
 
 
 def reboot(flash):
     """Reset the FPGA so it configures itself from the flash again, reading the flash and writing nothing."""
-    return sudo([flash, "-t"], 60)[0] == 0
+    return sudo([flash, "-t"], REBOOT_S)[0] == 0
 
 
 def read(uart, seconds):
     """What the UART sent in `seconds`, decoded."""
-    return unescape(sudo([uart, str(int(seconds * 1000))], seconds + 30)[1])
+    return unescape(sudo([uart, str(int(seconds * 1000))], seconds + READ_SLACK_S)[1])
 
 
 def run_from_boot(tools, samples, seconds, first_zero=True):
@@ -135,6 +176,10 @@ def capture(args):
     """Samples from one boot. The reader loses about one frame in a hundred (a CRC failure or a skipped
     sequence number), so the run is the good frames in order with a seam where one was lost, and the
     seams are counted and printed for whoever quotes the result."""
+    need = capture_budget(args.seconds)
+    if args.budget is not None and args.budget < need:
+        sys.exit("*** the capture's phases can take %.0fs (%d load attempts, a reboot, a %.0fs read) and the "
+                 "budget is %.0fs" % (need, LOAD_TRIES, args.seconds, args.budget))
     tools = tools_for(args)
     started = time.monotonic()
     with entropy_stream.locked(args.lock, LOCK_WAIT_S):
@@ -244,6 +289,8 @@ def main():
     sub.choices["intervals"].add_argument("--seconds", type=float, default=60.0)
     sub.choices["capture"].add_argument("--samples", type=int, default=1_000_000)
     sub.choices["capture"].add_argument("--seconds", type=float, default=150.0)
+    sub.choices["capture"].add_argument("--budget", type=float,
+                                        help="refuse unless the phases' worst case, lock wait excluded, fits in this many seconds")
     rp = sub.choices["restart"]
     rp.add_argument("--rows", type=int, default=1000)
     rp.add_argument("--samples", type=int, default=1000)

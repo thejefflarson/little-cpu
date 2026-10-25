@@ -10580,7 +10580,8 @@ eup_fixture() {
   mkdir -p "$d/soc" "$d/test"
   cp "$REPO"/soc/entropy_upduino.py "$REPO"/soc/entropy_stream.py "$REPO"/soc/entropy_assess.py \
      "$REPO"/soc/board_read.py "$REPO"/soc/board_port.py "$REPO"/soc/entropy_capture_upduino.v \
-     "$REPO"/soc/entropy_interval_capture.v "$REPO"/soc/entropy_bit_framer.v "$REPO"/soc/miso_share_enable.v "$d/soc/"
+     "$REPO"/soc/entropy_interval_capture.v "$REPO"/soc/entropy_bit_framer.v "$REPO"/soc/miso_share_enable.v \
+     "$REPO"/soc/entropy_nist.py "$REPO"/soc/nist90b_grade.py "$d/soc/"
   printf '%s' "$d"
 }
 
@@ -10604,7 +10605,7 @@ probe "a periodicity scan that reads drift as a repeating pattern is red" 1 \
   "a bias that drifts slowly is not a repeating pattern" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
 
 d=$(eup_fixture)
-mutate "$d/soc/entropy_upduino.py" 's/sudo(\[flash, bit\], LOAD_S)/sudo([flash, "-S", bit], LOAD_S)/'
+mutate "$d/soc/entropy_upduino.py" 's/sudo(\[flash, bit\], LOAD_S, STALL_S)/sudo([flash, "-S", bit], LOAD_S, STALL_S)/'
 probe "a load into SRAM, which leaves this board unconfigured, is red" 1 \
   "the load writes the flash" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
 
@@ -10614,9 +10615,49 @@ probe "a flash write taken as loaded without VERIFY OK is red" 1 \
   "a flash write that never says VERIFY OK is not a load" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
 
 d=$(eup_fixture)
-mutate "$d/soc/entropy_upduino.py" 's/sudo(\[flash, "-t"\], 60)/sudo([flash, "-S"], 60)/'
+mutate "$d/soc/entropy_upduino.py" 's/sudo(\[flash, "-t"\], REBOOT_S)/sudo([flash, "-S"], REBOOT_S)/'
 probe "a reboot that does not read the flash is red" 1 \
   "a reboot is a status-zero iceprog -t" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/^        prime(flash)$/        pass/'
+probe "a flash write that skips the FIFO-draining read first is red" 1 \
+  "a read-only iceprog -t drains the FIFO before the write" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/sudo(\[flash, bit\], LOAD_S, STALL_S)/sudo([flash, bit], LOAD_S)/'
+probe "a flash write with no stall bound is red" 1 \
+  "the write is bounded by a stall" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/^LOAD_TRIES, LOAD_S, STALL_S, PRIME_S, PAUSE_S = 4, 180,/LOAD_TRIES, LOAD_S, STALL_S, PRIME_S, PAUSE_S = 4, 600,/'
+probe "a per-attempt load bound of ten minutes is red" 1 \
+  "the write is bounded by a stall" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/ or (stall and now - quiet_since > stall)//'
+probe "a tool that goes silent and is never stopped is red" 1 \
+  "goes silent past the stall bound is stopped" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/^    if NO_DEVICE in got\[1\] + got\[2\] or /    if False and /'
+probe "a tool that finds no board and is not stopped on is red" 1 \
+  "finding no board stops the script" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/ + REBOOT_S + read_seconds/ + read_seconds/'
+probe "a capture budget that leaves out a phase is red" 1 \
+  "the capture budget is the sum of its phases" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_upduino.py" 's/^    if args.budget is not None and args.budget < need:$/    if False:/'
+probe "a budget under the phases' worst case that is not refused is red" 1 \
+  "a budget under the phases' worst case is refused" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
+
+d=$(eup_fixture)
+mutate "$d/soc/entropy_nist.py" 's/^            capture_s = entropy_upduino.LOCK_WAIT_S + entropy_upduino.capture_budget(READ_S)$/            capture_s = CAPTURE_S/'
+probe "a nist capture timeout that is not the phases plus the lock wait is red" 1 \
+  "the nist capture timeout carries the lock wait" "ENTROPY_UPDUINO_SKIP_YOSYS=1 $EUP $d"
 
 d=$(eup_fixture)
 mutate "$d/soc/entropy_capture_upduino.v" 's/\.CLKLF(lfosc_out)/.CLKLFX(lfosc_out)/'
