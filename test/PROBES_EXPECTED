@@ -26,15 +26,19 @@
 ...and leaves no partial tree for the next run to reuse
 ...and one the purge did not remove means the digest is equal by luck
 ...and so does the file it injects into going away
+...and still place at the pinned seed
 ...and the .asc it refuses is deleted rather than left to be read
 ...and the count that site was declared with is red too
 ...and the message routes kill to the cycle-accounting identity instead
+...and the pin records the build option it was taken under
 ...and the report names the parameter, not merely 'changed'
 ...and the report names the target make actually overrode
 ...and the same for the second mutation, which shares that line
 ...and the stale board report and .asc are gone, so no timing is read from them
 ...and the stale report and .asc are gone, so no sweep can read them
 ...and their second copy is compared whole, not just its ISA
+...so no board pin file exists
+...with the search's seed handed to make as BOARD_SEED
 0 retires overrides every verdict above to exit 6, the blind oracle
 CoreMark data past the end of the simulated RAM is red, not silent
 CoreMark's own FAIL verdict stops the number being quoted
@@ -148,6 +152,7 @@ a block RAM read through its own reset is refused
 a block short of a tool is named, not summarised around
 a block with no end is truncated, and a truncated one is not read
 a bmc .sby stating depth twice is exit 2 here too
+a board search under the 5% margin is refused and pins nothing
 a board suite that sudo-runs a path the check did not resolve is red
 a branch already on this repository stops the bump
 a budget under the phases' worst case that is not refused is red
@@ -569,6 +574,7 @@ a peripheral inside the timer's reserved span is red
 a pin file that does not exist is refused, not read as absent-is-fine
 a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
+a pin written without --config still digests the same files
 a pinned compiler version the stamp did not measure is STALE
 a placed board top under 12 MHz is red
 a placement at zero MHz is not a placement
@@ -724,6 +730,7 @@ a runner that reports no cycles at all cannot produce a clean table
 a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused
 a script run after a separator on a continuation line is graded too
 a script run inside a make conditional is graded too
+a search with no mode is a usage error, not a default
 a second instance of the macro is refused, not priced once
 a second occurrence of a counted exception value is red
 a seed clearing SOC_MIN_MHZ by under 5% is refused, not pinned
@@ -951,6 +958,7 @@ an exclusion with no reason written under it is rejected
 an exec-mode scan of a tree git cannot list is red, not green
 an exemption naming no program is red, not a program quietly excused
 an exit of 1 with no timing verdict behind it is fatal
+an explicit BOARD_SEED bypasses the pin and reaches nextpnr
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
 an iCESugar suite summary line that skips the display filter is red
@@ -1018,6 +1026,7 @@ and the diagnostic states the corollary this check is enforcing
 and the refusal names the clock it would actually have to run at
 and the reverse: a divergence reported with exit 0
 and the same for the check-set baseline
+another BOARD_OSC does not claim the crystal pin's measurement
 any other warning beside the allowlisted one is still red
 asking for shard i of n where i exceeds n is refused
 assembler output on a successful build is still a defect
@@ -1027,6 +1036,7 @@ base_resolvable refuses a ref name that is not a full SHA
 baselining ERROR would re-create the btorsim hole with this gate's blessing
 bench.lds putting .data back at ram's origin is red
 bench.lds putting the stack back at the top of ram is red
+board-timing with no BOARD_SEED places at the pinned seed
 board.lds putting .data back at ram's origin is red
 board.lds putting the stack back at the top of ram is red
 boot.lds putting .data back at ram's origin is red
@@ -1056,6 +1066,7 @@ control: a baselined divergence at the baselined point is green
 control: a baselined failure that fails exactly that way is green
 control: a baselined red check at the baselined status is green
 control: a bash script that reads a here-string is clean
+control: a board search clearing the margin writes soc/board_pin.json
 control: a clean module elaborates with zero promoted warnings
 control: a clean nextpnr run is accepted
 control: a clean sweep on the same toolchain resumes and skips a placed seed
@@ -1074,6 +1085,7 @@ control: a good run reports both cores' figures
 control: a good three-way run reports all three cores' figures
 control: a legacy stamp with no digest is still graded, by its base commit, and fresh
 control: a macro is priced from its LEF and printed apart from the soft logic
+control: a matching board pin checks OK
 control: a matching pin names its own seed and MHz
 control: a measurement within budget is green
 control: a measurement within budget is green
@@ -1296,6 +1308,7 @@ more accesses near an edge than there were accesses is red
 more cycles saved than the jalr redirects cost is red
 more returns than jalr is red
 more than seven arguments is a usage error too
+moved board sources warn PIN STALE, and do not fail
 moved sources say so, naming both digests
 moving the declared string alone, with every site unchanged, is red
 mutate_remove on a path that was never there is fixture-stale, not silent
@@ -1437,6 +1450,7 @@ the defect this exists for: a core clocked from the pad, not the PLL
 the defect this exists for: a summary line re-deriving the mode from inputs.
 the defect this exists for: the seed source tied low on the board
 the digest is over the sources, so it does not move when only the tools do
+the digest moves with --config, so a pin cannot claim another build option
 the dominant reason is the suite's, not the first program's
 the encoding proof going red somewhere else is not evidence
 the entropy reader accepting several matching nodes is red
@@ -1497,6 +1511,7 @@ the sby script moving away takes the probe with it, loudly
 the second header is scanned too, not just test_macros.h
 the separator restated in a second file is red
 the shape in a comment is not a pipeline
+the shipping board.asc places at the same pinned seed as board-timing
 the shipping build itself reporting an X on the load path is red before any mutant runs
 the stale ISA name coming back in a formal harness comment is red
 the suite runner running the loader with no time limit is red

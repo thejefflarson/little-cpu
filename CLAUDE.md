@@ -579,7 +579,7 @@ top, ECP5 only.
   `mem_wdata` for every issuing instruction, so ORed across two harts it lost most of a smoke
   program's counted increments, invisibly to a bus-exclusivity check (ADR-0125). Read the
   producer's idle behaviour before joining two of anything.
-- **The UPduino board top is a fifth design, and `make board-timing` places it** (ADR-0255).
+- **The UPduino board top is a fifth design, and `make board-timing` places it** (ADR-0255). It grades one pinned placement, `soc/board_pin.json`, for the crystal-clock `soc-rom` build CI makes; `make bitstream` places at the same seed, and another `BOARD_OSC` or program reads PIN STALE.
   `littlesoc` placing says nothing about `upduino_top`: the wrapper's tie-offs and instance names move
   its mapped count by 40 to 70 cells, and it stopped placing at 5,306 of 5,280 for as long as no job
   placed it. Every ice40 synthesis here (the board top, `littlesoc` and the core alone) maps with one longer ABC9 script, `soc/ice40_abc9.script` (the default's `&dch` and `&syn2` round run twice; yosys 0.70 removed `synth_ice40 -abc2`, the classic `abc` pass it used to run): about 140 cells fewer than one default pass on the board top, 88 fewer on `littlesoc`, and no worse at the worst of sixteen seeds on either. The ECP5 flows stay on `synth_ecp5`'s default, where the same script reads a null on clock (ADR-0255, amended). The compare harness's up5k rows stay on the default script, one mapper for three cores. Placed on CI's yosys 0.70: 5,110 cells, 13.25 MHz
@@ -913,9 +913,13 @@ make soc-timing     # the SoC place-and-time flow; requirement on SOC_MIN_MHZ. W
                     # SOC_SEED override this grades the pinned placement (soc/pin.json,
                     # ADR-0171), PIN STALE on a source change. An explicit SOC_SEED
                     # (soc/timing_sweep.sh runs four) bypasses the pin
-make board-timing   # the UPduino top (soc/board_upduino.v) placed and timed at the default
-                    # seed against SOC_MIN_MHZ; the soc-timing CI job runs it. Its synthesis
-                    # runs a second ABC pass that littlesoc's does not (ADR-0255)
+make board-timing   # the UPduino top (soc/board_upduino.v) placed and timed against
+                    # SOC_MIN_MHZ; the soc-timing CI job runs it. With no BOARD_SEED
+                    # override it places at the pinned seed in soc/board_pin.json, the
+                    # seed `make bitstream` and `make prog` ship (PIN STALE warns on a
+                    # source or BOARD_OSC change); an explicit BOARD_SEED bypasses it
+make board-seed-search # off `make test` and CI: soc-seed-search for the board top, writing
+                    # soc/board_pin.json at >=5% margin over SOC_MIN_MHZ
 make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entropy seeds
                     # and writes soc/pin.json at >=5% margin over SOC_MIN_MHZ.
                     # SOC_SEARCH_SEEDS overrides the seed list, SOC_SEARCH_COUNT the
@@ -1241,7 +1245,7 @@ not sufficient.
 
 With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,422 packed cells in the `fit` job (4,413 locally) against `FIT_MAX_LC` 4,462, with the shared ABC9 script (4,549 locally before it), and `make
 soc-timing` places at 5,198 of 5,280 `ICESTORM_LC` (98.5%) in the job, 13.45 MHz at the pinned seed (locally 5,177 cells; sixteen paired seeds 12.60–13.58 MHz, median 13.37, against 12.33–13.54 and 13.01 on the default script, ADR-0255, amended) and
-`soc/pin.json` holding seed 195147338 at 13.53 MHz, 12.75% over the requirement, from a twelve-seed search on this tree (12.86–13.53 MHz, median 13.37) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,144 cells and 12.44 MHz at the default seed in the `soc-timing` job (ADR-0255, amended; 5,110 and 13.25 before the Zkr timeout change).
+`soc/pin.json` holding seed 195147338 at 13.53 MHz, 12.75% over the requirement, from a twelve-seed search on this tree (12.86–13.53 MHz, median 13.37) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,144 cells and 12.44 MHz at the default seed in the `soc-timing` job (ADR-0255, amended; 5,110 and 13.25 before the Zkr timeout change); with `soc/board_pin.json` it places at a pinned seed instead, 13.50 MHz locally (yosys 0.68, sixteen seeds 12.66 / 12.87 / 13.50 worst / median / best), the seed `make bitstream` ships, and the six instance-name spread leaves at least 131 cells (ADR-0255, amended 2026-10-23).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
