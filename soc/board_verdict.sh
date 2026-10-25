@@ -17,6 +17,14 @@ uart_last_block() { awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{printf "%s", a[
 # Block $1 must open with the driver's "B<batch $2> <programs $3>" tag, so a buffered replay from an earlier batch is refused.
 block_tag_ok() { [ "${1%%$'\n'*}" = "B$2 $3" ]; }
 
+# Flashes $2 with tool $1 into log $3: a bounded read-only -t first drains the FT232H's stray UART bytes, which hang the write.
+flash_bitstream() {
+  local bin=$1 file=$2 log=$3
+  $BOUNDED "${PRIME_S:-30}" $ICEPROG_SUDO "$bin" -t > "$log.prime" 2>&1 || true
+  $BOUNDED "${FLASH_S:-180}" $ICEPROG_SUDO "$bin" "$file" > "$log" 2>&1 || return 1
+  grep -q 'VERIFY OK' "$log"
+}
+
 block_verdict() { printf '%s\n' "$1" | awk -v k="$2" '$1==k{print $2; exit}'; }
 
 # ok, unexpected or unexpected-pass for program $1's result $2 against baseline names $3; a baselined program matches only a numbered FAIL.
