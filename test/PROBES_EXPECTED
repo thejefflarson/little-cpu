@@ -149,12 +149,14 @@ a block with no end is truncated, and a truncated one is not read
 a bmc .sby stating depth twice is exit 2 here too
 a board suite that sudo-runs a path the check did not resolve is red
 a branch already on this repository stops the bump
+a budget under the phases' worst case that is not refused is red
 a build artifact missing is exit 2, not a probe against nothing
 a build file pinned to a different Hazard3 than the Makefile is red
 a build-file line this cannot read stops rather than being skipped
 a caller that needs the figures rather than the prose is refused
 a canonical form that stopped forgiving the class is red
 a capitalised spelling is the same word and is caught too
+a capture budget that leaves out a phase is red
 a capture divider with a yosys command separator accepted is red
 a capture frame with a wrong trailer accepted is red
 a capture tag with a shell metacharacter accepted is red
@@ -322,6 +324,8 @@ a flash wrapper that passes any -d value to iceprog is red
 a flash write taken as loaded without VERIFY OK is red
 a flash write that hangs and still counts as flashed is red
 a flash write that skips the -t drain before it is red
+a flash write that skips the FIFO-draining read first is red
+a flash write with no stall bound is red
 a floating tool is recorded and never graded, so a new yosys is not STALE
 a floor line matching no stamped pair is red
 a floor line that is neither a number nor EXCLUDED is named
@@ -511,6 +515,7 @@ a new wide input port with no classification is red (finding 3)
 a nextpnr that cannot place fails the recipe, stale .asc beside it
 a nextpnr that cannot place the board top fails board-timing, stale .asc beside it
 a nextpnr that died early is NOT graded on the last run's pair
+a nist capture timeout that is not the phases plus the lock wait is red
 a node name with an escape byte printed raw is red
 a non-.S program cannot carry a real floor; this runner only globs .S
 a non-comparable CSR value is exempted -- and every exemption printed
@@ -557,6 +562,7 @@ a path walk that reads only the mode bits, not the ACL, is red
 a path walk that trusts a symlinked ancestor unresolved is red
 a path walk that word-splits a directory name is red
 a path with no LUT level at all reports zero rather than dividing by it
+a per-attempt load bound of ten minutes is red
 a periodicity limit no pattern can reach is red
 a periodicity scan that reads drift as a repeating pattern is red
 a peripheral inside the timer's reserved span is red
@@ -825,6 +831,8 @@ a tmp-path scan of a tree git cannot list is red, not green
 a token handed to a step other than the publish step is red
 a token handed to the step that executes upstream code is red
 a tool that exits nonzero while printing is refused on its status
+a tool that finds no board and is not stopped on is red
+a tool that goes silent and is never stopped is red
 a tool that is not installed names itself rather than the list
 a tool that prints nothing is refused, not stamped blank
 a tool version carrying HTML is refused
