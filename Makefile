@@ -1573,7 +1573,7 @@ $(BUILD)/board.asc: $(BUILD)/board.json $(BOARD_PCF) $(if $(BOARD_SEED_PINNED),b
 	sh soc/pnr_check.sh 'make bitstream' "$$status" $(BUILD)/board.pnr.log $@
 
 $(BUILD)/board.bin: $(BUILD)/board.asc
-	@icepack $< $@
+	@icepack -s $< $@
 	@echo "$(BUILD)/board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
 
 BOARD_ICETIME := icetime
