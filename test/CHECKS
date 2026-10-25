@@ -88,5 +88,5 @@ checks-manifest-test | fast | - | - | @all test/checks_manifest_test.py test/che
 # The forced-red sweeps. They run under make test-full, which is what CI runs, and not under
 # make test: they take most of the wall time and prove the graders above can fail, which a
 # change to one grader's inputs does not need re-proving on every local run.
-probe-gates | full | - | gen-inputs | @all test/probe_gates.sh test/PROBES_EXPECTED
+probe-gates | full | - | gen-inputs | @all !slots=PROBE_SHARDS:8 test/probe_gates.sh test/PROBES_EXPECTED
 nano-qspi-loop-probe | full | - | gen-inputs | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
