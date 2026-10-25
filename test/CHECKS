@@ -71,6 +71,7 @@ board-tools-test | fast | - | - | test/board_tools_test.py soc/ Makefile mk/
 board-verdict-test | fast | - | - | test/board_verdict_test.sh soc/ Makefile
 board-sudoers-test | fast | - | - | test/board_sudoers_test.sh soc/ Makefile
 board-wrappers-test | fast | - | - | test/board_wrappers_test.sh soc/ Makefile
+uart-soft-rx-test | fast | - | - | test/uart_soft_rx_test.c soc/uart_soft_rx.h Makefile
 ill-e-wiring-test | fast | - | - | @all test/ill_e_wiring_test.py nano/formal/ formal/ rtl/
 probes-header-test | fast | - | - | @all test/probes_header_test.py test/PROBES_EXPECTED
 dhry-board-parity-test | fast | - | - | @all test/dhry_board_parity_test.sh test/bench/ Makefile

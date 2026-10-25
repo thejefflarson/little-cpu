@@ -765,6 +765,11 @@ board-sudoers-test:
 board-wrappers-test:
 	@./test/board_wrappers_test.sh
 
+.PHONY: uart-soft-rx-test
+uart-soft-rx-test: | $(BUILD)
+	@cc -Wall -Wextra -Werror -o $(BUILD)/uart_soft_rx_test test/uart_soft_rx_test.c
+	@$(BUILD)/uart_soft_rx_test
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -830,7 +835,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
                icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test entropy-upduino-test \
                nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
-               dhry-board-parity-test board-verdict-test board-sudoers-test board-wrappers-test nano-test nano-startup-test \
+               dhry-board-parity-test board-verdict-test board-sudoers-test board-wrappers-test uart-soft-rx-test nano-test nano-startup-test \
                macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
@@ -1362,7 +1367,7 @@ ecp5-timing: ecp5-timing-toolchain $(BUILD)/ecp5.config
 FTDI_CFLAGS ?= $(shell pkg-config --cflags libftdi1 2>/dev/null || echo -I/opt/homebrew/opt/libftdi/include/libftdi1)
 FTDI_LIBS   ?= $(shell pkg-config --libs libftdi1 2>/dev/null || echo -L/opt/homebrew/opt/libftdi/lib -lftdi1)
 
-$(BUILD)/ftread: soc/ftread.c | $(BUILD)
+$(BUILD)/ftread: soc/ftread.c soc/uart_soft_rx.h | $(BUILD)
 	@command -v cc >/dev/null || { echo 'error: no C compiler for the host.' >&2; exit 1; }
 	cc -O2 -Wall -o $@ $< $(FTDI_CFLAGS) $(FTDI_LIBS)
 	@echo 'built $@ -- install it root-owned with: make install-board-tools'
