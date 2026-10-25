@@ -126,7 +126,7 @@ def check(root):
     os.chmod(os.path.join(bin_dir, "lc-uart"), 0o755)
     eu.TOOLS = bin_dir
     ns = argparse.Namespace(bit=os.path.join(scratch_dir := tempfile.mkdtemp(), "b.bin"), out=os.path.join(scratch_dir, "m"),
-                            rows=5, samples=1000, seconds=0.1, max_failures=3000, lock=None, no_root_check=True)
+                            rows=5, samples=1000, seconds=0.1, max_failures=20, lock=None, no_root_check=True)
     open(ns.bit, "wb").write(b"bits")
     try:
         eu.restart(ns)
