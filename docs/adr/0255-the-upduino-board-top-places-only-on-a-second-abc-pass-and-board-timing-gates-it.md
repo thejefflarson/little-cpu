@@ -175,3 +175,43 @@ default against the stronger script with ECP5's own `-W 300`: default worst 37.3
 +5.8% with a median of -0.38%, and the stronger script was faster at 7 of 16. LUT4 fell 5,221 to
 4,946 and placed `TRELLIS_COMB` 6,391 to 6,118 of 24,288. The clock is a null and the part is 26%
 full, so the area buys nothing and the flow does not change.
+
+## Amendment 2026-10-23: `make board-timing` grades a pinned placement, and the shipping bitstream places at it
+
+**Why.** The board top's margin over 12.0 MHz is a draw. On CI's yosys 0.70 the default seed read
+12.44 MHz, and a local build of the board top with `BOARD_OSC=internal` and `soc/seed_probe.S` in
+the ROM read 12.03 at the default seed. The gate graded whichever placement the default seed
+produced, and `make bitstream` placed at that same default, so a source change could hand the gate
+and the board a different draw than the one measured.
+
+**What changed.** `soc/board_pin.json` pins the board top the way `soc/pin.json` pins `littlesoc`
+(ADR-0171): a digest of the files synthesis reads (`BOARD_SRCS`, `soc/ice40_abc9.script`,
+`soc/upduino.pcf`, the ROM hex), a placer seed, the measured MHz and the sweep it was chosen from.
+`$(BUILD)/board.asc` places at the pinned seed unless `BOARD_SEED=` is on the command line, so
+`make board-timing`, `make bitstream` and `make prog` place identically, which the gate now
+grades for the file that ships. A digest mismatch warns as PIN STALE and does not fail: the gate is
+still Fmax on the placement actually made. `make board-seed-search` writes the pin through
+`soc/soc_seed_search.sh board`, the script `make soc-seed-search` runs, so the high-entropy seeds and
+the 5% refusal are one implementation.
+
+**Which build the pin describes.** The one CI builds: `BOARD_OSC=crystal` and the default
+`soc-rom` program. The digest also hashes the build option (`soc/soc_pin.py --config osc=crystal`),
+because the clock source changes the netlist and no file, so `BOARD_OSC=internal` reads PIN STALE
+instead of claiming the crystal placement's measurement. A different `BOARD_ROM` or `SOC_PROG`
+moves the ROM hex and reads PIN STALE the same way. Those builds still place at the pinned seed,
+which is only a seed there; `make board-timing` grades the placement it made.
+
+**Measured** (yosys 0.68+48, nextpnr 0.11-1-g62e659ed, icetime oss-cad-suite 20260811; sixteen
+high-entropy seeds from `soc/seed_hash.py`, default build): worst 12.66, median 12.87, best 13.50
+MHz, spread 6.6% of worst. The pin is the best draw, seed 195147338 at 13.50 MHz, 12.50% over the
+requirement; that is the same seed `soc/pin.json` holds, because both searches use the same
+sha256 draw. The pin is taken on a local yosys 0.68 and CI runs 0.70, so CI's number may differ from
+13.50; the gate is Fmax, so a CI placement under 12.0 goes red, and re-taking the pin on CI's
+toolchain is the remedy.
+
+**Headroom across instance names.** `littlesoc soc` renamed in `soc/board_upduino.v` to six names
+(`soc`, `core`, `cpu`, `u_soc`, `dut`, `s0`), packed with `nextpnr-ice40 --pack-only` after the
+shared ABC9 script, yosys 0.68+48: 5,137, 5,119, 5,119, 5,142, 5,119, 5,137 of 5,280
+`ICESTORM_LC`. The worst name leaves 138 cells and the spread is 23. CI's default-name count is 5,144
+against local 5,137, so on 0.70 the worst name is about 5,149 and leaves about 131. Both clear the
+100-cell target, so no cells were removed.
