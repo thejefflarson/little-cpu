@@ -196,3 +196,36 @@ exactly when it is not held.** The earlier runs where the dual configured and th
 2048 words while 1024 ran all predate ADR-0163's block RAM reset fix; the same defect is the
 explanation that fits, and the 2048 case no longer reproduces it. Each capture's first lines come
 from the previously loaded design, which keeps printing until the new load lands.
+
+## Amendment, 2026-10-25: the dual top re-taken on the D/X tree
+
+Every figure above predates the D/X split, executor forwarding, the static predictor, Zkr and the
+multi-hart ports, so this amendment re-takes them on `main` at 0e402a7e with yosys 0.68+48 and
+nextpnr-ecp5 0.11-1-g62e659ed. `make dual-ecp5-timing`, `ECP5_SEED` default and 1 through 11
+(twelve placements of one netlist, constrained at the pinned 200 MHz the design is meant to miss):
+
+| | |
+|---|---|
+| Fmax, worst / median / best | **31.17 / 33.01 / 34.49 MHz** |
+| Spread, (best − worst) / worst | 10.7% |
+| `DP16KD` | 40, as declared |
+| `TRELLIS_DPR16X4` | 64, as declared |
+| `MULT18X18D` | 8, as declared |
+| block RAM reset driven by logic | none |
+| `TRELLIS_COMB` at the default seed | 11,121 of 24,288 (45.8%), against 10,016 (41.2%) above |
+
+The default seed reads 32.37 MHz; its worst path runs from `reset` to the ROM's output register in
+34 logic hops, 72.3% routing. The median fell from 35.36 MHz (one placement, before the split) to
+33.01, and the worst placement sits 1.17 MHz above the 30 MHz PLL the board top uses, so the
+clearance is 3.9% at the worst placement. The twelve placements share one synthesis, so this is a
+placement spread and not an edit-churn band, and no up5k number moves with it.
+
+`make dual-smoke` passes both ways: both harts count 32 with 115 and 122 retires (114 and 121
+spec-checked); with hart 1 held, the count is 16 and hart 1's monitor sees no retire, which the
+runner reports as the intended exit 6 and the target accepts.
+
+`make icesugar-dual-run` was attempted once, for `ICESUGAR_DUAL_HELD=0`, and the build placed at
+34.97 MHz against 30 (PASS) but the load failed: `openFPGALoader` found no CMSIS-DAP device and
+`/Volumes/iCELink` was absent, so the iCESugar-Pro was not attached to the machine. Neither case
+has run on the part on this tree; the 2026-10-11 table above stands as the last board result and
+is not re-confirmed. The loader failure is a host-side finding, not a result about the design.
