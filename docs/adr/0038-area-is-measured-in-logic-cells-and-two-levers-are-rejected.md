@@ -173,3 +173,12 @@ Two things this settles, both against earlier estimates in this repo:
   under `clk2fflogic`, EBR inference behaviour, and confirmation that the Sail co-simulation's
   `debug_items` probe still reads the real register array. Deciding it in advance of that data is
   exactly the failure this ADR's first decision exists to prevent.
+
+## Amendment, 2026-10-25 — the radix-4 divider is cancelled
+
+The owner cancelled the radix-4 divider, which CLAUDE.md had carried as deferred CPI work. On
+main at 0e402a7 the UPduino board top packs 5,209 of the up5k's 5,280 cells at the worst of its six
+instance names, 71 spare, and a radix-4 divider roughly doubles the divider's comparator and mux
+(Decision 3). Building it for the ECP5 alone would break the rule that `make ecp5-timing` places
+the same `littlesoc` as the up5k with no fork. DIV and REM stay radix-2, with the existing early
+exits: 16 iterations for a dividend with a zero top half, one for a zero divisor or `INT_MIN / -1`.
