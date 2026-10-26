@@ -283,8 +283,8 @@ fi
 BOUNDED="$(PATH=${PATH#"$WORK/stubs:"}; command -v python3) $HERE/../soc/bounded.py"; ICEPROG_SUDO=""
 cat > "$WORK/fakeflash" <<'FAKE'
 #!/bin/bash
-echo "$1" >> "$FAKE_LOG"
-if [ "$1" = -t ]; then [ "${FAKE_PRIME-}" = hang ] && sleep 30; exit 0; fi
+echo "$*" >> "$FAKE_LOG"
+if [ "${@: -1}" = -t ]; then [ "${FAKE_PRIME-}" = hang ] && sleep 30; exit 0; fi
 [ "${FAKE_WRITE-}" = noverify ] || echo "VERIFY OK"
 [ "${FAKE_WRITE-}" = hang ] && sleep 30
 exit 0
@@ -293,23 +293,63 @@ chmod 755 "$WORK/fakeflash"
 export FAKE_LOG="$WORK/fakeflash.log"
 flash_case() {
   : > "$FAKE_LOG"; local rc=0
-  FAKE_PRIME=${2-} FAKE_WRITE=${3-} PRIME_S=1 FLASH_S=1 flash_bitstream "$WORK/fakeflash" image.bin "$WORK/flash.out" || rc=$?
+  FAKE_PRIME=${2-} FAKE_WRITE=${3-} PRIME_S=1 FLASH_S=1 flash_bitstream "$WORK/fakeflash" image.bin "$WORK/flash.out" ${5-} || rc=$?
   [ "$rc" = "$1" ] || { echo "FAIL: flash_bitstream ($4) returned $rc, expected $1" >&2; fail=1; }
 }
 flash_case 0 "" "" "a clean write"
 [ "$(tr '\n' ' ' < "$FAKE_LOG")" = "-t image.bin " ] \
   || { echo "FAIL: flash_bitstream did not run -t before the write: $(tr '\n' ' ' < "$FAKE_LOG")" >&2; fail=1; }
+flash_case 0 "" "" "a clean write on a named device" i:0x0403:0x6014
+[ "$(tr '\n' '|' < "$FAKE_LOG")" = "-d i:0x0403:0x6014 -t|-d i:0x0403:0x6014 image.bin|" ] \
+  || { echo "FAIL: flash_bitstream dropped the device from the drain or the write: $(tr '\n' '|' < "$FAKE_LOG")" >&2; fail=1; }
 flash_case 1 "" noverify "a write that never verified"
 flash_case 1 "" hang "a write that hangs after VERIFY OK"
 t0=$SECONDS
 flash_case 0 hang "" "a hung -t"
 [ $((SECONDS - t0)) -lt 15 ] || { echo "FAIL: flash_bitstream waited out a hung -t ($((SECONDS - t0))s)" >&2; fail=1; }
+FLASH_BOARD=${8:-$HERE/../soc/flash_board.sh}; MAKEFILE=${7:-$HERE/../Makefile}
+FB_OUT=$(PATH=${PATH#"$WORK/stubs:"} ICEPROG_SUDO="" FLASH_LOG="$WORK/fb.log" PRIME_S=1 FLASH_S=1 "$FLASH_BOARD" "$WORK/fakeflash" image.bin 2>&1) \
+  && [ "$(tail -n 1 <<< "$FB_OUT")" = "flash: VERIFY OK" ] \
+  || { echo "FAIL: flash_board.sh did not flash and report VERIFY OK: $FB_OUT" >&2; fail=1; }
+FAKE_WRITE=noverify PATH=${PATH#"$WORK/stubs:"} ICEPROG_SUDO="" FLASH_LOG="$WORK/fb.log" PRIME_S=1 FLASH_S=1 "$FLASH_BOARD" "$WORK/fakeflash" image.bin >/dev/null 2>&1 \
+  && { echo "FAIL: flash_board.sh succeeded on a write that never verified" >&2; fail=1; }
+awk '/^prog:/{p=1} p&&/flash_board.sh/{f=1} p&&/^$/{p=0} END{exit !f}' "$MAKEFILE" \
+  || { echo "FAIL: make prog flashes without flash_board.sh's -t drain, time limits and VERIFY OK" >&2; fail=1; }
 grep -qF 'grade_blocks "$raw"' "$SUITE" \
   || { echo "FAIL: $SUITE grades something other than every replay block" >&2; fail=1; }
+for runner in "$SUITE" "$ICE_SUITE"; do
+  grep -qF 'test/asm/*.c' "$runner" \
+    || { echo "FAIL: $runner never sizes the C programs, so the manifest's .c program does not run" >&2; fail=1; }
+done
 grep -qF 'icepack -s ' "$SUITE" \
   || { echo "FAIL: $SUITE packs without -s, so the flash sleeps on every suite image" >&2; fail=1; }
 grep -qF 'flash_bitstream "$ICEPROG_BIN"' "$SUITE" \
   || { echo "FAIL: $SUITE flashes without flash_bitstream's -t drain and time limits" >&2; fail=1; }
+
+# A C program joins a batch: it must reach the driver's verdict hook and startup copy, link beside a .S program, and be listed.
+BOARD=${5:-$HERE/board}; DATAINIT=${6:-$HERE/asm/datainit.c}
+command -v riscv-none-elf-gcc >/dev/null || { echo "error: riscv-none-elf-gcc not found; run 'make riscv-gcc-setup'" >&2; exit 1; }
+if ! "$BOARD/compile_program.sh" "$DATAINIT" "$WORK/di.o" 2> "$WORK/di.err"; then
+  echo "FAIL: $DATAINIT does not build for a board batch: $(head -5 "$WORK/di.err")" >&2; fail=1
+else
+  riscv-none-elf-objdump -dr "$WORK/di.o" > "$WORK/di.dump"
+  grep -q 'R_RISCV_[A-Z_0-9]*[[:space:]]*board_report' "$WORK/di.dump" \
+    || { echo "FAIL: $DATAINIT never calls board_report, so on a board its verdict would go nowhere" >&2; fail=1; }
+  grep -q 'board_next' <<< "$(awk '/<board_report>:/{f=1;next} /^$/{f=0} f' "$WORK/di.dump")" \
+    || { echo "FAIL: board_report does not reach the driver's board_next" >&2; fail=1; }
+  grep -q 'init_memory' <<< "$(awk '/<runtime_init>:/{f=1;next} /^$/{f=0} f' "$WORK/di.dump")" \
+    || { echo "FAIL: runtime_init does not reach the driver's init_memory" >&2; fail=1; }
+fi
+FX=$WORK/fx; mkdir -p "$FX/test/board" "$FX/test/asm" "$FX/soc"
+cp "$BOARD"/* "$FX/test/board/"
+cp "$HERE"/asm/*.h "$HERE/asm/add.S" "$FX/test/asm/"
+cp "$DATAINIT" "$FX/test/asm/datainit.c"
+cp "$HERE/../soc/rom_banks.py" "$FX/soc/"
+if ! (cd "$FX" && PATH=${PATH#"$WORK/stubs:"} BATCH_ID=1 ROM_WORDS=2048 ./test/board/build_batch.sh out test/asm/add.S test/asm/datainit.c) > "$WORK/batch.log" 2>&1; then
+  echo "FAIL: add.S and datainit.c do not link as one batch: $(tail -4 "$WORK/batch.log")" >&2; fail=1
+elif [ "$(tail -n 1 "$FX/out/names.txt")" != datainit.c ]; then
+  echo "FAIL: the batch does not list datainit.c: $(tr '\n' ' ' < "$FX/out/names.txt")" >&2; fail=1
+fi
 
 [ "$fail" -eq 0 ] || exit 1
 echo "board verdict parse OK: hostile verdicts rejected, nothing executed, display filtered, root binaries checked"

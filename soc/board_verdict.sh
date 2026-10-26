@@ -52,11 +52,11 @@ block_all_pass() {
   done <<< "$1"
 }
 
-# Flashes $2 with tool $1 into log $3: a bounded read-only -t first drains the FT232H's stray UART bytes, which hang the write.
+# Flashes $2 with tool $1 into log $3, on device $4 if given: a bounded read-only -t first drains the FT232H's stray UART bytes, which hang the write.
 flash_bitstream() {
-  local bin=$1 file=$2 log=$3
-  $BOUNDED "${PRIME_S:-30}" $ICEPROG_SUDO "$bin" -t > "$log.prime" 2>&1 || true
-  $BOUNDED "${FLASH_S:-180}" $ICEPROG_SUDO "$bin" "$file" > "$log" 2>&1 || return 1
+  local bin=$1 file=$2 log=$3 dev=${4-}
+  $BOUNDED "${PRIME_S:-30}" $ICEPROG_SUDO "$bin" ${dev:+-d "$dev"} -t > "$log.prime" 2>&1 || true
+  $BOUNDED "${FLASH_S:-180}" $ICEPROG_SUDO "$bin" ${dev:+-d "$dev"} "$file" > "$log" 2>&1 || return 1
   grep -q 'VERIFY OK' "$log"
 }
 

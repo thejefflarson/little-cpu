@@ -18,11 +18,9 @@ OBJCOPY=${CC%gcc}objcopy
 objs=(); names=(); i=0
 for prog in "$@"; do
   base=$(basename "$prog")
-  $CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -DBOARD_SUITE \
-      -DTEXT_PAST=$ROM_BYTES \
-      -I "$ROOT/test/asm" -c -o "$OUT/p$i.o" "$prog"
+  TEXT_PAST=$ROM_BYTES "$HERE/compile_program.sh" "$prog" "$OUT/p$i.o"
   $OBJCOPY --prefix-symbols="p${i}_" "$OUT/p$i.o"
-  $OBJCOPY --redefine-sym "p${i}_board_next=board_next" "$OUT/p$i.o"
+  $OBJCOPY --redefine-sym "p${i}_board_next=board_next" --redefine-sym "p${i}_init_memory=init_memory" "$OUT/p$i.o"
   objs+=("$OUT/p$i.o"); names+=("$base"); i=$((i+1))
 done
 

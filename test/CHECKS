@@ -72,7 +72,7 @@ entropy-stream-test | fast | - | - | test/entropy_stream_test.py test/entropy_st
 entropy-upduino-test | fast | - | - | test/entropy_upduino_test.py soc/ Makefile mk/
 nist90b-grade-test | fast | - | - | @all test/nist90b_grade_test.py soc/ mk/
 board-tools-test | fast | - | - | test/board_tools_test.py soc/ Makefile mk/
-board-verdict-test | fast | - | - | test/board_verdict_test.sh soc/ Makefile
+board-verdict-test | fast | - | - | test/board_verdict_test.sh test/board/ test/asm/ soc/ Makefile
 board-sudoers-test | fast | - | - | test/board_sudoers_test.sh soc/ Makefile
 board-wrappers-test | fast | - | - | test/board_wrappers_test.sh soc/ Makefile
 ill-e-wiring-test | fast | - | - | @all test/ill_e_wiring_test.py nano/formal/ formal/ rtl/

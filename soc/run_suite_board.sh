@@ -55,11 +55,11 @@ SKIP="rvc.S"
 echo "== driver is ${DRIVER_BYTES} bytes; budgeting ${BUDGET} per batch of the 8192-byte ROM"
 echo "== sizing the programs"
 sizes=""
-for f in test/asm/*.S; do
+for f in test/asm/*.S test/asm/*.c; do
+  [ -e "$f" ] || continue
   b=$(basename "$f")
   case " $SKIP " in *" $b "*) echo "   skip $b (larger than the ROM)"; continue;; esac
-  riscv-none-elf-gcc -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -DBOARD_SUITE \
-    -I test/asm -c -o "$OUT/one.o" "$f" 2>/dev/null || { echo "   skip $b (does not assemble)"; continue; }
+  ./test/board/compile_program.sh "$f" "$OUT/one.o" 2>/dev/null || { echo "   skip $b (does not assemble)"; continue; }
   n=$(riscv-none-elf-size "$OUT/one.o" | awk 'NR==2{print $1+$2}')
   sizes="$sizes$n $f"$'\n'
 done

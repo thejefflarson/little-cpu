@@ -78,6 +78,7 @@ a -t drain with no time limit is red
 a .sby stating depth twice is refused, since sby searches to the last
 a <retires> argument that is not 1 or 2 is refused
 a C floor copied out of the measured table is rejected, not honoured
+a C suite program that never reports its verdict to the board driver is red
 a CFLAGS change with no rtl/ or soc/compare/ move is STALE too, named by field
 a CONTROL_FIELDS entry wider than a register NUMBER is red
 a CoreMark RAM comparison over no words is named as unable to fail
@@ -147,6 +148,7 @@ a baselined program with no report matching its baseline is red
 a baselined test that starts failing a DIFFERENT way is red
 a baselined upstream file that stopped mentioning it is red
 a bash script piping printf into grep -q is red, and located
+a batch whose C program cannot reach the driver's startup copy is red
 a bench in test/ that make does not run is named
 a bench_*.v file with no ROM_WORDS parameter needs no Makefile entry
 a benchmark this artifact never recorded is refused, not read as fresh
@@ -158,6 +160,7 @@ a block with no end is truncated, and a truncated one is not read
 a bmc .sby stating depth twice is exit 2 here too
 a board search under the 5% margin is refused and pins nothing
 a board suite that sudo-runs a path the check did not resolve is red
+a board_report that does not reach the driver's verdict path is red
 a branch already on this repository stops the bump
 a budget under the phases' worst case that is not refused is red
 a build artifact missing is exit 2, not a probe against nothing
@@ -326,6 +329,7 @@ a fixture that opens its body on the head line is still inspected
 a flash grader that accepts a capture holding only debugger chatter is red
 a flash grader that accepts any FLASH line whatever its id is red
 a flash grader that does not require the SFDP signature is red
+a flash that drops the device argument is red
 a flash wrapper that hands iceprog the caller's environment is red
 a flash wrapper that judges the name given and not the file opened is red
 a flash wrapper that lets iceprog's -r through is red
@@ -333,6 +337,7 @@ a flash wrapper that opens a directory is red
 a flash wrapper that opens a file its caller cannot read is red
 a flash wrapper that opens a path outside build/ is red
 a flash wrapper that passes any -d value to iceprog is red
+a flash wrapper that reports success without VERIFY OK is red
 a flash write taken as loaded without VERIFY OK is red
 a flash write that hangs and still counts as flashed is red
 a flash write that skips the -t drain before it is red
@@ -445,6 +450,7 @@ a macro LEF that does not match its pinned digest is refused
 a macro LEF with no SIZE line is refused, not priced at zero
 a macro in the report that the run did not name is refused, not dropped
 a macro the report does not carry is refused, not priced at zero
+a make prog that flashes without the drain, time limits and verify is red
 a make that fails only under TOOLS_ON_PATH is red, not read as respected
 a malformed baseline line is named rather than skipped
 a malformed baseline line is named rather than skipped
@@ -740,6 +746,7 @@ a run without --vcd passes vvp no +VCD
 a runner that passes but prints no per-program line leaves nothing to compare
 a runner that printed no CS END terminator is a broken harness
 a runner that reports no cycles at all cannot produce a clean table
+a runtime_init that does not run the driver's startup copy is red
 a rvfi_insn_check.sv beside littlecpu's checks.cfg with no #insn-check line is refused
 a script run after a separator on a continuation line is graded too
 a script run inside a make conditional is graded too
@@ -823,6 +830,7 @@ a sudoers rule installed without visudo's check is red
 a suite runner loading before it ejects is red
 a suite runner that flashes without the drain and time limits is red
 a suite runner that grades only the last replay block is red
+a suite runner that never sizes the C programs is red
 a suite runner that packs without -s is red
 a suite script linking against a rom the harness has not got
 a suite with no pono stops before rewriting anything

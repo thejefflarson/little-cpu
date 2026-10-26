@@ -4453,7 +4453,7 @@ begin_group "the board suite's ROM size"
 rom_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/test/board" "$d/test/asm" "$d/soc"
-  cp "$REPO"/test/board/board.lds "$REPO"/test/board/board_suite.S "$REPO"/test/board/build_batch.sh "$d/test/board/"
+  cp "$REPO"/test/board/board.lds "$REPO"/test/board/board_suite.S "$REPO"/test/board/build_batch.sh "$REPO"/test/board/compile_program.sh "$REPO"/test/board/c_start.S "$d/test/board/"
   cp "$REPO"/test/asm/*.S "$REPO"/test/asm/*.h "$d/test/asm/"
   cp "$REPO"/soc/rom_banks.py "$d/soc/"
   cp "$REPO"/Makefile "$d/"
@@ -4613,6 +4613,47 @@ d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
 mutate "$d/run_suite_board.sh" 's/flash_bitstream "\$ICEPROG_BIN"/flash_other "$ICEPROG_BIN"/'
 probe "a suite runner that flashes without the drain and time limits is red" 1 \
   "flashes without flash_bitstream" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
+
+BVD="$BV $REPO/soc/board_verdict.sh $REPO/soc/run_suite_board.sh $REPO/soc/install_board_tools.sh $REPO/soc/run_suite_icesugar.sh"
+
+board_dir_fixture() { local d; d=$(new_case); cp -R "$REPO/test/board" "$d/board"; printf '%s' "$d"; }
+
+d=$(new_case); cp "$REPO/test/asm/datainit.c" "$d/datainit.c"
+mutate "$d/datainit.c" '/^  board_report(tohost_word);$/d'
+probe "a C suite program that never reports its verdict to the board driver is red" 1 \
+  "never calls board_report" "$BVD $REPO/test/board $d/datainit.c"
+
+d=$(board_dir_fixture); mutate "$d/board/c_start.S" 's/^  j     board_next$/  j     1b/'
+probe "a board_report that does not reach the driver's verdict path is red" 1 \
+  "board_report does not reach" "$BVD $d/board"
+
+d=$(board_dir_fixture); mutate "$d/board/c_start.S" 's/^  j     init_memory$/  ret/'
+probe "a runtime_init that does not run the driver's startup copy is red" 1 \
+  "runtime_init does not reach" "$BVD $d/board"
+
+d=$(board_dir_fixture); mutate "$d/board/build_batch.sh" 's/ --redefine-sym "p\${i}_init_memory=init_memory"//'
+probe "a batch whose C program cannot reach the driver's startup copy is red" 1 \
+  "do not link as one batch" "$BVD $d/board"
+
+d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
+mutate "$d/run_suite_board.sh" 's# test/asm/\*\.c##'
+probe "a suite runner that never sizes the C programs is red" 1 \
+  "never sizes the C programs" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
+
+d=$(new_case); cp "$REPO/Makefile" "$d/Makefile"
+mutate "$d/Makefile" 's#ICEPROG_SUDO=.\$(ICEPROG_SUDO). ./soc/flash_board.sh "\$\$bin" \$(BUILD)/board.bin .\$(ICEPROG_DEV).#$(ICEPROG_SUDO) "$$bin" $(BUILD)/board.bin#'
+probe "a make prog that flashes without the drain, time limits and verify is red" 1 \
+  "make prog flashes without" "$BVD $REPO/test/board $REPO/test/asm/datainit.c $d/Makefile"
+
+d=$(new_case); cp "$REPO/soc/flash_board.sh" "$d/flash_board.sh"
+mutate "$d/flash_board.sh" 's/^if \[ "\$rc" != 0 \]; then/if false; then/'
+probe "a flash wrapper that reports success without VERIFY OK is red" 1 \
+  "succeeded on a write that never verified" "$BVD $REPO/test/board $REPO/test/asm/datainit.c $REPO/Makefile $d/flash_board.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/\${dev:+-d "\$dev"} //g'
+probe "a flash that drops the device argument is red" 1 \
+  "dropped the device" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/if (ok) { print "I"/if (1) { print "I"/'

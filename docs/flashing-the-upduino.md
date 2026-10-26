@@ -91,7 +91,10 @@ advice to run `kextunload` is out of date and `kextstat` lists nothing.
 programs passed, 0 failed, 0 without a report, in eight batches** of 4, 6, 7, 7, 10, 13, 20 and 12, every
 batch on the first flash and the first read. Each read opened with its own `B<batch> <count>` tag. The
 runner skips `rvc.S` (12,256 bytes against the 8,192-byte ROM), so the run covers 79 of the 80 `.S` files
-in `test/OBSERVED_FLOOR`; the manifest's one `.c` program, `datainit.c`, is outside the board runner's `.S` glob.
+in `test/OBSERVED_FLOOR`. The manifest's one `.c` program, `datainit.c`, joins a batch too: the runner builds it as
+`soc-rom` does and links `test/board/c_start.S` beside it, which gives it an entry, the driver's startup copy as
+`runtime_init`, and `board_report`, the hook that hands its verdict word to the driver in place of the unread `tohost`.
+With it the run reads 80 of 80, and `make prog` flashes through the same `flash_bitstream`.
 The whole run was through the root-owned `lc-flash` and `lc-uart` wrappers under `sudo`, their first
 use on the board, and both worked: eight bitstream writes (7 to 9 s each) and eight reads, no password.
 
