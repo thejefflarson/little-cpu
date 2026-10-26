@@ -4676,26 +4676,6 @@ probe "a suite runner that packs without -s is red" 1 \
   "packs without -s" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
-mutate "$d/board_verdict.sh" 's/if (ok) { print "I"/if (1) { print "I"/'
-probe "a replay frame check that counts a damaged block as intact is red" 1 \
-  "a damaged last block hid an intact passing one" "$BV $d/board_verdict.sh"
-
-d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
-mutate "$d/board_verdict.sh" 's/if \[ -z "\$failing" \] && ! block_all_pass "\$cur"; then failing=\$cur; fi/:/'
-probe "a grader that lets an earlier passing block hide an intact failing one is red" 1 \
-  "an intact failing block was not preferred" "$BV $d/board_verdict.sh"
-
-d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
-mutate "$d/run_suite_board.sh" 's/grade_blocks "\$raw"/uart_last_block "$raw"/'
-probe "a suite runner that grades only the last replay block is red" 1 \
-  "grades something other than every replay block" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
-
-d=$(new_case); cp "$REPO/soc/run_suite_board.sh" "$d/run_suite_board.sh"
-mutate "$d/run_suite_board.sh" 's/icepack -s /icepack /'
-probe "a suite runner that packs without -s is red" 1 \
-  "packs without -s" "$BV $REPO/soc/board_verdict.sh $d/run_suite_board.sh"
-
-d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/8#022/8#000/'
 probe "a root-binary check that ignores group and world write is red" 1 \
   "writable file: got accept" "$BV $d/board_verdict.sh"
