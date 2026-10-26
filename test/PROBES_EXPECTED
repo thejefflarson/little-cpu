@@ -55,6 +55,7 @@ RISCV_FORMAL_E live with a real-core ill_e.sv and no wrong-rule probe label is r
 RISCV_FORMAL_E live with an ill_e.sv that does not instantiate the real core is red
 RISCV_FORMAL_E live with no ill_e.sv is red
 RVC_TEST_CASE inherits TEST_CASE's guard rather than bypassing it
+SCK driven on the request, not on the grant, is red against a host holding the select
 TEST_CASE refuses s1 (== x9) as testreg too
 TEST_CASE refuses x9 as testreg, named at the assembler
 TEST_CASE_D32 refuses a5 (== x15) as testreg1 too
@@ -125,6 +126,8 @@ a SoC with no SPI controller at all does not pass by silence
 a SoC with no UART at all does not pass by silence
 a UART base off its own window is red
 a UART summary line that skips the display filter is red
+a UART that ignores a host's select and drives pin 14 into the host is red
+a UART that returns the cycle the chip select reads high, with no synchroniser, is red
 a UART wrapper that accepts a second argument is red
 a UART wrapper with no upper bound is red
 a VCO outside the range the part locks over is red
@@ -197,6 +200,7 @@ a checkout that leaves the token in .git/config is red
 a checks directory that is not there is refused
 a checks directory that was never generated is named, not treated as empty
 a checks.cfg with no #derive G is refused by name, not a traceback
+a chip select driven on the request, not on the grant, is red against a host holding the select
 a class-wide predicate over an opcode the pin partly models is rejected
 a classification naming a port the netlist has never seen is red
 a clock factor and a cycle factor measured with different tools are not a product
@@ -262,6 +266,7 @@ a decoder.v that does not exist is exit 2, not a vacuous pass
 a depth line outside [options] is not the depth sby searches
 a depth line this cannot parse leaves the tie unenforced, so it stops instead
 a depth one below the floor is red, naming F and G
+a deselect that floats the chip select instead of driving it high first is red
 a design entry missing area/num_cells/by_type is refused, not read as what is left
 a design that MET the target has measured the target
 a design whose Makefile is gone is exit-nonzero, not skipped
@@ -431,6 +436,7 @@ a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
 a lock left by a dead holder never reclaimed is red
 a lock taken from a live holder is red
+a lockout that is always busy never bounds an idle grant
 a log naming no reached goal is exit 2
 a log that names no cover statement is exit 2, not a goal set of none
 a log with no ABC stime Delay line is refused
@@ -582,6 +588,7 @@ a per-attempt load bound of ten minutes is red
 a periodicity limit no pattern can reach is red
 a periodicity scan that reads drift as a repeating pattern is red
 a peripheral inside the timer's reserved span is red
+a pin 14 that never carries the controller's data is red
 a pin file that does not exist is refused, not read as absent-is-fine
 a pin that makes another check read rvfi_intr is red
 a pin that models an interrupt CSR makes the tie-off an argument again
@@ -979,6 +986,7 @@ an explicit BOARD_SEED bypasses the pin and reaches nextpnr
 an extra flag riding in on DHRY_BOARD_EXTRA_DEFINES is red
 an fmax entry that stopped carrying both halves is refused, not read
 an iCESugar suite summary line that skips the display filter is red
+an idle bound shorter than the gap compiled firmware leaves between bytes is red
 an ignored opponent clone gaining an uncommitted change refuses to stamp
 an ignored opponent clone moving to another commit refuses to stamp
 an ill_e cover that cannot go red is not a control
@@ -1257,6 +1265,7 @@ control: the shipping executor reaches x_busy only through its one gate
 control: the shipping fetchqueue passes its own bench
 control: the shipping files describe one machine
 control: the shipping fixtures are all mutate/mutate_remove, every anchor holds
+control: the shipping flash_share passes its own bench
 control: the shipping harness reaches every goal and the stalled-bus mutant reaches none
 control: the shipping harness states one geometry
 control: the shipping harnesses tie off, both directions
