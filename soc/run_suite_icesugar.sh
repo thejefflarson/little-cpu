@@ -127,8 +127,7 @@ while read -r progs; do
     [ "$attempt" = 1 ] && echo "   port:  $(grep -m1 '^board_read: ' "$OUT/read.log" | display_safe)"
     grep -q '^\*\*\* .*serial nodes' "$OUT/read.log" && display_safe < "$OUT/read.log" | sed 's/^/      /'
     raw=$(cat "$RAWDIR/batch$i.attempt$attempt.txt" 2>/dev/null)
-    block=$(printf '%s' "$raw" | uart_last_block)
-    block_tag_ok "$block" "$i" "$want" || block=""
+    grade_blocks "$raw" "$i" "$want"; block=$BLOCK
     got=$(printf '%s' "$block" | grep -c '^[0-9]' || true)
     echo "   read:  $got of $want verdicts (attempt $attempt)"
     [ "$got" -ge "$want" ] && break

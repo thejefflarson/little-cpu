@@ -107,10 +107,12 @@ board_next:
 
 all_done:
 all_done_loop:
+  li    s7, 0                      /* running byte sum of the replay */
   la    s6, board_tag
 12:
   lbu   a0, 0(s6)
   beqz  a0, 13f
+  add   s7, s7, a0
   jal   ra, put_wire               /* names the batch this replay belongs to */
   addi  s6, s6, 1
   j     12b
@@ -123,10 +125,26 @@ all_done_loop:
   bgeu  s2, s1, 7f
   add   a0, s0, s2
   lbu   a0, 0(a0)
+  add   s7, s7, a0
   jal   ra, put_wire               /* wire only: re-buffering would grow it */
   addi  s2, s2, 1
   j     6b
 7:
+  // The sum's low 16 bits, four hex digits: a digit the wire changed leaves the sum wrong.
+  li    s8, 12
+14:
+  srl   a0, s7, s8
+  andi  a0, a0, 15
+  addi  a0, a0, 48
+  li    t0, 58
+  blt   a0, t0, 15f
+  addi  a0, a0, 39
+15:
+  jal   ra, put_wire
+  addi  s8, s8, -4
+  bgez  s8, 14b
+  li    a0, 10
+  jal   ra, put_wire
   li    a0, 46                     /* '.', end of one replay */
   jal   ra, put_wire
   li    a0, 10
