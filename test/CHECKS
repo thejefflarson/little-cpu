@@ -5,6 +5,9 @@
 # simulators read, once, so that no two rows regenerate them at the same time. sim and nano-sim
 # are marked !always because make's own timestamps already decide whether they rebuild.
 gen-inputs | fast | - | - | !always | make -s rvfi_macros.vh test/monitor.sim.v
+# A free slot takes rows in file order, so the longest check that can start early sits here: placed
+# last, it would start after everything else and run nearly alone.
+nano-qspi-loop-probe | full | - | gen-inputs | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
 sim | fast | - | gen-inputs | !always
 nano-sim | fast | - | gen-inputs | !always
 #
@@ -90,4 +93,3 @@ checks-manifest-test | fast | - | - | @all test/checks_manifest_test.py test/che
 # make test: they take most of the wall time and prove the graders above can fail, which a
 # change to one grader's inputs does not need re-proving on every local run.
 probe-gates | full | - | gen-inputs | @all !slots=PROBE_SHARDS:8 test/probe_gates.sh test/PROBES_EXPECTED
-nano-qspi-loop-probe | full | - | gen-inputs | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk

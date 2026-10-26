@@ -53,9 +53,9 @@ run_mutation() {  # <label> <shapes> <sed-expr> <expected-text>
 }
 
 launch() {
+  while [ "$(jobs -rp | wc -l)" -ge "$jobs" ]; do sleep 0.5; done
   launched=$((launched + 1))
   { rc=0; ( run_mutation "$@" ) > "$tmp/out.$launched" 2>&1 || rc=$?; echo "$rc" > "$tmp/status.$launched"; } &
-  if [ $((launched % jobs)) -eq 0 ]; then wait; fi
 }
 
 report_mutations() {
