@@ -45,6 +45,8 @@ minstret.S     EXCLUDED CSR
 mseccfg.S      EXCLUDED CSR (mseccfg), trap handler
 mtimer.S       EXCLUDED machine timer, CSR
 mtimermask.S   EXCLUDED machine timer, CSR
+mtvecirq.S     EXCLUDED machine timer, CSR
+mtvecmode.S    EXCLUDED CSR (trap handler)
 mul.S          EXCLUDED M extension
 mulh.S         EXCLUDED M extension
 mulhsu.S       EXCLUDED M extension

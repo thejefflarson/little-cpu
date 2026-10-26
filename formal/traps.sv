@@ -583,9 +583,9 @@ module traps #(
   assign csr_rdata_hi = csr_rdata[12:11];
   assign prev_rdata_bit3 = prev_rdata[3];
   assign prev2_rdata_bit7 = prev2_rdata[7];
-  logic [1:0] mtvec_lo;
-  logic       mepc_bit0;
-  assign mtvec_lo = mtvec_value[1:0];
+  logic       mtvec_mode_reserved, mtvec_vector_misaligned, mepc_bit0;
+  assign mtvec_mode_reserved     = mtvec_value[1];
+  assign mtvec_vector_misaligned = mtvec_value[0] && |mtvec_value[5:2];
   assign mepc_bit0 = mepc_value[0];
   logic        decoder_out_valid;
   logic [4:0]  decoder_out_rd;
@@ -631,7 +631,10 @@ module traps #(
                   !prev_csr_wen && !prev_written_by_trap)
     assert(csr_rdata == prev_rdata);
 
-  always_comb if (settled2 && prev2_trap_entry) assert(fetch_pc == prev2_mtvec);
+  always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_entry)
+    assert(fetch_pc == {prev2_mtvec[31:2], 2'b00});
+  always_comb if (settled2 && prev2_interrupt_entry)
+    assert(fetch_pc == {prev2_mtvec[31:2], 2'b00} + (prev2_mtvec[0] ? 32'h1C : 32'h0));
   always_comb if (settled2 && prev2_mret_entry) assert(fetch_pc == prev2_mepc);
 
   always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_dx_pc_hi, 1'b0});
@@ -754,7 +757,8 @@ module traps #(
  `endif
 
  `ifdef TRAPS_CHECK_PC
-  always_comb if (clocked) assert(mtvec_lo == 2'b00);
+  always_comb if (clocked) assert(!mtvec_mode_reserved);
+  always_comb if (clocked) assert(!mtvec_vector_misaligned);
   always_comb if (clocked) assert(mepc_bit0 == 1'b0);
   always_comb if (clocked && mstatus_addressed) assert(csr_rdata_hi == 2'b11);
  `endif

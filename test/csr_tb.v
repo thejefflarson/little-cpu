@@ -278,8 +278,16 @@ module csr_tb;
     ren = 1'b0;
     check_read("wen low leaves mscratch alone", 12'h340, 32'hdead_beef);
 
+    poke(12'h305, 32'h0000_0100);
     poke(12'h305, 32'h0000_0103);
-    check_read("mtvec masks bits [1:0]", 12'h305, 32'h0000_0100);
+    check_read("mtvec reads a reserved MODE 3 back as vectored", 12'h305, 32'h0000_0101);
+    poke(12'h305, 32'h0000_0102);
+    check_read("...and MODE 2 as direct", 12'h305, 32'h0000_0100);
+    poke(12'h305, 32'h0000_01fc);
+    check_read("a direct-mode write keeps BASE[5:2]", 12'h305, 32'h0000_01fc);
+    poke(12'h305, 32'h0000_01fd);
+    check_read("a vectored write aligns BASE to 64 bytes", 12'h305, 32'h0000_01c1);
+    poke(12'h305, 32'h0000_0100);
     // Bit 1 of mepc is a legal value, because C makes 2-byte targets legal, so masking it
     // too would be a bug rather than extra safety.
     poke(12'h341, 32'h0000_0103);

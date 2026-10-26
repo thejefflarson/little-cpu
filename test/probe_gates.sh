@@ -6742,6 +6742,66 @@ d=$(tr_fixture); mutate "$d/formal/components.sby" 's/^traps:$/trapsx:/'
 probe "a renamed task stops this probe rather than moving its control" 2 \
   "block under [script]" "$(tts "$d")"
 
+begin_group "formal/traps-vector-probe.py"
+
+TV="python3 $REPO/formal/traps-vector-probe.py"
+
+cat > "$tmp/sby-vector-stub" <<'STUB'
+#!/bin/sh
+# Stands in for sby: the case is the name of the directory it runs in, and the assertion
+# line is read out of the copy of traps.sv it was handed.
+mkdir -p probe
+line=$(grep -n "assert(fetch_pc == {prev2_mtvec\[31:2\], 2'b00} + (prev2_mtvec" src/traps.sv | cut -d: -f1)
+case $(basename "$PWD") in
+  control)    status=${STUB_VEC_CONTROL:-PASS} ;;
+  to-base)    status=${STUB_VEC_BASE:-FAIL}; line=${STUB_VEC_BASE_LINE:-$line} ;;
+esac
+: > probe/logfile.txt
+if [ "$status" = FAIL ]; then
+  echo "SBY [probe] engine_0.basecase: Assert failed in traps: traps.sv:$line.5-$line.36" \
+    > probe/logfile.txt
+fi
+[ -n "${STUB_VEC_NO_STATUS:-}" ] && exit 1
+echo "$status 2 0" > probe/status
+STUB
+chmod +x "$tmp/sby-vector-stub"
+
+tvs() { printf "%s --repo %s --workdir %s/work --sby %s" "$TV" "$1" "$1" "$tmp/sby-vector-stub"; }
+
+d=$(tr_fixture)
+probe "control: the vectored arm proves for the shipping core and fails on the target" 0 \
+  "proves for the shipping core and fails on the target" "$(tvs "$d")"
+
+d=$(tr_fixture)
+probe "a model that cannot prove the shipping core makes the vectored red meaningless" 1 \
+  "the shipping core does not prove" "STUB_VEC_CONTROL=FAIL $(tvs "$d")"
+
+d=$(tr_fixture)
+probe "an arm that admits an interrupt entering at BASE under a vectored mtvec is red" 1 \
+  "the to-base core proves" "STUB_VEC_BASE=PASS $(tvs "$d")"
+
+d=$(tr_fixture)
+probe "a proof going red somewhere else is not evidence about the vectored arm" 1 \
+  "not at line" "STUB_VEC_BASE_LINE=9 $(tvs "$d")"
+
+d=$(tr_fixture)
+probe "a solver that wrote no verdict is exit 2, not a red vectored arm" 2 \
+  "wrote no status for the" "STUB_VEC_NO_STATUS=1 $(tvs "$d")"
+
+d=$(tr_fixture); mutate "$d/formal/traps.sv" \
+  "s/prev2_mtvec\[0\] ? 32'h1C/prev2_mtvec[0] ? 32'h1D/"
+probe "a respelled vectored comparison stops rather than pinning nothing" 2 \
+  "0 times" "$(tvs "$d")"
+
+d=$(tr_fixture); mutate "$d/rtl/executor.v" \
+  "s/assign vector_offset = interrupt_pending/assign vector_offset = take_interrupt/"
+probe "a respelled offset term stops rather than proving the shipping core" 2 \
+  "no longer spells its vector mux" "$(tvs "$d")"
+
+d=$(tr_fixture); rm "$d/formal/traps.sv"
+probe "the model moving away takes the vectored probe with it" 2 \
+  "formal/traps.sv is missing from" "$(tvs "$d")"
+
 begin_group "soc/netlist_digest.py"
 
 ND="python3 $REPO/soc/netlist_digest.py"
