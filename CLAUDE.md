@@ -1286,8 +1286,9 @@ programmed by loading SRAM over JTAG — a flash write leaves the part unconfigu
 power-cycled. SPRAM cannot be initialised, so `.data` rides in
 the ROM at a load
 address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before `main`. Still
-deferred: the radix-4 divider (a CPI lever that costs area, so never part of an area pass,
-ADR-0038), booting a program out of the flash, an interrupt controller, more interrupt sources. Forwarding ships as X's own mux (ADR-0222); the fused decoder's full network
+deferred: booting a program out of the flash, an interrupt controller and more interrupt sources.
+The radix-4 divider is cancelled rather than deferred: neither part has the area for it without
+building the two parts from different sources (ADR-0038, amended). Forwarding ships as X's own mux (ADR-0222); the fused decoder's full network
 is among the retired fetch-loop dead ends under Measurements.
 
 **The ECP5 holds 16 KB of text, and that is where CoreMark reaches a board** (ADR-0165).
