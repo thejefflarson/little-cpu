@@ -127,3 +127,41 @@ are the `@all` scanners at 1 to 3 seconds each.
 - **Keying every check on a hand-written file list.** The twenty-odd scanners that read the whole
   repository and finish in a second or two are keyed on everything (`@all`); a precise list for
   them is a chance to be wrong in exchange for a second saved.
+
+## Amendment (2026-10-25): the long tail is serial, so start it first and shard the sweep wider
+
+The fix that cut the loop-probe from 42 to 15 simulations read 726 s on one run. Six runs of
+`make test-full` on `main` the same day read **1,078 / 1,260 / 1,369 / 1,027 / 1,316 / 1,268 s** of
+checks wall (median 1,264 s; the `test` job as a whole 1,091 to 1,431 s, median 1,366 s), the same
+range as before it. Reading each run's per-check lines shows why: the wall is the sum of two phases,
+not the longest check. `nano-qspi-loop-probe` was the last row of `test/CHECKS`, so it started about
+five minutes in; `probe-gates` weighs `PROBE_SHARDS` slots, clamped to `TEST_JOBS`, so it holds all
+three and starts only when everything else has finished. Total slot-seconds divided by three came to
+about 90% of the wall, so the job is bound by the sum, and the two sweeps are about three quarters of
+the sum (`probe-gates` 574 s median at three slots, `nano-qspi-loop-probe` 383 s at two processes).
+
+Three changes, none of which touches what a probe checks (`test/PROBES_EXPECTED` is unchanged and
+`make test-full` passes with every label reached):
+
+- `nano-qspi-loop-probe` is the row after `gen-inputs`, so a free slot takes it first and it overlaps
+  the rest of the suite instead of following it.
+- Its mutants run from a pool kept at `NANO_PROBE_JOBS` rather than in batches with a `wait` between
+  them, so one slow mutant no longer idles the other slot.
+- CI shards `probe-gates` six ways (`PROBE_SHARDS=6`). A local run of the sweep spent 764 s of user
+  and 722 s of system CPU in 512 s of wall at six shards, 290% of a core, and the three shards of a
+  three-way split took 723, 930 and 838 s: its groups wait on sleeps and child processes, so more
+  shards than slots fill otherwise idle time. The weight stays clamped to `TEST_JOBS`.
+
+| `make test-full` checks wall, CI | runs | median | range |
+|---|---|---|---|
+| before (six `main` runs, `PROBE_SHARDS=3`) | 1,078 / 1,260 / 1,369 / 1,027 / 1,316 / 1,268 | 1,264 s | 1,027 to 1,369 s |
+| after (six attempts of one PR run) | 831 / 1,060 / 779 / 982 / 1,003 / 774 | 907 s | 774 to 1,060 s |
+
+`probe-gates` read 461 s median (was 574), `nano-qspi-pins-test` 182 s (241) and `sim` 140 s (184).
+`nano-qspi-loop-probe` itself read 448 s (383): it now shares the pod with the rest of the suite, which
+is the point. Two cautions on the figures. The first attempt ran beside the PR's other twenty jobs, as
+the `main` runs did, and read 831 s; the five reruns re-ran the `test` job alone, on a quieter node, so
+the median above is lower than a like-for-like median would be. And the `test` job's own wall adds
+setup that this change does not touch: the first attempt spent 565 s before `make test-full` began
+(five of them restoring the compiler cache) against about 120 s on `main`, so the whole job read 1,454
+s on that attempt and a median of 1,205 s over the six, against 1,366 s on `main`.
