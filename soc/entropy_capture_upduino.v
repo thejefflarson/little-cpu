@@ -13,7 +13,7 @@ module entropy_capture_upduino #(
   input  logic clk_pin,
   output logic ledr_n,
   output logic ledg_n,
-  inout  wire  spi_miso_txd,
+  inout  wire  spi_mosi_txd,
   inout  wire  spi_ssn
 );
   localparam integer CLOCK_HZ = 12_000_000;
@@ -88,7 +88,7 @@ module entropy_capture_upduino #(
   localparam logic [5:0] SHARED_PIN = 6'b1010_01;
 
   SB_IO #(.PIN_TYPE(SHARED_PIN), .PULLUP(1'b1)) io_miso_txd (
-    .PACKAGE_PIN(spi_miso_txd),
+    .PACKAGE_PIN(spi_mosi_txd),
     .OUTPUT_ENABLE(miso_enable),
     .D_OUT_0(uart_tx),
     .D_IN_0()

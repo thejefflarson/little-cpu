@@ -1,6 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-module pin_lockout (
+module pin_lockout #(
+  parameter int IDLE_LIMIT = 16
+) (
   input  logic clk,
   input  logic want,
   input  logic busy,
@@ -8,10 +10,8 @@ module pin_lockout (
   input  logic release_in,
   output logic grant
 );
-  localparam int IDLE_LIMIT = 16;
-
   logic sync0, released;
-  logic [3:0] idle_count;
+  logic [$clog2(IDLE_LIMIT)-1:0] idle_count;
 
   assign grant = want && released;
 

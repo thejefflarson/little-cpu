@@ -19,6 +19,15 @@ V3.0 SILKSCREEN ERRATUM: the GND and 12M labels on the header are swapped. The d
 drawing is right and the board is wrong. This file constrains the FPGA pin, so it is
 unaffected -- but anything probed by the labels is not.
 
+PINS 14 TO 17 ARE THE FLASH'S AND THE FT232H'S AT ONCE. Per tinyVision.ai's UPduino_v3.0.sch (Rev 3.0
+v0.1, read 2026-10-25): FT232H ADBUS0 is on pin 15 (`SPI_SCK`, the flash's CLK) and ADBUS4 on pin 16
+(`SPI_SS`, the flash's CS, 10 kohm pull-up R8), both direct wires; ADBUS1 is on the flash's DI and on
+pin 14 (`SPI_SO`) through R12, 0 ohm; ADBUS2 is on the flash's DO and on pin 17 (`SPI_SI`) through
+R13, 0 ohm. The names here are `spi_mosi_txd` (14), `spi_sck` (15), `spi_ssn` (16), `spi_miso` (17).
+In UART mode only ADBUS1 (RXD) is an input, so TXD, RTS# and DTR# drive pins 15, 17 and 16 and a
+controller transaction fights them with no series resistance (`docs/adr/0135`'s last amendment).
+This repository called 14 the flash's MISO until the pin was read off the board.
+
 ## `soc/littlesoc.pcf` -- The SoC on the iCEBreaker pinout (ice40 up5k, sg48)
 
 Pin constraints for rtl/littlesoc.v on an ice40 up5k in an sg48 package.

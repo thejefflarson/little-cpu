@@ -12,7 +12,7 @@ sim | fast | - | gen-inputs | !always
 nano-sim | fast | - | gen-inputs | !always
 #
 # The simulators and the benches built on them.
-test-units | fast | - | gen-inputs | rtl/ test/ soc/miso_share_enable.v soc/pin_lockout.v Makefile mk/ formal/pin.mk
+test-units | fast | - | gen-inputs | rtl/ test/ soc/miso_share_enable.v soc/pin_lockout.v soc/flash_share.v Makefile mk/ formal/pin.mk
 suite-test | fast | - | sim | rtl/ test/ Makefile mk/ formal/pin.mk
 nano-test | fast | - | nano-sim | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
 nano-startup-test | fast | - | nano-sim | nano/ test/ soc/compare/dhry_monitor.v Makefile mk/ formal/pin.mk
