@@ -1,8 +1,6 @@
 # See LICENSE for license details.
 
-// mtvec's MODE field: exceptions enter at BASE in both modes. No timer is involved, so
-// the reference model compares every retire here. mtvecirq.S holds the reserved-MODE
-// writes, where the model keeps the old MODE and this core reads MODE 0 or 1.
+// Exceptions enter at BASE under both MODEs; no timer, so Sail compares every retire.
 
 #include "riscv_test.h"
 #include "test_macros.h"
@@ -33,7 +31,6 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 5, a4, 11, la a3, trap_cause; lw a4, 0(a3); )
   TEST_CASE( 6, a4, 2, la a3, trap_count; lw a4, 0(a3); )
 
-  // A direct-mode write takes effect and exceptions still enter at BASE.
   TEST_CASE( 7, a0, 1, \
     la t0, vec_table; csrw mtvec, t0; \
     csrr a1, mtvec; sub a1, a1, t0; seqz a0, a1; )
