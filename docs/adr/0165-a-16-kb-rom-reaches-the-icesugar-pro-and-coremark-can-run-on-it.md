@@ -152,3 +152,22 @@ built and its output read back, matching ADR-0163's own division of labour
 between what a development machine can confirm and what only the part can.
 **The board run — the actual DMIPS-style self-check line off real silicon —
 is a follow-up this ADR does not close.**
+
+## Amendment, 2026-10-27
+
+The up5k CoreMark image (`make coremark-rom-up5k`) has now run on an UPduino v3.0, and its cycle
+count equals cxxrtl's for the same ELF. The two run one file, `build/coremark_up5k.elf`, so no
+build difference exists to name; `make coremark-up5k-sim` produces the simulated report and
+`make coremark-board-compare` grades the board's `lc-uart` capture against it.
+
+- Image: 7,104 bytes of the 8 KB ROM, xPack `riscv-none-elf-gcc` 15.2.0-1,
+  `COREMARK_UP5K_CFLAGS` (`-Os -flto`), linked by `test/bench/bench.lds`, 800 iterations,
+  `BOARD_OSC=internal` (this board's crystal jumper is open).
+- Result: 405,425,274 cycles on the board and in cxxrtl, `Self-check: PASS`, CRCs validated
+  (list `0xe714`, matrix `0x1fd7`, state `0x8e3a`, final `0xcc42`), 33.8 s at 12 MHz so the
+  ">=10 secs" rule is met for real.
+- Figures: 1.973 CoreMark/MHz and 23.68 CoreMark at 12 MHz.
+
+The 1.776 CoreMark/MHz and 6,996-byte figures that CLAUDE.md carried for this image were measured
+before the fetch refactor and are superseded by the numbers above; they describe a pipeline that
+no longer exists. The iCESugar-Pro board run this ADR left open is not closed by this amendment.

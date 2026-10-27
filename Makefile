@@ -757,6 +757,10 @@ lut4-site-test:
 dhry-board-parity-test:
 	@./test/dhry_board_parity_test.sh
 
+.PHONY: coremark-board-compare-test
+coremark-board-compare-test:
+	@./test/coremark_board_compare_test.sh
+
 .PHONY: board-verdict-test
 board-verdict-test:
 	@./test/board_verdict_test.sh
@@ -834,7 +838,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
                icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test entropy-upduino-test \
                nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
-               dhry-board-parity-test board-verdict-test board-sudoers-test board-wrappers-test nano-test nano-startup-test \
+               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test nano-test nano-startup-test \
                macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
@@ -1476,29 +1480,46 @@ coremark-rom-ecp5: coremark-pin-check
 	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
 
-.PHONY: coremark-rom-up5k
-coremark-rom-up5k: coremark-pin-check
+COREMARK_UP5K_ELF := $(BUILD)/coremark_up5k.elf
+COREMARK_UP5K_SRCS := $(wildcard $(COREMARK_VENDOR_DIR)/*.c) test/bench/coremark_port.c \
+                      test/bench/core_portme.h $(COREMARK_VENDOR_DIR)/coremark.h test/crt0.S test/bench/bench.lds
+
+$(COREMARK_UP5K_ELF): $(COREMARK_UP5K_SRCS) Makefile | $(BUILD)
+	@$(MAKE) --no-print-directory coremark-pin-check
 	@set -e; \
 	CC=riscv-none-elf-gcc; \
 	command -v $$CC >/dev/null 2>&1 || CC=""; \
 	if [ -z "$$CC" ]; then echo "error: no RISC-V cross compiler; see \`make setup\`." >&2; exit 1; fi; \
-	OBJCOPY=$${CC%gcc}objcopy; \
-	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/coremark-rom.XXXXXX"); \
-	test -n "$$tmp" -a -d "$$tmp"; \
-	trap 'rm -rf "$$tmp"' EXIT; \
 	flags='$(COREMARK_UP5K_CFLAGS)'; \
 	$$CC $$flags -I test/bench -I $(COREMARK_VENDOR_DIR) \
 	  -DITERATIONS=$(COREMARK_UP5K_ITERATIONS) -DCOREMARK_HZ=$(COREMARK_HZ) \
 	  -DCOREMARK_UART=$(DHRY_UART_BASE) "-DCOREMARK_FLAGS=\"$$flags\"" \
-	  -nostdlib -T test/bench/bench.lds -o "$$tmp/coremark.elf" \
+	  -nostdlib -T test/bench/bench.lds -o $@ \
 	  test/crt0.S test/bench/coremark/core_list_join.c \
 	  test/bench/coremark/core_main.c test/bench/coremark/core_matrix.c \
 	  test/bench/coremark/core_state.c test/bench/coremark/core_util.c \
-	  test/bench/coremark_port.c; \
-	$$OBJCOPY -O verilog --verilog-data-width=4 -j .text -j .data \
-	  "$$tmp/coremark.elf" "$$tmp/rom.hex"; \
-	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
+	  test/bench/coremark_port.c
+
+.PHONY: coremark-rom-up5k
+coremark-rom-up5k: $(COREMARK_UP5K_ELF)
+	@set -e; \
+	riscv-none-elf-objcopy -O verilog --verilog-data-width=4 -j .text -j .data \
+	  $(COREMARK_UP5K_ELF) $(BUILD)/coremark_up5k.rom.hex; \
+	python3 soc/rom_banks.py $(BUILD)/coremark_up5k.rom.hex soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
+
+COREMARK_UP5K_SIM_CYCLES ?= 700000000
+
+.PHONY: coremark-up5k-sim
+coremark-up5k-sim: sim $(COREMARK_UP5K_ELF)
+	@./test/bench/run_coremark_up5k_sim.sh ./sim $(COREMARK_UP5K_ELF) $(COREMARK_UP5K_SIM_CYCLES) \
+	  $(BUILD)/coremark_up5k.sim.log
+
+COREMARK_BOARD_LOG ?= $(BUILD)/coremark_up5k.board.log
+
+.PHONY: coremark-board-compare
+coremark-board-compare:
+	@./test/bench/coremark_board_compare.sh $(BUILD)/coremark_up5k.sim.log $(COREMARK_BOARD_LOG)
 
 .PHONY: coremark-board
 coremark-board:

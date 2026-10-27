@@ -4571,6 +4571,53 @@ mutate "$d/test/bench/dhry_port.c" 's/#ifdef DHRY_UART/#ifdef DHRY_UART_NEVER_DE
 probe "DHRY_UART no longer gating any code in dhry_port.c is red" 1 \
   "dhry_port.o came out byte-identical" "$DP $d"
 
+begin_group "test/bench/coremark_board_compare.sh"
+
+CB="$HERE/bench/coremark_board_compare.sh"
+
+cb_report() {  # $1 = cycles, $2 = verdict
+  printf 'Cycles         : %s\nIterations     : 800\nSelf-check     : %s\n' "$1" "$2"
+}
+
+cb_fixture() {  # $1 = board cycles, $2 = board verdict
+  local d; d=$(new_case)
+  cb_report 450000123 PASS > "$d/sim.log"
+  cb_report "$1" "$2" > "$d/board.log"
+  printf '%s' "$d"
+}
+
+d=$(cb_fixture 450000123 PASS)
+probe "control: equal CoreMark cycles and PASS in both is green" 0 \
+  "coremark board matches cxxrtl" "$CB $d/sim.log $d/board.log"
+
+d=$(cb_fixture 450000124 PASS)
+probe "a board CoreMark one cycle off the simulation is red" 1 \
+  "timed cycles differ" "$CB $d/sim.log $d/board.log"
+
+d=$(cb_fixture 450000123 FAIL)
+probe "a board CoreMark whose self-check failed is red" 1 \
+  "the board run's self-check read FAIL" "$CB $d/sim.log $d/board.log"
+
+d=$(cb_fixture 450000123 PASS)
+printf 'Cycles         : 450000123\nIterations     : 800\n' > "$d/board.log"
+probe "a board report cut off before its verdict is red" 1 \
+  "holds no complete CoreMark report" "$CB $d/sim.log $d/board.log"
+
+d=$(cb_fixture 450000123 PASS)
+cb_report 450000999 PASS >> "$d/board.log"
+probe "a board capture whose repeated reports disagree is red" 1 \
+  "disagree with each other" "$CB $d/sim.log $d/board.log"
+
+d=$(cb_fixture 450000123 PASS)
+: > "$d/board.log"
+probe "an empty board capture is red" 1 \
+  "is missing or empty" "$CB $d/sim.log $d/board.log"
+
+d=$(cb_fixture 450000123 PASS)
+mutate "$d/sim.log" 's/800/400/'
+probe "a board run at a different iteration count is red" 1 \
+  "iteration counts differ" "$CB $d/sim.log $d/board.log"
+
 begin_group "test/board_verdict_test.sh" spread
 
 BV="$HERE/board_verdict_test.sh"
