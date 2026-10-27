@@ -78,6 +78,6 @@ ELSEWHERE <name> <baseline>   an input tied to a constant at every harness
                               declared tie-off from an undeclared one.
 ```
 
-The `ELSEWHERE irq_timer INTERRUPT_TIE_OFF` line names the interrupt only so
-the sweep for undeclared tie-offs has one set to compare against; it is tied
-off for its own reasons in its own baseline.
+The `ELSEWHERE` lines for `irq_timer` and `irq_software` name the interrupts only so
+the sweep for undeclared tie-offs has one set to compare against; they are tied
+off for their own reasons in its own baseline.

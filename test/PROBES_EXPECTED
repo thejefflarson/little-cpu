@@ -403,6 +403,7 @@ a harness directory with no checks.cfg is named, not measured as empty
 a harness named both HARNESS and FREE is red
 a harness that is red at rest makes the two mutations meaningless
 a harness that is red at rest makes the two mutations meaningless
+a harness that leaves the software interrupt line free is red
 a harness with no data RAM at all does not pass by silence
 a harness with no line in the baseline is red
 a harness with no line in the baseline is red
@@ -614,6 +615,7 @@ a product named for a core with no configuration label is refused
 a program both exempt and paired is red
 a program that stopped assembling is ASSEMBLE-ERROR
 a program that went quiet is BELOW-FLOOR on retires
+a proof going red elsewhere on the software mutation is no evidence either
 a proof going red somewhere else is not evidence about the mtval arm
 a proof going red somewhere else is not evidence about the vectored arm
 a prose copy of a band figure goes red where it is written
@@ -944,6 +946,7 @@ an arm that admits a read-only seed access that never traps is red
 an arm that admits a zero where the faulting word belongs is red
 an arm that admits an interrupt entering at BASE under a vectored mtvec is red
 an arm that admits rs1 where the effective address belongs is red
+an arm that admits the software interrupt taking the timer's offset is red
 an arm that admits the wrong cause is red
 an attribute that is not a source line is not forgiven
 an early-exit scan of a tree git cannot list is red, not green

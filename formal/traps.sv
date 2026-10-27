@@ -22,6 +22,7 @@ module traps #(
     input logic rom_fault,  // free, like everything else not instantiated here
     input logic accessor_out_valid,
     input logic irq_timer,  // the platform's timer line, free every cycle
+    input logic irq_software,  // the platform's msip line, free every cycle
     input logic entropy_raw  // the platform's oscillator, free every cycle
 );
   logic [31:0] fetch_pc, fetch_pc_next;
@@ -42,7 +43,7 @@ module traps #(
   logic        trap_entry, mret_entry;
   logic [31:0] trap_cause, trap_epc, trap_tval;
   logic [31:0] mtvec_value, mepc_value;
-  logic        interrupt_pending;
+  logic        interrupt_pending, interrupt_software;
   logic [31:0] decoder_predicted_pc;
   logic [31:0] x_redirect_target;
   // Unread here, and declared anyway: an output connected to an undeclared identifier is
@@ -110,6 +111,7 @@ module traps #(
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
+    .interrupt_software(interrupt_software),
     .kill(x_redirect_q),
     .x_busy(x_busy),
     .csr_addr(csr_addr),
@@ -148,10 +150,12 @@ module traps #(
     .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .irq_timer(irq_timer),
+    .irq_software(irq_software),
     .entropy_raw(entropy_raw),
     .mtvec_value(mtvec_value),
     .mepc_value(mepc_value),
-    .interrupt_pending(interrupt_pending)
+    .interrupt_pending(interrupt_pending),
+    .interrupt_software(interrupt_software)
   );
 
  `ifdef FORMAL
@@ -182,7 +186,8 @@ module traps #(
   localparam logic [31:0] CAUSE_STORE_MIS   = 32'd6;
   localparam logic [31:0] CAUSE_STORE_FAULT = 32'd7;
   localparam logic [31:0] CAUSE_ECALL_M     = 32'd11;
-  // Bit 31 says interrupt; 7 is the machine timer.
+  // Bit 31 says interrupt; 3 is the machine software interrupt and 7 the machine timer.
+  localparam logic [31:0] CAUSE_SOFTWARE_IRQ = 32'h8000_0003;
   localparam logic [31:0] CAUSE_TIMER_IRQ   = 32'h8000_0007;
 
   logic clocked;
@@ -375,15 +380,15 @@ module traps #(
   logic prev_reset, prev_trap_entry, prev_mret_entry, prev_csr_wen;
   logic prev_cause_modelled, prev_counter_ticking, prev_written_by_trap;
   logic prev_mstatus_addressed, prev_mstatus_static;
-  logic prev_interrupt_pending, prev_interrupt_entry, prev_fetch_fault;
+  logic prev_interrupt_pending, prev_interrupt_entry, prev_fetch_fault, prev_msi;
   logic [31:0] prev2_rdata, past2_dx_pc, prev2_cause, prev2_tval;
   logic [31:0] prev2_mtvec, prev2_mepc;
   logic prev2_reset, prev2_mstatus_addressed, prev2_mstatus_static;
   logic prev2_trap_entry, prev2_interrupt_pending, prev2_fetch_fault, prev2_cause_modelled;
-  logic prev2_interrupt_entry, prev2_mret_entry;
+  logic prev2_interrupt_entry, prev2_mret_entry, prev2_msi;
   logic [31:0] past3_dx_pc, prev3_cause, prev3_tval;
   logic prev3_reset, prev3_trap_entry, prev3_interrupt_pending, prev3_fetch_fault;
-  logic prev3_cause_modelled, prev3_interrupt_entry;
+  logic prev3_cause_modelled, prev3_interrupt_entry, prev3_msi;
   always_ff @(posedge clk) begin
     past_fetch_pc          <= fetch_pc;
     past_dx_pc              <= dx_pc;
@@ -405,6 +410,7 @@ module traps #(
     prev_interrupt_pending <= dx_is_interrupt;
     prev_fetch_fault        <= dx_imem_fault;
     prev_interrupt_entry   <= trap_entry && dx_is_interrupt;
+    prev_msi               <= interrupt_software;
 
     prev2_rdata             <= prev_rdata;
     prev2_reset             <= prev_reset;
@@ -421,6 +427,7 @@ module traps #(
     prev2_fetch_fault        <= prev_fetch_fault;
     prev2_cause_modelled    <= prev_cause_modelled;
     prev2_interrupt_entry   <= prev_interrupt_entry;
+    prev2_msi               <= prev_msi;
 
     // A CSR read of what a trap wrote trails entry by three: X drops the word issued beside
     // the registered redirect, and D drops the one behind it.
@@ -433,6 +440,7 @@ module traps #(
     prev3_fetch_fault        <= prev2_fetch_fault;
     prev3_cause_modelled    <= prev2_cause_modelled;
     prev3_interrupt_entry   <= prev2_interrupt_entry;
+    prev3_msi               <= prev2_msi;
   end
 
   logic addr_held;
@@ -634,7 +642,7 @@ module traps #(
   always_comb if (settled2 && prev2_trap_entry && !prev2_interrupt_entry)
     assert(fetch_pc == {prev2_mtvec[31:2], 2'b00});
   always_comb if (settled2 && prev2_interrupt_entry)
-    assert(fetch_pc == {prev2_mtvec[31:2], 2'b00} + (prev2_mtvec[0] ? 32'h1C : 32'h0));
+    assert(fetch_pc == {prev2_mtvec[31:2], 2'b00} + (prev2_mtvec[0] ? (prev2_msi ? 32'hC : 32'h1C) : 32'h0));
   always_comb if (settled2 && prev2_mret_entry) assert(fetch_pc == prev2_mepc);
 
   always_comb if (settled && prev_trap_entry) assert(mepc_value == {past_dx_pc_hi, 1'b0});
@@ -729,12 +737,16 @@ module traps #(
  `endif
 
  `ifdef TRAPS_CHECK_STATUS
-  always_comb if (clocked && !irq_timer) assert(!interrupt_pending);
-  always_comb if (clocked && csr_addr == MIE && !csr_rdata_bit7) assert(!interrupt_pending);
+  always_comb if (clocked && !irq_timer && !irq_software) assert(!interrupt_pending);
+  always_comb if (clocked && csr_addr == MIE && !csr_rdata_bit7 && !csr_rdata_bit3) assert(!interrupt_pending);
   always_comb if (clocked && mstatus_addressed && !csr_rdata_bit3) assert(!interrupt_pending);
 
   always_comb if (clocked && csr_addr == MIP)
-    assert(csr_rdata == {24'b0, irq_timer, 7'b0});
+    assert(csr_rdata == {24'b0, irq_timer, 3'b0, irq_software, 3'b0});
+
+  always_comb if (clocked && interrupt_software) assert(irq_software);
+  always_comb if (clocked && csr_addr == MIE && !csr_rdata_bit3) assert(!interrupt_software);
+  always_comb if (clocked && csr_addr == MIE && csr_rdata_bit3 && irq_software) assert(interrupt_software);
  `endif
 
  `ifdef TRAPS_CHECK_QUIESCENCE
@@ -749,7 +761,7 @@ module traps #(
 
  `ifdef TRAPS_CHECK_CAUSE
   always_comb if (settled3 && prev3_interrupt_entry && csr_addr == MCAUSE)
-    assert(csr_rdata == CAUSE_TIMER_IRQ);
+    assert(csr_rdata == (prev3_msi ? CAUSE_SOFTWARE_IRQ : CAUSE_TIMER_IRQ));
  `endif
 
  `ifdef TRAPS_CHECK_STATUS

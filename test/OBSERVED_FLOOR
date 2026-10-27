@@ -42,6 +42,8 @@ lui.S                28     28
 lw.S                230    230
 minstret.S           41     30
 mseccfg.S            91     68
+msip.S             414    391
+msipmask.S         320    293
 mtimer.S           1103   1074
 mtimermask.S        296    263
 mtvecirq.S          420    410   # a spin under a live timer, like mtimer.S: how far it goes depends on when the interrupt lands

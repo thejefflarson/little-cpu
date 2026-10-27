@@ -345,12 +345,18 @@ forced to zero (the reference model keeps the old MODE instead, so `test/asm/mtv
 both agree on and `test/asm/mtvecirq.S` the reserved-MODE writes, which it grades for legality only).
 `components_traps` checks the target, with `traps-vector-probe` as its forced-red direction.
 
-**One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
-`mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` are read-only zero,
-which the spec allows for an interrupt that can never become pending. `mtime`/`mtimecmp` are four
-words at `0x0002_0000` and **the map reserves eight**, one `mtimecmp` and one `mtip` per hart
-(`NHARTS`, ADR-0124); `test/memmap_test.sh` reads every `BASE` under `rtl/` and refuses one inside
-the span. The layout is **deliberately not a CLINT's**. **The take is X's own decision, not D's**
+**Two interrupts: the machine software interrupt, cause `0x8000_0003`, and the machine timer, cause
+`0x8000_0007`** (ADR-0257). `mie.MSIE` (bit 3) and `mie.MTIE` (bit 7) are the only writable bits of
+`mie`; `mip.MSIP` is `rtl/timer.v`'s `msip` line for the hart and `mip.MTIP` its `mtip`, both read-only;
+`mip.MEIP` is read-only zero, which the spec allows for an interrupt that can never become pending.
+The software interrupt outranks the timer when both are enabled and pending, the spec's order
+(MEI > MSI > MTI), and under a vectored `mtvec` enters at BASE + 0xC where the timer enters at BASE + 0x1C.
+`msip` is bit 0 of the word at `0x0002_0018 + 4 * hart`, one store sets or clears it and the upper bits
+are dropped, so a hart can interrupt itself (`test/asm/msip.S`, `test/asm/msipmask.S`) or the other
+hart (`test/dual/ipi.S`, run by `make dual-smoke`). `mtime`/`mtimecmp` are four
+words at `0x0002_0000` and **the map reserves eight words**, which hold `mtime`, one `mtimecmp` per hart
+and one `msip` per hart (`NHARTS`, ADR-0124); `test/memmap_test.sh` reads every `BASE` under `rtl/`
+and refuses one inside the span. The layout is **deliberately not a CLINT's**. **The take is X's own decision, not D's**
 (B3, ADR-0214): X reads the live `interrupt_pending` line every cycle it is not mid-divide, and
 displaces whatever real instruction D has handed it rather than D pre-empting the decode a cycle
 ahead of time — D never sees `interrupt_pending` at all now, and carries no bubble for it.
@@ -419,10 +425,11 @@ What a green result does and does not mean:
   the refused access's word address and exact write strobe on the fault channel and
   `rvfi_insn_check.sv` compares both (write mask exactly, read mask as a superset); the A encodings
   have no spec model, so `components_accessor` and `fault_ch0` are their graders (ADR-0109).
-- **It ships no model of an INTERRUPT**, so the timer input is tied off in all five harnesses that
-  instantiate `littlecpu` (`formal/INTERRUPT_TIE_OFF` lists them; `formal/traps.sv` builds decoder
-  and CSR file without the core and is where the line is free). `components_traps` is the oracle
-  for entry; `test/asm/mtimer.S` and `test/asm/mtimermask.S` for the whole path. `rvfi_intr` must
+- **It ships no model of an INTERRUPT**, so the timer and software inputs are tied off in all five
+  harnesses that instantiate `littlecpu` (`formal/INTERRUPT_TIE_OFF` lists them; `formal/traps.sv`
+  builds decoder and CSR file without the core and is where both lines are free). `components_traps`
+  is the oracle for entry; `test/asm/mtimer.S`, `test/asm/mtimermask.S`, `test/asm/msip.S` and
+  `test/asm/msipmask.S` for the whole path. `rvfi_intr` must
   be driven: both sim legs' monitor checks pc continuity across retires and stops only for a retire
   carrying it.
 - **It describes ONE hart**, so the grant wait and the write snoop are tied off in the same five

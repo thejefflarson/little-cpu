@@ -130,6 +130,7 @@ trap_handler:                                                                \
 #define MTIMER_BASE      0x00020000
 #define MTIMECMP_OFFSET  8
 #define MTIMECMPH_OFFSET 12
+#define MSIP_BASE        0x00020018
 
 #define UART_BASE          0x00020020
 #define UART_STATUS_OFFSET 4
@@ -270,5 +271,81 @@ irq_limit:                                                                   \
 #define RVTEST_DISABLE_MIE                                                   \
         li      t0, 0x8;                                                    \
         csrc    mstatus, t0;
+
+#define RVTEST_SOFT_HANDLER                                                  \
+        .align  2;                                                          \
+soft_handler:                                                                \
+        .option push;                                                       \
+        .option norvc;                                                      \
+        la      t0, irq_count;                                              \
+        lw      t1, 0(t0);                                                  \
+        addi    t1, t1, 1;                                                  \
+        sw      t1, 0(t0);                                                  \
+        csrr    t1, mcause;                                                 \
+        la      t0, irq_cause;                                              \
+        sw      t1, 0(t0);                                                  \
+        csrr    t1, mepc;                                                   \
+        la      t0, irq_epc;                                                \
+        sw      t1, 0(t0);                                                  \
+        li      t0, MSIP_BASE;                                              \
+        sw      x0, 0(t0);                                                  \
+        mret;                                                               \
+        .option pop;
+
+#define RVTEST_LOG_HANDLER                                                   \
+        .align  2;                                                          \
+log_handler:                                                                 \
+        .option push;                                                       \
+        .option norvc;                                                      \
+        la      t0, irq_count;                                              \
+        lw      t1, 0(t0);                                                  \
+        addi    t2, t1, 1;                                                  \
+        sw      t2, 0(t0);                                                  \
+        slli    t1, t1, 2;                                                  \
+        la      t0, irq_log;                                                \
+        add     t0, t0, t1;                                                 \
+        csrr    t2, mcause;                                                 \
+        sw      t2, 0(t0);                                                  \
+        andi    t2, t2, 4;                                                  \
+        bnez    t2, 1f;                                                     \
+        li      t0, MSIP_BASE;                                              \
+        sw      x0, 0(t0);                                                  \
+        mret;                                                               \
+1:      li      t0, MTIMER_BASE;                                            \
+        li      t1, -1;                                                     \
+        sw      t1, MTIMECMP_OFFSET(t0);                                    \
+        sw      t1, MTIMECMPH_OFFSET(t0);                                   \
+        mret;                                                               \
+        .option pop;
+
+#define RVTEST_SOFT_DATA                                                     \
+        .align  2;                                                          \
+irq_log:                                                                     \
+        .word   0, 0, 0, 0;
+
+#define RVTEST_INSTALL_SOFT_HANDLER                                          \
+        la      t0, soft_handler;                                           \
+        csrw    mtvec, t0;
+
+#define RVTEST_INSTALL_LOG_HANDLER                                           \
+        la      t0, log_handler;                                            \
+        csrw    mtvec, t0;
+
+#define RVTEST_RAISE_MSIP                                                    \
+        li      t0, MSIP_BASE;                                              \
+        li      t1, 1;                                                      \
+        sw      t1, 0(t0);
+
+#define RVTEST_CLEAR_MSIP                                                    \
+        li      t0, MSIP_BASE;                                              \
+        sw      x0, 0(t0);
+
+#define RVTEST_ENABLE_MSIE                                                   \
+        li      t0, 0x8;                                                    \
+        csrs    mie, t0;
+
+#define RVTEST_DISABLE_MSIE                                                  \
+        li      t0, 0x8;                                                    \
+        csrc    mie, t0;
 
 #endif

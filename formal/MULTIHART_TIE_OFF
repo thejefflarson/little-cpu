@@ -12,3 +12,4 @@ PORT snoop_addr  32'b0
 PORT entropy_raw 1'b0
 
 ELSEWHERE irq_timer INTERRUPT_TIE_OFF
+ELSEWHERE irq_software INTERRUPT_TIE_OFF
