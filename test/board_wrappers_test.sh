@@ -56,9 +56,62 @@ accepts "the environment case was refused" env FOO_SECRET=1 LD_PRELOAD=/x "$WORK
 grep -q '^PATH=' "$STUB_OUT/iceprog.env" || bad "the stub did not capture an environment, so the scrub case proves nothing"
 if grep -qE '^(FOO_SECRET|LD_PRELOAD)=' "$STUB_OUT/iceprog.env"; then bad "iceprog inherited the caller's environment"; fi
 
+boot() { python3 "$ROOT/soc/boot_image.py" "$@"; }
+OFF=$(boot layout BOOT_FLASH_OFFSET)
+ALIGN=$(boot layout BOOT_FLASH_ALIGN)
+END=$(boot layout BOOT_FLASH_BYTES)
+printf 'abcd' > "$WORK/payload"
+boot pack "$WORK/payload" "$CK/build/boot.img"
+head -c 12 "$CK/build/boot.img" > "$CK/build/header.img"
+cp "$CK/build/boot.img" "$CK/build/lied.img"
+printf '\010' | dd of="$CK/build/lied.img" bs=1 seek=4 conv=notrunc 2> /dev/null
+# Headers that are right in every way but one, over bodies the wrapper must still refuse: past its size bound,
+# not a whole number of words, and the wrong magic.
+python3 - "$ROOT" "$CK/build" <<'EOF'
+import struct, sys
+sys.path.insert(0, sys.argv[1] + "/soc")
+import boot_image
+magic = boot_image.layout()["BOOT_MAGIC"]
+for name, length, tag in (("big", 70000, magic), ("ragged", 7, magic), ("nomagic", 4, magic ^ 1)):
+    open(f"{sys.argv[2]}/{name}.img", "wb").write(struct.pack("<III", tag, length, 0) + b"\0" * length)
+EOF
+
+accepts "a boot image at the boot offset was refused" "$WORK/lc-flash" -o "$OFF" "$CK/build/boot.img"
+[ "$(iceprog_args | sed 's|/dev/fd/[0-9]*|FD|')" = "-o $OFF FD" ] || bad "-o did not reach iceprog as given: $(iceprog_args)"
+cmp -s "$CK/build/boot.img" "$STUB_OUT/iceprog.data" || bad "the image did not reach iceprog through the descriptor it was handed"
+accepts "a boot image at a higher block was refused" "$WORK/lc-flash" -o $((OFF + ALIGN)) "$CK/build/boot.img"
+accepts "the last block of the flash was refused" "$WORK/lc-flash" -o $((END - ALIGN)) "$CK/build/boot.img"
+accepts "-d then -o was refused" "$WORK/lc-flash" -d i:0x0403:0x6014 -o "$OFF" "$CK/build/boot.img"
+case $(iceprog_args) in "-d i:0x0403:0x6014 -o $OFF /dev/fd/"*) ;; *) bad "-d and -o did not reach iceprog in order: $(iceprog_args)";; esac
+
+refuses "an offset inside the bitstream was accepted" "$WORK/lc-flash" -o "$ALIGN" "$CK/build/boot.img"
+refuses "an offset of zero was accepted" "$WORK/lc-flash" -o 0 "$CK/build/boot.img"
+refuses "an offset below the boot region was accepted" "$WORK/lc-flash" -o $((OFF - ALIGN)) "$CK/build/boot.img"
+refuses "an unaligned offset was accepted" "$WORK/lc-flash" -o $((OFF + 4096)) "$CK/build/boot.img"
+refuses "an offset one byte in was accepted" "$WORK/lc-flash" -o $((OFF + 1)) "$CK/build/boot.img"
+refuses "an offset at the end of the flash was accepted" "$WORK/lc-flash" -o "$END" "$CK/build/boot.img"
+refuses "an offset past the flash was accepted" "$WORK/lc-flash" -o $((END + ALIGN)) "$CK/build/boot.img"
+refuses "a hex offset was accepted" "$WORK/lc-flash" -o "$(printf '0x%x' "$OFF")" "$CK/build/boot.img"
+refuses "an offset with a leading zero was accepted" "$WORK/lc-flash" -o "0$OFF" "$CK/build/boot.img"
+refuses "a negative offset was accepted" "$WORK/lc-flash" -o -"$OFF" "$CK/build/boot.img"
+refuses "an offset with a suffix was accepted" "$WORK/lc-flash" -o "${OFF}k" "$CK/build/boot.img"
+refuses "an offset too long to be one was accepted" "$WORK/lc-flash" -o 99999999999 "$CK/build/boot.img"
+refuses "an empty offset was accepted" "$WORK/lc-flash" -o "" "$CK/build/boot.img"
+refuses "-o with no file was accepted" "$WORK/lc-flash" -o "$OFF"
+refuses "-o twice was accepted" "$WORK/lc-flash" -o "$OFF" -o "$OFF" "$CK/build/boot.img"
+refuses "-o with -t was accepted" "$WORK/lc-flash" -o "$OFF" -t
+refuses "-t then -o was accepted" "$WORK/lc-flash" -t -o "$OFF"
+refuses "an image over the boot image bound was accepted" "$WORK/lc-flash" -o "$OFF" "$CK/build/big.img"
+refuses "an image that is not a whole number of words was accepted" "$WORK/lc-flash" -o "$OFF" "$CK/build/ragged.img"
+refuses "a bare header with no payload was accepted" "$WORK/lc-flash" -o "$OFF" "$CK/build/header.img"
+refuses "a file without the image magic was accepted" "$WORK/lc-flash" -o "$OFF" "$CK/build/nomagic.img"
+refuses "an image whose length does not match its size was accepted" "$WORK/lc-flash" -o "$OFF" "$CK/build/lied.img"
+refuses "a bitstream was accepted as a boot image" "$WORK/lc-flash" -o "$OFF" "$CK/build/ok.bin"
+refuses "a boot image outside build/ was accepted" "$WORK/lc-flash" -o "$OFF" "$WORK/payload"
+
 refuses "-r was accepted: iceprog -r writes its argument as root" "$WORK/lc-flash" -r "$CK/build/ok.bin"
 refuses "-r with an output path was accepted" "$WORK/lc-flash" -r "$WORK/outfile"
-for flag in -R -o -S -c -v -b -I; do
+for flag in -R -S -c -v -b -I; do
   refuses "$flag was accepted" "$WORK/lc-flash" "$flag" "$CK/build/ok.bin"
 done
 refuses "extra arguments after the bitstream were accepted" "$WORK/lc-flash" "$CK/build/ok.bin" -r
@@ -89,6 +142,6 @@ refuses "lc-uart took a non-number" "$WORK/lc-uart" 10x
 refuses "lc-uart took an empty argument" "$WORK/lc-uart" ""
 
 if [ "$fail" = 0 ]; then
-  echo "board-wrappers: lc-flash takes only a build/ bitstream opened as the caller or -t, lc-uart only a bounded read; every other shape is refused."
+  echo "board-wrappers: lc-flash takes only a build/ bitstream opened as the caller, a build/ boot image behind a 64 KiB-aligned offset past the bitstream, or -t, lc-uart only a bounded read; every other shape is refused."
 fi
 exit "$fail"

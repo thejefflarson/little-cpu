@@ -335,6 +335,7 @@ a flash grader that accepts a capture holding only debugger chatter is red
 a flash grader that accepts any FLASH line whatever its id is red
 a flash grader that does not require the SFDP signature is red
 a flash that drops the device argument is red
+a flash wrapper that hands iceprog a different offset is red
 a flash wrapper that hands iceprog the caller's environment is red
 a flash wrapper that judges the name given and not the file opened is red
 a flash wrapper that lets iceprog's -r through is red
@@ -343,7 +344,18 @@ a flash wrapper that opens a file its caller cannot read is red
 a flash wrapper that opens a path outside build/ is red
 a flash wrapper that passes any -d value to iceprog is red
 a flash wrapper that reports success without VERIFY OK is red
+a flash wrapper that takes an offset with -t is red
+a flash wrapper that takes an offset with a leading zero is red
+a flash wrapper that takes an offset with trailing text is red
+a flash wrapper that trusts an image's length over its size is red
+a flash wrapper that writes a file with no image magic is red
+a flash wrapper that writes an image inside the bitstream is red
+a flash wrapper that writes an image of a part word is red
+a flash wrapper that writes an image off an erase-block boundary is red
+a flash wrapper that writes an image over the size bound is red
+a flash wrapper that writes past the end of the flash is red
 a flash write taken as loaded without VERIFY OK is red
+a flash write that drops the offset it was given is red
 a flash write that hangs and still counts as flashed is red
 a flash write that skips the -t drain before it is red
 a flash write that skips the FIFO-draining read first is red
@@ -435,8 +447,14 @@ a linker script that moves ram off the decoded base is red
 a linker script the Makefile does not link and nothing else names is red
 a littlecpu harness whose core port moved stops rather than tying nothing
 a load into SRAM, which leaves this board unconfigured, is red
+a loader grown past the address images are linked at is red
 a loader stopped with SIGKILL alone, orphaning a root child behind sudo, is red
+a loader that copies a length no ROM holds is red
+a loader that copies a length that is not whole words is red
+a loader that does not name a missing image is red
+a loader that idles long enough for the pin lockout to let go is red
 a loader that outlives its limit and reports success is red
+a loader that runs an image whose checksum is wrong is red
 a locality counter that stopped being printed is named too
 a lock arm that admits a grant mid-AMO is red
 a lock arm that admits a grant mid-AMO is red
@@ -1260,6 +1278,7 @@ control: the gapless capture's bits, sequence numbers and CRCs agree with the in
 control: the insn checks move to pono and the others do not
 control: the jalr share and the return guess are reported under the table
 control: the load and store paths both report an X exactly when one is there
+control: the loader runs two different images from the flash model
 control: the locality counters are reported under the table
 control: the measured CoreMark image reports the shortfall it has
 control: the measured image reports the shortfall it has
