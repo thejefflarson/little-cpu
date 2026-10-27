@@ -4661,6 +4661,11 @@ probe "a replay frame check that counts a damaged block as intact is red" 1 \
   "a damaged last block hid an intact passing one" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/ok = (sprintf("%04x", sum % 65536) == seg\[w + 1\])/ok = 1/'
+probe "a replay grader that ignores the block sum is red" 1 \
+  "a verdict flipped in place under a kept frame and sum counted as intact" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/if \[ -z "\$failing" \] && ! block_all_pass "\$cur"; then failing=\$cur; fi/:/'
 probe "a grader that lets an earlier passing block hide an intact failing one is red" 1 \
   "an intact failing block was not preferred" "$BV $d/board_verdict.sh"

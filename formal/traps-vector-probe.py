@@ -4,6 +4,7 @@ arm rather than as anything else.
 
 Usage: traps-vector-probe.py [--repo DIR] [--workdir DIR] [--sby SBY]
 
+<<<<<<< HEAD
 WHY THIS EXISTS. A vectored mtvec sends the timer interrupt to BASE + 0x1C and the software
 interrupt to BASE + 0xC, and no generated check looks at either: riscv-formal has no spec
 model for an interrupt or for SYSTEM. formal/traps.sv's arm is the only statement of the
@@ -15,6 +16,18 @@ Three cores are built, one line of rtl/executor.v apart:
   to-base            the interrupt enters at BASE under a vectored mtvec: the offset term
                      is forced to zero.
   software-as-timer  the software interrupt takes the timer's offset.
+=======
+WHY THIS EXISTS. A vectored mtvec sends the timer interrupt to BASE + 0x1C, and no
+generated check looks at it: riscv-formal has no spec model for an interrupt or for
+SYSTEM. formal/traps.sv's arm is the only statement of the vectored target, and an arm
+nobody has watched fail asks nothing.
+
+Two cores are built, one line of rtl/executor.v apart:
+
+  control      the shipping offset, and the proof must PASS.
+  to-base      the interrupt enters at BASE under a vectored mtvec: the offset term
+               is forced to zero.
+>>>>>>> origin/main
 
 The mutation must fail at the vectored comparison's own line, which is read out of
 traps.sv here rather than written down.
@@ -22,13 +35,20 @@ traps.sv here rather than written down.
 The basecase leg does not reach a vectored interrupt, so the verdict is UNKNOWN (basecase
 pass, induction fail); the failing assertion's line is what is read, never the status.
 
+<<<<<<< HEAD
 NOT HERMETIC -- it runs sby three times, concurrently. It is a prerequisite of `make -C formal
+=======
+NOT HERMETIC -- it runs sby twice. It is a prerequisite of `make -C formal
+>>>>>>> origin/main
 components_traps`. test/probe_gates.sh covers this file's own comparisons against a
 stub sby.
 """
 
 import argparse
+<<<<<<< HEAD
 import concurrent.futures
+=======
+>>>>>>> origin/main
 import pathlib
 import re
 import shutil
@@ -39,6 +59,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from traps_probe_sby import SOURCES, probe_sby  # noqa: E402
 
 # The comparison being probed, found in traps.sv by its text.
+<<<<<<< HEAD
 VECTOR_ASSERT = "assert(fetch_pc == {prev2_mtvec[31:2], 2'b00} + (prev2_mtvec[0] ? (prev2_msi ? 32'hC : 32'h1C) : 32'h0));"
 
 # The offset term of rtl/executor.v, matched in full so a respelling stops this file
@@ -50,6 +71,15 @@ CASES = {
         SITE,
         "assign vector_offset = interrupt_pending && mtvec[0] ? CAUSE_MACHINE_TIMER[3:0] : 4'b0;",
     ),
+=======
+VECTOR_ASSERT = "assert(fetch_pc == {prev2_mtvec[31:2], 2'b00} + (prev2_mtvec[0] ? 32'h1C : 32'h0));"
+
+# The offset term of rtl/executor.v, matched in full so a respelling stops this file
+# rather than silently probing nothing.
+SITE = "assign vector_offset = interrupt_pending && mtvec[0] ? CAUSE_MACHINE_TIMER[3:0] : 4'b0;"
+CASES = {
+    "to-base": (SITE, "assign vector_offset = 4'b0;"),
+>>>>>>> origin/main
 }
 
 def stop(message):
@@ -145,6 +175,7 @@ def main():
 
     red = []
 
+<<<<<<< HEAD
     # The cores are independent, so the three solver runs share the wall clock.
     with concurrent.futures.ThreadPoolExecutor() as pool:
         futures = {
@@ -154,6 +185,9 @@ def main():
         results = {case: future.result() for case, future in futures.items()}
 
     status, failed = results["control"]
+=======
+    status, failed = run_case(repo, workdir, args.sby, config, "control")
+>>>>>>> origin/main
     print(f"  control:    {status}, assertions failed at {failed or 'none'}")
     if status != "PASS":
         red.append(
@@ -162,8 +196,13 @@ def main():
             "result as a finding while the green one holds."
         )
 
+<<<<<<< HEAD
     for case in CASES:
         status, failed = results[case]
+=======
+    for case in ("to-base",):
+        status, failed = run_case(repo, workdir, args.sby, config, case)
+>>>>>>> origin/main
         print(f"  {case}: {status}, assertions failed at {failed or 'none'}")
         if status == "PASS":
             red.append(

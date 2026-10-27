@@ -668,6 +668,7 @@ a repetition count that counts a phantom bit at reset is red
 a repetition count that misses the first bit of a run is red
 a replay block left over from another batch is read as this batch's is red
 a replay frame check that counts a damaged block as intact is red
+a replay grader that ignores the block sum is red
 a replay parser that reads the cut tail instead of the last whole block is red
 a repo root that does not exist is red before anything is parsed
 a repo root that does not exist is red before anything is parsed

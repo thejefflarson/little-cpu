@@ -90,9 +90,12 @@ block=$(printf '%s' "$capture" | uart_last_block)
 [ "$(block_tag_ok $'B3 11\n0 1\n' 3 11 && echo y)" = y ] || { echo "FAIL: a matching batch tag was refused" >&2; fail=1; }
 block_tag_ok $'B2 11\n0 1\n' 3 11 && { echo "FAIL: stale batch tag accepted" >&2; fail=1; }
 block_tag_ok $'0 1\n1 1\n' 3 2 && { echo "FAIL: an untagged block accepted" >&2; fail=1; }
-good=$'B2 3\n0 1\n1 1\n2 1\n.\n'
-bad_last=$'B2 3\n0 1\n1 1\n2 \n.\n'
-fails=$'B2 3\n0 1\n1 7\n2 1\n.\n'
+# framed TEXT: TEXT, the four hex digits of its byte sum on a line of their own, and the "." that ends a replay.
+framed() { printf '%s%04x\n.\n' "$1" "$(printf '%s' "$1" | od -An -v -tu1 | awk '{for(i=1;i<=NF;i++)s+=$i} END{print s%65536}')"; }
+good=$(framed $'B2 3\n0 1\n1 1\n2 1\n')$'\n'
+bad_last=$(framed $'B2 3\n0 1\n1 1\n2 \n')$'\n'
+fails=$(framed $'B2 3\n0 1\n1 7\n2 1\n')$'\n'
+flipped=${good/$'1 1\n2 1'/$'1 7\n2 1'}
 grade_blocks "$good$bad_last" 2 3
 [ "$INTACT/$DAMAGED" = 1/1 ] && [ "$BLOCK" = $'B2 3\n0 1\n1 1\n2 1\n' ] \
   || { echo "FAIL: a damaged last block hid an intact passing one ($INTACT/$DAMAGED)" >&2; fail=1; }
@@ -101,10 +104,14 @@ grade_blocks $'@cdone:0\n'"$good" 2 3
 grade_blocks "$good$fails$bad_last" 2 3
 [ "$INTACT/$DAMAGED" = 2/1 ] && [ "$BLOCK" = $'B2 3\n0 1\n1 7\n2 1\n' ] \
   || { echo "FAIL: an intact failing block was not preferred ($INTACT/$DAMAGED)" >&2; fail=1; }
+grade_blocks "$flipped" 2 3
+[ "$INTACT/$DAMAGED" = 0/1 ] || { echo "FAIL: a verdict flipped in place under a kept frame and sum counted as intact ($INTACT/$DAMAGED)" >&2; fail=1; }
+grade_blocks "$good$flipped" 2 3
+[ "$INTACT/$DAMAGED" = 1/1 ] || { echo "FAIL: a flipped block beside a whole one was not counted damaged ($INTACT/$DAMAGED)" >&2; fail=1; }
 grade_blocks "$bad_last$bad_last" 2 3
 [ "$INTACT/$DAMAGED/$BLOCK" = 0/2/ ] || { echo "FAIL: damaged blocks only did not read as no intact block" >&2; fail=1; }
 for damaged in $'B1 3\n0 1\n1 1\n2 1\n' $'B2 3\n0 1\n2 1\n' $'B2 3\n0 1\n1 1\n2 1\n3 1\n' $'B2 3\n0 1\n2 1\n1 1\n' $'B2 3\n0 1\n1 1\n2 1x\n' $'B2 3\n0 1\n1 1 1\n2 1\n'; do
-  grade_blocks "$damaged." 2 3
+  grade_blocks "$(framed "$damaged")" 2 3
   [ "$INTACT" = 0 ] || { echo "FAIL: a block that is not the exact frame counted as intact: $damaged" >&2; fail=1; }
 done
 [ "$(baseline_class a.S 'FAIL 3' a.S)" = ok ] || { echo "FAIL: a baselined FAIL did not match" >&2; fail=1; }

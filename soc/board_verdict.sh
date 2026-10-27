@@ -17,15 +17,21 @@ uart_last_block() { awk '/^\.$/{n++; next} {a[n]=a[n]$0"\n"} END{printf "%s", a[
 # Block $1 must open with the driver's "B<batch $2> <programs $3>" tag, so a buffered replay from an earlier batch is refused.
 block_tag_ok() { [ "${1%%$'\n'*}" = "B$2 $3" ]; }
 
-# Counts INTACT and DAMAGED blocks of capture $1 for batch $2 of $3 programs; intact is exactly "B<batch> <programs>", then "k <verdict>" in order (a digit flipped in place passes).
+# Counts INTACT and DAMAGED blocks of capture $1 for batch $2 of $3 programs; intact is exactly "B<batch> <programs>", then "k <verdict>" in order, then four hex digits: the low 16 bits of the sum of every byte before them, newlines included.
 # BLOCK is the first intact block showing a failure, else the first intact one.
 grade_blocks() {
   local out line cur="" first="" failing=""
-  out=$(printf '%s' "$1" | awk -v b="$2" -v w="$3" '
-    function finish(   i, ok, f) {
+  out=$(printf '%s' "$1" | LC_ALL=C awk -v b="$2" -v w="$3" '
+    BEGIN { for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i }
+    function finish(   i, j, ok, f, sum) {
       if (nl == 0) return
-      ok = (seg[0] == "B" b " " w && nl == w + 1)
+      ok = (seg[0] == "B" b " " w && nl == w + 2 && seg[w + 1] ~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/)
       for (i = 1; ok && i <= w; i++) { f = seg[i]; sub(/ .*/, "", f); ok = (f == i - 1 && seg[i] ~ /^[0-9]+ [0-9]+$/) }
+      if (ok) {
+        sum = 0
+        for (i = 0; i <= w; i++) { for (j = 1; j <= length(seg[i]); j++) sum += ord[substr(seg[i], j, 1)]; sum += 10 }
+        ok = (sprintf("%04x", sum % 65536) == seg[w + 1])
+      }
       if (ok) { print "I"; for (i = 0; i <= w; i++) print seg[i]; print "." } else print "D"
       nl = 0
     }

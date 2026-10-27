@@ -345,6 +345,7 @@ forced to zero (the reference model keeps the old MODE instead, so `test/asm/mtv
 both agree on and `test/asm/mtvecirq.S` the reserved-MODE writes, which it grades for legality only).
 `components_traps` checks the target, with `traps-vector-probe` as its forced-red direction.
 
+<<<<<<< HEAD
 **Two interrupts: the machine software interrupt, cause `0x8000_0003`, and the machine timer, cause
 `0x8000_0007`** (ADR-0257). `mie.MSIE` (bit 3) and `mie.MTIE` (bit 7) are the only writable bits of
 `mie`; `mip.MSIP` is `rtl/timer.v`'s `msip` line for the hart and `mip.MTIP` its `mtip`, both read-only;
@@ -357,6 +358,14 @@ hart (`test/dual/ipi.S`, run by `make dual-smoke`). `mtime`/`mtimecmp` are four
 words at `0x0002_0000` and **the map reserves eight words**, which hold `mtime`, one `mtimecmp` per hart
 and one `msip` per hart (`NHARTS`, ADR-0124); `test/memmap_test.sh` reads every `BASE` under `rtl/`
 and refuses one inside the span. The layout is **deliberately not a CLINT's**. **The take is X's own decision, not D's**
+=======
+**One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
+`mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` are read-only zero,
+which the spec allows for an interrupt that can never become pending. `mtime`/`mtimecmp` are four
+words at `0x0002_0000` and **the map reserves eight**, one `mtimecmp` and one `mtip` per hart
+(`NHARTS`, ADR-0124); `test/memmap_test.sh` reads every `BASE` under `rtl/` and refuses one inside
+the span. The layout is **deliberately not a CLINT's**. **The take is X's own decision, not D's**
+>>>>>>> origin/main
 (B3, ADR-0214): X reads the live `interrupt_pending` line every cycle it is not mid-divide, and
 displaces whatever real instruction D has handed it rather than D pre-empting the decode a cycle
 ahead of time — D never sees `interrupt_pending` at all now, and carries no bubble for it.
