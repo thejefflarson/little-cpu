@@ -4647,6 +4647,11 @@ probe "a flash write that skips the -t drain before it is red" 1 \
   "did not run -t before the write" "$BV $d/board_verdict.sh"
 
 d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
+mutate "$d/board_verdict.sh" 's/ \${off:+-o "\$off"}//'
+probe "a flash write that drops the offset it was given is red" 1 \
+  "dropped the offset from the write" "$BV $d/board_verdict.sh"
+
+d=$(new_case); cp "$REPO/soc/board_verdict.sh" "$d/board_verdict.sh"
 mutate "$d/board_verdict.sh" 's/> "\$log" 2>&1 || return 1/> "$log" 2>\&1/'
 probe "a flash write that hangs and still counts as flashed is red" 1 \
   "a write that hangs after VERIFY OK) returned" "$BV $d/board_verdict.sh"
@@ -10870,7 +10875,7 @@ BWRAP="$HERE/board_wrappers_test.sh"
 bwrap_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/soc"
-  cp "$REPO/soc/lc_flash.c" "$REPO/soc/lc_uart.c" "$d/soc/"
+  cp "$REPO/soc/lc_flash.c" "$REPO/soc/lc_uart.c" "$REPO/soc/boot_layout.h" "$REPO/soc/boot_image.py" "$d/soc/"
   printf '%s' "$d"
 }
 
@@ -10914,6 +10919,61 @@ probe "a flash wrapper that hands iceprog the caller's environment is red" 1 \
   "iceprog inherited the caller's environment" "$BWRAP $d"
 
 d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/v < BOOT_FLASH_OFFSET || //'
+probe "a flash wrapper that writes an image inside the bitstream is red" 1 \
+  "an offset inside the bitstream was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/ || v % BOOT_FLASH_ALIGN//'
+probe "a flash wrapper that writes an image off an erase-block boundary is red" 1 \
+  "an unaligned offset was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/v >= BOOT_FLASH_BYTES || //'
+probe "a flash wrapper that writes past the end of the flash is red" 1 \
+  "an offset at the end of the flash was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" "s/ || s\[0\] == '0'//"
+probe "a flash wrapper that takes an offset with a leading zero is red" 1 \
+  "an offset with a leading zero was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" "s/s\[k\] < '0' || s\[k\] > '9'/0/"
+probe "a flash wrapper that takes an offset with trailing text is red" 1 \
+  "an offset with a suffix was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/^  if (reboot \&\& offset >= 0) die.*$//'
+probe "a flash wrapper that takes an offset with -t is red" 1 \
+  "-o with -t was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/"%ld", offset)/"%ld", offset + 1)/'
+probe "a flash wrapper that hands iceprog a different offset is red" 1 \
+  "-o did not reach iceprog as given" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/le32(h) != BOOT_MAGIC || //'
+probe "a flash wrapper that writes a file with no image magic is red" 1 \
+  "a file without the image magic was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/ || st->st_size > MAX_BOOT_IMAGE//'
+probe "a flash wrapper that writes an image over the size bound is red" 1 \
+  "an image over the boot image bound was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/le32(h + 4) % 4 || //'
+probe "a flash wrapper that writes an image of a part word is red" 1 \
+  "an image that is not a whole number of words was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
+mutate "$d/soc/lc_flash.c" 's/ || le32(h + 4) + BOOT_HEADER != (unsigned long)st->st_size//'
+probe "a flash wrapper that trusts an image's length over its size is red" 1 \
+  "an image whose length does not match its size was accepted" "$BWRAP $d"
+
+d=$(bwrap_fixture)
 mutate "$d/soc/lc_uart.c" 's/argc != 2 ||/argc < 2 ||/'
 probe "a UART wrapper that accepts a second argument is red" 1 \
   "lc-uart took a baud as well" "$BWRAP $d"
@@ -10922,6 +10982,50 @@ d=$(bwrap_fixture)
 mutate "$d/soc/lc_uart.c" 's/ || ms > MAX_MS//'
 probe "a UART wrapper with no upper bound is red" 1 \
   "lc-uart took an unbounded read" "$BWRAP $d"
+
+begin_group "test/boot_loader_test.sh"
+
+BLOAD="make -s --no-print-directory -C $REPO boot-loader-test || exit 1"
+
+bload_fixture() {
+  local d; d=$(new_case)
+  cp "$REPO/soc/boot_loader.c" "$REPO/soc/boot_layout.h" "$d/"
+  printf '%s' "$d"
+}
+
+d=$(bload_fixture)
+probe "control: the loader runs two different images from the flash model" 0 \
+  "boot-loader:" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES='good_a good_b' $BLOAD"
+
+d=$(bload_fixture)
+mutate "$d/boot_loader.c" 's/if (sum != want) fail/if (0) fail/'
+probe "a loader that runs an image whose checksum is wrong is red" 1 \
+  "flipped: wanted" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=flipped $BLOAD"
+
+d=$(bload_fixture)
+mutate "$d/boot_loader.c" 's/if (magic != BOOT_MAGIC) fail.*$//'
+probe "a loader that does not name a missing image is red" 1 \
+  "erased: wanted" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=erased $BLOAD"
+
+d=$(bload_fixture)
+mutate "$d/boot_loader.c" 's/ && !(len & 3u)//'
+probe "a loader that copies a length that is not whole words is red" 1 \
+  "odd: wanted" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=odd $BLOAD"
+
+d=$(bload_fixture)
+mutate "$d/boot_loader.c" 's/ && len <= IMAGE_MAX//'
+probe "a loader that copies a length no ROM holds is red" 1 \
+  "long: wanted" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=long $BLOAD"
+
+d=$(bload_fixture)
+mutate "$d/boot_loader.c" 's/^  SPI_DATA = out;$/  for (volatile int k = 0; k < 200; k++) {\n  }\n  SPI_DATA = out;/'
+probe "a loader that idles long enough for the pin lockout to let go is red" 1 \
+  "IDLE GAP" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=good_a $BLOAD"
+
+d=$(bload_fixture)
+mutate "$d/boot_loader.c" 's/^static unsigned cycles(void) {$/__attribute__((used)) static const char pad[1200] = {1};\n\nstatic unsigned cycles(void) {/'
+probe "a loader grown past the address images are linked at is red" 1 \
+  "would overwrite the code copying it" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=erased $BLOAD"
 
 begin_group "test/entropy_upduino_test.py"
 

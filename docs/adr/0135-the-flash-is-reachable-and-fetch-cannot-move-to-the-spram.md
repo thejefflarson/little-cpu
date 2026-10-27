@@ -514,3 +514,7 @@ board top as well (20 of 94 blocks in one run) and on this tree's (4 of 110, 30 
 scored 79 of 79, this tree 78, 75, 78 and 78, each miss a damaged last block. In every batch of the
 last run the first undamaged block reports every program as passing, so none of the 79 failed; the
 damage is the host's read and was not attributed further.
+
+## Amendment 2026-10-27
+
+Shape (a) now ships: [ADR-0258](0258-the-upduino-boots-a-program-from-the-flash-through-a-rom-loader.md) records the ROM loader that copies a program from the flash into the block RAM, the image offset and the measured load time.

@@ -947,6 +947,11 @@ make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entr
 make bitstream      # icepack the board wrapper into build/board.bin; BOARD_OSC=internal uses
                     # SB_HFOSC instead of the crystal. No board needed
 make prog           # iceprog build/board.bin onto the UPduino; root on macOS
+make boot-image     # pack BOOT_PROG (a C program) as the image soc/boot_loader.c loads from the flash,
+                    # BOOT_IMAGE the output; make prog-image writes it at the flash offset in
+                    # soc/boot_layout.h through lc-flash -o, never touching the bitstream
+make boot-loader-test # the loader on rtl/littlesoc.v against the flash model: two images run, damaged
+                    # ones are reported and not run; on `make test`'s path
 make suite-board    # the .S suite on the part, in batches, read back over the UART; root
 make dhrystone-board # Dhrystone built for the board; flash with `make prog`, read the UART
 make coremark-board # CoreMark built for the up5k at COREMARK_UP5K_CFLAGS (-Os -flto, not
@@ -1300,7 +1305,7 @@ programmed by loading SRAM over JTAG — a flash write leaves the part unconfigu
 power-cycled. SPRAM cannot be initialised, so `.data` rides in
 the ROM at a load
 address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before `main`. Still
-deferred: booting a program out of the flash, an interrupt controller and more interrupt sources.
+deferred: an interrupt controller and more interrupt sources.
 The radix-4 divider is cancelled rather than deferred: neither part has the area for it without
 building the two parts from different sources (ADR-0038, amended). Forwarding ships as X's own mux (ADR-0222); the fused decoder's full network
 is among the retired fetch-loop dead ends under Measurements.
@@ -1331,6 +1336,8 @@ sources: `docs/pin-constraints.md`). `make icesugar-flash-id` loads `soc/flash_i
 which reads the JEDEC ID (`0x9F`) and the SFDP header (`0x5A`) and prints both, and grades the
 UART for ID `EF4019` and the signature "SFDP". The controller toggles `sck` once per two core
 clocks, so 15 MHz at the board's 30 MHz.
+
+**The UPduino boots a program out of the flash** (ADR-0258). `soc/boot_loader.c` rides in the bitstream's ROM (`make bitstream SOC_PROG=soc/boot_loader.c BOARD_OSC=internal`), reads a length-prefixed image from flash offset `0x20000` with the read command `0x03` only, writes it into instruction memory at `0x400`, runs `fence.i` and jumps; a bad magic, length or checksum is reported over the UART and never run. `make boot-image BOOT_PROG=prog.c` packs a program and `make prog-image` writes it through `lc-flash -o`, which refuses every offset that is not a 64 KiB boundary at or past `0x20000`, so a program change re-flashes 7 KB and never the bitstream. Every number is in `soc/boot_layout.h`; `make boot-loader-test` runs the loader on `rtl/littlesoc.v` against `test/spiflash_model.v`.
 
 **A transmit-only UART is the only observable output a flashed bitstream has** — eight bytes at
 `0x0002_0020`, above the timer's reservation because the four words between belong to a second

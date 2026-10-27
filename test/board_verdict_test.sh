@@ -309,6 +309,11 @@ flash_case 0 "" "" "a clean write"
 flash_case 0 "" "" "a clean write on a named device" i:0x0403:0x6014
 [ "$(tr '\n' '|' < "$FAKE_LOG")" = "-d i:0x0403:0x6014 -t|-d i:0x0403:0x6014 image.bin|" ] \
   || { echo "FAIL: flash_bitstream dropped the device from the drain or the write: $(tr '\n' '|' < "$FAKE_LOG")" >&2; fail=1; }
+: > "$FAKE_LOG"
+PRIME_S=1 FLASH_S=1 flash_bitstream "$WORK/fakeflash" image.img "$WORK/flash.out" "" 131072 \
+  || { echo "FAIL: flash_bitstream refused a clean write at an offset" >&2; fail=1; }
+[ "$(tr '\n' '|' < "$FAKE_LOG")" = "-t|-o 131072 image.img|" ] \
+  || { echo "FAIL: flash_bitstream dropped the offset from the write or put it on the drain: $(tr '\n' '|' < "$FAKE_LOG")" >&2; fail=1; }
 flash_case 1 "" noverify "a write that never verified"
 flash_case 1 "" hang "a write that hangs after VERIFY OK"
 t0=$SECONDS
