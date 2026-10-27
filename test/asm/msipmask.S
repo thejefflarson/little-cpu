@@ -21,14 +21,12 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 3, a0, 0x8, csrr a0, mip; )
   TEST_CASE( 4, a0, 0,   csrr a0, mie; )
 
-  // Setting MSIE takes the interrupt that was already pending.
   RVTEST_ENABLE_MSIE
   TEST_CASE( 5, a4, 1, \
     nop; nop; nop; nop; \
     la a3, irq_count; lw a4, 0(a3); )
   TEST_CASE( 6, a4, 0x80000003, la a3, irq_cause; lw a4, 0(a3); )
 
-  // MSIE set, mstatus.MIE clear.
   RVTEST_DISABLE_MIE
   RVTEST_RAISE_MSIP
   TEST_CASE( 7, a4, 1, \
@@ -63,7 +61,6 @@ RVTEST_CODE_BEGIN
   TEST_CASE( 12, a4, 0x80000003, la a3, irq_log; lw a4, 0(a3); )
   TEST_CASE( 13, a4, 0x80000007, la a3, irq_log; lw a4, 4(a3); )
 
-  // The same pair with MSIE clear leaves the timer alone to be taken.
   la    a3, irq_count
   sw    x0, 0(a3)
   RVTEST_DISABLE_MIE

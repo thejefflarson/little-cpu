@@ -52,8 +52,6 @@ test_8:
   TEST_CASE( 10, a0, 0, csrr a0, mip; )
   TEST_CASE( 11, a0, 0, li a1, MSIP_BASE; lw a0, 0(a1); )
 
-  // Raised under a clear mstatus.MIE it reads back, only its low bit is stored, and
-  // clearing it again before MIE returns leaves nothing to take.
   RVTEST_DISABLE_MIE
   TEST_CASE( 12, a0, 1, li a1, MSIP_BASE; li a2, 0xffffffff; sw a2, 0(a1); lw a0, 0(a1); )
   TEST_CASE( 13, a0, 0x8, csrr a0, mip; )
@@ -64,7 +62,6 @@ test_8:
     nop; nop; nop; nop; nop; nop; nop; nop; \
     la a3, irq_count; lw a4, 0(a3); )
 
-  // Raised under a clear MIE, it is taken the moment MIE returns.
   RVTEST_DISABLE_MIE
   RVTEST_RAISE_MSIP
   nop
@@ -75,7 +72,6 @@ test_8:
     la a3, irq_count; lw a4, 0(a3); )
   TEST_CASE( 18, a0, 0, csrr a0, mip; )
 
-  // Under a vectored mtvec it enters at BASE + 0xC.
   la    t0, vec_table
   ori   t0, t0, 1
   csrw  mtvec, t0
