@@ -25,6 +25,7 @@ module testbench(
   logic        mem_lock;
   logic        bus_request;
   logic        irq_timer;
+  logic        irq_software;
   // All five memories answer zero outside their own range, so the buses join with an OR,
   // exactly as rtl/littlesoc.v joins them.
   logic [31:0] imem_mem_rdata, dmem_mem_rdata, timer_mem_rdata, uart_mem_rdata;
@@ -115,7 +116,8 @@ module testbench(
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(timer_mem_rdata),
-    .mtip(irq_timer)
+    .mtip(irq_timer),
+    .msip(irq_software)
   );
 
   uart tty (
@@ -175,6 +177,7 @@ module testbench(
     .mem_lock(mem_lock),
     .bus_request(bus_request),
     .irq_timer(irq_timer),
+    .irq_software(irq_software),
     .entropy_raw(entropy_raw),
     .trap(trap)
    `ifdef RISCV_FORMAL

@@ -41,3 +41,6 @@ misa-drops-the-a-bit        asm   csr.S FAIL 5
 mhartid-ignores-hart-id     bench csr_tb
 
 mtip-fires-a-tick-early     bench timer_tb
+
+software-below-timer        bench csr_tb
+software-below-timer        asm   msipmask.S FAIL 12

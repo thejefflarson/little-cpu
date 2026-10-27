@@ -103,8 +103,8 @@ run_case "BASE = 0x0002_0008" rtl/timer.v timer ".BASE(32'h0002_0008)" \
   reject "BASE must be aligned"
 run_case "the SoC's own" rtl/timer.v timer ".BASE(32'h0002_0000)" accept ""
 run_case "a 16-byte aligned BASE at one hart" rtl/timer.v timer \
-  ".BASE(32'h0002_0010)" accept ""
-run_case "...the same BASE at two harts" rtl/timer.v timer \
+  ".BASE(32'h0002_0010)" reject "BASE must be aligned"
+run_case "...and at two harts" rtl/timer.v timer \
   ".BASE(32'h0002_0010), .NHARTS(2)" reject "BASE must be aligned"
 run_case "two harts at the SoC's own" rtl/timer.v timer \
   ".BASE(32'h0002_0000), .NHARTS(2)" accept ""

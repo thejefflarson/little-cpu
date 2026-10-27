@@ -80,10 +80,10 @@ UART_BYTES=8
 FLASH_BYTES=8
 UART_TOP=$((UART_BASE + UART_BYTES))
 
-# The timer's window is two words of `mtime` plus two per hart, rounded up to a power of
-# two: four words at one hart and eight at two.
+# The timer's window is `mtime`, two `mtimecmp` words per hart and one `msip` word per hart
+# from word 6, rounded up to a power of two: eight words at one hart and at two.
 timer_bytes() {  # $1 = NHARTS
-  local words=$(( 2 + 2 * $1 )) rounded=1
+  local words=$(( 6 + $1 )) rounded=1
   while [ "$rounded" -lt "$words" ]; do rounded=$((rounded * 2)); done
   echo $((rounded * 4))
 }

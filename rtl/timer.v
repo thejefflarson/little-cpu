@@ -1,7 +1,8 @@
 `timescale 1 ns / 1 ps
 `default_nettype none
-// The machine timer. `mtip` is a LEVEL, held while `mtime >= mtimecmp`, and the layout --
-// `mtime`, then one `mtimecmp` per hart -- is deliberately not a CLINT's.
+// The machine timer and the software-interrupt bits. `mtip` is a LEVEL, held while
+// `mtime >= mtimecmp`; `msip[h]` is bit 0 of the word at 0x18 + 4 * h. The layout -- `mtime`,
+// then one `mtimecmp` per hart, then the `msip` words -- is deliberately not a CLINT's.
 module timer #(
   parameter logic [31:0] BASE = 32'h0002_0000,
   parameter integer      NHARTS = 1
@@ -12,9 +13,11 @@ module timer #(
   input  logic [31:0]       mem_wdata,
   input  logic [3:0]        mem_wstrb,
   output logic [31:0]       mem_rdata,
-  output logic [NHARTS-1:0] mtip
+  output logic [NHARTS-1:0] mtip,
+  output logic [NHARTS-1:0] msip
 );
-  localparam int WINDOW_WORDS = 1 << $clog2(2 + 2 * NHARTS);
+  localparam int MSIP_WORD    = 6;
+  localparam int WINDOW_WORDS = 1 << $clog2(MSIP_WORD + NHARTS);
   localparam int SEL_BITS     = $clog2(WINDOW_WORDS);
   localparam int ADDR_LSB     = SEL_BITS + 2;
 
@@ -42,10 +45,10 @@ module timer #(
   end
 
   logic wr_time_lo, wr_time_hi, wr_cmp_lo, wr_cmp_hi;
-  assign wr_time_lo = writing_q && word_q == 2'd0;
-  assign wr_time_hi = writing_q && word_q == 2'd1;
-  assign wr_cmp_lo  = writing_q && word_q == 2'd2;
-  assign wr_cmp_hi  = writing_q && word_q == 2'd3;
+  assign wr_time_lo = writing_q && word_q == 3'd0;
+  assign wr_time_hi = writing_q && word_q == 3'd1;
+  assign wr_cmp_lo  = writing_q && word_q == 3'd2;
+  assign wr_cmp_hi  = writing_q && word_q == 3'd3;
 
   logic [31:0] mtime_lo, mtime_hi, mtimecmp_lo, mtimecmp_hi;
   assign mtime_lo    = mtime[31:0];
@@ -63,10 +66,11 @@ module timer #(
     always_comb begin
       (* parallel_case *)
       case (word)
-        2'd0:    read_word = mtime_lo;
-        2'd1:    read_word = mtime_hi;
-        2'd2:    read_word = mtimecmp_lo;
-        default: read_word = mtimecmp_hi;
+        3'd0:    read_word = mtime_lo;
+        3'd1:    read_word = mtime_hi;
+        3'd2:    read_word = mtimecmp_lo;
+        3'd3:    read_word = mtimecmp_hi;
+        default: read_word = 32'b0;
       endcase
     end
   end else begin : l_harts
@@ -110,10 +114,10 @@ module timer #(
 
     always_comb begin
       case (word)
-        2'd0:    read_word = mtime_lo;
-        2'd1:    read_word = mtime_hi;
-        2'd2:    read_word = mtimecmp_lo;
-        2'd3:    read_word = mtimecmp_hi;
+        3'd0:    read_word = mtime_lo;
+        3'd1:    read_word = mtime_hi;
+        3'd2:    read_word = mtimecmp_lo;
+        3'd3:    read_word = mtimecmp_hi;
         default: read_word = read_above;
       endcase
     end
@@ -121,7 +125,24 @@ module timer #(
 
   logic [31:0] bypassed, wmask;
   assign wmask = {{8{wstrb_q[3]}}, {8{wstrb_q[2]}}, {8{wstrb_q[1]}}, {8{wstrb_q[0]}}};
-  assign bypassed = (writing_q && word_q == word) ? ((wdata_q & wmask) | (read_word & ~wmask)) : read_word;
+  assign bypassed = (writing_q && word_q == word && !(word[2] && word[1])) ? ((wdata_q & wmask) | (read_word & ~wmask)) : read_word;
+
+  logic [NHARTS-1:0] msip_next;
+  logic [32*NHARTS-1:0] msip_chain;
+  logic [31:0]       msip_read;
+  for (genvar h = 0; h < NHARTS; h++) begin : l_msip
+    logic hit;
+    assign hit = word == SEL_BITS'(MSIP_WORD + h);
+    assign msip_next[h] = (writing_q && word_q == SEL_BITS'(MSIP_WORD + h) && wstrb_q[0]) ? wdata_q[0] : msip[h];
+    if (h == 0) begin : l_first
+      assign msip_chain[31:0] = hit ? {31'b0, msip_next[0]} : 32'b0;
+    end else begin : l_next
+      assign msip_chain[32*h +: 32] = msip_chain[32*(h-1) +: 32] | (hit ? {31'b0, msip_next[h]} : 32'b0);
+    end
+  end
+  assign msip_read = msip_chain[32*(NHARTS-1) +: 32];
+
+  always_ff @(posedge clk) msip <= reset ? '0 : msip_next;
 
   always_ff @(posedge clk) begin
     if (reset) begin
@@ -158,7 +179,7 @@ module timer #(
       end
       // The plain register, not `mtime_next`: `mtip` is registered, so a cycle-stale compare is legal.
       mtip[0] <= mtime >= mtimecmp;
-      mem_rdata <= in_range ? bypassed : 32'b0;
+      mem_rdata <= in_range ? (bypassed | msip_read) : 32'b0;
     end
   end
 endmodule

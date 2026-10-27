@@ -2,6 +2,8 @@
 
 datainit.c     DISAGREE LENGTH
 lrsclock.S     INCONCLUSIVE SAIL-LIMIT
+msip.S         DISAGREE AT 8
+msipmask.S     DISAGREE AT 11
 mtimer.S       INCONCLUSIVE SAIL-LIMIT
 mtimermask.S   INCONCLUSIVE SAIL-LIMIT
 mtvecirq.S     INCONCLUSIVE SAIL-LIMIT

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds test/dual/smoke.S once and runs it TWICE: with both harts, and with hart 1 held
-# in reset.
+# in reset. Then does the same with test/dual/ipi.S, where each hart interrupts the other.
 set -eu
 
 SIM=${1:-./dual-sim}
@@ -31,28 +31,34 @@ trap 'rm -rf "$tmp"' EXIT
 
 # The same build an `.S` program in the suite gets: sections.lds, no crt0, and `.data`
 # poked into RAM by the runner rather than copied by a startup.
-"$CC" -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib \
-  -I "$ASM_DIR" -T "$ASM_DIR/sections.lds" \
-  "$PROG" -o "$tmp/smoke.elf"
-TOTAL_ADDR=$("${CC%gcc}nm" "$tmp/smoke.elf" | awk '$3 == "total" { print "0x" $1 }')
+build() {
+  local prog=$1 name
+  name=$(basename "$prog" .S)
+  "$CC" -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib \
+    -I "$ASM_DIR" -T "$ASM_DIR/sections.lds" \
+    "$prog" -o "$tmp/$name.elf"
+  TOTAL_ADDR=$("${CC%gcc}nm" "$tmp/$name.elf" | awk '$3 == "total" { print "0x" $1 }')
+  if [ -z "$TOTAL_ADDR" ]; then
+    echo "error: $prog links no \`total\` symbol, so there is no counter to read back." >&2
+    exit 1
+  fi
+  ROM_HEX=$tmp/$name.rom.hex
+  RAM_HEX=$tmp/$name.ram.hex
+  "$OBJCOPY" -O verilog --verilog-data-width=4 --only-section=.text "$tmp/$name.elf" "$ROM_HEX"
+  "$OBJCOPY" -O verilog --verilog-data-width=4 --remove-section=.text "$tmp/$name.elf" "$RAM_HEX"
+}
+
+build "$PROG"
 
 if [ -z "$ITERS" ]; then
   echo "error: no \`#define ITERS\` in $PROG, so this script does not know what to expect." >&2
   exit 1
 fi
-if [ -z "$TOTAL_ADDR" ]; then
-  echo "error: $PROG links no \`total\` symbol, so there is no counter to read back." >&2
-  exit 1
-fi
-"$OBJCOPY" -O verilog --verilog-data-width=4 --only-section=.text \
-  "$tmp/smoke.elf" "$tmp/rom.hex"
-"$OBJCOPY" -O verilog --verilog-data-width=4 --remove-section=.text \
-  "$tmp/smoke.elf" "$tmp/ram.hex"
 
 run() {
   set +e
   # shellcheck disable=SC2086
-  "$SIM" --rom "$tmp/rom.hex" --ram "$tmp/ram.hex" --cycles "$CYCLES" \
+  "$SIM" --rom "$ROM_HEX" --ram "$RAM_HEX" --cycles "$CYCLES" \
     --report-word "$TOTAL_ADDR" $2 > "$tmp/$1.out" 2> "$tmp/$1.err"
   status=$?
   set -e
@@ -107,3 +113,21 @@ held_h0=$(retires_of HART0 held)
 
 echo
 echo "dual-smoke: OK -- two harts counted $both_total, one hart counted $held_total"
+
+# Each hart interrupts the other through its msip word; with hart 1 held nobody takes the first.
+build "$HERE/dual/ipi.S"
+
+run ipi ""
+[ "$status" -eq 0 ] || fail "the interrupt run exited $status, not 0"
+grep -q '^PASS$' "$tmp/ipi.out" || fail "the interrupt run did not report PASS"
+ipi_total=$(word_of ipi)
+[ "$ipi_total" = "2" ] || fail "the interrupt run took $ipi_total interrupts, not 2"
+
+run ipi_held "--hold-hart1"
+if grep -q '^PASS$' "$tmp/ipi_held.out"; then
+  fail "the interrupt run passed with hart 1 held, so it does not need hart 1"
+fi
+ipi_held_total=$(word_of ipi_held)
+[ "$ipi_held_total" = "0" ] || fail "the held interrupt run took $ipi_held_total interrupts, not 0"
+
+echo "dual-smoke: OK -- each hart interrupted the other ($ipi_total taken, $ipi_held_total with hart 1 held)"

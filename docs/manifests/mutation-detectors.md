@@ -154,3 +154,7 @@ adds no ratchet.
   the whole suite stays green, which is the measurement here: no `.S`
   program pins the tick an interrupt arrives on, because arming a timer and
   waiting for it cannot tell one tick from the next.
+- **`software-below-timer`** — the software interrupt reported only while the timer is not, so
+  the timer outranks it when both are enabled and pending. `csr_tb` reads the source choice with
+  both enabled, and `msipmask.S` takes the pair and fails on its first recorded cause.
+  `executor_tb` is not a detector: it is handed the choice and tests what X does with it.

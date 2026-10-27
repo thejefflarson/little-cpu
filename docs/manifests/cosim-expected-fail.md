@@ -148,6 +148,20 @@ oracle for: whether a reservation survives a trap and an `mret`. It is checked
 instead by `test/sail/reservation_probe.sh`, which asks the model that
 question with no core involved, and in band by `lrsclock.S` itself.
 
+## `msip.S` and `msipmask.S`: the model's software interrupt lives in its CLINT
+
+Both disagree at their first `csrr a0, mip`: the model reads `0x80` (its timer's `mtimecmp` resets
+to a value `mtime` has already passed, and the `RVTEST_DISARM_TIMER` store that would raise it
+lands on plain memory there) and this core reads `0`. The same two reasons the timer programs are
+open apply, and the software interrupt adds a third: the spec leaves where `msip` is and what
+else shares its word to the platform, the model puts it in its CLINT, and a store to this
+platform's word lands nowhere on it, so the model never takes the interrupt. The divergence comes
+before the programs reach the point where they would have been `INCONCLUSIVE SAIL-LIMIT`, which
+is why the entries are `DISAGREE` and not that label. Nothing past the first `mip` read was
+compared. The covering oracles are `formal/traps.sv` (entry, cause 3, the vectored target and
+the priority over the timer), `test/csr_tb.v` (`mie`, `mip` and the enable terms),
+`test/executor_tb.v` (the cause and the vector offset) and `test/timer_tb.v` (the `msip` word).
+
 ## `amoregion.S` was an entry here and is not one any more
 
 The way it was closed is worth more than the line was. It is written down

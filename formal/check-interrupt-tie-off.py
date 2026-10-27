@@ -13,7 +13,8 @@ Four things are decided here:
   1. The set of files in formal/ that instantiate `littlecpu` and the HARNESS
      set in the baseline must match EXACTLY, in both directions. A harness
      added without a line is red; a line with no harness is red too.
-  2. Every declared harness must actually connect `.irq_timer(1'b0)`. A
+  2. Every declared harness must actually connect `.irq_timer(1'b0)` and
+     `.irq_software(1'b0)`. A
      declared-but-untied harness would under-report the restriction, which is
      the direction that matters: the checks would be running against a machine
      the baseline says they are not.
@@ -49,7 +50,7 @@ import sys
 
 # Per core: the module a harness instantiates and the inputs it ties low.
 CORES = {
-    'littlecpu': ('littlecpu', ('irq_timer',)),
+    'littlecpu': ('littlecpu', ('irq_timer', 'irq_software')),
     'nano': ('riscv', ('irq_meip', 'irq_mtip')),
 }
 

@@ -1,6 +1,6 @@
 # `formal/INTERRUPT_TIE_OFF`
 
-The core's interrupt input is TIED OFF in every riscv-formal harness in
+The core's interrupt inputs, `irq_timer` and `irq_software`, are TIED OFF in every riscv-formal harness in
 `formal/`, and this file is the declaration of that boundary.
 
 It is a BASELINE in exactly the sense `formal/COMPLETE_EXCLUSIONS` is:
@@ -31,11 +31,11 @@ moves G and every depth built on it.
 
 ## What proves the interrupt instead
 
-`formal/traps.sv`, under k-induction, with the timer line free: entry writes
+`formal/traps.sv`, under k-induction, with both lines free: entry writes
 `mcause`, `mepc` and `mstatus`, the interrupted instruction commits nothing,
 nothing arms without all three enable terms, and entry disarms so there is
 no second one. That is the oracle. The `.S` side is `test/asm/mtimer.S` and
-`test/asm/mtimermask.S`.
+`test/asm/mtimermask.S`, with `test/asm/msip.S` and `test/asm/msipmask.S` for the software interrupt.
 
 ## nano's one other constant
 
@@ -60,7 +60,7 @@ Two record types, whitespace-separated:
 
 ```
 HARNESS   <path>         a file in formal/ that instantiates littlecpu.
-                         It must connect `.irq_timer(1'b0)`.
+                         It must connect `.irq_timer(1'b0)` and `.irq_software(1'b0)`.
 UPSTREAM  <path>         a file under the pinned clone's checks/ that
                          mentions `rvfi_intr`, relative to the clone.
 ```

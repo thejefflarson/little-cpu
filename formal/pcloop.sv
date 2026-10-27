@@ -17,7 +17,8 @@ module pcloop (
     input logic csr_implemented,
     input logic [31:0] mtvec,
     input logic [31:0] mepc,
-    input logic interrupt_pending  // free, like everything else not instantiated here
+    input logic interrupt_pending,  // free, like everything else not instantiated here
+    input logic interrupt_software
 );
   logic [31:0] fetch_pc, fetch_pc_next;
   logic [31:0] imem_addr, imem_addr2, imem_addr_next;
@@ -92,6 +93,7 @@ module pcloop (
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
+    .interrupt_software(interrupt_software),
     .kill(x_redirect_q),
     .x_busy(x_busy),
     .csr_addr(csr_addr),

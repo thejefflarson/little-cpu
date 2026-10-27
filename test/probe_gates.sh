@@ -5339,6 +5339,10 @@ d=$(it_fixture); mutate "$d/formal/complete.sv" "/\.irq_timer(1'b0),/d"
 probe "a declared harness that does not tie the input off is red" 1 \
   "does not connect .irq_timer" "$(its "$d")"
 
+d=$(it_fixture); mutate "$d/formal/complete.sv" "/\.irq_software(1'b0),/d"
+probe "a harness that leaves the software interrupt line free is red" 1 \
+  "does not connect .irq_software" "$(its "$d")"
+
 d=$(it_fixture); mutate "$d/BASELINE" '/^HARNESS cover.sv$/d'
 probe "a harness with no line in the baseline is red" 1 \
   "does not name it" "$(its "$d")"
@@ -5443,7 +5447,7 @@ mt_fixture() {
     printf 'HARNESS wrapper.v\nHARNESS complete.sv\nHARNESS cover.sv\n'
     printf 'HARNESS dmemcheck.sv\nHARNESS imemcheck.sv\n'
     printf "PORT bus_wait 1'b0\nPORT snoop_write 1'b0\nPORT snoop_addr 32'b0\nPORT entropy_raw 1'b0\n"
-    printf 'ELSEWHERE irq_timer INTERRUPT_TIE_OFF\n'
+    printf 'ELSEWHERE irq_timer INTERRUPT_TIE_OFF\nELSEWHERE irq_software INTERRUPT_TIE_OFF\n'
   } > "$d/BASELINE"
   printf '%s' "$d"
 }
@@ -6760,6 +6764,7 @@ line=$(grep -n "assert(fetch_pc == {prev2_mtvec\[31:2\], 2'b00} + (prev2_mtvec" 
 case $(basename "$PWD") in
   control)    status=${STUB_VEC_CONTROL:-PASS} ;;
   to-base)    status=${STUB_VEC_BASE:-FAIL}; line=${STUB_VEC_BASE_LINE:-$line} ;;
+  software-as-timer) status=${STUB_VEC_SOFT:-FAIL}; line=${STUB_VEC_SOFT_LINE:-$line} ;;
 esac
 : > probe/logfile.txt
 if [ "$status" = FAIL ]; then
@@ -6786,15 +6791,23 @@ probe "an arm that admits an interrupt entering at BASE under a vectored mtvec i
   "the to-base core proves" "STUB_VEC_BASE=PASS $(tvs "$d")"
 
 d=$(tr_fixture)
+probe "an arm that admits the software interrupt taking the timer's offset is red" 1 \
+  "the software-as-timer core proves" "STUB_VEC_SOFT=PASS $(tvs "$d")"
+
+d=$(tr_fixture)
 probe "a proof going red somewhere else is not evidence about the vectored arm" 1 \
   "not at line" "STUB_VEC_BASE_LINE=9 $(tvs "$d")"
+
+d=$(tr_fixture)
+probe "a proof going red elsewhere on the software mutation is no evidence either" 1 \
+  "the software-as-timer core went red" "STUB_VEC_SOFT_LINE=9 $(tvs "$d")"
 
 d=$(tr_fixture)
 probe "a solver that wrote no verdict is exit 2, not a red vectored arm" 2 \
   "wrote no status for the" "STUB_VEC_NO_STATUS=1 $(tvs "$d")"
 
 d=$(tr_fixture); mutate "$d/formal/traps.sv" \
-  "s/prev2_mtvec\[0\] ? 32'h1C/prev2_mtvec[0] ? 32'h1D/"
+  "s/32'hC : 32'h1C/32'hC : 32'h1D/"
 probe "a respelled vectored comparison stops rather than pinning nothing" 2 \
   "0 times" "$(tvs "$d")"
 
