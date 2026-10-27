@@ -627,7 +627,7 @@ top, ECP5 only.
   `core_main.c` accepts a run only past 10 seconds, 33.8 s at 12 MHz). **It has run on the UPduino
   (2026-10-26, `BOARD_OSC=internal`, xPack gcc 15.2.0, `COREMARK_UP5K_CFLAGS`'s `-Os -flto`): 405,425,274
   cycles, `Self-check: PASS`, CRCs validated, equal to the cxxrtl run of the same ELF to the cycle.
-  That is 1.973 CoreMark/MHz and 23.68 CoreMark at 12 MHz**, on the tree after the fetch refactor
+  That is 1.973 CoreMark/MHz and 23.68 CoreMark at 12 MHz** (ADR-0165, amended), on the tree after the fetch refactor
   (the 1.776 and 6,996 bytes this paragraph carried before are the pre-refactor image). The board and
   cxxrtl run one ELF (`build/coremark_up5k.elf`), so no build difference exists to name;
   `make coremark-up5k-sim` produces the simulated report (about an hour: the runner traces every bus
