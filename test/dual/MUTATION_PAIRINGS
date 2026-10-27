@@ -20,3 +20,4 @@ write-lands-in-one-copy     bench   imem_tb
 write-lands-in-one-copy     prog    crosspatch.S FAIL 7
 
 EXEMPT  smoke.S  make dual-smoke
+EXEMPT  ipi.S    make dual-smoke

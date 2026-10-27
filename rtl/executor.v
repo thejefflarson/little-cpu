@@ -18,6 +18,7 @@ module executor #(
   input  logic [31:0] reg_rs2,
   // The timer's live level, read fresh every cycle rather than a bit D captured earlier.
   input  logic interrupt_pending,
+  input  logic interrupt_software,
   input  logic kill,
   output logic x_busy,
 
@@ -185,6 +186,7 @@ module executor #(
   localparam logic [31:0] CAUSE_STORE_MISALIGNED    = 32'd6;
   localparam logic [31:0] CAUSE_STORE_ACCESS_FAULT  = 32'd7;
   localparam logic [31:0] CAUSE_ECALL_M             = 32'd11;
+  localparam logic [31:0] CAUSE_MACHINE_SOFTWARE    = 32'h8000_0003;
   localparam logic [31:0] CAUSE_MACHINE_TIMER       = 32'h8000_0007;
 
  `ifdef RISCV_FORMAL
@@ -203,7 +205,7 @@ module executor #(
 
   always_comb begin
     case (1'b1)
-      take_interrupt:     trap_cause = CAUSE_MACHINE_TIMER;
+      take_interrupt:     trap_cause = interrupt_software ? CAUSE_MACHINE_SOFTWARE : CAUSE_MACHINE_TIMER;
       in_imem_fault:      trap_cause = CAUSE_INSTRUCTION_FAULT;
       instr_illegal:      trap_cause = CAUSE_ILLEGAL_INSTRUCTION;
       in_is_ebreak:       trap_cause = CAUSE_BREAKPOINT;
@@ -254,7 +256,7 @@ module executor #(
 
   logic [3:0]  vector_offset;
   logic [31:0] trap_target;
-  assign vector_offset = interrupt_pending && mtvec[0] ? CAUSE_MACHINE_TIMER[3:0] : 4'b0;
+  assign vector_offset = interrupt_pending && mtvec[0] ? (interrupt_software ? CAUSE_MACHINE_SOFTWARE[3:0] : CAUSE_MACHINE_TIMER[3:0]) : 4'b0;
   assign trap_target   = {mtvec[31:6], mtvec[5:2] | vector_offset, 2'b00};
 
   logic [31:0] pc_inc, seq_pc, resolved_target, guessed_pc;
@@ -894,7 +896,8 @@ module executor #(
   // word alone (no interrupt, no fetch fault) is what is deciding.
   logic word_decides;
   assign word_decides = !take_interrupt && !in_imem_fault;
-  always_comb if (clocked && take_interrupt) assert(trap_cause == CAUSE_MACHINE_TIMER);
+  always_comb if (clocked && take_interrupt)
+    assert(trap_cause == (interrupt_software ? CAUSE_MACHINE_SOFTWARE : CAUSE_MACHINE_TIMER));
   always_comb if (clocked && !take_interrupt && in_imem_fault) assert(trap_cause == CAUSE_INSTRUCTION_FAULT);
   always_comb if (clocked && word_decides && instr_illegal) assert(trap_cause == CAUSE_ILLEGAL_INSTRUCTION);
   always_comb if (clocked && word_decides && in_is_ebreak) assert(trap_cause == CAUSE_BREAKPOINT);

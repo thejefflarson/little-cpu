@@ -16,7 +16,7 @@ module executor_tb;
   logic reset;
   dx_output in;
   logic [31:0] reg_rs1, reg_rs2;
-  logic interrupt_pending;
+  logic interrupt_pending, interrupt_software;
   logic x_busy;
   logic kill = 1'b0;
   logic [11:0] csr_addr;
@@ -42,6 +42,7 @@ module executor_tb;
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
+    .interrupt_software(interrupt_software),
     .kill(kill),
     .x_busy(x_busy),
     .csr_addr(csr_addr),
@@ -110,6 +111,7 @@ module executor_tb;
       csr_rdata = 32'b0;
       csr_implemented = 1'b1;
       interrupt_pending = 1'b0;
+      interrupt_software = 1'b0;
     end
   endtask
 
@@ -553,7 +555,14 @@ module executor_tb;
     mtvec = 32'h0000_0141;
     #1;
     check_hex("...and under a vectored mtvec to BASE + 4 * cause", redirect_target, 32'h0000_015c);
+    interrupt_software = 1'b1;
+    #1;
+    check_hex("a software interrupt's cause is 3, outranking the timer's 7", trap_cause, 32'h8000_0003);
+    check_hex("...and under a vectored mtvec it enters at BASE + 0xC", redirect_target, 32'h0000_014c);
     mtvec = 32'h0000_0100;
+    #1;
+    check_hex("...and at BASE under a direct one", redirect_target, mtvec);
+    interrupt_software = 1'b0;
     #1;
     check_hex("...at the pc of the instruction it displaced", trap_epc, 32'h0000_0300);
     check_bit("...counting nothing in minstret", instret, 1'b0);

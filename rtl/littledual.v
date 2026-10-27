@@ -45,7 +45,7 @@ module littledual #(
   logic [32*NHARTS-1:0] imem_addr, imem_addr2, imem_addr_next;
   logic [32*NHARTS-1:0] imem_data, imem_data2;
   logic [NHARTS-1:0]    fetch_stall, imem_fault;
-  logic [NHARTS-1:0]    irq_timer;
+  logic [NHARTS-1:0]    irq_timer, irq_software;
   logic [NHARTS-1:0]    bus_request, bus_wait, mem_lock, grant;
   logic [32*NHARTS-1:0] hart_mem_addr, hart_mem_wdata;
   logic [4*NHARTS-1:0]  hart_mem_wstrb;
@@ -125,6 +125,7 @@ module littledual #(
       .mem_lock(mem_lock[h]),
       .bus_request(bus_request[h]),
       .irq_timer(irq_timer[h]),
+      .irq_software(irq_software[h]),
       .entropy_raw(1'b0),
       .trap(trap[h])
      `ifdef RISCV_FORMAL
@@ -198,7 +199,8 @@ module littledual #(
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(timer_mem_rdata),
-    .mtip(irq_timer)
+    .mtip(irq_timer),
+    .msip(irq_software)
   );
 
   uart #(.CLOCK_HZ(CLOCK_HZ)) tty (

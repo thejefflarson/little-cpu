@@ -27,10 +27,12 @@ module csrs #(
   // MUST ARRIVE REGISTERED. `interrupt_pending` is one AND away from `next_pc`, so an
   // unregistered 64-bit compare here would land in the fetch loop.
   input  logic        irq_timer,
+  input  logic        irq_software,
   input  logic        entropy_raw,
   output logic [31:0] mtvec_value,
   output logic [31:0] mepc_value,
-  output logic        interrupt_pending
+  output logic        interrupt_pending,
+  output logic        interrupt_software
  `ifdef RISCV_FORMAL
   ,
   output rvfi_csr64 rvfi_mcycle,
@@ -68,7 +70,7 @@ module csrs #(
   logic [63:0] mcycle, minstret;
   logic [31:0] mscratch, mtvec, mepc, mcause, mtval;
   logic        mstatus_mie, mstatus_mpie;
-  logic        mie_mtie;
+  logic        mie_mtie, mie_msie;
 
   logic [31:0] mcycle_lo, mcycle_hi, minstret_lo, minstret_hi;
   assign mcycle_lo   = mcycle[31:0];
@@ -80,12 +82,13 @@ module csrs #(
   // MPP = 2'b11 at [12:11]; MPIE at [7]; MIE at [3]; everything else 0.
   assign mstatus_value = {19'b0, 2'b11, 3'b0, mstatus_mpie, 3'b0, mstatus_mie, 3'b0};
 
-  // Bit 7 is MTIE in `mie` and MTIP in `mip`.
+  // Bit 7 is MTIE in `mie` and MTIP in `mip`; bit 3 is MSIE and MSIP.
   logic [31:0] mie_value, mip_value;
-  assign mie_value = {24'b0, mie_mtie, 7'b0};
-  assign mip_value = {24'b0, irq_timer, 7'b0};
+  assign mie_value = {24'b0, mie_mtie, 3'b0, mie_msie, 3'b0};
+  assign mip_value = {24'b0, irq_timer, 3'b0, irq_software, 3'b0};
 
-  assign interrupt_pending = irq_timer && mie_mtie && mstatus_mie;
+  assign interrupt_software = irq_software && mie_msie;
+  assign interrupt_pending  = (interrupt_software || (irq_timer && mie_mtie)) && mstatus_mie;
 
   // The 87 performance-monitor addresses, every one of them read-only zero.
   localparam logic [6:0] MHPMCOUNTER_WINDOW  = 7'h58; // 0xB00-0xB1F
@@ -147,7 +150,7 @@ module csrs #(
   assign wdata_mtvec   = {wdata[31:6], wdata[5:2] & {4{!wdata[0]}}, 1'b0, wdata[0]};
   assign wdata_mepc    = {wdata[31:1], 1'b0};
   assign wdata_mstatus = {19'b0, 2'b11, 3'b0, wdata[7], 3'b0, wdata[3], 3'b0};
-  assign wdata_mie     = {24'b0, wdata[7], 7'b0};
+  assign wdata_mie     = {24'b0, wdata[7], 3'b0, wdata[3], 3'b0};
 
   logic [31:0] warl;
   always_comb begin
@@ -164,10 +167,11 @@ module csrs #(
       default:   warl = rdata;
     endcase
   end
-  logic warl_mie, warl_mpie, warl_mtie;
+  logic warl_mie, warl_mpie, warl_mtie, warl_msie;
   assign warl_mie  = warl[3];
   assign warl_mpie = warl[7];
   assign warl_mtie = warl[7];
+  assign warl_msie = warl[3];
 
   // BIT 1 MUST SURVIVE. C makes 2-byte targets legal, so masking it would resume a fault
   // on a compressed instruction two bytes early.
@@ -213,6 +217,7 @@ module csrs #(
       mstatus_mie  <= 1'b0;
       mstatus_mpie <= 1'b0;
       mie_mtie     <= 1'b0;
+      mie_msie     <= 1'b0;
     end else begin
       mcycle   <= {mcycle_next_hi, mcycle_next_lo};
       minstret <= {minstret_next_hi, minstret_next_lo};
@@ -223,7 +228,10 @@ module csrs #(
             mstatus_mie  <= warl_mie;
             mstatus_mpie <= warl_mpie;
           end
-          MIE:      mie_mtie <= warl_mtie;
+          MIE: begin
+            mie_mtie <= warl_mtie;
+            mie_msie <= warl_msie;
+          end
           MTVEC:    mtvec    <= warl;
           MSCRATCH: mscratch <= warl;
           MEPC:     mepc     <= warl;

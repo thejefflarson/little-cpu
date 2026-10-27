@@ -38,6 +38,7 @@ module littlecpu #(
   // it against its grant and answers on `bus_wait`.
   output logic        bus_request,
   input  logic        irq_timer,
+  input  logic        irq_software,
   input  logic        entropy_raw,
   output logic trap
   `ifdef RISCV_FORMAL
@@ -188,7 +189,7 @@ module littlecpu #(
   logic        csr_trap_entry, csr_mret_entry;
   logic [31:0] csr_trap_cause, csr_trap_epc, csr_trap_tval;
   logic [31:0] csr_mtvec, csr_mepc;
-  logic        csr_interrupt_pending;
+  logic        csr_interrupt_pending, csr_interrupt_software;
  `ifdef RISCV_FORMAL
   rvfi_csr64 csr_rvfi_mcycle, csr_rvfi_minstret;
   rvfi_csr32 csr_rvfi_mscratch;
@@ -230,12 +231,14 @@ module littlecpu #(
     .trap_tval(csr_trap_tval),
     .mret_entry(csr_mret_entry),
     .irq_timer(irq_timer),
+    .irq_software(irq_software),
     .entropy_raw(entropy_raw),
     .rdata(csr_rdata),
     .implemented(csr_implemented),
     .mtvec_value(csr_mtvec),
     .mepc_value(csr_mepc),
-    .interrupt_pending(csr_interrupt_pending)
+    .interrupt_pending(csr_interrupt_pending),
+    .interrupt_software(csr_interrupt_software)
    `ifdef RISCV_FORMAL
     ,
     .rvfi_mcycle(csr_rvfi_mcycle),
@@ -261,6 +264,7 @@ module littlecpu #(
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(csr_interrupt_pending),
+    .interrupt_software(csr_interrupt_software),
     .kill(x_redirect_q),
     .x_busy(x_busy),
     .csr_addr(csr_addr),

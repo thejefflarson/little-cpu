@@ -10,7 +10,7 @@ module timer_tb;
   logic [31:0] mem_addr, mem_wdata;
   logic [3:0]  mem_wstrb;
   logic [31:0] mem_rdata;
-  logic        mtip;
+  logic        mtip, msip;
 
   localparam logic [31:0] BASE = 32'h0002_0000;
   localparam logic [31:0] MTIME_LO    = BASE + 32'd0;
@@ -25,15 +25,18 @@ module timer_tb;
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata),
-    .mtip(mtip)
+    .mtip(mtip),
+    .msip(msip)
   );
 
   // A second instance with two harts, on the same bus.
   localparam logic [31:0] CMP1_LO = BASE + 32'd16;
   localparam logic [31:0] CMP1_HI = BASE + 32'd20;
+  localparam logic [31:0] MSIP0   = BASE + 32'd24;
+  localparam logic [31:0] MSIP1   = BASE + 32'd28;
 
   logic [31:0] d_mem_rdata;
-  logic [1:0]  d_mtip;
+  logic [1:0]  d_mtip, d_msip;
 
   timer #(.BASE(BASE), .NHARTS(2)) dut2 (
     .clk(clk),
@@ -42,7 +45,8 @@ module timer_tb;
     .mem_wdata(mem_wdata),
     .mem_wstrb(mem_wstrb),
     .mem_rdata(d_mem_rdata),
-    .mtip(d_mtip)
+    .mtip(d_mtip),
+    .msip(d_msip)
   );
 
   int errors = 0;
@@ -165,12 +169,12 @@ module timer_tb;
 
     load(BASE - 32'd4);
     check_hex("below the range reads zero", mem_rdata, 32'h0);
-    load(BASE + 32'd16);
+    load(BASE + 32'd32);
     check_hex("just past the range reads zero, not mtime", mem_rdata, 32'h0);
     load(32'h0001_0000);
     check_hex("the data RAM's base reads zero here", mem_rdata, 32'h0);
 
-    store(BASE + 32'd16, 32'hdead_beef, 4'b1111);
+    store(BASE + 32'd32, 32'hdead_beef, 4'b1111);
     load(MTIME_HI);
     check_hex("an out-of-range store lands nowhere", mem_rdata, 32'h0);
 
@@ -352,15 +356,50 @@ module timer_tb;
     check_hex("...and disarming hart 1 lowers only its line",
               {30'b0, d_mtip}, 32'h1);
 
-    store(BASE + 32'd24, 32'hdead_beef, 4'b1111);
-    store(BASE + 32'd28, 32'hdead_beef, 4'b1111);
-    load(BASE + 32'd24);
-    check_hex("the reserved word reads zero", d_mem_rdata, 32'h0);
-    load(BASE + 32'd28);
-    check_hex("...and so does the one above it", d_mem_rdata, 32'h0);
+    check_hex("two harts: no msip is posted out of reset", {30'b0, d_msip}, 32'h0);
+    store(MSIP1, 32'h0000_0001, 4'b1111);
+    idle();
+    check_hex("a store to hart 1's msip raises its line alone", {30'b0, d_msip}, 32'h2);
+    check_bit("...and the one-hart instance, whose hart 1 does not exist, ignores it", msip, 1'b0);
+    store(MSIP0, 32'hffff_ffff, 4'b1111);
+    idle();
+    check_hex("...and hart 0's raises its own", {30'b0, d_msip}, 32'h3);
+    load(MSIP0);
+    check_hex("msip reads back as bit 0 alone, whatever was stored above it", d_mem_rdata, 32'h1);
+    store(MSIP0, 32'h0000_0000, 4'b1111);
+    load(MSIP0);
+    check_hex("a read right behind the store sees the new value, not the old", d_mem_rdata, 32'h0);
+    store(MSIP0, 32'hffff_ffff, 4'b1111);
+    load(MSIP0);
+    check_hex("...and a read right behind a set sees bit 0 and none of the data above it",
+              d_mem_rdata, 32'h1);
+    store(MSIP0, 32'hffff_fffe, 4'b1111);
+    idle();
+    check_hex("a store of a clear bit 0 lowers it", {30'b0, d_msip}, 32'h2);
+    store(MSIP0, 32'hffff_ffff, 4'b1110);
+    idle();
+    check_hex("a store without byte 0 does not write it", {30'b0, d_msip}, 32'h2);
+    store(MSIP1, 32'h0000_0000, 4'b0001);
+    idle();
+    check_hex("a byte-0 store of zero lowers hart 1's alone", {30'b0, d_msip}, 32'h0);
     load(CMP1_LO);
-    check_hex("...and neither store aliased hart 1's mtimecmp",
+    check_hex("...and no msip store aliased hart 1's mtimecmp",
               d_mem_rdata, 32'hffff_ffff);
+
+    store(MSIP0, 32'h0000_0001, 4'b1111);
+    load(MSIP1);
+    check_hex("the one-hart instance's word 7 reads zero", mem_rdata, 32'h0);
+    check_bit("...and the one-hart instance's own msip is raised by the same word 6 store",
+              msip, 1'b1);
+    load(MSIP0);
+    check_hex("...and reads it back", mem_rdata, 32'h1);
+    store(MSIP1, 32'h0000_0001, 4'b1111);
+    load(MSIP1);
+    check_hex("a store to the absent hart's word reads back zero", mem_rdata, 32'h0);
+    check_bit("...and leaves the present hart's line alone", msip, 1'b1);
+    store(MSIP0, 32'h0000_0000, 4'b1111);
+    idle();
+    check_bit("clearing it lowers the line", msip, 1'b0);
 
     load(BASE + 32'd32);
     check_hex("just past the eight-word window reads zero, not mtime",

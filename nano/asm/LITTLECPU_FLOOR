@@ -43,6 +43,8 @@ lui.S           29
 lw.S           231
 minstret.S     EXCLUDED CSR
 mseccfg.S      EXCLUDED CSR (mseccfg), trap handler
+msip.S         EXCLUDED machine software interrupt, CSR
+msipmask.S     EXCLUDED machine software interrupt, CSR
 mtimer.S       EXCLUDED machine timer, CSR
 mtimermask.S   EXCLUDED machine timer, CSR
 mtvecirq.S     EXCLUDED machine timer, CSR

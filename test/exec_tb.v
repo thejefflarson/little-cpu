@@ -20,6 +20,7 @@ module exec_tb;
   dx_output in;
   logic [31:0] reg_rs1, reg_rs2;
   logic interrupt_pending = 1'b0;  // never armed; this bench is arithmetic-only
+  logic interrupt_software = 1'b0;
   logic x_busy;
   logic kill = 1'b0;
   logic [11:0] csr_addr;
@@ -45,6 +46,7 @@ module exec_tb;
     .reg_rs1(reg_rs1),
     .reg_rs2(reg_rs2),
     .interrupt_pending(interrupt_pending),
+    .interrupt_software(interrupt_software),
     .kill(kill),
     .x_busy(x_busy),
     .csr_addr(csr_addr),

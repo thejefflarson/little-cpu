@@ -21,6 +21,8 @@ module csr_tb;
   logic [31:0] mtvec_value, mepc_value;
   // The platform's timer line, and the one bit rtl/decoder.v reads back.
   logic        irq_timer;
+  logic        irq_software;
+  logic        interrupt_software;
   logic        entropy_raw = 1'b0;
   logic [1:0]  osc_wait = 2'b0;
   logic [15:0] osc_lfsr = 16'hACE1;
@@ -55,10 +57,12 @@ module csr_tb;
     .trap_tval(trap_tval),
     .mret_entry(mret_entry),
     .irq_timer(irq_timer),
+    .irq_software(irq_software),
     .entropy_raw(entropy_raw),
     .mtvec_value(mtvec_value),
     .mepc_value(mepc_value),
-    .interrupt_pending(interrupt_pending)
+    .interrupt_pending(interrupt_pending),
+    .interrupt_software(interrupt_software)
    `ifdef RISCV_FORMAL
     ,
     .rvfi_mcycle(rvfi_mcycle),
@@ -86,10 +90,12 @@ module csr_tb;
     .trap_epc(trap_epc),
     .mret_entry(mret_entry),
     .irq_timer(irq_timer),
+    .irq_software(irq_software),
     .entropy_raw(entropy_raw),
     .mtvec_value(),
     .mepc_value(),
-    .interrupt_pending()
+    .interrupt_pending(),
+    .interrupt_software()
    `ifdef RISCV_FORMAL
     ,
     .rvfi_mcycle(),
@@ -196,6 +202,7 @@ module csr_tb;
     trap_epc = 32'b0;
     trap_tval = 32'b0;
     irq_timer = 1'b0;
+    irq_software = 1'b0;
     reset = 1'b1;
     repeat (2) @(posedge clk);
     #1;
@@ -441,9 +448,21 @@ module csr_tb;
                12'h343, 32'h0001_0003);
 
     poke(12'h304, 32'hffff_ffff);
-    check_read("mie keeps only MTIE", 12'h304, 32'h0000_0080);
+    check_read("mie keeps only MTIE and MSIE", 12'h304, 32'h0000_0088);
     poke(12'h304, 32'h0000_0000);
-    check_read("...and MTIE clears again", 12'h304, 32'h0);
+    check_read("...and both clear again", 12'h304, 32'h0);
+    poke(12'h304, 32'h0000_0008);
+    check_read("MSIE sets alone", 12'h304, 32'h0000_0008);
+    poke(12'h304, 32'h0000_0080);
+    check_read("...and MTIE alone leaves MSIE clear", 12'h304, 32'h0000_0080);
+    poke(12'h304, 32'h0000_0000);
+
+    irq_software = 1'b1;
+    #1;
+    check_read("mip.MSIP follows the platform line", 12'h344, 32'h0000_0008);
+    poke(12'h344, 32'h0000_0000);
+    check_read("...and a write cannot clear it", 12'h344, 32'h0000_0008);
+    irq_software = 1'b0;
 
     irq_timer = 1'b1;
     #1;
@@ -480,6 +499,29 @@ module csr_tb;
     #1;
     check_bit("mret pops MIE back, so a still-asserting line re-arms",
               interrupt_pending, 1'b1);
+    check_bit("...and the timer alone is not a software interrupt", interrupt_software, 1'b0);
+
+    irq_timer = 1'b0;
+    irq_software = 1'b1;
+    poke(12'h304, 32'h0000_0000);
+    #1;
+    check_bit("MSIP with MSIE clear arms nothing", interrupt_pending, 1'b0);
+    poke(12'h304, 32'h0000_0008);
+    #1;
+    check_bit("MSIP with MSIE and mstatus.MIE arms it", interrupt_pending, 1'b1);
+    check_bit("...as the software interrupt", interrupt_software, 1'b1);
+    irq_timer = 1'b1;
+    poke(12'h304, 32'h0000_0088);
+    #1;
+    check_bit("both sources enabled report the software one", interrupt_software, 1'b1);
+    poke(12'h304, 32'h0000_0080);
+    #1;
+    check_bit("MSIE clear hands the cause to the timer", interrupt_software, 1'b0);
+    check_bit("...which still arms it", interrupt_pending, 1'b1);
+    poke(12'h300, 32'h0000_0000);
+    poke(12'h304, 32'h0000_0008);
+    #1;
+    check_bit("mstatus.MIE clear masks the software interrupt", interrupt_pending, 1'b0);
 
     if (errors != 0) begin
       $display("FAILED: %0d mismatches", errors);
