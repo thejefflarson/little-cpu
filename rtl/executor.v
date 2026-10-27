@@ -252,6 +252,11 @@ module executor #(
   localparam int LS_TEXT_ADDR_BITS = $clog2(LS_TEXT_WORDS);
   localparam int PREDICT_LOW_BITS  = LS_TEXT_ADDR_BITS + 2;
 
+  logic [3:0]  vector_offset;
+  logic [31:0] trap_target;
+  assign vector_offset = interrupt_pending && mtvec[0] ? CAUSE_MACHINE_TIMER[3:0] : 4'b0;
+  assign trap_target   = {mtvec[31:6], mtvec[5:2] | vector_offset, 2'b00};
+
   logic [31:0] pc_inc, seq_pc, resolved_target, guessed_pc;
   assign pc_inc = in_instr[1:0] == 2'b11 ? 4 : 2;
   assign seq_pc = in_pc + pc_inc;
@@ -260,7 +265,7 @@ module executor #(
     : seq_pc;
   always_comb begin
     case (1'b1)
-      trap_taken:                resolved_target = mtvec;
+      trap_taken:                resolved_target = trap_target;
       in_is_mret:                resolved_target = mepc;
       in_is_jalr:                resolved_target = ($signed(in_immediate) + $signed(fwd_rs1_val)) &
                                                      32'hfffffffe;
@@ -904,7 +909,8 @@ module executor #(
 
   // X is the single commit point: a trap redirects to mtvec and an mret to mepc, both
   // same-cycle claims (X owns no registered pc of its own for a $past version to check).
-  always_comb if (clocked && trap_entry) assert(redirect_target == mtvec);
+  always_comb if (clocked && trap_entry && !(take_interrupt && mtvec[0]))
+    assert(redirect_target == {mtvec[31:2], 2'b00});
   always_comb if (clocked && mret_entry) assert(redirect_target == mepc);
   always_comb if (clocked && trap_entry) begin
     assert(launch_rd == 5'b0);

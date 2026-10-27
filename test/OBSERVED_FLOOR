@@ -44,6 +44,8 @@ minstret.S           41     30
 mseccfg.S            91     68
 mtimer.S           1103   1074
 mtimermask.S        296    263
+mtvecirq.S          420    410   # a spin under a live timer, like mtimer.S: how far it goes depends on when the interrupt lands
+mtvecmode.S         129    106
 mul.S               422    422
 mulh.S              422    422
 mulhsu.S            422    422

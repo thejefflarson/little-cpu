@@ -119,6 +119,7 @@ module pcloop (
   initial clocked = 0;
   always_ff @(posedge clk) clocked <= 1;
 
+  always_comb assume(mtvec[1:0] == 2'b00);  // direct mode: the trap target is mtvec itself
   initial assume(reset);
   always_comb if (!clocked) assume(reset);
   always_comb if (clocked) assume(!reset);

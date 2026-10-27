@@ -262,6 +262,7 @@ jobs:
             title: Fetcher/decoder PC-loop proof (+ its anti-vacuity cover)
           - proof: traps
             title: Trap commit proof
+            jobs: 2
           - proof: busarbiter
             title: Bus arbiter proof (+ its cover and its forced red directions)
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
@@ -295,7 +296,7 @@ jobs:
           free -h 2>/dev/null || true
 
       - name: ${{ matrix.title }}
-        run: make -C formal components_${{ matrix.proof }}
+        run: make -C formal components_${{ matrix.proof }} -j${{ matrix.jobs || 1 }}
 
       - name: Report job wall time and peak memory
         if: always()

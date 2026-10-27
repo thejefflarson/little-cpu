@@ -151,7 +151,7 @@ components_pcloop: components.sby pcloop_cover ../rtl/fetcher.v ../rtl/decoder.v
                    ../rtl/executor.v ../rtl/regsel.v ../rtl/structs.v pcloop.sv
 	rm -rf $@
 	sby -f $< pcloop
-components_traps: components.sby traps_cover traps-region-probe traps-tval-probe \
+components_traps: components.sby traps_cover traps-region-probe traps-tval-probe traps-vector-probe \
                   traps-arith-excluded check-solver-bitwuzla \
                   ../rtl/fetcher.v ../rtl/decoder.v ../rtl/executor.v ../rtl/regsel.v \
                   ../rtl/csrs.v ../rtl/trng.v ../rtl/structs.v traps.sv
@@ -185,6 +185,10 @@ traps-region-probe: traps-region-probe.py traps.sv ../rtl/executor.v
 traps-tval-probe: traps-tval-probe.py traps.sv ../rtl/executor.v
 	python3 $<
 
+.PHONY: traps-vector-probe
+traps-vector-probe: traps-vector-probe.py traps.sv ../rtl/executor.v
+	python3 $<
+
 components_busarbiter: components.sby busarbiter_cover busarbiter-probe \
                        ../rtl/busarbiter.v busarbiter.sv
 	rm -rf $@
@@ -198,7 +202,7 @@ clean:
 	rm -rf checks complete complete_cover cover dmemcheck imemcheck components components_*
 	rm -rf dmemcheck_cover imemcheck_cover memcheck-cover-probe
 	rm -rf pcloop_cover traps_cover busarbiter_cover fg-probe fg-probe.cfg
-	rm -rf region-probe tval-probe busarbiter-probe executor-zkt-probe nonperturbation-probe
+	rm -rf region-probe tval-probe vector-probe busarbiter-probe executor-zkt-probe nonperturbation-probe
 	rm -rf $(RISCV_FORMAL_DIR) $(RISCV_FORMAL_DIR).tmp
 
 .PHONY: all clean

@@ -337,6 +337,14 @@ drives `entropy_raw` from a seeded LFSR in `test/testbench.v`, so every run repr
 status machine, and `seed.S` is a baselined disagreement because the model's source is ready at
 the first read.
 
+**`mtvec` is direct or vectored** (ADR-0256). MODE 0 sends every trap to BASE; MODE 1 sends synchronous
+exceptions to BASE and an interrupt to BASE + 4 × cause, which is BASE + 0x1C for the timer. A MODE 1
+write clears BASE[5:2], the 64-byte alignment the spec leaves to the implementation, so `rtl/executor.v`
+forms the target by ORing the offset into BASE. A write naming MODE 2 or 3 reads back as MODE 0 or 1, bit 1
+forced to zero (the reference model keeps the old MODE instead, so `test/asm/mtvecmode.S` holds what
+both agree on and `test/asm/mtvecirq.S` the reserved-MODE writes, which it grades for legality only).
+`components_traps` checks the target, with `traps-vector-probe` as its forced-red direction.
+
 **One interrupt: the machine timer, cause `0x8000_0007`.** `mie.MTIE` is the only writable bit of
 `mie`; `mip.MTIP` is `rtl/timer.v`'s line and read-only; `mip.MSIP`/`mip.MEIP` are read-only zero,
 which the spec allows for an interrupt that can never become pending. `mtime`/`mtimecmp` are four
@@ -405,8 +413,8 @@ What a green result does and does not mean:
   `components_traps` over `formal/traps.sv` is the only thing that says a trap lands on `mtvec` and
   saves the right state, `mtval` included. That harness restates the memory map as parameters
   (`test/memmap_test.sh` compares the copy) so it can require an unanswered access to trap with
-  cause 5 or 7, and it has two forced-red prerequisites, `traps-region-probe` and
-  `traps-tval-probe`, each requiring a mutated core to fail at its own arm's line. For the twelve
+  cause 5 or 7, and it has three forced-red prerequisites, `traps-region-probe`,
+  `traps-tval-probe` and `traps-vector-probe`, each requiring a mutated core to fail at its own arm's line. For the twelve
   plain load and store encodings the generated checks grade the refusal itself: decode publishes
   the refused access's word address and exact write strobe on the fault channel and
   `rvfi_insn_check.sv` compares both (write mask exactly, read mask as a superset); the A encodings
@@ -1024,8 +1032,8 @@ make -C formal check-baseline       # re-grade a finished run without re-running
 make -C formal components_decoder   # component proofs by k-induction (mode prove): read the
 make -C formal components_executor  #   sby summaries, not the job colour. decoder and
 make -C formal components_accessor  #   executor run their zkt probes first; pcloop runs
-make -C formal components_pcloop    #   pcloop_cover; traps runs traps-region-probe and
-make -C formal components_traps     #   traps-tval-probe; busarbiter runs busarbiter_cover
+make -C formal components_pcloop    #   pcloop_cover; traps runs traps-region-probe,
+make -C formal components_traps     #   traps-tval-probe and traps-vector-probe; busarbiter runs busarbiter_cover
 make -C formal components_busarbiter #  and busarbiter-probe -- each a forced red direction
 make -C formal complete             # depth-50 whole-ISA walk minus COMPLETE_EXCLUSIONS
 make -C formal complete_cover       # its anti-vacuity control, tied to complete's depth
@@ -1245,7 +1253,7 @@ not sufficient.
 
 With the `seed` CSR, its entropy source and the Zkr health tests and the 8,192-cycle edge timeout, `make fit` reads 4,422 packed cells in the `fit` job (4,413 locally) against `FIT_MAX_LC` 4,462, with the shared ABC9 script (4,549 locally before it), and `make
 soc-timing` places at 5,198 of 5,280 `ICESTORM_LC` (98.5%) in the job, 13.45 MHz at the pinned seed (locally 5,177 cells; sixteen paired seeds 12.60–13.58 MHz, median 13.37, against 12.33–13.54 and 13.01 on the default script, ADR-0255, amended) and
-`soc/pin.json` holding seed 195147338 at 13.53 MHz, 12.75% over the requirement, from a twelve-seed search on this tree (12.86–13.53 MHz, median 13.37) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,144 cells and 12.44 MHz at the default seed in the `soc-timing` job (ADR-0255, amended; 5,110 and 13.25 before the Zkr timeout change); with `soc/board_pin.json` it places at a pinned seed instead, 13.50 MHz locally (yosys 0.68, sixteen seeds 12.66 / 12.87 / 13.50 worst / median / best), the seed `make bitstream` ships, and the six instance-name spread leaves at least 131 cells (ADR-0255, amended 2026-10-23).
+`soc/pin.json` holding seed 67306537 at 13.32 MHz, 11.0% over the requirement, from a twelve-seed search on the vectored-`mtvec` tree (12.81–13.32 MHz, median 13.05, ADR-0256) (ADR-0245's amendment records the sweep and that a respelling at this occupancy moves the count by tens of cells; `make ecp5-timing` reads 39.20 MHz with its three censuses and the block-RAM-reset check green, and the dual figures are not re-taken). `make board-timing` places the UPduino top at 5,144 cells and 12.44 MHz at the default seed in the `soc-timing` job (ADR-0255, amended; 5,110 and 13.25 before the Zkr timeout change); with `soc/board_pin.json` it places at a pinned seed instead, 12.84 MHz locally (yosys 0.68, twelve seeds 11.71 / 12.30 / 12.84 worst / median / best), the seed `make bitstream` ships, and the six instance-name spread leaves at least 77 cells (ADR-0256; ADR-0255 holds the method).
 
 The SoC is 8 KB of ROM in block RAM plus 64 KB of data RAM in two of the part's four
 `SB_SPRAM256KA`; `SOC_EXPECT_SPRAM` and `SOC_EXPECT_EBR` hold both counts exactly. It places, meets
@@ -1278,9 +1286,9 @@ programmed by loading SRAM over JTAG — a flash write leaves the part unconfigu
 power-cycled. SPRAM cannot be initialised, so `.data` rides in
 the ROM at a load
 address `test/asm/boot.lds` puts there and `test/crt0.S` copies into RAM before `main`. Still
-deferred: booting a program out of the flash, an interrupt controller, more interrupt sources and
-a vectored `mtvec`. The radix-4 divider is cancelled rather than deferred: neither part has the
-area for it without building the two parts from different sources (ADR-0038, amended). Forwarding ships as X's own mux (ADR-0222); the fused decoder's full network
+deferred: booting a program out of the flash, an interrupt controller and more interrupt sources.
+The radix-4 divider is cancelled rather than deferred: neither part has the area for it without
+building the two parts from different sources (ADR-0038, amended). Forwarding ships as X's own mux (ADR-0222); the fused decoder's full network
 is among the retired fetch-loop dead ends under Measurements.
 
 **The ECP5 holds 16 KB of text, and that is where CoreMark reaches a board** (ADR-0165).

@@ -143,8 +143,8 @@ module csrs #(
   end
 
   logic [31:0] wdata_mtvec, wdata_mepc, wdata_mstatus, wdata_mie;
-  // Direct mode only, so a write forces the two mode bits at `mtvec[1:0]` to zero.
-  assign wdata_mtvec   = {wdata[31:2], 2'b00};
+  // MODE 0 and 1 only; vectored clears BASE[5:2] so an interrupt's 4 * cause ORs into BASE.
+  assign wdata_mtvec   = {wdata[31:6], wdata[5:2] & {4{!wdata[0]}}, 1'b0, wdata[0]};
   assign wdata_mepc    = {wdata[31:1], 1'b0};
   assign wdata_mstatus = {19'b0, 2'b11, 3'b0, wdata[7], 3'b0, wdata[3], 3'b0};
   assign wdata_mie     = {24'b0, wdata[7], 7'b0};

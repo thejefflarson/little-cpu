@@ -12,7 +12,7 @@
 // An override inherits everything it does not mention. The previous file was a
 // small override on the model's default RV32 machine, so the reference model
 // this repo cross-checks against had bit-manipulation, single and double
-// float, supervisor mode, user mode and vectors -- none of which this core
+// float, supervisor mode and user mode -- none of which this core
 // implements, and none of which anybody chose. Atomics rode in with them, and
 // this core does implement those now, but it did not then and nobody had
 // chosen them here either. It surfaced as one wrong CSR read (`csrr misa`
@@ -78,12 +78,12 @@
     "scounteren_writable_bits": { "len": 32, "value": "0x0000_0000" },
     "mcounteren_writable_bits": { "len": 32, "value": "0x0000_0000" },
 
-    // Direct mode only, 4-byte-aligned base: rtl/csrs.v's WARL mask on mtvec
-    // is `{wdata[31:2], 2'b00}`, which forces MODE=0 and clears the low two
-    // bits of BASE. `base_alignment` is the exponent, so 2 == 4 bytes.
+    // Direct mode keeps a 4-byte-aligned base. Vectored mode keeps a 64-byte-aligned
+    // one: rtl/csrs.v clears BASE[5:2] when MODE is 1 so an interrupt's 4 * cause
+    // offset ORs into BASE. `base_alignment` is the exponent, so 2 == 4 bytes, 6 == 64.
     "mtvec": {
-      "direct":   { "supported": true,  "base_alignment": 2 },
-      "vectored": { "supported": false, "base_alignment": 2 }
+      "direct":   { "supported": true, "base_alignment": 2 },
+      "vectored": { "supported": true, "base_alignment": 6 }
     },
 
     // S is disabled, so stvec does not exist and these keys are never
@@ -150,11 +150,8 @@
     // to an extension disabled below and is unreachable; they are required
     // keys, so they keep upstream's non-fatal choice -- a model that halts on
     // an encoding this core merely treats as illegal would report a broken
-    // harness as a divergence. `xtvec_mode` IS reachable: with vectored mode
-    // unsupported, a `csrw mtvec` carrying MODE=1 is ignored by the model,
-    // and rtl/csrs.v's WARL mask forces MODE=0 -- same architectural result
-    // from a mtvec whose MODE was already 0, which is the only state this
-    // core can be in.
+    // harness as a divergence. `xtvec_mode` IS reachable: a `csrw mtvec` carrying
+    // a reserved MODE is ignored by the model, and rtl/csrs.v drops the same write.
     "reserved_behavior": {
       "amocas_odd_register": "AMOCAS_Illegal",
       "fcsr_rm": "Fcsr_RM_Illegal",
