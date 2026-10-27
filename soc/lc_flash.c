@@ -1,5 +1,5 @@
 // Root-owned front for iceprog, the only flashing command the passwordless board rule runs.
-// It accepts a bitstream under a build/ directory, or -t alone, each behind an optional -d i:VID:PID.
+// It accepts a bitstream or, behind -o OFFSET, a boot image, each under a build/ directory, or -t alone, each behind an optional -d i:VID:PID.
 #define _GNU_SOURCE
 #include <ctype.h>
 #include <errno.h>
@@ -13,11 +13,17 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "boot_layout.h"
+
 #ifndef REAL_ICEPROG
 #error "REAL_ICEPROG must name the root-owned iceprog by absolute path"
 #endif
 
 #define MAX_BITSTREAM (4L << 20)
+#define MAX_BOOT_IMAGE (64L << 10)
+#define BOOT_HEADER 12
+
+_Static_assert(MAX_BOOT_IMAGE <= BOOT_FLASH_ALIGN, "an image must fit the erase block it starts at");
 
 static void die(const char *why) {
   fprintf(stderr, "lc-flash: %s\n", why);
@@ -72,7 +78,31 @@ static int under_build(const char *p) {
 
 // Opens `path` with the invoking user's credentials, never root's. The descriptor is judged by what it
 // is (its canonical path, type, owner, size), so a symlink or a rename after the open changes nothing.
-static int open_as_user(const char *path, uid_t uid, gid_t gid) {
+static unsigned long le32(const unsigned char *p) {
+  return p[0] | (unsigned long)p[1] << 8 | (unsigned long)p[2] << 16 | (unsigned long)p[3] << 24;
+}
+
+// A boot image is soc/boot_image.py's: magic, a length that accounts for the whole file, a checksum, the payload.
+static void boot_image_ok(int fd, const struct stat *st) {
+  unsigned char h[BOOT_HEADER];
+  if (st->st_size < BOOT_HEADER || st->st_size > MAX_BOOT_IMAGE) die("not the size of a boot image");
+  if (pread(fd, h, sizeof h, 0) != (ssize_t)sizeof h) die("cannot read the image header");
+  if (le32(h) != BOOT_MAGIC || le32(h + 4) % 4 || le32(h + 4) + BOOT_HEADER != (unsigned long)st->st_size)
+    die("not a boot image");
+}
+
+// A plain decimal offset on an erase-block boundary, past the bitstream and inside the flash.
+static long offset_ok(const char *s) {
+  size_t n = strlen(s);
+  if (n == 0 || n > 8 || s[0] == '0') die("-o takes a plain decimal byte offset");
+  for (size_t k = 0; k < n; k++)
+    if (s[k] < '0' || s[k] > '9') die("-o takes a plain decimal byte offset");
+  long v = strtol(s, NULL, 10);
+  if (v < BOOT_FLASH_OFFSET || v >= BOOT_FLASH_BYTES || v % BOOT_FLASH_ALIGN) die("-o is outside the boot image's region of the flash");
+  return v;
+}
+
+static int open_as_user(const char *path, uid_t uid, gid_t gid, long offset) {
   int dropped = geteuid() == 0;
   if (dropped) {
     struct passwd *pw = getpwuid(uid);
@@ -90,8 +120,9 @@ static int open_as_user(const char *path, uid_t uid, gid_t gid) {
   if (canonical_path(fd, real) || fstat(fd, &st)) die("cannot resolve the opened file");
   if (!S_ISREG(st.st_mode)) die("not a regular file");
   if (st.st_uid != uid) die("the file is not yours");
-  if (st.st_size <= 0 || st.st_size > MAX_BITSTREAM) die("not the size of a bitstream");
+  if (offset < 0 && (st.st_size <= 0 || st.st_size > MAX_BITSTREAM)) die("not the size of a bitstream");
   if (!under_build(real)) die("the file does not resolve to a path under a build/ directory");
+  if (offset >= 0) boot_image_ok(fd, &st);
   return fd;
 }
 
@@ -103,17 +134,24 @@ int main(int argc, char **argv) {
     dev = argv[i + 1];
     i += 2;
   }
+  long offset = -1;
+  if (i < argc && !strcmp(argv[i], "-o")) {
+    if (i + 1 >= argc) die("-o takes a byte offset");
+    offset = offset_ok(argv[i + 1]);
+    i += 2;
+  }
   if (i < argc && !strcmp(argv[i], "-t")) {
     reboot = 1;
     i++;
   }
-  if (reboot ? i != argc : i + 1 != argc) die("usage: lc-flash [-d i:VID:PID] BITSTREAM | lc-flash [-d i:VID:PID] -t");
+  if (reboot ? i != argc : i + 1 != argc) die("usage: lc-flash [-d i:VID:PID] BITSTREAM | lc-flash [-d i:VID:PID] -o OFFSET IMAGE | lc-flash [-d i:VID:PID] -t");
+  if (reboot && offset >= 0) die("-o writes an image; -t writes nothing");
 
   uid_t uid;
   gid_t gid;
   invoker(&uid, &gid);
 
-  char fdpath[32];
+  char fdpath[32], offpath[16];
   char *args[8];
   int n = 0;
   args[n++] = (char *)REAL_ICEPROG;
@@ -124,7 +162,12 @@ int main(int argc, char **argv) {
   if (reboot) {
     args[n++] = "-t";
   } else {
-    int fd = open_as_user(argv[i], uid, gid);
+    int fd = open_as_user(argv[i], uid, gid, offset);
+    if (offset >= 0) {
+      snprintf(offpath, sizeof offpath, "%ld", offset);
+      args[n++] = "-o";
+      args[n++] = offpath;
+    }
     snprintf(fdpath, sizeof fdpath, "/dev/fd/%d", fd);
     args[n++] = fdpath;
   }
