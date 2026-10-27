@@ -621,15 +621,20 @@ top, ECP5 only.
   conventional one when ADR-0158 measured it, and executor-only forwarding took the inset figure
   to 2.203 afterwards (ADR-0154). Hazard3's published 4.15 CoreMark/MHz is its RP2350 build, not its iCE40
   one, and quoting it against an ice40 core is the mixed-configuration error ADR-0098 names.
-  **`make coremark-rom-up5k` links a CoreMark image the part can actually hold** — a link, not the
-  score below: the shipping image is 6,996 of the 8 KB budget under the pinned compiler (was 7,076
-  under Homebrew's 16.2.0), `-Os -flto` rather than `COREMARK_CFLAGS`'s `-O2`. **1.776 CoreMark/MHz**
-  under the pinned compiler (1.780 under 16.2.0, essentially unmoved — `-Os -flto` code is far less
-  compiler-version-sensitive than `-O2`'s, ADR-0190), a 17.6% cost against the native-ISA `-O2`
-  figure above, legal under EEMBC's own build-option allowance; `COREMARK_UP5K_ITERATIONS`'s 800
-  iterations clears `core_main.c`'s own ">=10 secs" self-check for real at 12 MHz (ADR-0165). No
-  board has run it yet — `make coremark-board` is off `make test` and CI, the same standing as
-  `make dhrystone-board` before ADR-0130.
+  **`make coremark-rom-up5k` links a CoreMark image the part can actually hold**: 7,104 of the 8 KB
+  budget on this tree under the pinned compiler, `-Os -flto` rather than `COREMARK_CFLAGS`'s `-O2`,
+  linked by `test/bench/bench.lds`, 800 iterations (`COREMARK_UP5K_ITERATIONS`; the vendored
+  `core_main.c` accepts a run only past 10 seconds, 33.8 s at 12 MHz). **It has run on the UPduino
+  (2026-10-26, `BOARD_OSC=internal`, xPack gcc 15.2.0, `COREMARK_UP5K_CFLAGS`'s `-Os -flto`): 405,425,274
+  cycles, `Self-check: PASS`, CRCs validated, equal to the cxxrtl run of the same ELF to the cycle.
+  That is 1.973 CoreMark/MHz and 23.68 CoreMark at 12 MHz**, on the tree after the fetch refactor
+  (the 1.776 and 6,996 bytes this paragraph carried before are the pre-refactor image). The board and
+  cxxrtl run one ELF (`build/coremark_up5k.elf`), so no build difference exists to name;
+  `make coremark-up5k-sim` produces the simulated report (about an hour: the runner traces every bus
+  access) and `make coremark-board-compare` grades it against `COREMARK_BOARD_LOG`, a `lc-uart` capture
+  of the board. Flash the same image the build made: `make prog` rebuilds the default `BOARD_ROM` unless
+  `BOARD_ROM` and `BOARD_OSC` match the build. The comparison is off `make test` and CI (it needs a
+  board); its comparer is graded by `make coremark-board-compare-test` and `make probe-gates`.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
 Hazard3 in two builds (`soc/compare/hazard3_pin.mk`, ADR-0139, ADR-0246). **Every figure below is one
@@ -939,7 +944,9 @@ make suite-board    # the .S suite on the part, in batches, read back over the U
 make dhrystone-board # Dhrystone built for the board; flash with `make prog`, read the UART
 make coremark-board # CoreMark built for the up5k at COREMARK_UP5K_CFLAGS (-Os -flto, not
                     # COREMARK_CFLAGS' -O2); flash with `make prog`, read the UART.
-                    # `make coremark-rom-up5k` builds that image alone
+                    # `make coremark-rom-up5k` builds that image alone,
+                    # `make coremark-up5k-sim` runs it under cxxrtl and
+                    # `make coremark-board-compare` holds the board's report to it
 make icesugar-bitstream # the iCESugar-Pro (ECP5) bitstream; ICESUGAR_PROG picks the program,
                     # ICESUGAR_ROM=noop-rom takes banks another recipe already wrote.
                     # No --freq: the LPF states the pad, nextpnr derives the core

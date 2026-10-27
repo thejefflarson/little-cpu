@@ -158,6 +158,11 @@ a block RAM read through its own reset is refused
 a block short of a tool is named, not summarised around
 a block with no end is truncated, and a truncated one is not read
 a bmc .sby stating depth twice is exit 2 here too
+a board CoreMark one cycle off the simulation is red
+a board CoreMark whose self-check failed is red
+a board capture whose repeated reports disagree is red
+a board report cut off before its verdict is red
+a board run at a different iteration count is red
 a board search under the 5% margin is refused and pins nothing
 a board suite that sudo-runs a path the check did not resolve is red
 a board_report that does not reach the driver's verdict path is red
@@ -959,6 +964,7 @@ an empty --current value is refused, not compared as though it were the field's 
 an empty .asc is no placement
 an empty CoreMark image is named rather than reported as fitting easily
 an empty asm directory is red rather than a suite of size zero
+an empty board capture is red
 an empty configuration means nothing was expressible on the part
 an empty image is named rather than reported as fitting easily
 an empty manifest matches an empty suite and is rejected
@@ -1183,6 +1189,7 @@ control: both register-file builds are reported from one call
 control: both sides failing the same test number still AGREE
 control: each subset is printed as a share of that number
 control: ecp5 is derived too, and a single sweep states its own figure
+control: equal CoreMark cycles and PASS in both is green
 control: every allowed site is covered and nothing else carries the string
 control: every board command ejects the iCELink volume first
 control: every goal first reached before complete's depth passes the tie

@@ -78,6 +78,7 @@ board-wrappers-test | fast | - | - | test/board_wrappers_test.sh soc/ Makefile
 ill-e-wiring-test | fast | - | - | @all test/ill_e_wiring_test.py nano/formal/ formal/ rtl/
 probes-header-test | fast | - | - | @all test/probes_header_test.py test/PROBES_EXPECTED
 dhry-board-parity-test | fast | - | - | @all test/dhry_board_parity_test.sh test/bench/ Makefile
+coremark-board-compare-test | fast | - | - | @all test/coremark_board_compare_test.sh test/bench/coremark_board_compare.sh
 stall-sites-test | fast | - | - | @all test/stall_sites_test.py test/stall_report.py rtl/ test/cxxrtl.cc
 pin-help-text-test | fast | - | - | @all test/pin_help_text_test.sh Makefile
 formal-ci-coverage-test | fast | - | - | @all test/formal_ci_coverage_test.py .github/ formal/ nano/formal/
