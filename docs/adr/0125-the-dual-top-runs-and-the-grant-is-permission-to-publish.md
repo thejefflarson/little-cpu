@@ -226,6 +226,6 @@ runner reports as the intended exit 6 and the target accepts.
 
 `make icesugar-dual-run` was attempted once, for `ICESUGAR_DUAL_HELD=0`, and the build placed at
 34.97 MHz against 30 (PASS) but the load failed: `openFPGALoader` found no CMSIS-DAP device and
-`/Volumes/iCELink` was absent, so the iCESugar-Pro was not attached to the machine. Neither case
+`/Volumes/iCELink` was absent, so the iCESugar-Pro was not attached to the machine. A second attempt with the volume present failed the same way (`no USB backend available`, and the eject itself warned), so the host's USB access, not the design, blocked both. Neither case
 has run on the part on this tree; the 2026-10-11 table above stands as the last board result and
 is not re-confirmed. The loader failure is a host-side finding, not a result about the design.
