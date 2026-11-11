@@ -151,7 +151,7 @@ int main(int argc, char **argv) {
   gid_t gid;
   invoker(&uid, &gid);
 
-  char fdpath[32], offpath[16];
+  char fdpath[32], offpath[24];
   char *args[8];
   int n = 0;
   args[n++] = (char *)REAL_ICEPROG;
