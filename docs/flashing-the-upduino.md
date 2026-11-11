@@ -52,8 +52,12 @@ file before `mv` installs it at mode 0440. Probe it with `sudo -n /usr/local/lib
 and each refuses everything outside the shape the board targets use:
 
 - `lc-flash [-d i:VID:PID] FILE` writes FILE to the configuration flash. `lc-flash [-d i:VID:PID] -t`
-  reboots the FPGA from it, writing nothing. No other iceprog flag is passed on, so `-r` (which writes
-  its argument as root), `-R`, `-o`, `-S` and the rest are refused.
+  reboots the FPGA from it, writing nothing. `lc-flash [-d i:VID:PID] -o OFFSET IMAGE` writes a boot image
+  (below) at OFFSET: a plain decimal byte offset on a 64 KiB boundary, at or past `BOOT_FLASH_OFFSET` in
+  `soc/boot_layout.h` and inside the 4 MiB flash, so it cannot reach the bitstream or an erase block the
+  bitstream shares. The file must be an image: the `soc/boot_image.py` magic, a length that accounts for the
+  whole file, and at most 64 KiB. No other iceprog flag is passed on, so `-r` (which writes its argument as
+  root), `-R`, `-S` and the rest are refused.
 - FILE is opened with your user and group ids, not root's, so a file you cannot read is refused by the
   kernel (the privileged process takes your identity from the `SUDO_UID` and `SUDO_GID` that sudo sets,
   and refuses to run without them). The wrapper then judges the open file, not the name: its canonical
@@ -64,7 +68,8 @@ and each refuses everything outside the shape the board targets use:
 - `lc-uart MILLISECONDS` reads the UART at 115200 baud for 1 to 3,600,000 ms. Nothing else is accepted.
 
 So the rule no longer hands a process of yours root. What it still allows is writing any bitstream-sized
-file of yours that lives under a `build/` directory into the board's flash, and holding the USB
+file of yours that lives under a `build/` directory into the board's flash, or a boot image at or past the
+boot offset, and holding the USB
 adapter for up to an hour. The `build/` requirement is a statement of what the target is for, not a
 privilege boundary: any directory you create named `build` satisfies it, because the privilege boundary is
 the file being opened as you. `test/board_wrappers_test.sh` compiles both wrappers against stub tools and
@@ -187,3 +192,24 @@ nothing on either stream for `STALL_S` (30 s) or runs past `LOAD_S` (180 s), the
 resumes from the rows on disk after a replug rather than spending its failure allowance. The capture's
 timeout in `soc/entropy_nist.py` is the lock wait plus `capture_budget`, the sum of every load attempt, the
 reboot and the read, and the reader refuses a `--budget` below that sum.
+
+## Booting a program from the flash
+
+The bitstream ends 104,090 bytes in. `soc/boot_layout.h` puts the program image at `0x20000` (131,072),
+the next 64 KiB boundary, which leaves 26,982 bytes between them and makes every bitstream write
+(`iceprog` erases whole 64 KiB blocks from offset 0) stop short of the image's block.
+
+1. Build and flash the loader once: `make bitstream SOC_PROG=soc/boot_loader.c BOARD_OSC=internal`, then
+   `make prog SOC_PROG=soc/boot_loader.c BOARD_OSC=internal` (the same variables both times, or `make prog`
+   rebuilds the default ROM).
+2. For each program: `make boot-image BOOT_PROG=path/to/prog.c BOOT_IMAGE=build/prog.img`, then
+   `make prog-image BOOT_IMAGE=build/prog.img`. That runs the `-t` drain and one `lc-flash -o 131072`.
+   The new program runs at the next power-up or `lc-flash -t`; no re-pack, no re-place.
+3. The UART reads `BOOT`, then `BOOT OK len=N cycles=N` and whatever the program prints. A missing image
+   (flash reads `FFFFFFFF`) prints `BOOT NOIMAGE`, a length no ROM holds or not a whole number of words
+   prints `BOOT BADLEN`, and a payload that does not match its checksum prints `BOOT BADSUM`; none of the
+   three runs anything.
+
+A program is a C file linked by `soc/boot_image.lds` at ROM address `0x400` through `test/crt0.S`, so
+it can be up to 7,168 bytes including its `.data` image. The loader (812 bytes at the time of writing)
+owns the ROM below `0x400`; `make boot-loader-test` fails if it outgrows that.

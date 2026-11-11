@@ -5,7 +5,9 @@ module spiflash_model #(
   // The three bytes `0x9F` returns.
   parameter logic [7:0] JEDEC0 = 8'hEF,
   parameter logic [7:0] JEDEC1 = 8'h70,
-  parameter logic [7:0] JEDEC2 = 8'h16
+  parameter logic [7:0] JEDEC2 = 8'h16,
+  parameter integer IMAGE_BYTES = 0,
+  parameter logic [23:0] IMAGE_BASE = 24'h0
 ) (
   input  logic clk,
   input  logic sck,
@@ -13,9 +15,15 @@ module spiflash_model #(
   input  logic mosi,
   output logic miso
 );
+  localparam logic [23:0] IMAGE_END = IMAGE_BASE + 24'(IMAGE_BYTES);
+  logic [7:0] image [0:(IMAGE_BYTES > 0 ? IMAGE_BYTES : 1) - 1];
+  if (IMAGE_BYTES > 0) begin : l_image
+    initial for (int i = 0; i < IMAGE_BYTES; i++) image[i] = 8'hff;
+  end
+
   // The whole data array, as a function of the address.
   function automatic logic [7:0] flash_byte(input logic [23:0] a);
-    flash_byte = a[7:0] ^ a[15:8] ^ 8'h5a;
+    flash_byte = (a >= IMAGE_BASE && a < IMAGE_END) ? image[a - IMAGE_BASE] : a[7:0] ^ a[15:8] ^ 8'h5a;
   endfunction
 
   logic [7:0]  rx, tx, tx_next;

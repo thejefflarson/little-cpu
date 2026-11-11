@@ -75,6 +75,7 @@ board-tools-test | fast | - | - | test/board_tools_test.py soc/ Makefile mk/
 board-verdict-test | fast | - | - | test/board_verdict_test.sh test/board/ test/asm/ soc/ Makefile
 board-sudoers-test | fast | - | - | test/board_sudoers_test.sh soc/ Makefile
 board-wrappers-test | fast | - | - | test/board_wrappers_test.sh soc/ Makefile
+boot-loader-test | fast | - | - | rtl/ soc/ test/boot/ test/boot_loader_test.sh test/boot_loader_sim.v test/boot_damage.py test/spiflash_model.v test/crt0.S test/asm/boot.lds Makefile mk/
 ill-e-wiring-test | fast | - | - | @all test/ill_e_wiring_test.py nano/formal/ formal/ rtl/
 probes-header-test | fast | - | - | @all test/probes_header_test.py test/PROBES_EXPECTED
 dhry-board-parity-test | fast | - | - | @all test/dhry_board_parity_test.sh test/bench/ Makefile

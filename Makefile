@@ -773,6 +773,10 @@ board-sudoers-test:
 board-wrappers-test:
 	@./test/board_wrappers_test.sh
 
+.PHONY: boot-loader-test
+boot-loader-test:
+	@SOC_SRCS='$(SOC_SRCS)' ./test/boot_loader_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -838,7 +842,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
                icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test entropy-upduino-test \
                nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
-               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test nano-test nano-startup-test \
+               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test boot-loader-test nano-test nano-startup-test \
                macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
@@ -992,6 +996,9 @@ fit: fit-toolchain $(BUILD)/fit.json
 	@python3 soc/fit_report.py $(BUILD)/fit.log --max-lc $(FIT_MAX_LC) --previous $(FIT_LAST_LC)
 
 SOC_PROG      ?= datainit.c
+SOC_LDS       ?= test/asm/boot.lds
+SOC_LDFLAGS   ?=
+SOC_IMAGE_BIN ?=
 SOC_ROM_WORDS := 2048
 # Named once and referenced by every littlesoc synthesis (ice40, ECP5, the iCESugar-Pro
 # top): chparam before hierarchy/synth_*, so littlesoc's default is what gets elaborated
@@ -1033,13 +1040,16 @@ soc-rom:
 	case '$(SOC_PROG)' in \
 	  *.c) $$CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib \
 	         -Os -std=c11 -ffreestanding -fno-tree-loop-distribute-patterns \
-	         -Wall -Wextra -Werror -I test/asm -T test/asm/boot.lds \
+	         -Wall -Wextra -Werror -I test/asm -T $(SOC_LDS) $(SOC_LDFLAGS) \
 	         -o "$$tmp/prog.elf" test/crt0.S "$$prog"; \
 	       sections='-j .text -j .data' ;; \
 	  *)   $$CC -march=rv32imac_zicsr_zifencei_zkt_zkr -mabi=ilp32 -nostdlib -I test/asm \
 	         -T test/asm/sections.lds -o "$$tmp/prog.elf" "$$prog"; \
 	       sections='-j .text' ;; \
 	esac; \
+	if [ -n '$(SOC_IMAGE_BIN)' ]; then \
+	  $$OBJCOPY -O binary $$sections "$$tmp/prog.elf" '$(SOC_IMAGE_BIN)'; exit 0; \
+	fi; \
 	$$OBJCOPY -O verilog --verilog-data-width=4 $$sections "$$tmp/prog.elf" "$$tmp/rom.hex"; \
 	python3 soc/rom_banks.py "$$tmp/rom.hex" soc/rom_even.hex soc/rom_odd.hex \
 	  --rom-words $(SOC_ROM_WORDS)
@@ -1652,6 +1662,33 @@ prog: $(BUILD)/board.bin
 	$(if $(ICEPROG_SUDO),bin=$$(./soc/check_root_binary.sh "$$bin") || exit 1;) \
 	echo "$(ICEPROG_SUDO) $$bin"; \
 	ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/flash_board.sh "$$bin" $(BUILD)/board.bin '$(ICEPROG_DEV)'
+
+# Programs that run from the flash: soc/boot_loader.c rides in the bitstream; `make boot-image` and `make prog-image` pack and write a program for it.
+BOOT_PROG   ?= test/boot/image_a.c
+BOOT_IMAGE  ?= $(BUILD)/boot.img
+BOOT_LAYOUT := soc/boot_layout.h
+boot_value   = $(shell awk '$$2 == "$(1)" { print $$3 }' $(BOOT_LAYOUT))
+BOOT_LDFLAGS = -Wl,--defsym=BOOT_IMAGE_BASE=$(call boot_value,BOOT_IMAGE_BASE) -Wl,--defsym=BOOT_ROM_BYTES=$(call boot_value,BOOT_ROM_BYTES)
+
+.PHONY: boot-image
+boot-image: | $(BUILD)
+	@$(MAKE) --no-print-directory soc-rom SOC_PROG='$(BOOT_PROG)' SOC_LDS=soc/boot_image.lds \
+	  SOC_LDFLAGS='$(BOOT_LDFLAGS)' SOC_IMAGE_BIN='$(BOOT_IMAGE).payload'
+	@python3 soc/boot_image.py pack '$(BOOT_IMAGE).payload' '$(BOOT_IMAGE)'
+	@echo "$(BOOT_IMAGE): $$(wc -c < '$(BOOT_IMAGE)' | tr -d ' ') bytes from $(BOOT_PROG)"
+
+.PHONY: prog-image
+prog-image:
+	@python3 soc/boot_image.py check '$(BOOT_IMAGE)'
+	@command -v '$(BOARD_FLASH)' >/dev/null || { \
+	  echo '*** $(BOARD_FLASH) not found; see `make prog`.'; \
+	  exit 1; \
+	}
+	@echo 'Writing $(BOOT_IMAGE) to the flash at $(call boot_value,BOOT_FLASH_OFFSET), past the bitstream.'
+	@bin='$(BOARD_FLASH)'; \
+	$(if $(ICEPROG_SUDO),bin=$$(./soc/check_root_binary.sh "$$bin") || exit 1;) \
+	echo "$(ICEPROG_SUDO) $$bin -o $$(($(call boot_value,BOOT_FLASH_OFFSET)))"; \
+	ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/flash_board.sh "$$bin" '$(BOOT_IMAGE)' '$(ICEPROG_DEV)' $$(($(call boot_value,BOOT_FLASH_OFFSET)))
 
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
 
