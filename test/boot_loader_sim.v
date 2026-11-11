@@ -62,8 +62,6 @@ module boot_loader_sim;
     end
   end
 
-  // Past the last wanted line the UART keeps being echoed for TAIL_CLOCKS, so a loader that carried on into
-  // an image it should have refused is heard.
   initial begin
     wait (lines_seen == lines_wanted);
     repeat (TAIL_CLOCKS) @(posedge clk);
@@ -71,8 +69,6 @@ module boot_loader_sim;
     $finish;
   end
 
-  // The longest run of core cycles the clock sat low with the flash selected. Past IDLE_LIMIT the board's
-  // pin lockout gives the pins back mid-read.
   always @(posedge clk) begin
     if (!spi_cs_n && !spi_sck) gap <= gap + 1;
     else gap <= 0;

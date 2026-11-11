@@ -1,8 +1,6 @@
 #!/bin/bash
 # Builds soc/boot_loader.c and two program images, then runs the loader on rtl/littlesoc.v against a flash model
 # holding each image (and damaged ones, and none) and compares what the UART says.
-# SOC_SRCS names the RTL, as the Makefile's variable does. BOOT_LOADER_SRC replaces the loader (a probe's mutant);
-# BOOT_CASES, a space-separated list of case names, runs only those.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 : "${SOC_SRCS:?SOC_SRCS must name the SoC RTL; run this through make boot-loader-test}"
@@ -33,7 +31,6 @@ python3 test/boot_damage.py "$WORK/a.img" "$WORK" "$IMAGE_MAX" || exit 1
 iverilog -g2012 -I rtl -Pboot_loader_sim.FLASH_OFFSET="$OFFSET" -Pboot_loader_sim.IMAGE_BYTES="$ROM_BYTES" \
   -o "$WORK/sim.vvp" $SOC_SRCS test/spiflash_model.v test/boot_loader_sim.v || { echo "*** boot-loader: the bench does not elaborate"; exit 1; }
 
-# run NAME IMAGE LINES: the UART text, with the numbers that differ run to run masked.
 run() {
   local name=$1 img=$2 lines=$3
   tool bytehex "$WORK/$img" "$WORK/$name.hex" --pad "$ROM_BYTES"
@@ -41,7 +38,6 @@ run() {
   sed -e 's/cycles=[0-9]*/cycles=N/' -e 's/BADSUM [0-9A-F]* [0-9A-F]*/BADSUM W G/' "$WORK/$name.out" | grep -v 'finish called'
 }
 
-# expect NAME IMAGE LINES: the lines on stdin are the whole UART text.
 expect() {
   local name=$1 img=$2 lines=$3 want got
   want=$(cat)
@@ -59,15 +55,17 @@ LEN_A=$(( $(wc -c < "$WORK/a.img") - 12 ))
 LEN_B=$(( $(wc -c < "$WORK/b.img") - 12 ))
 LIMIT=$(printf '%08X' "$IMAGE_MAX")
 
-expect good_a a.img 3 <<EOF
+expect good_a a.img 4 <<EOF
 BOOT
 BOOT OK len=$LEN_A cycles=N
 IMAGE A sum=10
+LOAD cycles=N
 EOF
-expect good_b b.img 3 <<EOF
+expect good_b b.img 4 <<EOF
 BOOT
 BOOT OK len=$LEN_B cycles=N
 IMAGE B product=006480
+LOAD cycles=N
 EOF
 expect flipped flipped.img 2 <<EOF
 BOOT

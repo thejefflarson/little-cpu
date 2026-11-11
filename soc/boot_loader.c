@@ -16,6 +16,12 @@ static unsigned cycles(void) {
   return c;
 }
 
+static void pause(void) {
+  unsigned start = cycles();
+  while (cycles() - start < 3000000u) {
+  }
+}
+
 static void uart_drain(void) {
   while (UART_STATUS & 1u) {
   }
@@ -66,14 +72,15 @@ static unsigned fold(unsigned sum, unsigned w) {
 }
 
 static void fail(const char *why, unsigned a, unsigned b) {
-  puts_("BOOT ");
-  puts_(why);
-  putc_(' ');
-  put_hex(a);
-  putc_(' ');
-  put_hex(b);
-  putc_('\n');
   for (;;) {
+    puts_("BOOT ");
+    puts_(why);
+    putc_(' ');
+    put_hex(a);
+    putc_(' ');
+    put_hex(b);
+    putc_('\n');
+    pause();
   }
 }
 
@@ -116,6 +123,8 @@ int main(void) {
   put_dec(elapsed);
   putc_('\n');
   uart_drain();
+  // The image finds the load's cycle count in mscratch.
+  __asm__ volatile("csrw mscratch, %0" : : "r"(elapsed));
   __asm__ volatile("fence.i");
   ((void (*)(void))BOOT_IMAGE_BASE)();
   return 0;

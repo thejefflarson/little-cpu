@@ -3,7 +3,7 @@
 **Status:** Accepted · 2026-10-27. Builds on ADR-0135 (the flash is reachable, shape (a): read it into the
 block RAM fetch already uses) and ADR-0255 (the board top's cell headroom). Measured on `main` at 0ce429f7
 plus this tree, yosys 0.68+48, nextpnr 0.11-1-g62e659ed (OSS CAD Suite 20260811). The bench numbers are from
-simulation; the board half is not yet run (see Status of the board half).
+simulation and the board run is under Measured on the board.
 
 ## Decision
 
@@ -61,13 +61,27 @@ the loader ROM on this tree:
 The worst name leaves 162 cells locally. A different image is a different block RAM init and not a
 different netlist, which is the point.
 
-## Status of the board half
+## Measured on the board
 
-`lc-flash -o` has to be installed (`make install-board-tools`) before an image can be written, and that is an
-owner action. Until then the loader, the image tool, the wrapper and the Makefile targets are graded by
-`make boot-loader-test` and `test/board_wrappers_test.sh`; no image has yet been written to a flash, and the
-board's load time, the corrupt-image report and a second program swapped in without a re-place are
-unmeasured. The board's flash (`EF7016`, 4 MiB) and the controller's read path were measured in ADR-0135.
+Run on an UPduino v3.0 on 2026-11-11, the loader built with `BOARD_OSC=internal` (12 MHz) and each image
+written with `make prog-image`, with no re-place between them:
+
+| Flash at 0x20000 | UART |
+|---|---|
+| erased | `BOOT NOIMAGE FFFFFFFF 00000000` |
+| image A, 328 bytes | `IMAGE A sum=10`, `LOAD cycles=15721` |
+| image B, 364 bytes | `IMAGE B product=006480`, `LOAD cycles=17431` |
+| image A with one payload bit flipped | `BOOT BADSUM 509A79C9 529A79C9`, never run |
+
+The two loads differ by 1,710 cycles over 36 bytes, 47.5 cycles a byte, the figure simulation predicted, plus
+about 140 cycles of fixed cost; a full 7,168-byte image is about 340,600 cycles, 28.4 ms at 12 MHz. The
+corrupt image had to be written past `make prog-image`, which refuses a bad checksum on the host; `lc-flash`
+checks only the header and the offset, so the loader's own check is the one this row grades.
+
+A line printed once at power-up is gone before a host can open the UART after `iceprog` releases the part,
+so the loader repeats a failure line about four times a second, and the test images repeat theirs with the
+load's cycle count, which the loader leaves in `mscratch` because the C startup overwrites the argument
+registers. The first `lc-uart` read after a flash returns nothing and the second reads normally.
 
 ## Declined
 
