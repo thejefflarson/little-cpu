@@ -224,8 +224,9 @@ placement spread and not an edit-churn band, and no up5k number moves with it.
 spec-checked); with hart 1 held, the count is 16 and hart 1's monitor sees no retire, which the
 runner reports as the intended exit 6 and the target accepts.
 
-`make icesugar-dual-run` was attempted once, for `ICESUGAR_DUAL_HELD=0`, and the build placed at
-34.97 MHz against 30 (PASS) but the load failed: `openFPGALoader` found no CMSIS-DAP device and
-`/Volumes/iCELink` was absent, so the iCESugar-Pro was not attached to the machine. A second attempt with the volume present failed the same way (`no USB backend available`, and the eject itself warned), so the host's USB access, not the design, blocked both. Neither case
-has run on the part on this tree; the 2026-10-11 table above stands as the last board result and
-is not re-confirmed. The loader failure is a host-side finding, not a result about the design.
+`make icesugar-dual-run` ran on the part on 2026-11-11, on this tree rebased onto `main` at
+0ce429f7, behind the 30 MHz PLL (placed at 34.46 and 37.91 MHz, both PASS). With both harts
+running the UART printed `DUAL c0=16 c1=16`; with hart 1 held in reset it printed
+`DUAL c0=16 c1=0`. Both cases match the 2026-10-11 table above, which this re-confirms. Two
+earlier attempts failed to load from a sandboxed shell (`no USB backend available`), a
+host-side failure and not a result about the design.
