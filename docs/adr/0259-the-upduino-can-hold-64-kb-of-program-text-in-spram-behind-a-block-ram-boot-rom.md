@@ -86,8 +86,13 @@ third image larger than the default board's 8 KB ROM, through the same SoC again
 (`make boot-spram-test`); a flipped byte, a length past the window and an erased flash are each reported and
 not run. `make boot-loader-test` on the default board passes unchanged.
 
-**Measured on the board.** Pending: no board was reachable when this was written. The commands, in order, are in
-`docs/flashing-the-upduino.md`.
+**Measured on the board.** Not yet run on a clocked board. **This target fits only on the crystal clock**:
+`make spram-bitstream BOARD_OSC=internal` maps 5,297 `ICESTORM_LC` against the part's 5,280 and nextpnr fails to
+place it at any seed, so `SB_HFOSC` is not an option without removing cells. On 2026-11-12 the crystal build was
+flashed to the one UPduino v3.0 here, whose crystal jumper is open, with `test/boot/image_a.c` written by
+`make spram-prog-image`; the UART read 0 bytes over two reads, which is what an unclocked part does. The target
+ships for a board that supplies a 12 MHz clock on the crystal pin; it owes a run on one. The commands, in order,
+are in `docs/flashing-the-upduino.md`.
 
 ## Consequences
 

@@ -216,9 +216,11 @@ the next 64 KiB boundary, which leaves 26,982 bytes between them and makes every
 1 KB block-RAM boot ROM at `0xFC00` (ADR-0259). The boot ROM is the same `soc/boot_loader.c`, built with
 `-DBOOT_SPRAM`; the image format, the flash offset `0x20000` and `lc-flash -o` are shared with the section
 above. An image is linked at `0x0` and may be up to `0xFC00` (64,512) bytes, with 8 KB of data RAM. The
-default `make bitstream`, `make prog` and `make board-timing` are untouched. The board run, in order:
+default `make bitstream`, `make prog` and `make board-timing` are untouched. **It needs a 12 MHz clock on the
+crystal pin**: with `BOARD_OSC=internal` it maps 5,297 cells against the part's 5,280 and does not place, so a
+UPduino with its crystal jumper open cannot run it. The board run, in order:
 
-1. `make spram-bitstream BOARD_OSC=internal`, then `make spram-prog BOARD_OSC=internal`.
+1. `make spram-bitstream`, then `make spram-prog`.
 2. `make spram-boot-image BOOT_PROG=path/to/prog.c`, then `make spram-prog-image` (writes
    `build/spram/boot.img` at flash offset 131,072).
 3. Read the UART: `BOOT`, then `BOOT OK len=N cycles=N` and the program's output.
