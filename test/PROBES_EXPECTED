@@ -76,6 +76,7 @@ a --measured call with no --tools-block is refused rather than stamping an unkno
 a --sha that is not a full commit SHA is refused
 a -t drain with no time limit is red
 a .sby stating depth twice is refused, since sby searches to the last
+a 14-bit predicted target in a 64 KB window loses the far jal and is red
 a <retires> argument that is not 1 or 2 is refused
 a C floor copied out of the measured table is rejected, not honoured
 a C suite program that never reports its verdict to the board driver is red
@@ -1118,6 +1119,7 @@ control: STALL_REPORT prints the accounting and keeps the suite green
 control: TEST_CASE with an ordinary testreg still assembles
 control: TEST_CASE_D32 with ordinary testregs still assembles
 control: TIMEOUT is a real verdict and IS baselineable
+control: a 64 KB window runs a far jal and a straddling branch
 control: a QSPI timing log whose buckets sum to its cycle count reports a row
 control: a QSPI timing row carries a stamp column that passes the check
 control: a THIRD core's --clock-ns/--cycle-factor adds a second product, not a rewrite

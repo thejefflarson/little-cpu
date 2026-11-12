@@ -128,6 +128,9 @@ echo
 echo "== rtl/littlecpu.v: the copied map has the shape the memories demand"
 run_case "LS_TEXT_WORDS = 3072" rtl/littlecpu.v littlecpu ".LS_TEXT_WORDS(3072)" \
   reject "LS_TEXT_WORDS must be a power of two"
+run_case "LS_TEXT_WORDS = 32768 (past the 64 KB predicted_target_low holds)" rtl/littlecpu.v littlecpu \
+  ".LS_TEXT_WORDS(32768)" reject "LS_TEXT_WORDS needs more bits than predicted_target_low has"
+run_case "LS_TEXT_WORDS = 16384" rtl/littlecpu.v littlecpu ".LS_TEXT_WORDS(16384)" accept ""
 run_case "LS_RAM_WORDS = 12288" rtl/littlecpu.v littlecpu ".LS_RAM_WORDS(12288)" \
   reject "LS_RAM_WORDS must be a power of two"
 run_case "LS_RAM_BASE off the window" rtl/littlecpu.v littlecpu \

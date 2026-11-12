@@ -100,8 +100,8 @@ module littlecpu #(
   if (LS_RAM_WORDS != (1 << LS_RAM_ADDR_BITS)) begin : l_ls_ram_words_power_of_two
     $fatal(1, "littlecpu: LS_RAM_WORDS must be a power of two");
   end
-  // dx_output's predicted_target_low is 14 bits (rtl/structs.v); a wider window must widen it too.
-  if (LS_TEXT_ADDR_BITS + 2 > 14) begin : l_predicted_target_low_fits
+  // dx_output's predicted_target_low is 16 bits (rtl/structs.v), which bounds the text window at 64 KB.
+  if (LS_TEXT_ADDR_BITS + 2 > 16) begin : l_predicted_target_low_fits
     $fatal(1, "littlecpu: LS_TEXT_WORDS needs more bits than predicted_target_low has");
   end
   if (|LS_RAM_BASE[LS_RAM_ADDR_BITS+1:0]) begin : l_ls_ram_base_aligned

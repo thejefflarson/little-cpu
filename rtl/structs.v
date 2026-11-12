@@ -125,7 +125,7 @@ typedef struct packed {
   logic        fwd_rs1;
   logic        fwd_rs2;
   logic        predicted_taken;
-  logic [13:0] predicted_target_low;  // widest LS_TEXT_WORDS synthesized; see decoder.v
+  logic [15:0] predicted_target_low;  // widest LS_TEXT_WORDS synthesized (64 KB); see decoder.v
 } dx_output;
 
 typedef struct packed {
