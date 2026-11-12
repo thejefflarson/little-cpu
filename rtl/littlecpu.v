@@ -3,12 +3,15 @@
 `include "structs.v"
 module littlecpu #(
   parameter logic [31:0] HART_ID = 32'd0,
+  parameter logic [31:0] RESET_PC = 32'd0,
   parameter integer      LS_TEXT_WORDS = 2048,
   parameter logic [31:0] LS_RAM_BASE   = 32'h0001_0000,
   parameter integer      LS_RAM_WORDS  = 16384,
   parameter logic [31:0] LS_TIMER_BASE = 32'h0002_0000,
   parameter logic [31:0] LS_UART_BASE  = 32'h0002_0020,
-  parameter logic [31:0] LS_FLASH_BASE = 32'h0002_0028
+  parameter logic [31:0] LS_FLASH_BASE = 32'h0002_0028,
+  parameter logic [31:0] LS_SPI_BASE   = 32'h0002_0030,
+  parameter integer      LS_HAS_SPI    = 0
 ) (
   input  logic clk,
   input  logic reset,
@@ -100,8 +103,8 @@ module littlecpu #(
   if (LS_RAM_WORDS != (1 << LS_RAM_ADDR_BITS)) begin : l_ls_ram_words_power_of_two
     $fatal(1, "littlecpu: LS_RAM_WORDS must be a power of two");
   end
-  // dx_output's predicted_target_low is 14 bits (rtl/structs.v); a wider window must widen it too.
-  if (LS_TEXT_ADDR_BITS + 2 > 14) begin : l_predicted_target_low_fits
+  // dx_output's predicted_target_low is 16 bits (rtl/structs.v); a wider window must widen it too.
+  if (LS_TEXT_ADDR_BITS + 2 > 16) begin : l_predicted_target_low_fits
     $fatal(1, "littlecpu: LS_TEXT_WORDS needs more bits than predicted_target_low has");
   end
   if (|LS_RAM_BASE[LS_RAM_ADDR_BITS+1:0]) begin : l_ls_ram_base_aligned
@@ -143,7 +146,7 @@ module littlecpu #(
   end
   fetcher_output fetcher_out;
   logic  [31:0] fetcher_imem_addr_next;
-  fetcher fetcher(
+  fetcher #(.RESET_PC(RESET_PC)) fetcher(
     .clk(clk),
     .reset(reset),
     .pc(fetch_pc),
@@ -164,7 +167,7 @@ module littlecpu #(
   assign fetch_pc_next = x_redirect_q      ? x_redirect_target_q :
                          !decoder_issuing  ? fetch_pc :
                                              decoder_predicted_pc;
-  always_ff @(posedge clk) fetch_pc <= reset ? 32'b0 : fetch_pc_next;
+  always_ff @(posedge clk) fetch_pc <= reset ? RESET_PC : fetch_pc_next;
 
   logic [31:0] reg_rs1, reg_rs2, wdata;
   logic [4:0]  read_rs1, read_rs2;
@@ -256,7 +259,9 @@ module littlecpu #(
     .LS_RAM_WORDS(LS_RAM_WORDS),
     .LS_TIMER_BASE(LS_TIMER_BASE),
     .LS_UART_BASE(LS_UART_BASE),
-    .LS_FLASH_BASE(LS_FLASH_BASE)
+    .LS_FLASH_BASE(LS_FLASH_BASE),
+    .LS_SPI_BASE(LS_SPI_BASE),
+    .LS_HAS_SPI(LS_HAS_SPI)
   ) executor(
     .clk(clk),
     .reset(reset),

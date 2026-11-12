@@ -11,6 +11,7 @@ rtl/fetchqueue.v  unpaired  fetchqueue_tb
 rtl/memory.v    unpaired  mem_tb
 rtl/regfile.v   unpaired  regfile_tb
 rtl/regsel.v    unpaired  decoder_tb
+rtl/spi_target.v  unpaired  spi_target_tb
 rtl/spiflash.v  unpaired  spiflash_tb
 rtl/structs.v   unpaired  decoder_tb
 rtl/trng.v      unpaired  trng_tb
@@ -22,5 +23,7 @@ rtl/fetcher.v     unpaired  components_pcloop
 rtl/littlecpu.v      unpaired  check
 rtl/writeback.v      unpaired  check
 rtl/littlesoc.v      unpaired  memmap-test
+rtl/imemory_spram.v  unpaired  memmap-test
+rtl/littlesoc_spram.v  unpaired  memmap-test
 rtl/littledual.v     unpaired  dual-smoke
 rtl/littledualsoc.v  unpaired  dual-ecp5-timing

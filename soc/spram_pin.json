@@ -1,0 +1,178 @@
+{
+  "config": "osc=crystal",
+  "date": "2026-11-12",
+  "distribution": {
+    "chosen_seed": 1748564,
+    "note": "Seeds 1..N are a structured lattice in nextpnr-ice40's xorshift RNG state (state(3) = state(1) XOR state(2) over GF(2)), not an independent sample -- read the spread here as one search's outcome, not as the design's placement distribution. See ADR-0171.",
+    "samples": [
+      {
+        "mhz": 12.44,
+        "seed": 195147338
+      },
+      {
+        "mhz": 12.24,
+        "seed": 218749127
+      },
+      {
+        "mhz": 12.56,
+        "seed": 20740127
+      },
+      {
+        "mhz": 12.1,
+        "seed": 125781539
+      },
+      {
+        "mhz": 11.88,
+        "seed": 14871351
+      },
+      {
+        "mhz": 12.04,
+        "seed": 156842832
+      },
+      {
+        "mhz": 12.35,
+        "seed": 233595587
+      },
+      {
+        "mhz": 11.99,
+        "seed": 20382078
+      },
+      {
+        "mhz": 12.31,
+        "seed": 105970731
+      },
+      {
+        "mhz": 12.57,
+        "seed": 67306537
+      },
+      {
+        "mhz": 12.53,
+        "seed": 188692556
+      },
+      {
+        "mhz": 12.2,
+        "seed": 56599761
+      },
+      {
+        "mhz": 12.57,
+        "seed": 137002830
+      },
+      {
+        "mhz": 12.21,
+        "seed": 157808412
+      },
+      {
+        "mhz": 12.37,
+        "seed": 84423261
+      },
+      {
+        "mhz": 12.17,
+        "seed": 210173188
+      },
+      {
+        "mhz": 12.12,
+        "seed": 103044547
+      },
+      {
+        "mhz": 12.1,
+        "seed": 45209501
+      },
+      {
+        "mhz": 11.91,
+        "seed": 182937488
+      },
+      {
+        "mhz": 12.22,
+        "seed": 173037093
+      },
+      {
+        "mhz": 12.55,
+        "seed": 123533330
+      },
+      {
+        "mhz": 12.18,
+        "seed": 123201291
+      },
+      {
+        "mhz": 13.07,
+        "seed": 1748564
+      },
+      {
+        "mhz": 11.95,
+        "seed": 172446307
+      },
+      {
+        "mhz": 12.72,
+        "seed": 220894843
+      },
+      {
+        "mhz": 12.07,
+        "seed": 161755856
+      },
+      {
+        "mhz": 12.59,
+        "seed": 264573117
+      },
+      {
+        "mhz": 11.8,
+        "seed": 96417841
+      },
+      {
+        "mhz": 12.77,
+        "seed": 217397934
+      },
+      {
+        "mhz": 12.06,
+        "seed": 42752084
+      },
+      {
+        "mhz": 12.23,
+        "seed": 82383627
+      },
+      {
+        "mhz": 12.88,
+        "seed": 237818587
+      },
+      {
+        "mhz": 12.15,
+        "seed": 245404110
+      },
+      {
+        "mhz": 12.54,
+        "seed": 79095973
+      },
+      {
+        "mhz": 12.3,
+        "seed": 180176206
+      },
+      {
+        "mhz": 12.72,
+        "seed": 30725236
+      },
+      {
+        "mhz": 12.08,
+        "seed": 128955065
+      },
+      {
+        "mhz": 12.14,
+        "seed": 102840214
+      },
+      {
+        "mhz": 12.6,
+        "seed": 151519524
+      },
+      {
+        "mhz": 12.52,
+        "seed": 204979847
+      }
+    ],
+    "seeds_source": "sha256(little-cpu-soc-seed-<i>) default, count=40"
+  },
+  "margin_pct": 8.9167,
+  "measured_mhz": 13.07,
+  "min_mhz": 12.0,
+  "seed": 1748564,
+  "sources_digest": "sha256:ba97aa1c805b3efdc5bb2f47ea1a0a85c39038d9f5f04cedb8bda41d23274218",
+  "synth_knob": null,
+  "toolchain": "# yosys: Yosys 0.68+48 (git sha1 ff5817c34-dirty, Release, Clang /usr/local/osxcross/target/bin/aarch64-apple-darwin25.5-clang++ 21.1.8) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/yosys]\n# nextpnr-ice40: \"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11-1-g62e659ed) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/nextpnr-ice40]\n# icetime: oss-cad-suite 20260811 sha256:25a4ecb76c094f00 [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/icetime]"
+}

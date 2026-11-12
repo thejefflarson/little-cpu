@@ -210,6 +210,21 @@ the next 64 KiB boundary, which leaves 26,982 bytes between them and makes every
    prints `BOOT BADLEN`, and a payload that does not match its checksum prints `BOOT BADSUM`; none of the
    three runs anything.
 
+### The SPRAM-text board
+
+`make spram-bitstream` builds a second UPduino design with 64 KB of program text in the four SPRAMs and a
+1 KB block-RAM boot ROM at `0xFC00` (ADR-0259). The boot ROM is the same `soc/boot_loader.c`, built with
+`-DBOOT_SPRAM`; the image format, the flash offset `0x20000` and `lc-flash -o` are shared with the section
+above. An image is linked at `0x0` and may be up to `0xFC00` (64,512) bytes, with 8 KB of data RAM. The
+default `make bitstream`, `make prog` and `make board-timing` are untouched. The board run, in order:
+
+1. `make spram-bitstream BOARD_OSC=internal`, then `make spram-prog BOARD_OSC=internal`.
+2. `make spram-boot-image BOOT_PROG=path/to/prog.c`, then `make spram-prog-image` (writes
+   `build/spram/boot.img` at flash offset 131,072).
+3. Read the UART: `BOOT`, then `BOOT OK len=N cycles=N` and the program's output.
+
+`make spram-board-timing` and `make spram-board-seed-search` place and pin the design against `soc/spram_pin.json`.
+
 A program is a C file linked by `soc/boot_image.lds` at ROM address `0x400` through `test/crt0.S`, so
 it can be up to 7,168 bytes including its `.data` image. The loader (812 bytes at the time of writing)
 owns the ROM below `0x400`; `make boot-loader-test` fails if it outgrows that.

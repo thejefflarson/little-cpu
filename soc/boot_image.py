@@ -16,12 +16,21 @@ LAYOUT = Path(__file__).with_name("boot_layout.h")
 HEADER_BYTES = 12
 
 
+# The SPRAM-text target keeps the format and the flash region and places the image elsewhere: its BOOT_SPRAM_ROM_BYTES,
+# BOOT_SPRAM_IMAGE_BASE and BOOT_SPRAM_RAM_BYTES stand in for the BOOT_ names without the prefix.
+SPRAM_OVERRIDES = ("ROM_BYTES", "IMAGE_BASE", "RAM_BYTES")
+target = ""
+
+
 def layout():
     values = {}
     for line in LAYOUT.read_text().splitlines():
         m = re.fullmatch(r"#define\s+(BOOT_\w+)\s+(0x[0-9a-fA-F]+|\d+)", line.strip())
         if m:
             values[m.group(1)] = int(m.group(2), 0)
+    if target == "spram":
+        for name in SPRAM_OVERRIDES:
+            values["BOOT_" + name] = values["BOOT_SPRAM_" + name]
     return values
 
 
@@ -59,7 +68,9 @@ def unpack(image):
 
 
 def main():
+    global target
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--target", choices=("", "spram"), default="", help="the SPRAM-text board's layout")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("layout", help="print one value from soc/boot_layout.h")
     p.add_argument("name")
@@ -76,6 +87,7 @@ def main():
     p.add_argument("binary")
     p.add_argument("out")
     args = ap.parse_args()
+    target = args.target
 
     if args.cmd == "layout":
         print(layout()[args.name])

@@ -467,7 +467,7 @@ lint-setup:
 
 UNIT_BENCHES := exec_tb executor_tb mem_tb imem_tb decoder_tb regfile_tb csr_tb accessor_tb \
                 monitor_tb timer_tb uart_tb spiflash_tb pin_lockout_tb miso_share_enable_tb \
-                flash_share_tb fetchqueue_tb fetcher_tb trng_tb
+                flash_share_tb fetchqueue_tb fetcher_tb trng_tb spi_target_tb
 
 UNIT_BENCH_SRC_exec_tb     := rtl/structs.v rtl/executor.v
 UNIT_BENCH_SRC_executor_tb := rtl/structs.v rtl/executor.v
@@ -487,6 +487,7 @@ UNIT_BENCH_SRC_flash_share_tb := soc/miso_share_enable.v soc/pin_lockout.v soc/f
 UNIT_BENCH_SRC_fetchqueue_tb := rtl/fetchqueue.v
 UNIT_BENCH_SRC_fetcher_tb := rtl/structs.v rtl/fetcher.v
 UNIT_BENCH_SRC_trng_tb := rtl/trng.v
+UNIT_BENCH_SRC_spi_target_tb := rtl/spi_target.v
 
 # `present` reads the directory in the recipe, not via $(wildcard) -- make caches that
 # and a stale listing could miss a bench that is really there.
@@ -777,6 +778,10 @@ board-wrappers-test:
 boot-loader-test:
 	@SOC_SRCS='$(SOC_SRCS)' ./test/boot_loader_test.sh
 
+.PHONY: boot-spram-test
+boot-spram-test:
+	@BOOT_TARGET=spram SOC_SRCS='$(SPRAM_SOC_SRCS)' ./test/boot_loader_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -842,7 +847,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
                icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test entropy-upduino-test \
                nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
-               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test boot-loader-test nano-test nano-startup-test \
+               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test boot-loader-test boot-spram-test nano-test nano-startup-test \
                macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
@@ -1567,7 +1572,11 @@ $(BUILD)/board.json: $(BOARD_SRCS) $(BOARD_ROM) $(ICE40_ABC9) | $(BUILD)
 	@yosys -p 'read_verilog -sv $(BOARD_SRCS); chparam -set INTERNAL_OSC $(BOARD_OSC_PARAM) $(BOARD_TOP); scratchpad -set abc9.script $(ICE40_ABC9); synth_ice40 -device u -dsp -spram -top $(BOARD_TOP) -json $@' \
 	  > $(BUILD)/board.synth.log 2>&1 || { tail -40 $(BUILD)/board.synth.log; exit 1; }
 	@python3 soc/cell_census.py $(BUILD)/board.synth.log SB_SPRAM256KA $(SOC_EXPECT_SPRAM) \
-	  "the board wrapper changed how rtl/memory.v maps -- the SoC underneath it is the same design"
+	  "the board wrapper changed how the SoC's SPRAM maps -- the SoC underneath it is the same design"
+	@$(if $(BOARD_EXPECT_EBR),python3 soc/cell_census.py $(BUILD)/board.synth.log SB_RAM40_4K $(BOARD_EXPECT_EBR) \
+	  "rtl/imemory_spram.v's text store has been given a separate write index and mapped to block RAM or the data RAM or boot ROM changed size",true)
+
+BOARD_EXPECT_EBR ?=
 
 BOARD_PNR := nextpnr-ice40 --up5k --package sg48 --pcf $(BOARD_PCF)
 
@@ -1668,13 +1677,16 @@ BOOT_PROG   ?= test/boot/image_a.c
 BOOT_IMAGE  ?= $(BUILD)/boot.img
 BOOT_LAYOUT := soc/boot_layout.h
 boot_value   = $(shell awk '$$2 == "$(1)" { print $$3 }' $(BOOT_LAYOUT))
-BOOT_LDFLAGS = -Wl,--defsym=BOOT_IMAGE_BASE=$(call boot_value,BOOT_IMAGE_BASE) -Wl,--defsym=BOOT_ROM_BYTES=$(call boot_value,BOOT_ROM_BYTES)
+BOOT_TARGET ?=
+BOOT_PREFIX := $(if $(BOOT_TARGET),BOOT_SPRAM_,BOOT_)
+BOOT_TOOL    = python3 soc/boot_image.py $(if $(BOOT_TARGET),--target $(BOOT_TARGET))
+BOOT_LDFLAGS = -Wl,--defsym=BOOT_IMAGE_BASE=$(call boot_value,$(BOOT_PREFIX)IMAGE_BASE) -Wl,--defsym=BOOT_ROM_BYTES=$(call boot_value,$(BOOT_PREFIX)ROM_BYTES) -Wl,--defsym=BOOT_RAM_BYTES=$(call boot_value,$(BOOT_PREFIX)RAM_BYTES)
 
 .PHONY: boot-image
 boot-image: | $(BUILD)
 	@$(MAKE) --no-print-directory soc-rom SOC_PROG='$(BOOT_PROG)' SOC_LDS=soc/boot_image.lds \
 	  SOC_LDFLAGS='$(BOOT_LDFLAGS)' SOC_IMAGE_BIN='$(BOOT_IMAGE).payload'
-	@python3 soc/boot_image.py pack '$(BOOT_IMAGE).payload' '$(BOOT_IMAGE)'
+	@$(BOOT_TOOL) pack '$(BOOT_IMAGE).payload' '$(BOOT_IMAGE)'
 	@echo "$(BOOT_IMAGE): $$(wc -c < '$(BOOT_IMAGE)' | tr -d ' ') bytes from $(BOOT_PROG)"
 
 .PHONY: prog-image
@@ -1689,6 +1701,48 @@ prog-image:
 	$(if $(ICEPROG_SUDO),bin=$$(./soc/check_root_binary.sh "$$bin") || exit 1;) \
 	echo "$(ICEPROG_SUDO) $$bin -o $$(($(call boot_value,BOOT_FLASH_OFFSET)))"; \
 	ICEPROG_SUDO='$(ICEPROG_SUDO)' ./soc/flash_board.sh "$$bin" '$(BOOT_IMAGE)' '$(ICEPROG_DEV)' $$(($(call boot_value,BOOT_FLASH_OFFSET)))
+
+# The SPRAM-text board is a sixth design. Its targets re-enter this Makefile with the board variables
+# repointed and their outputs under $(BUILD)/spram, so nothing the default board builds is shared.
+SPRAM_SOC_SRCS := rtl/spi_target.v rtl/imemory_spram.v $(filter-out rtl/littlesoc.v,$(SOC_SRCS)) rtl/littlesoc_spram.v
+SPRAM_SRCS := $(SPRAM_SOC_SRCS) soc/miso_share_enable.v soc/pin_lockout.v soc/flash_share.v soc/board_upduino_spram.v
+SPRAM_BOOT_HEX := soc/bootrom_even.hex soc/bootrom_odd.hex
+SPRAM_BOOT_WORDS := 256
+SPRAM_PCF := soc/upduino_spram.pcf
+SPRAM_PIN := soc/spram_pin.json
+SPRAM_PIN_SOURCES := $(SPRAM_SRCS) $(ICE40_ABC9) $(SPRAM_PCF) $(SPRAM_BOOT_HEX)
+# 4 SPRAM for the 64 KB text; 24 block RAMs: 16 for the 8 KB data RAM, 4 for the register file, 4 for the boot ROM.
+SPRAM_EXPECT_SPRAM := 4
+SPRAM_EXPECT_EBR   := 24
+SPRAM_OVERRIDES := BUILD=$(BUILD)/spram BOARD_SRCS='$(SPRAM_SRCS)' BOARD_TOP=upduino_spram_top \
+  BOARD_PCF=$(SPRAM_PCF) BOARD_PIN=$(SPRAM_PIN) BOARD_ROM=spram-bootrom SOC_ROM_HEX='$(SPRAM_BOOT_HEX)' \
+  SOC_EXPECT_SPRAM=$(SPRAM_EXPECT_SPRAM) BOARD_EXPECT_EBR=$(SPRAM_EXPECT_EBR) BOARD=upduino-spram
+
+.PHONY: spram-bootrom
+spram-bootrom: | $(BUILD)/spram
+	@$(MAKE) --no-print-directory soc-rom SOC_PROG=soc/boot_loader.c SOC_LDS=soc/bootrom.lds \
+	  SOC_LDFLAGS='-DBOOT_SPRAM -Wl,--defsym=BOOT_SPRAM_LOADER_BASE=$(call boot_value,BOOT_SPRAM_LOADER_BASE) -Wl,--defsym=BOOT_SPRAM_RAM_BYTES=$(call boot_value,BOOT_SPRAM_RAM_BYTES)' \
+	  SOC_IMAGE_BIN=$(BUILD)/spram/bootrom.bin
+	@test $$(wc -c < $(BUILD)/spram/bootrom.bin) -le $$(( $(SPRAM_BOOT_WORDS) * 4 )) || { \
+	  echo '*** the loader is over the $(SPRAM_BOOT_WORDS)-word boot ROM'; exit 1; }
+	@python3 soc/boot_image.py vhex $(BUILD)/spram/bootrom.bin $(BUILD)/spram/bootrom.hex
+	@python3 soc/rom_banks.py $(BUILD)/spram/bootrom.hex soc/bootrom_even.hex soc/bootrom_odd.hex \
+	  --rom-words $(SPRAM_BOOT_WORDS) > /dev/null
+
+$(BUILD)/spram:
+	@mkdir -p $@
+
+.PHONY: spram-board-elaborate spram-board-timing spram-bitstream spram-prog
+spram-board-elaborate spram-board-timing spram-bitstream spram-prog: | $(BUILD)/spram
+	@$(MAKE) --no-print-directory $(patsubst spram-%,%,$@) $(SPRAM_OVERRIDES)
+
+.PHONY: spram-board-seed-search
+spram-board-seed-search: soc-timing-toolchain
+	@soc/soc_seed_search.sh spram
+
+.PHONY: spram-boot-image spram-prog-image
+spram-boot-image spram-prog-image: spram-%:
+	@$(MAKE) --no-print-directory $* BOOT_TARGET=spram BOOT_IMAGE=$(BUILD)/spram/boot.img
 
 DUAL_SRCS := $(DUAL_RTL_SRCS) rtl/littledualsoc.v
 

@@ -4099,7 +4099,10 @@ mm_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/rtl" "$d/test/asm" "$d/test/bench" "$d/formal"
   cp "$REPO"/rtl/memory.v "$REPO"/rtl/timer.v "$REPO"/rtl/uart.v "$REPO"/rtl/spiflash.v \
-     "$REPO"/rtl/imemory.v "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v "$d/rtl/"
+     "$REPO"/rtl/imemory.v "$REPO"/rtl/littlecpu.v "$REPO"/rtl/littlesoc.v \
+     "$REPO"/rtl/littlesoc_spram.v "$REPO"/rtl/spi_target.v "$REPO"/rtl/imemory_spram.v "$d/rtl/"
+  mkdir -p "$d/soc"
+  cp "$REPO"/soc/boot_layout.h "$REPO"/soc/bootrom.lds "$d/soc/"
   cp "$REPO"/test/testbench.v "$REPO"/test/cxxrtl.cc "$REPO"/test/cosim.cc \
      "$REPO"/test/dual_cxxrtl.cc "$d/test/"
   cp "$REPO"/test/asm/riscv_test.h "$REPO"/test/asm/sections.lds \
@@ -4369,6 +4372,45 @@ probe "the timer moving in the proof's copy alone is red" 1 \
 d=$(mm_fixture); mutate "$d/formal/traps.sv" 's/LS_TEXT_WORDS = 2048/LS_TEXT_WORDS = 4096/'
 probe "the proof describes the part's text window, not the harness's" 1 \
   "LS_TEXT_WORDS is 4096 against rtl/littlesoc.v's 2048" "$MM $d"
+
+# The SPRAM-text top's own map: what it may restate, and every number that has to agree across the loader's
+# layout, the core's copy and the two files that declare the windows.
+d=$(mm_fixture); mutate "$d/rtl/littlesoc_spram.v" \
+  "s/memory #(.RAM_WORDS(RAM_WORDS)) dmem (/memory #(.RAM_WORDS(RAM_WORDS), .BASE(32'h0002_0000)) dmem (/"
+probe "the SPRAM-text top restating the RAM base is red" 1 \
+  "overrides \`memory\`'s \`BASE\`" "$MM $d"
+
+d=$(mm_fixture); mutate "$d/rtl/littlesoc_spram.v" 's/localparam integer RAM_WORDS  = 2048;/localparam integer RAM_WORDS  = 32768;/'
+probe "a data RAM that runs past the timer in the SPRAM-text map is red" 1 \
+  "which runs past the timer at 0x00020000" "$MM $d"
+
+d=$(mm_fixture); mutate "$d/rtl/littlesoc_spram.v" "s/.RESET_PC(32'h0000_FC00)/.RESET_PC(32'h0000_0000)/"
+probe "a reset vector that is not the boot ROM is red" 1 \
+  "the core resets to 0x00000000" "$MM $d"
+
+d=$(mm_fixture); mutate "$d/soc/boot_layout.h" 's/BOOT_SPRAM_ROM_BYTES 0xFC00/BOOT_SPRAM_ROM_BYTES 0x10000/'
+probe "an image window that runs into the boot ROM is red" 1 \
+  "may run to 0x00010000" "$MM $d"
+
+d=$(mm_fixture); mutate "$d/rtl/spi_target.v" "s/BASE = 32'h0002_0030/BASE = 32'h0002_0038/"
+probe "the SPI target moving in its own file alone is red" 1 \
+  "against rtl/spi_target.v's 0x00020038" "$MM $d"
+
+d=$(mm_fixture); mutate "$d/rtl/spi_target.v" "s/BASE = 32'h0002_0030/BASE = 32'h0002_0028/"
+probe "the SPI target overlapping the flash controller is red" 1 \
+  "overlaps the SPI controller" "$MM $d"
+
+d=$(mm_fixture); mutate "$d/rtl/littlesoc.v" 's/^\/\/ SPRAM cannot be initialised.*$/\/\/ spi_target/'
+probe "the default top instantiating the SPI target is red" 1 \
+  "rtl/littlesoc.v instantiates \`spi_target\`" "$MM $d"
+
+d=$(mm_fixture); mutate "$d/soc/boot_layout.h" 's/BOOT_SPRAM_RAM_BYTES 0x2000/BOOT_SPRAM_RAM_BYTES 0x4000/'
+probe "the loader layout's RAM drifting from the SPRAM-text top's is red" 1 \
+  "gives an SPRAM-board image 16384 bytes of RAM" "$MM $d"
+
+d=$(mm_fixture); mutate "$d/rtl/littlesoc_spram.v" 's/.LS_HAS_SPI(1)/.LS_HAS_SPI(0)/'
+probe "the SPRAM-text top not enabling the core's SPI window is red" 1 \
+  "passes .LS_HAS_SPI(0) where the map says 1" "$MM $d"
 
 begin_group "the linker scripts' layout ASSERTs"
 
@@ -8806,7 +8848,7 @@ mcov_fixture() {
 
 d=$(mcov_fixture)
 probe "control: the shipping manifest rules on every rtl/*.v file" 0 \
-  "21 rtl/*.v files, each ruled on" "$MCOV $d"
+  "24 rtl/*.v files, each ruled on" "$MCOV $d"
 
 probe "a repo root that does not exist is red before anything is parsed" 1 \
   "is not a directory" "$MCOV $d/nowhere"
@@ -11026,6 +11068,93 @@ d=$(bload_fixture)
 mutate "$d/boot_loader.c" 's/^static unsigned cycles(void) {$/__attribute__((used)) static const char pad[1200] = {1};\n\nstatic unsigned cycles(void) {/'
 probe "a loader grown past the address images are linked at is red" 1 \
   "would overwrite the code copying it" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=erased $BLOAD"
+
+begin_group "test/spi_target_tb.v"
+
+st_fixture() {  # $1 = sed expression applied to a copy of rtl/spi_target.v, or "" for the control
+  local d; d=$(new_case)
+  cp "$REPO/rtl/spi_target.v" "$d/spi_target.v"
+  if [ -n "$1" ]; then mutate "$d/spi_target.v" "$1"; fi
+  printf '%s' "$d"
+}
+
+st_run() {  # $1 = fixture dir
+  iverilog -g2012 -o "$1/st.vvp" "$1/spi_target.v" "$REPO/test/spi_target_tb.v" && vvp "$1/st.vvp"
+}
+
+d=$(st_fixture "")
+probe "control: the shipping SPI target passes its own bench" 0 \
+  "PASSED: spi_target" "st_run $d"
+
+# The defect the bench was written to reproduce: a transmit write landing on the byte boundary was lost.
+d=$(st_fixture 's/if ((selected && byte_end && sck_fall) || (!selected && !tx_empty && !tx_write)) begin/if (!tx_write \&\& (selected ? byte_end \&\& sck_fall : !tx_empty)) begin/')
+probe "a transmit write landing on the byte boundary being lost is red" 1 \
+  "appeared 0 times" "st_run $d"
+
+d=$(st_fixture 's/tx_shift <= tx_write ? data_q : tx_empty ? 8.b0 : tx_buf;/tx_shift <= tx_empty ? 8'"'"'b0 : tx_buf;/')
+probe "a boundary write that does not reach the shift register is red" 1 \
+  "appeared 0 times" "st_run $d"
+
+d=$(st_fixture 's/if (rx_take) rx_valid <= 1.b0;//')
+probe "a receive flag that a read does not clear is red" 1 \
+  "rx_valid still set after a read" "st_run $d"
+
+d=$(st_fixture 's/assign miso_oe   = selected;/assign miso_oe   = 1'"'"'b1;/')
+probe "a MISO driver left on after the select releases is red" 1 \
+  "still driving after the select released" "st_run $d"
+
+begin_group "test/boot_loader_test.sh (the SPRAM-text board)"
+
+SPOOT_SRCS=$(make -s -C "$REPO" print-SPRAM_SOC_SRCS)
+bspram() { make -s --no-print-directory -C "$REPO" boot-spram-test "$@" || exit 1; }
+
+d=$(bload_fixture)
+probe "control: the boot ROM runs a small image, one over 8 KB, and refuses the damaged ones" 0 \
+  "boot-loader (spram):" "BOOT_LOADER_SRC=$d/boot_loader.c bspram"
+
+d=$(bload_fixture)
+mutate "$d/boot_loader.c" 's/if (sum != want) fail/if (0) fail/'
+probe "a boot ROM that runs an image whose checksum is wrong is red" 1 \
+  "flipped: wanted" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=flipped bspram"
+
+d=$(bload_fixture)
+mutate "$d/boot_loader.c" 's/^static unsigned cycles(void) {$/__attribute__((used)) static const char pad[1200] = {1};\n\nstatic unsigned cycles(void) {/'
+probe "a loader grown past the 1 KB boot ROM is red" 1 \
+  "region \`rom' overflowed by" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=erased bspram"
+
+# The shadow is the whole mechanism: without it the core resets into zeroed SPRAM and never prints.
+d=$(new_case); mkdir -p "$d/rtl"
+for f in $SPOOT_SRCS; do cp "$REPO/$f" "$d/rtl/"; done
+mutate "$d/rtl/imemory_spram.v" 's/assign even_data = even_in_boot ? boot_even_q : even_text;/assign even_data = even_text;/'
+fixed_srcs=""
+for f in $SPOOT_SRCS; do fixed_srcs="$fixed_srcs $d/rtl/$(basename "$f")"; done
+probe "a boot ROM that does not shadow the top of the text window never boots" 1 \
+  "good_a: wanted" "BOOT_CASES=good_a bspram SPRAM_SOC_SRCS='$fixed_srcs'"
+
+begin_group "the SPRAM-text top's census"
+
+SPC_BOOT="make -s --no-print-directory -C $REPO spram-bootrom"
+
+spc_synth() {  # $1 = fixture dir holding a mutated imemory_spram.v, or "" for the shipping one
+  local d=$1 f srcs=""
+  for f in $SPOOT_SRCS; do
+    if [ -n "$d" ] && [ "$f" = rtl/imemory_spram.v ]; then srcs="$srcs $d/imemory_spram.v"; else srcs="$srcs $REPO/$f"; fi
+  done
+  $SPC_BOOT > /dev/null || return 1
+  (cd "$REPO" && yosys -p "read_verilog -sv $srcs; synth_ice40 -device u -dsp -spram -top littlesoc_spram" > "${d:-$tmp}/spc.log" 2>&1) || return 1
+  python3 "$REPO/soc/cell_census.py" "${d:-$tmp}/spc.log" SB_SPRAM256KA 4 reason
+}
+
+d=$(new_case)
+probe "control: the shipping SPRAM-text top maps its text to four SPRAMs" 0 \
+  "as declared" "spc_synth ''"
+
+# A separate write index is the spelling that maps the text store to block RAM instead.
+d=$(new_case)
+cp "$REPO/rtl/imemory_spram.v" "$d/imemory_spram.v"
+mutate "$d/imemory_spram.v" 's/rom_even\[even_raddr\]\[\([0-9:]*\)\] *<=/rom_even[data_index][\1] <=/' 's/rom_odd\[odd_raddr\]\[\([0-9:]*\)\] *<=/rom_odd[data_index][\1] <=/'
+probe "a text store given its own write index loses its SPRAM and is red" 1 \
+  "SB_SPRAM256KA cells, expected 4" "spc_synth $d"
 
 begin_group "test/entropy_upduino_test.py"
 

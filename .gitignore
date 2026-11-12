@@ -12,6 +12,8 @@ nano/timing.latches.json
 nano/timing.latches.log
 soc/rom_even.hex
 soc/rom_odd.hex
+soc/bootrom_even.hex
+soc/bootrom_odd.hex
 soc/compare/rom_even.hex
 soc/compare/rom_odd.hex
 soc/compare/rom_flat.hex

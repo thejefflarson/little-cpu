@@ -475,6 +475,50 @@ jobs:
             echo "wall time: ${elapsed}s"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The SPRAM-text UPduino top, placed at its own pinned seed against the same 12 MHz floor. It is a sixth
+  # design and shares no number with the default board's soc-timing job (ADR-0259).
+  spram-timing:
+    name: spram-timing
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'little-cpu-runners' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up the pinned RISC-V gcc
+        uses: ./.github/actions/setup-riscv-gcc
+
+      - name: Set up OSS CAD Suite
+        uses: ./.github/actions/setup-oss-cad-suite
+
+      - name: make spram-board-timing
+        run: |
+          set +e
+          make spram-board-timing > "$RUNNER_TEMP/spram-timing.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/spram-timing.txt"
+          {
+            echo "### SPRAM-text board timing"
+            echo '```'
+            cat "$RUNNER_TEMP/spram-timing.txt"
+            echo '```'
+            echo "The SPRAM-text UPduino top (\`upduino_spram_top\`) placed and timed against"
+            echo "\`SOC_MIN_MHZ\`, with its SPRAM and block-RAM census graded exactly."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Report job wall time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - JOB_START ))
+          {
+            echo "### spram-timing"
+            echo "wall time: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Gates the MAPPING and publishes the frequency. No Fmax ratchet: one placement is a
   # sample, and ECP5's churn band has not been derived.
   ecp5-timing:

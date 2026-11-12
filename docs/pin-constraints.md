@@ -28,6 +28,19 @@ In UART mode only ADBUS1 (RXD) is an input, so TXD, RTS# and DTR# drive pins 15,
 controller transaction fights them with no series resistance (`docs/adr/0135`'s last amendment).
 This repository called 14 the flash's MISO until the pin was read off the board.
 
+## `soc/upduino_spram.pcf` -- The SPRAM-text board (ice40 up5k, sg48)
+
+The default board's file plus the SPI target's four pins. `spit_sck` is pin 2, `spit_cs_n` pin 3,
+`spit_mosi` pin 4 and `spit_miso` pin 6: the header's `gpio_2`, `gpio_3`, `gpio_4` and `gpio_6`, read
+2026-11-11 off tinyVision.ai's own RTL/common/upduino.pcf (the same file the clock pin above came from),
+where all four are plain general-purpose pads with nothing else wired to them. None is among the clock,
+the RGB LED (39, 40, 41) or the flash/FT232H pins (14 to 17), and none collides with a pin this file
+already constrains. `spit_sck`, `spit_cs_n` and `spit_mosi` are inputs from an external controller;
+`spit_miso` is driven only while `spit_cs_n` is low (`SB_IO` with an output enable), so a controller
+sharing the line with other targets sees it released. The pad voltage is 3.3 V and the controller must
+not drive a pin above that. The controller's clock is sampled through a three-stage synchroniser, so
+`sck` must stay under a quarter of the core clock: 3 MHz at 12 MHz.
+
 ## `soc/littlesoc.pcf` -- The SoC on the iCEBreaker pinout (ice40 up5k, sg48)
 
 Pin constraints for rtl/littlesoc.v on an ice40 up5k in an sg48 package.

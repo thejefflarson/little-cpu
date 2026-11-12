@@ -1,6 +1,15 @@
 // ROM loader: copies a program image from the configuration flash into instruction memory and runs it.
-// Read-only: the only flash command ever shifted out is the read, 0x03.
+// Read-only: the only flash command ever shifted out is the read, 0x03. Built with -DBOOT_SPRAM it is the
+// block-RAM boot ROM of the SPRAM-text board, which copies to address 0 and runs from there.
 #include "boot_layout.h"
+
+#ifdef BOOT_SPRAM
+#define IMAGE_BASE BOOT_SPRAM_IMAGE_BASE
+#define IMAGE_END  BOOT_SPRAM_ROM_BYTES
+#else
+#define IMAGE_BASE BOOT_IMAGE_BASE
+#define IMAGE_END  BOOT_ROM_BYTES
+#endif
 
 #define UART_DATA    (*(volatile unsigned *)0x00020020u)
 #define UART_STATUS  (*(volatile unsigned *)0x00020024u)
@@ -8,7 +17,7 @@
 #define SPI_CONTROL  (*(volatile unsigned *)0x0002002cu)
 #define SPI_BUSY     0x100u
 #define FLASH_READ   0x03u
-#define IMAGE_MAX    ((unsigned)(BOOT_ROM_BYTES - BOOT_IMAGE_BASE))
+#define IMAGE_MAX    ((unsigned)(IMAGE_END - IMAGE_BASE))
 
 static unsigned cycles(void) {
   unsigned c;
@@ -102,7 +111,7 @@ int main(void) {
   unsigned sum = len;
   int sane = magic == BOOT_MAGIC && len != 0 && len <= IMAGE_MAX && !(len & 3u);
   if (sane) {
-    volatile unsigned *dst = (volatile unsigned *)BOOT_IMAGE_BASE;
+    volatile unsigned *dst = (volatile unsigned *)IMAGE_BASE;
     __asm__("" : "+r"(dst));
     for (unsigned i = 0; i < len / 4; i++) {
       unsigned w = word_in();
@@ -126,6 +135,8 @@ int main(void) {
   // The image finds the load's cycle count in mscratch.
   __asm__ volatile("csrw mscratch, %0" : : "r"(elapsed));
   __asm__ volatile("fence.i");
-  ((void (*)(void))BOOT_IMAGE_BASE)();
+  unsigned entry = IMAGE_BASE;
+  __asm__("" : "+r"(entry));
+  ((void (*)(void))entry)();
   return 0;
 }

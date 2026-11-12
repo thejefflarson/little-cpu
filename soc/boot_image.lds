@@ -1,8 +1,8 @@
 /* A C program linked to run after the flash loader: ROM starts at BOOT_IMAGE_BASE. The Makefile defines
-   BOOT_IMAGE_BASE and BOOT_ROM_BYTES from soc/boot_layout.h. */
+   BOOT_IMAGE_BASE, BOOT_ROM_BYTES and BOOT_RAM_BYTES from soc/boot_layout.h. */
 MEMORY {
     rom(rx)  : ORIGIN = BOOT_IMAGE_BASE, LENGTH = BOOT_ROM_BYTES - BOOT_IMAGE_BASE
-    ram(!rx) : ORIGIN = 0x00010000, LENGTH = 64K
+    ram(!rx) : ORIGIN = 0x00010000, LENGTH = BOOT_RAM_BYTES
 }
 
 SECTIONS {

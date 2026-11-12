@@ -44,7 +44,7 @@ compare-product-schedule-publish-test | fast | - | - | test/compare_product_sche
 tool-cache-test | fast | - | - | @all test/tool_cache_test.sh test/cosim.py Makefile mk/
 riscv-gcc-pin-test | fast | - | - | @all test/riscv_gcc_pin_test.sh Makefile mk/
 riscv-gcc-search-test | fast | - | - | @all test/riscv_gcc_search_test.sh test/probe_gates.sh docs/ soc/ test/
-memmap-test | fast | - | - | test/memmap_test.sh rtl/ test/ formal/traps.sv soc/rom_banks.py Makefile
+memmap-test | fast | - | - | test/memmap_test.sh rtl/ test/ formal/traps.sv soc/rom_banks.py soc/boot_layout.h soc/bootrom.lds Makefile
 adr-numbering-test | fast | - | - | @all test/adr_numbering_test.sh docs/adr/
 compare-geometry-test | fast | - | - | @all soc/compare/ rtl/memory.v Makefile
 hazard3-config-test | fast | - | - | @all soc/compare/
@@ -75,6 +75,7 @@ board-tools-test | fast | - | - | test/board_tools_test.py soc/ Makefile mk/
 board-verdict-test | fast | - | - | test/board_verdict_test.sh test/board/ test/asm/ soc/ Makefile
 board-sudoers-test | fast | - | - | test/board_sudoers_test.sh soc/ Makefile
 board-wrappers-test | fast | - | - | test/board_wrappers_test.sh soc/ Makefile
+boot-spram-test | fast | - | - | rtl/ soc/ test/boot/ test/boot_loader_test.sh test/boot_loader_sim.v test/boot_damage.py test/spiflash_model.v test/crt0.S test/asm/boot.lds Makefile mk/
 boot-loader-test | fast | - | - | rtl/ soc/ test/boot/ test/boot_loader_test.sh test/boot_loader_sim.v test/boot_damage.py test/spiflash_model.v test/crt0.S test/asm/boot.lds Makefile mk/
 ill-e-wiring-test | fast | - | - | @all test/ill_e_wiring_test.py nano/formal/ formal/ rtl/
 probes-header-test | fast | - | - | @all test/probes_header_test.py test/PROBES_EXPECTED

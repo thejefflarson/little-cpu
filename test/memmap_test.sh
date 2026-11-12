@@ -28,7 +28,8 @@ need() {
 }
 
 for f in rtl/memory.v rtl/timer.v rtl/uart.v rtl/spiflash.v rtl/imemory.v \
-         rtl/littlecpu.v rtl/littlesoc.v \
+         rtl/littlecpu.v rtl/littlesoc.v rtl/littlesoc_spram.v rtl/spi_target.v \
+         soc/boot_layout.h soc/bootrom.lds \
          test/testbench.v \
          test/cxxrtl.cc test/cosim.cc test/dual_cxxrtl.cc \
          test/asm/riscv_test.h test/asm/sections.lds \
@@ -431,6 +432,103 @@ traps_copy LS_TIMER_BASE "$TRAPS_TIMER_BASE" "$TIMER_BASE" rtl/timer.v
 traps_copy LS_UART_BASE  "$TRAPS_UART_BASE"  "$UART_BASE"  rtl/uart.v
 traps_copy LS_FLASH_BASE "$TRAPS_FLASH_BASE" "$FLASH_BASE" rtl/spiflash.v
 traps_copy LS_TEXT_WORDS "$TRAPS_TEXT_WORDS" "$SOC_ROM_WORDS_RTL" rtl/littlesoc.v
+
+
+# The SPRAM-text SoC has a map of its own: 64 KB of text, a smaller data RAM, a boot ROM shadowing the top of the
+# text window, and the SPI target past the flash controller. It overrides rtl/memory.v's depth, which the default
+# top and the testbench may not, so what it may override is stated here and everything else is compared.
+SP=rtl/littlesoc_spram.v
+if ! grep -qE 'spi_target[[:space:]]+[a-z_]+[[:space:]]*\(' "$REPO/$SP"; then
+  fail "$SP does not instantiate \`spi_target\`, so its window decodes nothing."
+fi
+if grep -q 'spi_target' "$REPO/rtl/littlesoc.v"; then
+  fail "rtl/littlesoc.v instantiates \`spi_target\`. The default top keeps it out so its netlist and
+its map stay what the default board ships; only $SP carries it."
+fi
+for m in timer uart spiflash spi_target imemory_spram; do
+  override=$(grep -E "(^|[^[:alnum:]_])$m[[:space:]]*#\(" "$REPO/$SP" || true)
+  if [ -n "$override" ]; then
+    for param in $(printf '%s\n' "$override" | grep -oE '\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(' | tr -d '.( \t'); do
+      case "$m:$param" in
+        uart:CLOCK_HZ|imemory_spram:ROM_WORDS|imemory_spram:BOOT_WORDS|imemory_spram:BOOT_INIT_EVEN|imemory_spram:BOOT_INIT_ODD) ;;
+        *) fail "$SP overrides \`$m\`'s \`$param\`. Only the data RAM's depth is the SPRAM-text map's to restate; a
+device base moved here would put this top on a different map from the one the core and the programs assume." ;;
+      esac
+    done
+  fi
+done
+mem_override=$(grep -E "(^|[^[:alnum:]_])memory[[:space:]]*#\(" "$REPO/$SP" || true)
+for param in $(printf '%s\n' "$mem_override" | grep -oE '\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(' | tr -d '.( \t'); do
+  [ "$param" = RAM_WORDS ] || fail "$SP overrides \`memory\`'s \`$param\`; only RAM_WORDS may differ from the default map."
+done
+
+sp_local() {  # $1 = localparam name
+  local raw
+  raw=$(sed -nE "s/^[[:space:]]*localparam[[:space:]]+integer[[:space:]]+$1[[:space:]]*=[[:space:]]*([0-9]+);.*/\1/p" "$REPO/$SP" | head -1)
+  [ -n "$raw" ] || no_param "$SP" "$1"
+  echo "$raw"
+}
+SP_ROM_WORDS=$(sp_local ROM_WORDS)
+SP_BOOT_WORDS=$(sp_local BOOT_WORDS)
+SP_RAM_WORDS=$(sp_local RAM_WORDS)
+SP_RESET_RAW=$(sed -nE "s/.*\.RESET_PC\(32'h([0-9a-fA-F_]*)\).*/\1/p" "$REPO/$SP" | head -1 | tr -d _)
+[ -n "$SP_RESET_RAW" ] || no_param "$SP" RESET_PC
+SP_RESET=$((16#$SP_RESET_RAW))
+SP_TEXT_BYTES=$((SP_ROM_WORDS * 4))
+SP_BOOT_BYTES=$((SP_BOOT_WORDS * 4))
+SP_RAM_BYTES=$((SP_RAM_WORDS * 4))
+SP_TARGET_BASE=$(hex_param rtl/spi_target.v BASE)
+SP_TARGET_BYTES=8
+CPU_SPI_BASE=$(hex_param rtl/littlecpu.v LS_SPI_BASE)
+
+layout_value() {  # $1 = BOOT_ name
+  local raw
+  raw=$(sed -nE "s/^#define[[:space:]]+$1[[:space:]]+(0[xX][0-9a-fA-F]+|[0-9]+).*/\1/p" "$REPO/soc/boot_layout.h" | head -1)
+  [ -n "$raw" ] || no_param soc/boot_layout.h "$1"
+  echo $((raw))
+}
+LAY_LOADER=$(layout_value BOOT_SPRAM_LOADER_BASE)
+LAY_IMAGE_BASE=$(layout_value BOOT_SPRAM_IMAGE_BASE)
+LAY_IMAGE_END=$(layout_value BOOT_SPRAM_ROM_BYTES)
+LAY_RAM=$(layout_value BOOT_SPRAM_RAM_BYTES)
+
+if [ $((RAM_BASE + SP_RAM_BYTES)) -gt "$TIMER_BASE" ]; then
+  fail "$SP gives the data RAM $SP_RAM_BYTES bytes at $(hexfmt "$RAM_BASE"), which runs past the timer at $(hexfmt "$TIMER_BASE")."
+fi
+if [ "$SP_TEXT_BYTES" -gt "$RAM_BASE" ]; then
+  fail "$SP's text window is $SP_TEXT_BYTES bytes and the data RAM starts at $(hexfmt "$RAM_BASE"); the two would overlap."
+fi
+if [ $((SP_TEXT_BYTES - SP_BOOT_BYTES)) -ne "$LAY_LOADER" ] || [ "$SP_RESET" -ne "$LAY_LOADER" ]; then
+  fail "the boot ROM is the top $SP_BOOT_BYTES bytes of a $SP_TEXT_BYTES-byte window, which starts at $(hexfmt $((SP_TEXT_BYTES - SP_BOOT_BYTES))).
+soc/boot_layout.h's BOOT_SPRAM_LOADER_BASE is $(hexfmt "$LAY_LOADER") and the core resets to $(hexfmt "$SP_RESET"). The
+reset vector must be the loader, or the first fetch runs whatever the SPRAM powered up holding."
+fi
+if [ "$LAY_IMAGE_END" -ne "$LAY_LOADER" ] || [ "$LAY_IMAGE_BASE" -ne 0 ]; then
+  fail "a flash image is linked at $(hexfmt "$LAY_IMAGE_BASE") and may run to $(hexfmt "$LAY_IMAGE_END"); it has to end exactly
+where the boot ROM begins ($(hexfmt "$LAY_LOADER")), because the ROM hides the SPRAM behind it."
+fi
+if [ "$LAY_RAM" -ne "$SP_RAM_BYTES" ]; then
+  fail "soc/boot_layout.h gives an SPRAM-board image $LAY_RAM bytes of RAM and $SP has $SP_RAM_BYTES. An image's stack
+is linked at the top of the first."
+fi
+if [ "$SP_TARGET_BASE" -lt $((FLASH_BASE + FLASH_BYTES)) ]; then
+  fail "rtl/spi_target.v at $(hexfmt "$SP_TARGET_BASE") overlaps the SPI controller, which ends at $(hexfmt $((FLASH_BASE + FLASH_BYTES)))."
+fi
+aligned_window "SPI target" "$SP_TARGET_BASE" "$SP_TARGET_BYTES"
+if [ "$SP_TARGET_BASE" -ne "$CPU_SPI_BASE" ]; then
+  fail "rtl/littlecpu.v's LS_SPI_BASE is $(hexfmt "$CPU_SPI_BASE") against rtl/spi_target.v's $(hexfmt "$SP_TARGET_BASE"). The core
+would refuse the target's registers with a load or store access fault."
+fi
+named_sp() {  # $1 = parameter, $2 = what it must equal
+  local got
+  got=$(grep -oE "\.$1\(([A-Za-z_0-9]+|[0-9]+)\)" "$REPO/$SP" | head -1 | sed -E 's/.*\((.*)\)/\1/')
+  if [ "$got" != "$2" ]; then
+    fail "$SP passes .$1($got) where the map says $2; the core's copy of the map would describe another machine."
+  fi
+}
+named_sp LS_TEXT_WORDS ROM_WORDS
+named_sp LS_RAM_WORDS RAM_WORDS
+named_sp LS_HAS_SPI 1
 
 if [ "$rc" -ne 0 ]; then
   echo >&2

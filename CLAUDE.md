@@ -484,7 +484,7 @@ bench.
 
 ## Measurements and ratchets
 
-Three instruments, five designs — never merge their numbers. `make fit` is the core alone (its top
+Three instruments, six designs — never merge their numbers. `make fit` is the core alone (its top
 never places: 231 `SB_IO` against sg48's 39, expected); `make soc-timing` is the SoC, which places
 and times; `make ecp5-timing` is that SoC on the other part; `make dual-ecp5-timing` is the dual
 top, ECP5 only.
@@ -599,6 +599,19 @@ top, ECP5 only.
   its mapped count by 40 to 70 cells, and it stopped placing at 5,306 of 5,280 for as long as no job
   placed it. Every ice40 synthesis here (the board top, `littlesoc` and the core alone) maps with one longer ABC9 script, `soc/ice40_abc9.script` (the default's `&dch` and `&syn2` round run twice; yosys 0.70 removed `synth_ice40 -abc2`, the classic `abc` pass it used to run): about 140 cells fewer than one default pass on the board top, 88 fewer on `littlesoc`, and no worse at the worst of sixteen seeds on either. The ECP5 flows stay on `synth_ecp5`'s default, where the same script reads a null on clock (ADR-0255, amended). The compare harness's up5k rows stay on the default script, one mapper for three cores. Placed on CI's yosys 0.70: 5,110 cells, 13.25 MHz
   at the default seed; on 0.68, 5,163 cells and worst of sixteen seeds 12.34 (ADR-0255, amended).
+- **The SPRAM-text UPduino is a sixth design, and none of its numbers combine with the other five**
+  (ADR-0259). `rtl/littlesoc_spram.v` puts 64 KB of program text in the part's four SPRAMs (yosys maps
+  `rtl/imemory_spram.v`'s text store there only while the write address IS the read address signal,
+  `even_raddr` and `odd_raddr`; a separate write index maps it to block RAM, and `rtl/imemory.v` is untouched), the data RAM in 8 KB of block RAM, and a 1 KB
+  block-RAM boot ROM at `0xFC00` that the core resets into (`RESET_PC`, default 0 everywhere else). The ROM
+  is `soc/boot_loader.c` built with `-DBOOT_SPRAM`: one loader and one image format shared with the default
+  board, laid out by `soc/boot_layout.h`'s `BOOT_SPRAM_` names. It also carries `rtl/spi_target.v`, a polled
+  SPI peripheral at `0x0002_0030` (`LS_HAS_SPI`, off in every other build). Its targets are `make
+  spram-bitstream`, `spram-prog`, `spram-board-timing`, `spram-board-seed-search`, `spram-boot-image` and
+  `spram-prog-image`; it places `upduino_spram_top` at `soc/spram_pin.json`'s seed, and `make
+  boot-spram-test` boots it in simulation. The census is exact: 4 `SB_SPRAM256KA` and 24 `SB_RAM40_4K`.
+  `dx_output.predicted_target_low` is 16 bits for its 64 KB window; the extra bits are constant zero in every
+  smaller window and map to nothing (4,586 `SB_LUT4` on the default SoC with 14 bits and with 16).
 - **12 MHz is a requirement, not a regression floor** (ADR-0066). `SOC_MIN_MHZ` is 12.0 — the board
   clock, whose next divider step down is 6 — and it does not slide; when it trips, fix the design.
   **The step above is 24** (`SB_HFOSC` gives 48 / 24 / 12 / 6), so the target for Fmax work is
@@ -1324,10 +1337,10 @@ Makefile and `nano/*.mk` on `make test`.
 refuses a `ROM_WORDS` that is not a power of two because both its range tests are reductions on the
 address bits above the ROM, and 16 KB is 32 block RAMs against the 26 free (ADR-0135); a 12 KB
 window as two power-of-two windows ORed is buildable and declined on period (ADR-0145). The two
-free `SB_SPRAM256KA` cannot hold text either: fetch reads two neighbouring words every cycle from
-two 32-bit banks, and at 16 bits wide a fetch window is four SPRAMs, the whole part. So
-`test/asm/rvc.S`, at 12 256 bytes, still cannot run on silicon, and `soc/run_suite_board.sh`
-batches.
+free `SB_SPRAM256KA` cannot hold text *alongside the data RAM*: fetch reads two neighbouring words every
+cycle from two 32-bit banks, and at 16 bits wide a fetch window is four SPRAMs, the whole part. The opt-in
+SPRAM-text board below spends all four on text and moves the data RAM to block RAM. On the default board
+`test/asm/rvc.S`, at 12 256 bytes, still cannot run on silicon, and `soc/run_suite_board.sh` batches.
 
 **The configuration flash has a read-only controller, `rtl/spiflash.v`. Both boards wire it and read the flash** (ADR-0135, amended 2026-10-24). Eight bytes at `0x0002_0028`: a data register whose read gives `busy` in bit 8 above the byte the last exchange shifted in, and a write-only control register whose bit 0 is the chip select; it is a mode-0 shift register that knows no commands. `busy` sits beside the byte rather than in a register software writes because the reference model has plain memory here, and polling a stored bit would spin on Sail and compare nothing. **On the UPduino the pins are shared with the FT232H, and the repository had two of their roles backwards**: pin 14 is the iCE40's `SPI_SO`, the flash's data *input* and the UART's TX at once, and pin 17 is the flash's data output, so the flash never drives pin 14. `soc/flash_share.v` states every output enable: the controller's select is a request, `soc/pin_lockout.v` grants it when pin 16 read released, and in that one cycle pin 14 changes from the UART to MOSI and pins 15 and 16 are driven; a deselect drives pin 16 high for a cycle, and the UART returns after `soc/miso_share_enable.v` reads the pad high for two cycles (turn-off is combinational on the pad). **The grant's idle bound is a parameter, 128 cycles here**: sixteen dropped the select between bytes of compiled C (22 cycles apart on the board and in simulation). `iceprog` still parks the select high between transactions, so a grant can land in a live host; that limit is unchanged. **The board reads the JEDEC ID, `EF7016`, through the controller** (`soc/flash_share_probe.c`), and it read `FFFFFF` until `$(BUILD)/board.bin` was packed with `icepack -s`: `icepack` ends a bitstream with a deep-power-down command for the flash by default, and a sleeping flash answers nothing. **The schematic puts the FT232H on the same nets** (ADBUS0 on pin 15, ADBUS2 on pin 17, ADBUS4 on pin 16, direct wires; ADBUS1 on pin 14 and the flash's DI through 0 ohm): in UART mode TXD, RTS# and DTR# drive pins 15, 17 and 16, so a controller transaction fights push-pull to push-pull on three pins with no series resistance. The ID read lasts about 22 microseconds and the current is unmeasured; firmware that holds the select for long would make it sustained, and releasing every FT232H pin removes it at the cost of the UART (ADR-0135, amended). The iCESugar-Pro has no such sharing: `soc/board_icesugar_pro.v`
 connects chip select, MOSI and MISO to the W25Q256JV's pins and reaches the clock through

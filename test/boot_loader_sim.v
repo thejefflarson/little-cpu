@@ -16,7 +16,21 @@ module boot_loader_sim;
   integer gap = 0, max_gap = 0;
   logic uart_tx, spi_sck, spi_mosi, spi_miso, spi_cs_n;
 
+`ifdef BOOT_SPRAM
+  // SPRAM has no initial contents: zero it, as test/testbench.v zeroes its ROM, so a fetch past the image is not X.
+  initial for (int i = 0; i < 8192; i++) begin
+    soc.imem.rom_even[i] = 32'b0;
+    soc.imem.rom_odd[i]  = 32'b0;
+  end
+  littlesoc_spram soc (
+    .spit_sck(1'b0),
+    .spit_cs_n(1'b1),
+    .spit_mosi(1'b0),
+    .spit_miso(),
+    .spit_miso_oe(),
+`else
   littlesoc soc (
+`endif
     .clk(clk),
     .btn_n(1'b1),
     .entropy_raw(1'b0),

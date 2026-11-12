@@ -3,7 +3,9 @@
 `include "structs.v"
 // The ROM is addressed a cycle ahead with `next_pc`'s word, so its output register always
 // holds the window `{w[p], w[p+1]}` at `pc` and the only miss is a stolen read.
-module fetcher (
+module fetcher #(
+  parameter logic [31:0] RESET_PC = 32'b0
+) (
   input  logic clk,
   input  logic reset,
   input  logic [31:0] pc,
@@ -21,7 +23,7 @@ module fetcher (
 );
   assign fetch_stall    = imem_stall;
   assign fault          = imem_fault;
-  assign imem_addr_next = reset ? 32'b0 : {next_pc[31:2], 2'b00};
+  assign imem_addr_next = reset ? RESET_PC : {next_pc[31:2], 2'b00};
   assign imem_addr      = {pc[31:2], 2'b00};
   assign imem_addr2     = imem_addr + 32'd4;
 

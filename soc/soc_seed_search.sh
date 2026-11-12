@@ -2,7 +2,7 @@
 # Search the placer seed (soc/seed_hash.py's sha256 draw by default, never 1..N: small
 # integers span a low-dimensional subspace of nextpnr's xorshift state)
 # for a placement that clears SOC_MIN_MHZ with margin, then write the pin file.
-# Usage: soc_seed_search.sh soc|board (soc/pin.json, or soc/board_pin.json).
+# Usage: soc_seed_search.sh soc|board|spram (soc/pin.json, soc/board_pin.json, or soc/spram_pin.json).
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -18,8 +18,13 @@ case "${1-}" in
     sources=$(make -s print-BOARD_PIN_SOURCES)
     config_args="--config $(make -s print-BOARD_PIN_CONFIG)"
     ;;
+  spram)
+    target=spram-board-timing seed_var=BOARD_SEED pin=soc/spram_pin.json
+    sources=$(make -s print-SPRAM_PIN_SOURCES)
+    config_args="--config $(make -s print-BOARD_PIN_CONFIG)"
+    ;;
   *)
-    echo "usage: soc/soc_seed_search.sh soc|board" >&2
+    echo "usage: soc/soc_seed_search.sh soc|board|spram" >&2
     exit 2
     ;;
 esac

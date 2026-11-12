@@ -93,6 +93,7 @@ a CoreMark testbench simulating a different map than the image is linked for is 
 a FAIL verdict from the underlying sim is red for nano's startup check too
 a FREE line with no harness behind it is red
 a MAP_TOP inside the topmost window is red
+a MISO driver left on after the select releases is red
 a Makefile board read with no eject ahead of it is red
 a Makefile loader call with no eject ahead of it is red
 a Makefile make cannot parse does not pass by silence
@@ -166,6 +167,9 @@ a board run at a different iteration count is red
 a board search under the 5% margin is refused and pins nothing
 a board suite that sudo-runs a path the check did not resolve is red
 a board_report that does not reach the driver's verdict path is red
+a boot ROM that does not shadow the top of the text window never boots
+a boot ROM that runs an image whose checksum is wrong is red
+a boundary write that does not reach the shift register is red
 a branch already on this repository stops the bump
 a budget under the phases' worst case that is not refused is red
 a build artifact missing is exit 2, not a probe against nothing
@@ -256,6 +260,7 @@ a cover the shipping arbiter cannot reach is red before any mutation
 a cover the shipping arbiter cannot reach is red before any mutation
 a cycle factor over its floor owes a floor update
 a cycle factor under its floor is a regression
+a data RAM that runs past the timer in the SPRAM-text map is red
 a dated ADR stating an old band figure is NOT red
 a dead generate-if(0) decoy does not hide the same leak (finding 2)
 a dead net still in the file is a difference, not a forgiveness
@@ -447,6 +452,7 @@ a linker script that moves ram off the decoded base is red
 a linker script the Makefile does not link and nothing else names is red
 a littlecpu harness whose core port moved stops rather than tying nothing
 a load into SRAM, which leaves this board unconfigured, is red
+a loader grown past the 1 KB boot ROM is red
 a loader grown past the address images are linked at is red
 a loader stopped with SIGKILL alone, orphaning a root child behind sudo, is red
 a loader that copies a length no ROM holds is red
@@ -668,6 +674,7 @@ a real archive with one byte-mutated file is caught, and named
 a reason dropped from one downstream site is red, and named
 a reason dropped from the decoder's own composition is red, and named
 a reboot that does not read the flash is red
+a receive flag that a read does not clear is red
 a recipe file no input pattern claims is red, and named
 a recipe naming the riscv-formal clone's VexRiscv path instead of $(VEXRISCV_V) is red
 a recipe running a script git records as 100644 is red, and located
@@ -716,6 +723,7 @@ a report under the floor fails, because the floor is the board clock
 a report with no 'design' key at all is refused, not read as zero
 a report with no routing hop in it is a failed read, not a wired design
 a report with no utilisation table is missing half the measurement
+a reset vector that is not the boot ROM is red
 a respelled address arm stops rather than proving the shipping core
 a respelled anchor stops rather than pinning nothing
 a respelled anchor stops rather than pinning nothing
@@ -885,6 +893,7 @@ a target core that is not one of its pair's cores is refused
 a term with no allow-list behind it stops rather than grading nothing
 a test/bench source is a measured input
 a testbench simulating a different map than the image is linked for is red
+a text store given its own write index loses its SPRAM and is red
 a tie-off at every harness that no baseline declares is red
 a timer base aligned only for one hart is red
 a tmp-path allow-list entry whose site lost its /tmp/ is red
@@ -907,6 +916,7 @@ a torn atomic going red at the wait bound is not evidence either
 a traceless stalled-bus mutant is red, since its FAIL holds for a trivially true goal too
 a tracked file matching its own .gitignore rule is red and named
 a trailer that is not the CRC of the bytes is red
+a transmit write landing on the byte boundary being lost is red
 a trap taken exits 5
 a tree git cannot list is a scan of nothing, not a green one
 a tree git cannot list is a scan of nothing, not a green one
@@ -1027,6 +1037,7 @@ an ill_e cover that cannot go red is not a control
 an ill_e shipping harness that cannot reach its own cover goal is red
 an image objcopy wrote nothing into is red, not empty and accepted
 an image whose RAM outgrows the part's SPRAM does not fit either
+an image window that runs into the boot ROM is red
 an implicit net, which yosys check reports as undriven, is red and shown
 an indented line equal to a plain heredoc's token does not close it early
 an injection site that moved stops the control, loudly
@@ -1266,6 +1277,7 @@ control: the authors' examples agree with the build file
 control: the block RAM is named at the end of the path it sits at
 control: the board tooling agrees with its known-answer inputs
 control: the board wrappers agree with their stubs
+control: the boot ROM runs a small image, one over 8 KB, and refuses the damaged ones
 control: the cached suite is put first when nothing claims PATH
 control: the caveats travel with the number, on every run
 control: the committed document matches a fresh render of the committed stamp
@@ -1292,6 +1304,8 @@ control: the shipping Makefile and test/CHECKS agree
 control: the shipping Makefile defines no target twice
 control: the shipping Makefile owes nothing but themselves to the two targets
 control: the shipping PROBES_EXPECTED header is present and not in C order
+control: the shipping SPI target passes its own bench
+control: the shipping SPRAM-text top maps its text to four SPRAMs
 control: the shipping bench and build file agree
 control: the shipping board agrees with its own PLL and constraint file
 control: the shipping build stays byte-identical outside DHRY_UART
@@ -1476,6 +1490,10 @@ the SECOND core's RAM diverging is graded, not only the first
 the SP 800-90B install directory inside the checkout is red on its own
 the SPI controller moving in the core's copy alone is red
 the SPI controller moving in the proof's copy alone is red
+the SPI target moving in its own file alone is red
+the SPI target overlapping the flash controller is red
+the SPRAM-text top not enabling the core's SPI window is red
+the SPRAM-text top restating the RAM base is red
 the Sail download directory inside the checkout is red on its own
 the SoC restating the timer base is red too
 the Trellis database cannot be stamped without the tool it belongs to
@@ -1509,6 +1527,7 @@ the cxxrtl leg failing its own baseline is red before any comparison
 the cxxrtl runner's kRamBase drifting is red
 the deep-recursion notice alone is allowlisted
 the default text window is the part's, not the harness's
+the default top instantiating the SPI target is red
 the defect this exists for: a core clocked from the pad, not the PLL
 the defect this exists for: a summary line re-deriving the mode from inputs.
 the defect this exists for: the seed source tied low on the board
@@ -1535,6 +1554,7 @@ the hold branch holding on something other than x_busy is red, and named
 the isa list is what wires a model in, not the insns/ directory alone
 the iverilog leg failing its own baseline is red before any comparison
 the linker script's RAM origin drifting from the RTL's base is red
+the loader layout's RAM drifting from the SPRAM-text top's is red
 the macro's footprint counts against the ratchet, not only the soft logic
 the manifest is checked here too, and before the setup probe
 the model moving away takes the probe with it, loudly

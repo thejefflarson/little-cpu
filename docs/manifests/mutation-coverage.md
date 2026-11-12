@@ -8,8 +8,8 @@ anything at all.
 `make mutation-check` grades `test/MUTATION_DETECTORS`'s set of pairings
 against the set of patches in `test/mutations/`, both ways round — but that
 is a claim about the ELEVEN PATCHES that exist, and says nothing about the
-FOURTEEN `rtl/*.v` files no patch touches. `rtl/uart.v`, `rtl/spiflash.v`,
-`rtl/executor.v` and twelve others could each go without a single line
+SEVENTEEN `rtl/*.v` files no patch touches. `rtl/uart.v`, `rtl/spiflash.v`,
+`rtl/executor.v` and fifteen others could each go without a single line
 changing behaviour and nothing on `make mutation-check`'s path would say so,
 because nothing there is asked the question. A new file added to `rtl/`
 joins that silence by default. This file is the set-equality check
@@ -72,6 +72,13 @@ whole set `test/mutations/` has for it.
 - `rtl/spiflash.v`'s own bench is the only grader of the controller's shift
   register and its busy bit; co-simulation cannot reach it (plain memory at
   that address) and no `.S` program exercises the SPI pins.
+- `rtl/imemory_spram.v` is the SPRAM-text SoC's instruction memory; `make boot-spram-test` boots through it and
+  its census probe forces the block-RAM spelling red.
+- `rtl/littlesoc_spram.v` is the SPRAM-text SoC; `test/memmap_test.sh` grades its map
+  and `test/boot_loader_test.sh` (`make boot-spram-test`) boots it.
+- `rtl/spi_target.v`'s own bench drives a controller's pins against a swept
+  bus write, which is the only place a transmit byte landing on a byte
+  boundary is seen.
 - `rtl/structs.v` declares the inter-stage struct types every pipeline
   module reads and writes; it has no behaviour of its own to mutate, but a
   field reordered, resized, or dropped from `fetcher_output`/
