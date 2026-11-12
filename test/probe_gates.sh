@@ -11027,6 +11027,34 @@ mutate "$d/boot_loader.c" 's/^static unsigned cycles(void) {$/__attribute__((use
 probe "a loader grown past the address images are linked at is red" 1 \
   "would overwrite the code copying it" "BOOT_LOADER_SRC=$d/boot_loader.c BOOT_CASES=erased $BLOAD"
 
+begin_group "test/window64_test.sh"
+
+W64_FILES="structs accessor csrs trng decoder executor fetcher imemory memory regfile regsel timer uart spiflash writeback littlecpu littlesoc"
+
+w64_fixture() {
+  local d f; d=$(new_case)
+  mkdir -p "$d/rtl"
+  for f in $W64_FILES; do cp "$REPO/rtl/$f.v" "$d/rtl/"; done
+  printf '%s' "$d"
+}
+
+w64_run() {  # $1 = fixture dir
+  local f srcs=""
+  for f in $W64_FILES; do srcs="$srcs $1/rtl/$f.v"; done
+  printf '%s' "make -s --no-print-directory -C $REPO window64-test SOC_SRCS='$srcs' || exit 1"
+}
+
+d=$(w64_fixture)
+probe "control: a 64 KB window runs a far jal and a straddling branch" 0 \
+  "window64:" "$(w64_run "$d")"
+
+d=$(w64_fixture)
+mutate "$d/rtl/structs.v" 's/logic \[15:0\] predicted_target_low/logic [13:0] predicted_target_low/'
+mutate "$d/rtl/executor.v" 's/logic \[15:0\] in_predicted_target_low/logic [13:0] in_predicted_target_low/'
+mutate "$d/rtl/littlecpu.v" 's/LS_TEXT_ADDR_BITS + 2 > 16/LS_TEXT_ADDR_BITS + 2 > 99/'
+probe "a 14-bit predicted target in a 64 KB window loses the far jal and is red" 1 \
+  "wanted the store of 12, the bench said: TIMEOUT" "$(w64_run "$d")"
+
 begin_group "test/entropy_upduino_test.py"
 
 EUP="python3 $HERE/entropy_upduino_test.py"

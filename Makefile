@@ -777,6 +777,10 @@ board-wrappers-test:
 boot-loader-test:
 	@SOC_SRCS='$(SOC_SRCS)' ./test/boot_loader_test.sh
 
+.PHONY: window64-test
+window64-test:
+	@SOC_SRCS='$(SOC_SRCS)' ./test/window64_test.sh
+
 .PHONY: zkt-isolation-test
 zkt-isolation-test:
 	@python3 ./test/zkt_isolation_test.py
@@ -842,7 +846,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
                icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test entropy-upduino-test \
                nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
-               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test boot-loader-test nano-test nano-startup-test \
+               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test boot-loader-test window64-test nano-test nano-startup-test \
                macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
