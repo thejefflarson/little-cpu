@@ -1,6 +1,4 @@
-# Text spread across a 64 KB window, with a jal and a conditional branch whose targets differ
-# from their own pcs in bits 15:14: the core's predicted target must carry all sixteen low bits.
-# Stores 12 to the first word of RAM once the loop has added three four times.
+# A jal and a branch whose targets differ from their pcs in bits 15:14; stores 12 to RAM when done.
   .option norvc
   .text
   .globl _start
