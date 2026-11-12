@@ -172,7 +172,7 @@
   "measured_mhz": 13.07,
   "min_mhz": 12.0,
   "seed": 1748564,
-  "sources_digest": "sha256:ba97aa1c805b3efdc5bb2f47ea1a0a85c39038d9f5f04cedb8bda41d23274218",
+  "sources_digest": "sha256:db82be21b82c08b732a16e33d3ab128a53c49fa77260a39fe9e6bb179be607bc",
   "synth_knob": null,
   "toolchain": "# yosys: Yosys 0.68+48 (git sha1 ff5817c34-dirty, Release, Clang /usr/local/osxcross/target/bin/aarch64-apple-darwin25.5-clang++ 21.1.8) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/yosys]\n# nextpnr-ice40: \"nextpnr-ice40\" -- Next Generation Place and Route (Version nextpnr-0.11-1-g62e659ed) [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/nextpnr-ice40]\n# icetime: oss-cad-suite 20260811 sha256:25a4ecb76c094f00 [/Users/jeff/.cache/little-cpu/oss-cad-suite/bin/icetime]"
 }

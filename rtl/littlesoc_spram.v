@@ -4,7 +4,6 @@
 // and a 1 KB block-RAM boot ROM at the top of the text window (soc/boot_loader.c) that the core resets into.
 // Its memory map is its own: rtl/memory.v's RAM_WORDS is overridden here, which test/memmap_test.sh grades.
 module littlesoc_spram #(
-  // The board's clock, so rtl/uart.v can derive its divisor.
   parameter integer CLOCK_HZ = 12_000_000
 ) (
   input  logic clk,
@@ -20,7 +19,6 @@ module littlesoc_spram #(
   output logic spi_mosi,
   input  logic spi_miso,
   output logic spi_cs_n,
-  // The SPI target's four wires, a peripheral port for an external controller.
   input  logic spit_sck,
   input  logic spit_cs_n,
   input  logic spit_mosi,

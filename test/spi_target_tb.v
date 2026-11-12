@@ -61,7 +61,6 @@ module spi_target_tb;
     end
   endtask
 
-  // One frame with the core queueing `queued` write_at clocks after the frame starts; negative queues it first.
   task automatic frame(input int write_at, input logic [7:0] queued);
     begin
       reset = 1; repeat (3) @(posedge clk); #1; reset = 0; repeat (3) @(posedge clk);
@@ -84,8 +83,7 @@ module spi_target_tb;
     end
   endtask
 
-  // A queued byte must leave whole and exactly once: every received byte is zero or the byte, never a
-  // mixture, and the byte appears once.
+  // A queued byte must leave whole and exactly once, never mixed with another.
   task automatic grade(input string what, input logic [7:0] queued);
     int seen;
     begin
