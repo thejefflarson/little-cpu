@@ -100,6 +100,12 @@ cp -R rtl "$mutant/rtl"
 for f in soc/*.hex soc/*.pcf; do
   if [ -e "$f" ]; then cp "$f" "$mutant/soc/"; fi
 done
+for f in $(printf '%s\n' "$NETLIST_SYNTH" | tr ' ;' '\n\n' | grep '\.\(v\|script\)$' || true); do  # every file the synthesis names
+  if [ -e "$f" ] && [ ! -e "$mutant/$f" ]; then
+    mkdir -p "$mutant/$(dirname "$f")"
+    cp "$f" "$mutant/$f"
+  fi
+done
 
 # The comment class lands in a large file, not $MUTANT_FILE: a small file such as
 # littlesoc.v has never been measured to move (soc/netlist_digest.py's header).
