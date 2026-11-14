@@ -535,6 +535,7 @@ a must-trap proof going red somewhere else is not evidence
 a mutant that left no trace demonstrates nothing, and says so
 a mutant that reports no X on the load path is not a control
 a mutant the digest calls equal placing elsewhere voids it too
+a mutant tree built without the mapper script the synthesis names is red
 a mutate whose sed expression matches nothing is fixture-stale, named
 a mutated performance CRC literal is caught the same way
 a mutated validation CRC literal in coremark_port.c is caught before a compiler runs
