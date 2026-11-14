@@ -10350,10 +10350,12 @@ probe "the refused liberty download is not kept to be served again" 0 \
 begin_group "the Makefile's tool-path prepend"
 
 # XDG_CACHE_HOME moves TOOL_CACHE, so this grades the same with a cache and without one.
+OSS_CAD_PINNED_DIR=oss-cad-suite-$(make -s -C "$REPO" print-OSS_CAD_TAG)
+
 tp_fixture() {
   local d; d=$(new_case)
-  mkdir -p "$d/cache/little-cpu/oss-cad-suite/bin"
-  : > "$d/cache/little-cpu/oss-cad-suite/bin/yosys"
+  mkdir -p "$d/cache/little-cpu/$OSS_CAD_PINNED_DIR/bin"
+  : > "$d/cache/little-cpu/$OSS_CAD_PINNED_DIR/bin/yosys"
   printf '%s' "$d"
 }
 
@@ -10363,13 +10365,13 @@ tp_respects() {  # $1 = directory for make -C, $2 = a tp_fixture
   out=$(env XDG_CACHE_HOME="$2/cache" TOOLS_ON_PATH=1 make -C "$1" -s print-PATH 2>&1)
   rc=$?
   if [ "$rc" -ne 0 ]; then echo "make exited $rc under TOOLS_ON_PATH: $out"; return 1; fi
-  if [ "${out%%:*}" = "$2/cache/little-cpu/oss-cad-suite/bin" ]; then echo shadowed; return 1; fi
+  if [ "${out%%:*}" = "$2/cache/little-cpu/$OSS_CAD_PINNED_DIR/bin" ]; then echo shadowed; return 1; fi
   echo respected
 }
 
 d=$(tp_fixture)
 probe "control: the cached suite is put first when nothing claims PATH" 0 \
-  "$d/cache/little-cpu/oss-cad-suite/bin" \
+  "$d/cache/little-cpu/$OSS_CAD_PINNED_DIR/bin" \
   "env -u TOOLS_ON_PATH XDG_CACHE_HOME=$d/cache make -C $REPO -s print-PATH | cut -d: -f1"
 
 d=$(tp_fixture)
@@ -10394,7 +10396,7 @@ begin_group "mk/toolchain.mk in the formal sub-makes"
 # the same regression #314 fixed at the root is a separate failure mode here.
 d=$(tp_fixture)
 probe "control: formal/Makefile also puts the cached suite first" 0 \
-  "$d/cache/little-cpu/oss-cad-suite/bin" \
+  "$d/cache/little-cpu/$OSS_CAD_PINNED_DIR/bin" \
   "env -u TOOLS_ON_PATH XDG_CACHE_HOME=$d/cache make -C $REPO/formal -s print-PATH | cut -d: -f1"
 
 d=$(tp_fixture)
@@ -10404,7 +10406,7 @@ probe "TOOLS_ON_PATH stops formal/Makefile shadowing a fixture's stubs too" 0 \
 
 d=$(tp_fixture)
 probe "control: nano/formal/Makefile also puts the cached suite first" 0 \
-  "$d/cache/little-cpu/oss-cad-suite/bin" \
+  "$d/cache/little-cpu/$OSS_CAD_PINNED_DIR/bin" \
   "env -u TOOLS_ON_PATH XDG_CACHE_HOME=$d/cache make -C $REPO/nano/formal -s print-PATH | cut -d: -f1"
 
 d=$(tp_fixture)
@@ -10421,7 +10423,7 @@ cs_guard_fixture() {
   mkdir -p "$d/formal" "$d/nano/formal" "$d/mk"
   cp "$REPO/formal/Makefile" "$REPO/formal/pin.mk" "$d/formal/"
   cp "$REPO/nano/formal/Makefile" "$d/nano/formal/"
-  cp "$REPO/mk/toolchain.mk" "$REPO/mk/check-solvers.sh" "$d/mk/"
+  cp "$REPO/mk/toolchain.mk" "$REPO/mk/oss-cad-pin.mk" "$REPO/mk/check-solvers.sh" "$d/mk/"
   printf '%s' "$d"
 }
 
@@ -11757,6 +11759,38 @@ d=$(new_case)
 probe "no riscv-none-elf-gcc on PATH at all is red" 1 \
   "run \`make riscv-gcc-setup\`" \
   "PATH='$tmp/bin-none' $RGPT $d/pinned"
+
+begin_group "test/oss_cad_pin_test.sh"
+
+OCP="$HERE/oss_cad_pin_test.sh"
+
+ocp_stub() {  # $1 = suite dir, $2 = its VERSION line, $3 = what its yosys prints
+  local root=$1
+  mkdir -p "$root/bin"
+  printf '%s\n' "$2" > "$root/VERSION"
+  printf '#!/bin/sh\necho "%s, Release"\n' "$3" > "$root/bin/yosys"
+  chmod +x "$root/bin/yosys"
+}
+
+d=$(new_case); ocp_stub "$d/suite" 20261109 "Yosys 0.70+360 (git sha1 5e740962d"
+probe "control: a suite at the pinned release with the pinned yosys is green" 0 \
+  "resolves to the pinned OSS CAD Suite 2026-11-09" \
+  "PATH='$d/suite/bin:/usr/bin:/bin' $OCP 2026-11-09 'Yosys 0.70+360 (git sha1 5e740962d' yosys"
+
+d=$(new_case); ocp_stub "$d/suite" 20260811 "Yosys 0.70+360 (git sha1 5e740962d"
+probe "a suite from another release is red even when its yosys prints the pinned version" 1 \
+  "a suite that is not the pinned release" \
+  "PATH='$d/suite/bin:/usr/bin:/bin' $OCP 2026-11-09 'Yosys 0.70+360 (git sha1 5e740962d' yosys"
+
+d=$(new_case); ocp_stub "$d/suite" 20261109 "Yosys 0.68+48 (git sha1 ff5817c34"
+probe "a yosys that prints another version is red under the pinned VERSION file" 1 \
+  "prints a different yosys than the pin" \
+  "PATH='$d/suite/bin:/usr/bin:/bin' $OCP 2026-11-09 'Yosys 0.70+360 (git sha1 5e740962d' yosys"
+
+d=$(new_case)
+probe "no yosys on PATH at all is red" 1 \
+  "run \`make cad-setup\`" \
+  "PATH='$tmp/bin-none' $OCP 2026-11-09 'Yosys 0.70+360 (git sha1 5e740962d' yosys"
 
 begin_group "test/riscv_gcc_search_test.sh"
 

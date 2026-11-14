@@ -1,4 +1,5 @@
 include ../../formal/pin.mk
+include ../../mk/oss-cad-pin.mk
 include ../../mk/toolchain.mk
 
 .DELETE_ON_ERROR:

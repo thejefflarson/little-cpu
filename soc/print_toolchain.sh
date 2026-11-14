@@ -34,9 +34,9 @@ icetime_probe() {
   echo "*** it could not resolve its up5k chip database. That breaks the timing" >&2
   echo "*** half of \`make soc-timing\` and every sweep built on it:" >&2
   printf '%s\n' "$said" | sed -e 's/^/*** /' >&2
-  echo "*** Put the OSS CAD Suite's icetime ahead of this one on PATH" >&2
-  echo "*** (\$XDG_CACHE_HOME/little-cpu/oss-cad-suite/bin, or" >&2
-  echo "*** ~/.cache/little-cpu/oss-cad-suite/bin), or reinstall icestorm." >&2
+  echo "*** Put the OSS CAD Suite's icetime ahead of this one on PATH:" >&2
+  echo "*** \`make cad-setup\` installs the pinned release, and mk/toolchain.mk" >&2
+  echo "*** puts its bin/ first on PATH." >&2
   return 1
 }
 
