@@ -43,6 +43,7 @@ compare-product-schedule-token-test | fast | - | - | @all test/compare_product_s
 compare-product-schedule-publish-test | fast | - | - | test/compare_product_schedule_publish_test.py .github/ docs/comparison.md soc/ Makefile
 tool-cache-test | fast | - | - | @all test/tool_cache_test.sh test/cosim.py Makefile mk/
 riscv-gcc-pin-test | fast | - | - | @all test/riscv_gcc_pin_test.sh Makefile mk/
+oss-cad-pin-test | fast | - | - | @all test/oss_cad_pin_test.sh Makefile mk/
 riscv-gcc-search-test | fast | - | - | @all test/riscv_gcc_search_test.sh test/probe_gates.sh docs/ soc/ test/
 memmap-test | fast | - | - | test/memmap_test.sh rtl/ test/ formal/traps.sv soc/rom_banks.py Makefile
 adr-numbering-test | fast | - | - | @all test/adr_numbering_test.sh docs/adr/

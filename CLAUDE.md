@@ -500,9 +500,10 @@ top, ECP5 only.
   count that much from re-mapping alone, and the band measures wider than nominal, so `FIT_MAX_LC`
   is derived from a span measured on the tree and budgets the whole span (the derivation is the
   comment above it in the Makefile). The count is **toolchain-dependent by as much as the band with
-  no fixed sign** — quote the `fit` job's number and treat a local run as a sanity check;
+  no fixed sign** — the suite is pinned (ADR-0260), so a local run on the pinned release reads what
+  CI reads, but quote the `fit` job's number and treat a local run as a sanity check;
   `soc/baseline_sweep.sh` stamps a sweep with its tool versions and `soc/baseline_summary.py`
-  refuses to subtract two that disagree. The suite is not pinned, so a suite bump belongs on the
+  refuses to subtract two that disagree. The suite is pinned, so a pin bump belongs on the
   list of causes when `FIT_MAX_LC` or `SOC_MIN_MHZ` trips. It is **top-dependent** (ADR-0094) and
   **spelling-dependent** (ADR-0097): quote a number with the tree and the text it was measured on.
   **A parameter tied off to today's value is not free of the mapper**: only a widened port and an
@@ -540,8 +541,8 @@ top, ECP5 only.
   worst-of-sixteen against a 3.5% clearance, so one draw of sixteen can land under 12.0
   while the design that produced it is unchanged. `soc/pin.json` records a digest of the
   files synthesis READS, a placer seed, the measured MHz and the distribution it was chosen
-  from; keying that on the netlist instead does not work, because the OSS CAD Suite floats
-  and the same sources map to a different netlist on every release. A source change **warns**
+  from; keying that on the netlist instead does not work, because the same sources map to a
+  different netlist on every OSS CAD Suite release. A source change **warns**
   as PIN STALE and does not fail: the gate is Fmax, and the warning's job is that a
   regression can hide behind a pinned seed that still clears. **Seeds 1..16 are not an independent sample**:
   nextpnr's RNG state update is linear over GF(2), so small-integer seeds span a
@@ -1177,8 +1178,14 @@ archive's SHA-256, and aarch64 (the runner pool), where svlint publishes no asse
 pinned crate with `cargo install --locked`, which checks every crate against the crates.io index
 checksum. Tests are freestanding — `.S`, and
 `.c` built `-nostdlib -ffreestanding` against `test/crt0.S` — so no multilib or newlib. Formal needs
-the YosysHQ OSS CAD Suite, which CI takes at the latest release; it is the one tool that floats.
-Everything else downloaded or vendored is pinned and refuses a command-line override: riscv-formal
+the YosysHQ OSS CAD Suite, pinned like the rest: `mk/oss-cad-pin.mk` names one release and a
+SHA-256 per platform asset, `make cad-setup` fetches, checks and unpacks it into
+`~/.cache/little-cpu/oss-cad-suite-<release>`, every CI job installs it through
+`.github/actions/setup-oss-cad-suite` and never uses the runner image's copy, `make doctor` reports
+whether the tools on PATH are it, and `test/oss_cad_pin_test.sh` fails `make test` when they are not
+(ADR-0260). Moving to a newer release is a pin-changing change with a fresh sweep.
+Everything else downloaded or vendored is pinned and refuses a command-line override: the OSS CAD Suite
+(`mk/oss-cad-pin.mk`), riscv-formal
 (`formal/pin.mk`), sail-riscv and svlint (`SAIL_RISCV_VERSION`, `SVLINT_VERSION`), the RISC-V gcc
 (`RISCV_GCC_VERSION`), Hazard3 (`soc/compare/hazard3_pin.mk`) and CoreMark (`COREMARK_PIN`). CI runs
 on every PR (`.github/workflows/ci.yml`); read the required set live from

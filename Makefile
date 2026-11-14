@@ -35,6 +35,7 @@ sim: test/cxxrtl.cc test/rtl.cc
 	clang++ $(SIM_OPT) -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
 
+include mk/oss-cad-pin.mk
 include mk/toolchain.mk
 
 include mk/nist90b.mk
@@ -283,6 +284,97 @@ riscv-gcc-pin:
 	@printf 'path=%s\n' '$(SAIL_DOWNLOAD_DIR)'
 	@printf 'tarball=%s\n' '$(RISCV_GCC_TARBALL)'
 
+OSS_CAD_TOOLS   := yosys nextpnr-ice40 nextpnr-ecp5 icetime sby
+OSS_CAD_STAMP   := $(OSS_CAD_DIR)/.oss-cad-pin
+OSS_CAD_PIN     := $(OSS_CAD_TAG) $(OSS_CAD_ASSET) $(OSS_CAD_SHA256)
+OSS_CAD_TARBALL := $(SAIL_DOWNLOAD_DIR)/$(OSS_CAD_ASSET).tgz
+OSS_CAD_CACHE_KEY := oss-cad-suite-$(OSS_CAD_ASSET)-$(OSS_CAD_SHA256)
+
+.PHONY: cad-setup
+cad-setup:
+	@set -e; \
+	if [ -z '$(OSS_CAD_PLATFORM)' ]; then \
+	  echo "no OSS CAD Suite is pinned for $$(uname -s)/$$(uname -m); this repo" >&2; \
+	  echo "pins macOS arm64, Linux arm64 and Linux x86_64. Add a new platform's" >&2; \
+	  echo "digest to mk/oss-cad-pin.mk and its name to mk/toolchain.mk." >&2; \
+	  exit 1; \
+	fi; \
+	if [ -z '$(OSS_CAD_SHA256)' ]; then \
+	  echo "no SHA-256 pinned for $(OSS_CAD_ASSET);" >&2; \
+	  echo "add one to mk/oss-cad-pin.mk. Fetching an asset this repo cannot" >&2; \
+	  echo "verify is not an option this target offers." >&2; \
+	  exit 1; \
+	fi; \
+	if command -v shasum >/dev/null 2>&1; then sha='shasum -a 256'; \
+	elif command -v sha256sum >/dev/null 2>&1; then sha='sha256sum'; \
+	else \
+	  echo "neither shasum nor sha256sum is on PATH; refusing to unpack a" >&2; \
+	  echo "tarball this machine cannot check." >&2; \
+	  exit 1; \
+	fi; \
+	if [ -x '$(OSS_CAD_BIN)/yosys' ] && \
+	   [ "$$(sed -n 1p '$(OSS_CAD_STAMP)' 2>/dev/null)" = '$(OSS_CAD_PIN)' ]; then \
+	  want=$$(sed -n 2p '$(OSS_CAD_STAMP)'); \
+	  got=$$($$sha '$(OSS_CAD_BIN)/yosys' | cut -d ' ' -f 1); \
+	  if [ "$$want" != "$$got" ]; then \
+	    echo "$(OSS_CAD_BIN)/yosys is not the binary its stamp was written for:" >&2; \
+	    echo "  recorded : $$want" >&2; \
+	    echo "  on disk  : $$got" >&2; \
+	    echo "the tree changed after it was verified. Remove $(OSS_CAD_DIR)" >&2; \
+	    echo "and run make cad-setup again." >&2; \
+	    exit 1; \
+	  fi; \
+	  echo "OSS CAD Suite $(OSS_CAD_TAG) already verified in $(OSS_CAD_DIR)"; \
+	  exit 0; \
+	fi; \
+	if [ -e '$(OSS_CAD_DIR)' ]; then \
+	  echo "$(OSS_CAD_DIR) exists but is not this pin's verified install." >&2; \
+	  echo "Remove it and run make cad-setup again." >&2; \
+	  exit 1; \
+	fi; \
+	mkdir -p '$(SAIL_DOWNLOAD_DIR)'; \
+	tgz='$(OSS_CAD_TARBALL)'; \
+	if [ -f "$$tgz" ]; then \
+	  echo "using the tarball already in $(SAIL_DOWNLOAD_DIR)"; \
+	else \
+	  url=https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$(OSS_CAD_TAG)/$(OSS_CAD_ASSET).tgz; \
+	  echo "fetching $$url"; \
+	  curl -fsSL -o "$$tgz".part "$$url"; \
+	  mv "$$tgz".part "$$tgz"; \
+	fi; \
+	got=$$($$sha "$$tgz" | cut -d ' ' -f 1); \
+	if [ "$$got" != '$(OSS_CAD_SHA256)' ]; then \
+	  echo "OSS CAD Suite tarball SHA-256 MISMATCH -- refusing to extract:" >&2; \
+	  echo "  asset    : $(OSS_CAD_ASSET).tgz" >&2; \
+	  echo "  expected : $(OSS_CAD_SHA256)" >&2; \
+	  echo "  actual   : $$got" >&2; \
+	  echo "  tarball  : $$tgz (removed)" >&2; \
+	  rm -f "$$tgz"; \
+	  exit 1; \
+	fi; \
+	echo "sha256 ok: $$got"; \
+	tmp=$$(mktemp -d '$(OSS_CAD_DIR)'.XXXXXX); \
+	top=oss-cad-suite/; \
+	tar tzf "$$tgz" | awk -v top="$$top" ' \
+	  index($$0, top) != 1 { print "member outside " top ": " $$0 > "/dev/stderr"; bad = 1 } \
+	  /(^|\/)\.\.(\/|$$)/  { print "traversal in member: " $$0 > "/dev/stderr"; bad = 1 } \
+	  END { exit bad ? 1 : 0 }' \
+	  || { echo "refusing to extract $(OSS_CAD_ASSET).tgz" >&2; rmdir "$$tmp"; exit 1; }; \
+	tar xzf "$$tgz" -C "$$tmp" --strip-components=1 \
+	  --no-same-owner --no-same-permissions; \
+	test -x "$$tmp/bin/yosys"; \
+	printf '%s\n' '$(OSS_CAD_PIN)' > "$$tmp/.oss-cad-pin"; \
+	$$sha "$$tmp/bin/yosys" | cut -d ' ' -f 1 >> "$$tmp/.oss-cad-pin"; \
+	mv "$$tmp" '$(OSS_CAD_DIR)'
+	@'$(OSS_CAD_BIN)/yosys' -V
+
+.PHONY: cad-pin
+cad-pin:
+	@printf 'key=%s\n' '$(OSS_CAD_CACHE_KEY)'
+	@printf 'path=%s\n' '$(SAIL_DOWNLOAD_DIR)'
+	@printf 'dir=%s\n' '$(OSS_CAD_DIR)'
+	@printf 'tag=%s\n' '$(OSS_CAD_TAG)'
+
 cosim: test/cosim.cc test/rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \
 	  -isystem $$(yosys-config --datdir)/include/backends/cxxrtl/runtime $< -o $@
@@ -358,7 +450,7 @@ monitor-check: $(RISCV_FORMAL_DIR)/monitor/generate.py | $(RISCV_FORMAL_DIR)
 	diff -u test/monitor.v "$$tmp"
 
 .PHONY: setup
-setup: riscv-gcc-setup
+setup: riscv-gcc-setup cad-setup
 ifeq ($(shell uname -s),Darwin)
 	brew install svlint
 else
@@ -574,6 +666,10 @@ tool-cache-test:
 .PHONY: riscv-gcc-pin-test
 riscv-gcc-pin-test:
 	@./test/riscv_gcc_pin_test.sh '$(RISCV_GCC_BIN)'
+
+.PHONY: oss-cad-pin-test
+oss-cad-pin-test:
+	@./test/oss_cad_pin_test.sh '$(OSS_CAD_TAG)' '$(OSS_CAD_YOSYS)' $(OSS_CAD_TOOLS)
 
 .PHONY: memmap-test
 memmap-test:
@@ -841,7 +937,7 @@ dual-build:
 # full tier only.
 TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                compare-product-schedule-token-test compare-product-schedule-publish-test \
-               tool-cache-test riscv-gcc-pin-test memmap-test adr-numbering-test \
+               tool-cache-test riscv-gcc-pin-test oss-cad-pin-test memmap-test adr-numbering-test \
                compare-geometry-test hazard3-config-test vexriscv-path-test retired-term-test \
                port-connect-test march-test riscv-gcc-search-test tmp-path-test early-exit-pipe-test exec-mode-test \
                band-source-test figure-stamp-test zkt-isolation-test fixture-freshness-test window-test \
@@ -1765,7 +1861,8 @@ doctor:
 	if [ -z "$$CC" ]; then \
 	  echo "error: no RISC-V cross compiler found; see \`make setup\`." >&2; exit 1; \
 	fi; \
-	soc/print_toolchain.sh "$$CC" $(SOC_TIMING_TOOLS)
+	soc/print_toolchain.sh "$$CC" $(SOC_TIMING_TOOLS); \
+	test/oss_cad_pin_test.sh '$(OSS_CAD_TAG)' '$(OSS_CAD_YOSYS)' $(OSS_CAD_TOOLS)
 
 NETLIST_PART ?= up5k
 NETLIST_OUT  ?= $(BUILD)/netlist.out

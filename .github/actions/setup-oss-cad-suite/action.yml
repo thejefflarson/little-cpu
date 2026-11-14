@@ -1,108 +1,43 @@
-name: Set up OSS CAD Suite
+name: Set up the pinned OSS CAD Suite
 description: >-
-  Put the OSS CAD Suite (yosys, iverilog, sby, nextpnr-ice40, icetime, the
-  solvers) on PATH. Uses the copy in the runner image when there is one,
-  otherwise downloads the latest release and verifies it against the digest
-  GitHub publishes for the asset. The two are different builds, so which branch
-  a job took is part of what its number means: the self-hosted pool always takes
-  the image's copy and only the GitHub-hosted `formal` job downloads anything.
-  The step summary records which, and the tag.
+  Fetches and SHA-256-verifies the OSS CAD Suite release pinned in mk/oss-cad-pin.mk
+  (`make cad-setup`) and puts its yosys, iverilog, sby, nextpnr and icetime on PATH,
+  caching the tarball by the pin -- release, asset name and digest. The runner image's
+  own copy at /opt/oss-cad-suite is never used: it moves with the image, and the pin
+  is what says which toolchain a number came from.
 runs:
   using: composite
   steps:
-    # Seven jobs each restored 607 MB from the cache service every run, measured at a
-    # 129s mean and up to 222s once they contend for bandwidth.
-    - name: Use the runner image's OSS CAD Suite if it has one
-      id: image
+    - name: Resolve the OSS CAD Suite pin and the directory the fetch is cached in
+      id: pin
       shell: bash
       run: |
         set -euo pipefail
-        if [ -x /opt/oss-cad-suite/bin/yosys ]; then
-          echo "found=true" >> "$GITHUB_OUTPUT"
-          echo "using the runner image's copy: $(/opt/oss-cad-suite/bin/yosys -V)"
-        else
-          echo "found=false" >> "$GITHUB_OUTPUT"
-          echo "no copy in the runner image -- downloading the latest release"
-        fi
+        make --no-print-directory cad-pin > "$RUNNER_TEMP/oss-cad-pin.txt"
+        cat "$RUNNER_TEMP/oss-cad-pin.txt"
+        grep -E '^(key|path|dir|tag)=' "$RUNNER_TEMP/oss-cad-pin.txt" >> "$GITHUB_OUTPUT"
 
-    - name: Resolve the latest OSS CAD Suite release
-      id: release
-      if: steps.image.outputs.found != 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        set -euo pipefail
-        release=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-          https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest)
-        tag=$(jq -r .tag_name <<<"$release")
-        # Later steps splice the tag into a URL and a filename; refuse anything but a date.
-        [[ "$tag" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "unexpected release tag: $tag" >&2; exit 1; }
-        # The asset name carries the date without dashes: 2026-06-29 -> ...-20260629.tgz
-        asset="oss-cad-suite-linux-x64-${tag//-/}.tgz"
-        digest=$(jq -r --arg a "$asset" '.assets[] | select(.name == $a) | .digest' <<<"$release" | cut -d: -f2)
-        # Written to GITHUB_OUTPUT and a cache key; a newline in it would inject a second output.
-        [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "unexpected digest: $digest" >&2; exit 1; }
-        echo "tag=$tag" >> "$GITHUB_OUTPUT"
-        echo "asset=$asset" >> "$GITHUB_OUTPUT"
-        echo "digest=$digest" >> "$GITHUB_OUTPUT"
-        echo "latest is $tag"
-
-    - name: Restore OSS CAD Suite from cache
-      id: cache
-      if: steps.image.outputs.found != 'true'
+    - name: Restore the pinned OSS CAD Suite tarball
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: oss-cad-suite
-        key: oss-cad-suite-linux-x64-${{ steps.release.outputs.digest }}
+        path: ${{ steps.pin.outputs.path }}/oss-cad-suite-*.tgz
+        key: ${{ steps.pin.outputs.key }}
 
-    - name: Download OSS CAD Suite (cache miss)
-      if: steps.image.outputs.found != 'true' && steps.cache.outputs.cache-hit != 'true'
+    - name: make cad-setup
+      shell: bash
+      run: make cad-setup
+
+    - name: Add the pinned OSS CAD Suite to PATH
       shell: bash
       env:
-        RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        RELEASE_ASSET: ${{ steps.release.outputs.asset }}
-        RELEASE_DIGEST: ${{ steps.release.outputs.digest }}
+        SUITE_DIR: ${{ steps.pin.outputs.dir }}
+        SUITE_TAG: ${{ steps.pin.outputs.tag }}
       run: |
         set -euo pipefail
-        curl -fsSL -o oss-cad-suite.tgz \
-          "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/$RELEASE_TAG/$RELEASE_ASSET"
-        echo "$RELEASE_DIGEST  oss-cad-suite.tgz" | sha256sum -c -
-        tar -xzf oss-cad-suite.tgz
-        rm oss-cad-suite.tgz
-
-    - name: Add OSS CAD Suite to PATH
-      shell: bash
-      env:
-        RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        IMAGE_FOUND: ${{ steps.image.outputs.found }}
-      run: |
-        set -euo pipefail
-        if [ "$IMAGE_FOUND" = "true" ]; then
-          root=/opt/oss-cad-suite
-          # Whatever the runner image was built with: a de facto pin nothing in
-          # this repo declares or moves, and it does move -- the self-hosted pool
-          # read Yosys 0.68+40 on one day and 0.68+71 eight days later. Which of
-          # the two branches a job took decides which toolchain its number came
-          # from, so it is recorded rather than left in the step log.
-          origin="the runner image's copy at $root"
-          tag=$(sed -n '1p' "$root/VERSION" 2> /dev/null || true)
-        else
-          root="$GITHUB_WORKSPACE/oss-cad-suite"
-          origin="a downloaded release"
-          tag="$RELEASE_TAG"
-        fi
-        echo "$root/bin" >> "$GITHUB_PATH"
-        echo "$root/py3bin" >> "$GITHUB_PATH"
+        echo "$SUITE_DIR/bin" >> "$GITHUB_PATH"
+        echo "$SUITE_DIR/py3bin" >> "$GITHUB_PATH"
         {
           echo "### OSS CAD Suite"
-          echo "- source: $origin"
-          echo "- tag: ${tag:-unrecorded}"
-          echo "- yosys: \`$("$root/bin/yosys" -V 2> /dev/null || echo 'could not be asked for its version')\`"
-          echo
-          echo "Not pinned, and the two sources are two different builds. \`make"
-          echo "print-toolchain\` is what stamps a graded number with the one that"
-          echo "produced it; this says which install that came out of."
+          echo "- pinned release: $SUITE_TAG (mk/oss-cad-pin.mk)"
+          echo "- yosys: \`$("$SUITE_DIR/bin/yosys" -V)\`"
         } >> "$GITHUB_STEP_SUMMARY"
-        # Fail here rather than in whichever job first reaches for yosys.
-        test -x "$root/bin/yosys"
