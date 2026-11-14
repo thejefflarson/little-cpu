@@ -34,7 +34,10 @@ job.**
   `RISCV_GCC_VERSION`. The digests are of the real assets, downloaded and hashed here, and
   equal the digests GitHub publishes beside them: darwin-arm64 (local machines), linux-arm64 (the
   runner pods) and linux-x64 (the `ubuntu-latest` arm of the fork-PR expression, which never runs
-  on the pool). A platform with no digest is refused rather than fetched.
+  on the pool). A platform with no digest is refused rather than fetched. The yosys text stops at
+  the commit id, because the trailing `-dirty` and compiler text differ between one release's
+  platform builds; each digest variable's name embeds the release, so a tag bumped without new
+  digests finds none and is refused.
 - **How**: `make cad-setup` downloads the asset into the tool cache's `download/`, checks its
   SHA-256 before extracting, rejects any member outside `oss-cad-suite/` or with a `..`, and
   unpacks into `~/.cache/little-cpu/oss-cad-suite-<tag>`, a directory named for the release
