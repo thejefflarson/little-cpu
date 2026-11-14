@@ -632,6 +632,7 @@ a port that appeared is named, which is what a tie-off adds
 a port the comparison harness stops naming is red, and located
 a pre-ADR-0035 one-field baseline line is rejected, not half-matched
 a pre-ADR-0036 one-field baseline line is named, not half-matched
+a pre-flash check that ignores the stamp is red
 a predicate keyed on a decoder flag is rejected, not parsed
 a predicate matching an opcode its declaration does not is named
 a probe two shards both ran is red
@@ -1232,6 +1233,7 @@ control: littlecpu's cycle columns match the committed floor
 control: littlecpu's dmemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's imemcheck reaches its goal and the stalled-bus mutant does not
 control: littlecpu's shipping core passes the gate and the leak fails it
+control: make prog's pre-flash check refuses a mismatch and accepts a match
 control: matching tool stamps, a digest and a sample per seed write a pair
 control: mutate on a real match rewrites the file and returns 0
 control: mutate_remove deletes a file that is there
