@@ -639,8 +639,8 @@ top, ECP5 only.
   cxxrtl run one ELF (`build/coremark_up5k.elf`), so no build difference exists to name;
   `make coremark-up5k-sim` produces the simulated report (about an hour: the runner traces every bus
   access) and `make coremark-board-compare` grades it against `COREMARK_BOARD_LOG`, a `lc-uart` capture
-  of the board. Flash the same image the build made: `make prog` rebuilds the default `BOARD_ROM` unless
-  `BOARD_ROM` and `BOARD_OSC` match the build. The comparison is off `make test` and CI (it needs a
+  of the board. Flash the same image the build made: `make prog` flashes the built image and
+  refuses a `BOARD_ROM` or `BOARD_OSC` that differs from its stamp. The comparison is off `make test` and CI (it needs a
   board); its comparer is graded by `make coremark-board-compare-test` and `make probe-gates`.
 - **The only cross-core comparison that means anything is one harness**, `soc/compare/`: same part,
 memories, program, toolchain and seeds, against the VexRiscv in the pinned riscv-formal clone and
@@ -946,7 +946,8 @@ make soc-seed-search # off `make test` and CI, like `make fit`: sweeps high-entr
                     # default draw's size
 make bitstream      # icepack the board wrapper into build/board.bin; BOARD_OSC=internal uses
                     # SB_HFOSC instead of the crystal. No board needed
-make prog           # iceprog build/board.bin onto the UPduino; root on macOS
+make prog           # iceprog build/board.bin onto the UPduino; root on macOS. Never rebuilds: a
+                    # BOARD_ROM/BOARD_OSC on the line must match build/board.bin.stamp, else refused
 make boot-image     # pack BOOT_PROG (a C program) as the image soc/boot_loader.c loads from the flash,
                     # BOOT_IMAGE the output; make prog-image writes it at the flash offset in
                     # soc/boot_layout.h through lc-flash -o, never touching the bitstream
