@@ -69,6 +69,12 @@ fi
 
 if [ -z "$base_synth" ]; then
   base_synth=$NETLIST_SYNTH
+  for f in $(printf '%s\n' "$NETLIST_SYNTH" | tr ' ;' '\n\n' | grep '\.script$' || true); do
+    if [ -e "$f" ] && [ ! -e "$tree/$f" ]; then
+      mkdir -p "$tree/$(dirname "$f")"
+      cp "$f" "$tree/$f"
+    fi
+  done
   echo "netlist-diff: $ref names no synth script of its own, so this tree's was"
   echo "netlist-diff: used. A flag that moved between the two is invisible here."
 elif [ "$base_synth" != "$NETLIST_SYNTH" ]; then

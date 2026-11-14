@@ -105,3 +105,38 @@ at all, and the file that demonstrates the comment class is a submodule.
 - **The toolchain-dependence already stated for `make fit`'s churn band gets sharper**: a change
   this small (0.37%) is not distinguishable from placement noise by area alone, so a digest
   difference of this shape is a signal to sweep, not a signal to investigate the diff.
+
+## Amendment 2026-11-13: the control is red under the shared ABC9 script, and stays pointed at `rtl/csrs.v`
+
+**What changed.** Since ADR-0255's amendments, every ice40 synthesis maps through
+`soc/ice40_abc9.script`, which `NETLIST_SYNTH` names by relative path. The mutant tree this control
+builds copied `rtl/` and the ROM and constraint files but not that script, so the mutant's synthesis
+could not find it and the control failed on a missing file rather than on anything it measures.
+`soc/netlist_determinism.sh` now copies every `.v` and `.script` file `NETLIST_SYNTH` names, and
+`soc/netlist_base.sh` does the same for a base ref that names no synth script of its own.
+
+**What the control then measures.** Re-taken twice on 2026-11-13 (Yosys 0.68+48 `ff5817c34`, the
+engineer's run and an independent one on the same branch): the two-line comment this control inserts
+at the top of `rtl/csrs.v` moves the up5k SoC's canonical netlist from 4,586 to 4,654 `SB_LUT4`
+(+68, 1.5%; 6,612 to 6,680 cells in all), DIGEST-DIFFERENT, deterministically. Comment insertions
+into `rtl/decoder.v`, `rtl/executor.v` and `rtl/accessor.v` each pass. This is the effect the
+Decision above describes, at roughly three times the size it had under one default ABC9 pass: the
+longer script runs `&dch` and `&syn2` twice, and each run is another order-sensitive pass for a
+shifted name rank to steer. That attribution is an inference from the mechanism, not a separate
+measurement. CI's yosys 0.70 was not measured: `make netlist-determinism` runs on neither `make test`
+nor CI.
+
+**Decision: keep `NETLIST_COMMENT_FILE` at `rtl/csrs.v`, and accept a red control.** The
+Consequences above already state that a comment-only edit to a large file may fail this control and
+that the failure is the control working. Moving the comment class to a file that holds would make the
+control pass by aiming it where the effect has not been seen, which is the defect this ADR was
+written to correct. A green control on this toolchain would have to rest on a different mechanism,
+not a different target.
+
+**What this costs, stated plainly.** On yosys 0.68 with the shared script, `make netlist-digest` and
+`make netlist-diff` stop at their prerequisite, so the digest no longer excuses any sweep: every
+change that could move the netlist owes the sixteen paired seeds, the answer this repo's timing
+rules give anyway when the digest is not available. That is the sound direction. The gate becomes
+usable again only when the comment class passes on `rtl/csrs.v`, for example if the shipping flow
+stops embedding source line numbers in the cell names `abc9_ops` sorts by. That change would move
+every shipping netlist and is separate work, priced on its own sweep.

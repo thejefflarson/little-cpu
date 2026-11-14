@@ -7252,6 +7252,11 @@ for a in "\$@"; do
   prev=\$a
 done
 out=\$(printf '%s' "\$script" | tr ' ' '\n' | tail -1)
+abc9=\$(printf '%s' "\$script" | sed -n 's/.*abc9.script \([^ ;]*\).*/\1/p')
+if [ -n "\$abc9" ] && [ ! -f "\$abc9" ]; then
+  echo "ERROR: no such abc9 script: \$abc9" >&2
+  exit 1
+fi
 case \$(pwd) in
   */mutant) tree=mutant ;;
   *)        tree=this ;;
@@ -7309,6 +7314,7 @@ nl_fixture() {
   local d; d=$(new_case)
   mkdir -p "$d/bin" "$d/repo/rtl" "$d/repo/soc" "$d/fix"
   cp "$REPO/soc/netlist_determinism.sh" "$REPO/soc/netlist_digest.py" "$d/repo/soc/"
+  printf 'abc9 script\n' > "$d/repo/soc/ice40_abc9.script"
   cat > "$d/repo/rtl/decoder.v" <<'RTL'
 module decoder (input logic [31:0] reg_rs1, output logic [31:0] out);
   assign out = reg_rs1;
@@ -7331,7 +7337,7 @@ RTL
 
 nl_run() {  # <fixture dir> [what follows the stubs on PATH]
   printf '%s' "PATH=$1/bin:${2:-\$PATH} \
-    NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; synth_ice40 -top littlesoc' \
+    NETLIST_SYNTH='read_verilog -sv rtl/decoder.v; scratchpad -set abc9.script soc/ice40_abc9.script; synth_ice40 -top littlesoc' \
     NETLIST_PNR='nextpnr-ice40 --up5k' NETLIST_PNR_OUT=--asc \
     NETLIST_MUTANT='rtl/decoder.v reg_rs1' NETLIST_COMMENT_FILE='rtl/csrs.v' \
     sh $1/repo/soc/netlist_determinism.sh"
@@ -7409,6 +7415,11 @@ probe "...and so does the file it injects into going away" 1 \
 d=$(nl_fixture); rm "$d/repo/rtl/csrs.v"
 probe "the comment class lands nowhere if its own file is gone" 1 \
   "has nowhere to land" "$(nl_run "$d")"
+
+d=$(nl_fixture)
+mutate "$d/repo/soc/netlist_determinism.sh" 's|^    cp "\$f" "\$mutant/\$f"$|    :|'
+probe "a mutant tree built without the mapper script the synthesis names is red" 1 \
+  "no such abc9 script" "$(nl_run "$d")"
 
 d=$(nl_fixture)
 probe "an empty part table synthesises nothing, so it is refused" 2 \
