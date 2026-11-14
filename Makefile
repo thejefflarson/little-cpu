@@ -773,6 +773,10 @@ board-sudoers-test:
 board-wrappers-test:
 	@./test/board_wrappers_test.sh
 
+.PHONY: board-stamp-test
+board-stamp-test:
+	@./test/board_stamp_test.sh
+
 .PHONY: boot-loader-test
 boot-loader-test:
 	@SOC_SRCS='$(SOC_SRCS)' ./test/boot_loader_test.sh
@@ -846,7 +850,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                mutation-coverage-test comment-density-test lut4-site-test pll-clock-test \
                icelink-eject-test seed-probe-test entropy-geometry-test entropy-assess-test entropy-stream-test entropy-upduino-test \
                nist90b-grade-test board-tools-test ill-e-wiring-test probes-header-test \
-               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test boot-loader-test window64-test nano-test nano-startup-test \
+               dhry-board-parity-test coremark-board-compare-test board-verdict-test board-sudoers-test board-wrappers-test board-stamp-test boot-loader-test window64-test nano-test nano-startup-test \
                macro-register-test nano-littlecpu-test nano-tt-area-workflow-test \
                nano-qspi-loop-run nano-qspi-loop-probe nano-qspi-pins-test nano-qspi-latency-test \
                nano-qspi-window-test nano-qspi-control-test nano-stale-build-test nano-memmap-test \
@@ -1608,6 +1612,7 @@ $(BUILD)/board.asc: $(BUILD)/board.json $(BOARD_PCF) $(if $(BOARD_SEED_PINNED),b
 
 $(BUILD)/board.bin: $(BUILD)/board.asc
 	@icepack -s $< $@
+	@./soc/board_stamp.sh write $@ '$(BOARD_ROM)' '$(BOARD_OSC)' $(SOC_ROM_HEX)
 	@echo "$(BUILD)/board.bin: $$(wc -c < $@ | tr -d ' ') bytes for $(BOARD), clock $(BOARD_OSC)"
 
 BOARD_ICETIME := icetime
@@ -1653,8 +1658,13 @@ install-board-tools: $(BUILD)/ftread
 install-board-sudoers:
 	@./soc/install_board_sudoers.sh '$(BOARD_TOOLS_DIR)' '$(BOARD_TOOLS_GROUP)'
 
+BOARD_REQUEST_ROM = $(if $(filter command line environment,$(origin BOARD_ROM)),$(BOARD_ROM))
+BOARD_REQUEST_OSC = $(if $(filter command line environment,$(origin BOARD_OSC)),$(BOARD_OSC))
+
 .PHONY: prog
-prog: $(BUILD)/board.bin
+prog:
+	@test -f $(BUILD)/board.bin || $(MAKE) --no-print-directory $(BUILD)/board.bin
+	@./soc/board_stamp.sh check $(BUILD)/board.bin '$(BOARD_REQUEST_ROM)' '$(BOARD_REQUEST_OSC)'
 	@command -v '$(BOARD_FLASH)' >/dev/null || { \
 	  echo '*** $(BOARD_FLASH) not found. Without sudo, iceprog ships with the OSS CAD Suite'; \
 	  echo '*** that `make setup` caches -- put its bin/ first on PATH. Under sudo, run'; \
@@ -2286,7 +2296,7 @@ endif
 clean:
 	rm -f $(BUILD)/fit.json $(BUILD)/fit.log $(BUILD)/fit.synth.log
 	rm -f $(BUILD)/soc.json $(BUILD)/soc.asc $(BUILD)/soc.synth.log $(BUILD)/soc.pnr.log $(BUILD)/soc.timing.rpt
-	rm -f $(BUILD)/board.json $(BUILD)/board.asc $(BUILD)/board.bin $(BUILD)/board.synth.log $(BUILD)/board.pnr.log
+	rm -f $(BUILD)/board.json $(BUILD)/board.asc $(BUILD)/board.bin $(BUILD)/board.bin.stamp $(BUILD)/board.synth.log $(BUILD)/board.pnr.log
 	rm -f $(BUILD)/ecp5.json $(BUILD)/ecp5.config $(BUILD)/ecp5.report.json $(BUILD)/ecp5.synth.log $(BUILD)/ecp5.pnr.log
 	rm -f $(BUILD)/dual_ecp5.json $(BUILD)/dual_ecp5.config $(BUILD)/dual_ecp5.report.json $(BUILD)/dual_ecp5.synth.log $(BUILD)/dual_ecp5.pnr.log
 	rm -f test/dual_rtl.cc dual-sim

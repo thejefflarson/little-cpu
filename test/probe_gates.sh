@@ -10868,6 +10868,26 @@ mutate "$d/soc/install_board_sudoers.sh" 's/^printf .%s\\n. "$RULE" | "$SUDO" te
 probe "a rule staged in a user-writable file before the install is red" 1 \
   "swapped the rule between" "$BSUDO $d"
 
+begin_group "test/board_stamp_test.sh"
+
+BSTAMP="$HERE/board_stamp_test.sh"
+
+bstamp_fixture() {
+  local d; d=$(new_case)
+  mkdir -p "$d/soc"
+  cp "$REPO/soc/board_stamp.sh" "$d/soc/"
+  printf '%s' "$d"
+}
+
+d=$(bstamp_fixture)
+probe "control: make prog's pre-flash check refuses a mismatch and accepts a match" 0 \
+  "board-stamp: ok" "$BSTAMP $d"
+
+d=$(bstamp_fixture)
+mutate "$d/soc/board_stamp.sh" 's/^    if { \[ -n "$want_rom" \].*then$/    if false; then/'
+probe "a pre-flash check that ignores the stamp is red" 1 \
+  "was accepted against an image built from rom-x" "$BSTAMP $d"
+
 begin_group "test/board_wrappers_test.sh"
 
 BWRAP="$HERE/board_wrappers_test.sh"

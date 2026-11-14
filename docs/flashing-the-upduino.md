@@ -3,6 +3,15 @@
 `make prog` runs `iceprog` under `sudo` on macOS (`ICEPROG_SUDO` is `sudo` on Darwin and empty
 elsewhere). This page explains why, and what happens to the serial port afterwards.
 
+## `make prog` flashes what `make bitstream` built
+
+`make bitstream` writes `build/board.bin.stamp` beside the image: the `BOARD_ROM`, `BOARD_OSC`, a digest
+of the ROM hex files and a digest of the bitstream. `make prog` never rebuilds. A bare `make prog` flashes
+the image as built, whatever `BOARD_ROM` it used. A `BOARD_ROM` or `BOARD_OSC` given on the `make prog`
+line is checked against the stamp, and a mismatch is refused with both named, before any flash command
+runs. An image whose bytes changed after the stamp, or with no stamp, is refused too. `make prog` builds
+the default image only when `build/board.bin` does not exist.
+
 ## Root runs only root-owned copies
 
 Root must not execute a binary the user can write: `iceprog` from the OSS CAD Suite and `build/ftread`
@@ -200,8 +209,8 @@ the next 64 KiB boundary, which leaves 26,982 bytes between them and makes every
 (`iceprog` erases whole 64 KiB blocks from offset 0) stop short of the image's block.
 
 1. Build and flash the loader once: `make bitstream SOC_PROG=soc/boot_loader.c BOARD_OSC=internal`, then
-   `make prog SOC_PROG=soc/boot_loader.c BOARD_OSC=internal` (the same variables both times, or `make prog`
-   rebuilds the default ROM).
+   `make prog` (it flashes the image just built; a `BOARD_OSC` or `BOARD_ROM` given to it must match, or it
+   refuses).
 2. For each program: `make boot-image BOOT_PROG=path/to/prog.c BOOT_IMAGE=build/prog.img`, then
    `make prog-image BOOT_IMAGE=build/prog.img`. That runs the `-t` drain and one `lc-flash -o 131072`.
    The new program runs at the next power-up or `lc-flash -t`; no re-pack, no re-place.
