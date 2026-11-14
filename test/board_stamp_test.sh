@@ -31,7 +31,6 @@ out=$("$STAMP" check "$WORK/a/board.bin" '' '' 2>&1) && bad "a bitstream changed
 rm -f "$WORK/a/board.bin.stamp"
 out=$("$STAMP" check "$WORK/a/board.bin" '' '' 2>&1) && bad "an unstamped bitstream was accepted"
 
-# make prog end to end, flash command stubbed: a bare prog flashes what is built, a mismatched one flashes nothing.
 printf 'bitstream from X\n' > "$WORK/a/board.bin"
 "$STAMP" write "$WORK/a/board.bin" rom-x crystal "$WORK/one.hex"
 printf '#!/bin/bash\necho "$@" >> "%s/flash.calls"\necho "VERIFY OK"\n' "$WORK" > "$WORK/iceprog"
