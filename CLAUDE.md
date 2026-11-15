@@ -1182,8 +1182,10 @@ checksum. Tests are freestanding — `.S`, and
 `.c` built `-nostdlib -ffreestanding` against `test/crt0.S` — so no multilib or newlib. Formal needs
 the YosysHQ OSS CAD Suite, pinned like the rest: `mk/oss-cad-pin.mk` names one release and a
 SHA-256 per platform asset, `make cad-setup` fetches, checks and unpacks it into
-`~/.cache/little-cpu/oss-cad-suite-<release>`, every CI job installs it through
-`.github/actions/setup-oss-cad-suite` and never uses the runner image's copy, `make doctor` reports
+`~/.cache/little-cpu/oss-cad-suite-<release>`, every CI job takes it through
+`.github/actions/setup-oss-cad-suite`, from the runner image's `/opt/oss-cad-suite-<release>` when
+that copy's `VERSION` and `yosys -V` match the pin and from `make cad-setup` otherwise (the image
+lives in the separate `runner` repo and moves with the pin, ADR-0260 amended), `make doctor` reports
 whether the tools on PATH are it, and `test/oss_cad_pin_test.sh` fails `make test` when they are not
 (ADR-0260). Moving to a newer release is a pin-changing change with a fresh sweep.
 Everything else downloaded or vendored is pinned and refuses a command-line override: the OSS CAD Suite

@@ -1,10 +1,10 @@
 name: Set up the pinned OSS CAD Suite
 description: >-
-  Fetches and SHA-256-verifies the OSS CAD Suite release pinned in mk/oss-cad-pin.mk
-  (`make cad-setup`) and puts its yosys, iverilog, sby, nextpnr and icetime on PATH,
-  caching the tarball by the pin -- release, asset name and digest. The runner image's
-  own copy at /opt/oss-cad-suite is never used: it moves with the image, and the pin
-  is what says which toolchain a number came from.
+  Puts the OSS CAD Suite release pinned in mk/oss-cad-pin.mk on PATH. The runner image
+  bakes that release at /opt/oss-cad-suite-<tag>, and it is used when its VERSION and
+  `yosys -V` both match the pin; otherwise `make cad-setup` fetches and SHA-256-verifies
+  the release, caching the ~690 MB tarball by the pin. A stale image costs time, never
+  the wrong toolchain.
 runs:
   using: composite
   steps:
@@ -15,29 +15,52 @@ runs:
         set -euo pipefail
         make --no-print-directory cad-pin > "$RUNNER_TEMP/oss-cad-pin.txt"
         cat "$RUNNER_TEMP/oss-cad-pin.txt"
-        grep -E '^(key|path|dir|tag)=' "$RUNNER_TEMP/oss-cad-pin.txt" >> "$GITHUB_OUTPUT"
+        grep -E '^(key|path|dir|tag|yosys)=' "$RUNNER_TEMP/oss-cad-pin.txt" >> "$GITHUB_OUTPUT"
+
+    - name: Use the runner image's copy when it is the pinned release
+      id: image
+      shell: bash
+      env:
+        SUITE_TAG: ${{ steps.pin.outputs.tag }}
+        SUITE_YOSYS: ${{ steps.pin.outputs.yosys }}
+      run: |
+        set -euo pipefail
+        img="/opt/oss-cad-suite-$SUITE_TAG"
+        have_version=$(sed -n 1p "$img/VERSION" 2> /dev/null || true)
+        have_yosys=$("$img/bin/yosys" -V 2> /dev/null | sed -n 1p || true)
+        if [ "$have_version" = "${SUITE_TAG//-/}" ] && [[ $have_yosys == "$SUITE_YOSYS"* ]]; then
+          echo "image holds the pinned release at $img"
+          echo "hit=true" >> "$GITHUB_OUTPUT"
+          echo "dir=$img" >> "$GITHUB_OUTPUT"
+        else
+          echo "image has no pinned release at $img (VERSION '${have_version:-none}'); fetching it"
+          echo "hit=false" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Restore the pinned OSS CAD Suite tarball
+      if: steps.image.outputs.hit != 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.pin.outputs.path }}/oss-cad-suite-*.tgz
         key: ${{ steps.pin.outputs.key }}
 
     - name: make cad-setup
+      if: steps.image.outputs.hit != 'true'
       shell: bash
       run: make cad-setup
 
     - name: Add the pinned OSS CAD Suite to PATH
       shell: bash
       env:
-        SUITE_DIR: ${{ steps.pin.outputs.dir }}
+        SUITE_DIR: ${{ steps.image.outputs.hit == 'true' && steps.image.outputs.dir || steps.pin.outputs.dir }}
         SUITE_TAG: ${{ steps.pin.outputs.tag }}
+        SUITE_SOURCE: ${{ steps.image.outputs.hit == 'true' && 'runner image' || 'make cad-setup' }}
       run: |
         set -euo pipefail
         echo "$SUITE_DIR/bin" >> "$GITHUB_PATH"
         echo "$SUITE_DIR/py3bin" >> "$GITHUB_PATH"
         {
           echo "### OSS CAD Suite"
-          echo "- pinned release: $SUITE_TAG (mk/oss-cad-pin.mk)"
+          echo "- pinned release: $SUITE_TAG (mk/oss-cad-pin.mk), from the $SUITE_SOURCE"
           echo "- yosys: \`$("$SUITE_DIR/bin/yosys" -V)\`"
         } >> "$GITHUB_STEP_SUMMARY"
