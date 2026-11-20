@@ -374,6 +374,7 @@ cad-pin:
 	@printf 'path=%s\n' '$(SAIL_DOWNLOAD_DIR)'
 	@printf 'dir=%s\n' '$(OSS_CAD_DIR)'
 	@printf 'tag=%s\n' '$(OSS_CAD_TAG)'
+	@printf 'yosys=%s\n' '$(OSS_CAD_YOSYS)'
 
 cosim: test/cosim.cc test/rtl.cc
 	clang++ -O2 -DNDEBUG -std=c++17 -Wall -Wextra -Werror \

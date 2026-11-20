@@ -47,8 +47,8 @@ job.**
 - **CI**: the composite action runs `make cad-setup` on every job, with the tarball cached by the
   pin (`make cad-pin` prints the key, mirroring `make riscv-gcc-pin`), and adds the pinned `bin/`
   and `py3bin/` to `PATH`. It never uses `/opt/oss-cad-suite` and never asks GitHub for the
-  latest release. The runner image (the separate `cluster` repo) may still bake a suite in; the
-  action installs on top and ignores it, so a new image changes nothing here. Every job keeps
+  latest release. (Amended below: the image bakes the pinned release and the action uses it when
+  it matches.) Every job keeps
   its `runs-on` expression unchanged.
 - **Graded**: `make doctor` reports whether yosys, nextpnr, icetime and sby on `PATH` are the
   pinned release. `test/oss_cad_pin_test.sh`, on `make test`'s path as `oss-cad-pin-test`, fails
@@ -86,3 +86,20 @@ cannot synthesise on any release):
 
 So `make netlist-determinism` is red on the pinned release too, at an earlier check, and the digest
 gate it controls is void on this release until that is looked at. CI does not run it.
+
+## Amendment 2026-11-14: the runner image bakes the pinned release, and CI uses it when it matches
+
+**Measured.** On the first green run after the pin, the setup step took 65 to 274 s per job
+across 28 jobs (median about 160 s). On the median job (`ecp5-timing`), 124 s of it was the
+689 MB tarball restored from the cache service at 5.6 MB/s, 3 s the SHA-256 and 27 s the unpack.
+
+**Decision.** The runner image (the separate `runner` repo's `Dockerfile`) installs the pinned
+release, from a pinned tag and one SHA-256 per Linux asset, into `/opt/oss-cad-suite-<tag>`.
+The action uses that directory when its `VERSION` names the pin and its `yosys -V` starts with
+the pin's yosys text, and runs `make cad-setup` otherwise. A pin moved ahead of the image is
+therefore slow and never wrong. This reverses "it is not done here" above: the copy is not hashed
+by this repo, but the image that holds it hashes the same asset against the same digest and is
+built by the same owner, which is no weaker a source than the cache service the fallback reads.
+
+**What a move costs now.** A newer release is this repo's pin change and then the image's
+`OSS_CAD_TAG` and digests moved to match; until the image is rebuilt, jobs take the download.

@@ -136,8 +136,9 @@ run from a standing grant into a per-run approval; it lives in the repo's Action
 
 The OSS CAD Suite follows the same shape: `mk/oss-cad-pin.mk` names one release and a SHA-256 per
 platform asset, `make cad-setup` refuses a tarball that does not match, and
-`.github/actions/setup-oss-cad-suite` installs through it on every job, never taking the runner
-image's copy or the latest release (ADR-0260).
+`.github/actions/setup-oss-cad-suite` installs through it on every job, never taking the latest
+release. It takes the runner image's copy only when that copy's `VERSION` and `yosys -V` match the
+pin; the image installs it from the same digests (ADR-0260, amended).
 
 **A new dependency that downloads and then executes something, without an equivalent control, is
 a real finding** — not because the risk is large in absolute terms, but because the repo
