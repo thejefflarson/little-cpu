@@ -792,6 +792,10 @@ early-exit-pipe-test:
 exec-mode-test:
 	@./test/exec_mode_test.py
 
+.PHONY: netlist-digest-test
+netlist-digest-test:
+	@python3 ./test/netlist_digest_test.py
+
 .PHONY: macro-register-test
 macro-register-test:
 	@./test/macro_register_test.sh
@@ -940,7 +944,7 @@ TEST_CHECKS := sim test-units probe-gates pin-bump-test pin-bump-token-test \
                compare-product-schedule-token-test compare-product-schedule-publish-test \
                tool-cache-test riscv-gcc-pin-test oss-cad-pin-test memmap-test adr-numbering-test \
                compare-geometry-test hazard3-config-test vexriscv-path-test retired-term-test \
-               port-connect-test march-test riscv-gcc-search-test tmp-path-test early-exit-pipe-test exec-mode-test \
+               port-connect-test march-test riscv-gcc-search-test tmp-path-test early-exit-pipe-test exec-mode-test netlist-digest-test \
                band-source-test figure-stamp-test zkt-isolation-test fixture-freshness-test window-test \
                imem-share-test memcheck-depth-test abc-engine-test makefile-target-test \
                mutation-probe dual-build board-elaborate tracked-ignored-test \

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The mapped netlist's digest, and the one direction it is sound in.
+r"""The mapped netlist's digest, and the one direction it is sound in.
 
 A sixteen-seed sweep is about twelve minutes a side, and the shipping SoC's
 worst placement of sixteen sits a fraction of a nanosecond over the 12 MHz
@@ -26,8 +26,16 @@ comment inserted, a tree with a blank line inserted and a tree with a dead
 tie-off injected usually digest to the base tree's value, and a one-bit constant
 change does not.
 
+ONE NAME IS RENUMBERED: yosys 0.70's `$auto$rtlil_bufnorm.cc:N:bufNormalize$M`
+cells carry a running counter, so a comment upstream shifts M with the mapped
+logic unchanged. Each is renamed by a hash of its whole content (type,
+parameters, attributes, connections) plus a rank among identical ones. That is
+sound because the content stays in the digested value and the rank keeps the
+count, so the renamed set is the original multiset: any change to a buffer's
+content or number still moves the digest.
+
 THAT "USUALLY" IS THE CAVEAT, AND IT IS MEASURED. This script drops `src` and
-`module_src` but keeps every cell and net NAME, and yosys's auto-generated names
+`module_src` but keeps every other cell and net NAME, and yosys's auto-generated names
 embed the source line number (`$eq$rtl/csrs.v:101$1753_Y` and so on). A comment
 can shift that number far enough to change the BYTE ORDER those names sort into,
 which is a real, mapped-netlist difference this script does not and should not
@@ -92,12 +100,17 @@ Exit: 0 equal (or digested), 1 different, 2 refused.
 import argparse
 import hashlib
 import json
+import re
 import sys
 from collections import Counter
 from itertools import islice
 
 # The two attributes a comment moves and nothing else reads.
 DROPPED_ATTRS = ("src", "module_src")
+
+# The cells yosys's bufnorm pass names by a running counter, which a comment upstream
+# shifts. Nothing else is renamed: any other name is one a person or a pass chose.
+BUFNORM_NAME = re.compile(r"^\$auto\$rtlil_bufnorm\.cc:\d+:bufNormalize\$\d+$")
 
 # What a difference means at today's margin.
 MEANING = """\
@@ -161,11 +174,33 @@ def strip_attributes(node):
     kept = {k: v for k, v in attributes.items() if k not in DROPPED_ATTRS}
     return {**node, "attributes": kept}
 
+def name_bufnorm_cells(cells):
+    """`cells` with each bufNormalize cell named by its own content, not its counter.
+
+    The name is a hash of the cell's type, parameters, attributes and connections,
+    plus a rank among cells of identical content, so the renamed set is the same
+    multiset of cells the original was and two modules differing in any buffer's
+    content, or in how many identical ones they hold, still differ. Connections
+    carry net ids, not cell names, so nothing else refers to a name dropped here.
+    """
+    ranks = Counter()
+    renamed = {}
+    for name, cell in cells.items():
+        if not BUFNORM_NAME.match(name):
+            renamed[name] = cell
+            continue
+        content = json.dumps(cell, sort_keys=True, separators=(",", ":"))
+        key = hashlib.sha256(content.encode()).hexdigest()
+        renamed[f"$auto$bufNormalize${key}#{ranks[key]}"] = cell
+        ranks[key] += 1
+    return renamed
+
 def canonical(design):
     """The design in the form the digest is taken over.
 
-    Only `attributes` objects are touched, never a name: a net called `src` is a
-    real net, and dropping keys by name wherever they appear would forgive it.
+    Attributes lose their source lines and bufNormalize cells their counter; no
+    other name is touched: a net called `src` is a real net, and dropping keys
+    by name wherever they appear would forgive it.
     """
     modules = {}
     for name, module in design["modules"].items():
@@ -177,6 +212,8 @@ def canonical(design):
             members = module.get(section)
             if isinstance(members, dict):
                 canon[section] = {k: strip_attributes(v) for k, v in members.items()}
+        if isinstance(canon.get("cells"), dict):
+            canon["cells"] = name_bufnorm_cells(canon["cells"])
         modules[name] = canon
     return {**design, "modules": modules}
 

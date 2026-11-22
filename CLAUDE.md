@@ -1023,10 +1023,10 @@ make netlist-digest # the mapped netlist's digest; `make netlist-diff BASE=<ref>
                     # spend the sweep. netlist-determinism is a prerequisite, and its
                     # comment-class case now exercises a large representative file rather
                     # than the small one that could never have caught this. Under the shared
-                    # ABC9 script that case is RED on yosys 0.68 (+68 SB_LUT4 in rtl/csrs.v)
-                    # and on the pinned 0.70 (same cell counts, SB_MAC16 buffer-cell numbering
-                    # only, bitstream byte-identical), so the gate is void on both and every
-                    # change owes the sweep (ADR-0170)
+                    # ABC9 script that case is RED on yosys 0.68 (+68 SB_LUT4 in rtl/csrs.v), so
+                    # the gate is void there and every change owes the sweep. On the pinned 0.70
+                    # it is green: bufNormalize cells are named by content, so the counter a
+                    # comment shifts is forgiven and nothing else is (ADR-0170, amended)
 make compare-timing # this core, VexRiscv and Hazard3 (COMPARE_CORE=hazard3 or hazard3_perf) in ONE harness, on the two parts
                     # this design ships to. COMPARE_PART picks one -- up5k (default),
                     # where the 12 MHz step GATES pass/fail and the comparison is

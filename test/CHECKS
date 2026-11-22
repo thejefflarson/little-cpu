@@ -57,6 +57,7 @@ march-test | fast | - | - | @all test/march_test.sh CLAUDE.md docs/ Makefile nan
 tmp-path-test | fast | - | - | @all test/tmp_path_test.sh Makefile mk/ test/probe_gates.sh
 early-exit-pipe-test | fast | - | - | @all test/early_exit_pipe_test.sh
 exec-mode-test | fast | - | - | @all test/exec_mode_test.py Makefile
+netlist-digest-test | fast | - | - | @all test/netlist_digest_test.py soc/netlist_digest.py Makefile
 band-source-test | fast | - | - | @all test/band_source_test.py CLAUDE.md soc/ docs/ test/
 figure-stamp-test | fast | - | - | @all test/figure_stamp_test.py nano/ docs/ README test/
 fixture-freshness-test | fast | - | - | @all test/fixture_freshness_test.py test/probe_gates.sh

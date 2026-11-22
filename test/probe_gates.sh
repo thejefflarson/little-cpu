@@ -6989,6 +6989,47 @@ d=$(nd_pair); mutate "$d/new.json" \
 probe "a module that appeared is named too" 1 "modules in this tree only: SB_MAC16" \
   "$ND compare $d/base.json $d/new.json"
 
+nd_bufnorm_pair() {  # <python run on the new tree's cells, "" for none>
+  local d; d=$(nd_pair)
+  python3 - "$d/base.json" "$d/new.json" "$1" <<'PY'
+import json, sys
+base, new, edit = sys.argv[1:4]
+prefix = "$auto$rtlil_bufnorm.cc:460:bufNormalize$"
+def buf(width, y):
+    return {"hide_name": 1, "type": "$buf", "parameters": {"WIDTH": width},
+            "attributes": {}, "connections": {"A": ["z"], "Y": y}}
+for path, first in ((base, 10), (new, 910)):
+    design = json.load(open(path))
+    cells = design["modules"]["littlesoc"]["cells"]
+    cells[f"{prefix}{first}"] = buf("1", [7])
+    cells[f"{prefix}{first + 1}"] = buf("1", [8])
+    if path == new:
+        exec(edit, {"cells": cells, "prefix": prefix, "buf": buf})
+    json.dump(design, open(path, "w"))
+PY
+  printf '%s' "$d"
+}
+
+d=$(nd_bufnorm_pair "")
+probe "bufNormalize cells renumbered by a shifted counter are forgiven" 0 "DIGEST-EQUAL" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_bufnorm_pair 'cells[prefix + "911"]["connections"]["Y"] = [9]')
+probe "a bufNormalize cell wired to a different net is not forgiven" 1 "DIGEST-DIFFERENT" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_bufnorm_pair 'del cells[prefix + "911"]')
+probe "a bufNormalize cell that disappeared is not forgiven" 1 "DIGEST-DIFFERENT" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_bufnorm_pair 'cells[prefix + "912"] = buf("1", [8])')
+probe "a duplicate bufNormalize cell is counted, not collapsed" 1 "DIGEST-DIFFERENT" \
+  "$ND compare $d/base.json $d/new.json"
+
+d=$(nd_bufnorm_pair 'cells["$auto$opt_clean.cc:9:x$1"] = cells.pop(prefix + "911")')
+probe "only bufNormalize names are renumbered, any other auto name is kept" 1 "DIGEST-DIFFERENT" \
+  "$ND compare $d/base.json $d/new.json"
+
 d=$(nd_pair); mutate "$d/new.json" 's/Yosys 0.68 (git sha1 abcdef0)/Yosys 0.55 (git sha1 abcdef0)/'
 probe "a toolchain that moved is a different digest, and is named first" 1 \
   "toolchain: Yosys 0.68" "$ND compare $d/base.json $d/new.json"
