@@ -32,7 +32,7 @@ def design(numbers=(10, 11, 12)):
         f"{PREFIX}{numbers[0]}": buf("1", ["z"], [7]),
         f"{PREFIX}{numbers[1]}": buf("1", ["z"], [8]),
         f"{PREFIX}{numbers[2]}": buf("32", ["z"] * 32, list(range(20, 52))),
-        "lut.1": {"type": "SB_LUT4", "parameters": {}, "attributes": {},
+        "lut.1": {"type": "SB_DFF", "parameters": {}, "attributes": {},
                   "connections": {"I0": [2], "O": [3]}},
     }
     return {"creator": "test", "modules": {"top": {
