@@ -155,3 +155,25 @@ of `test/march_test.sh`, on `make test`'s path — refuses either retired name i
 outside a named allow-list (dated ADRs and proposals, and `soc/compare/product.json`'s own stamp,
 which still names the compiler the runners actually used when it was taken). Its forced-red probe
 is in `test/probe_gates.sh`.
+
+## Amendment, 2026-11-22: the runner image bakes the pinned compiler, and CI links it in
+
+**Measured.** On two consecutive CI attempts on 2026-11-22, two mutation-check shards spent their
+whole 45-minute budget in this compiler's setup. Restoring the 432 MB linux-x64 tarball from the
+cache service ran at 0.1 MB/s and gave up after two minutes. The fallback download from GitHub then
+hung until the job was cancelled, and no mutation was tested. The same shards take 9 to 11 minutes
+when the fetch is healthy.
+
+**Decision.** The runner image (the separate `runner` repo's `Dockerfile`) installs the pinned
+release, from this Makefile's version and linux-x64 digest, into `/opt/riscv-gcc-<version>`, and
+writes the same two-line `.riscv-gcc-pin` stamp `make riscv-gcc-setup` writes. Before any fetch,
+`.github/actions/setup-riscv-gcc` compares the stamp's first line with this Makefile's pin and the
+compiler binary's SHA-256 with the stamp's second line. On an exact match it links the copy in as
+the tool cache's `riscv-gcc` and skips the cache restore; otherwise it falls back to the restore and
+fetch. `make riscv-gcc-setup` runs either way and re-checks the binary against its stamp, so a pin
+moved ahead of the image is slow and never compiles with the wrong compiler. This follows the OSS
+CAD Suite's image path (ADR-0260, 2026-11-14 amendment), and the trust argument is the same: the
+image hashes the same asset against the same digest and is built by the same owner.
+
+**What a move costs now.** A new compiler version is this Makefile's change, then the image's
+`RISCV_GCC_VERSION` and digest moved to match. Until the image is rebuilt, jobs take the download.

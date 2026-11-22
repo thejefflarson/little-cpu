@@ -1176,7 +1176,8 @@ it), **outside the checkout**: a git worktree is given tracked files only and a 
 gitignored, so an install inside the checkout is invisible from every worktree. `make test`
 enforces it.
 
-Toolchain: `make riscv-gcc-setup` fetches the pinned RISC-V gcc on both platforms (ADR-0190); svlint
+Toolchain: `make riscv-gcc-setup` fetches the pinned RISC-V gcc on both platforms, and CI links in the
+runner image's `/opt/riscv-gcc-<version>` instead when its stamp names the pin (ADR-0190, amended); svlint
 is `brew install svlint` on macOS or `make lint-setup` on Linux: x86_64 verifies the release
 archive's SHA-256, and aarch64 (the runner pool), where svlint publishes no asset, builds the
 pinned crate with `cargo install --locked`, which checks every crate against the crates.io index

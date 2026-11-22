@@ -283,6 +283,9 @@ riscv-gcc-pin:
 	@printf 'key=%s\n' '$(RISCV_GCC_CACHE_KEY)'
 	@printf 'path=%s\n' '$(SAIL_DOWNLOAD_DIR)'
 	@printf 'tarball=%s\n' '$(RISCV_GCC_TARBALL)'
+	@printf 'version=%s\n' '$(RISCV_GCC_VERSION)'
+	@printf 'pin=%s\n' '$(RISCV_GCC_PIN)'
+	@printf 'dir=%s\n' '$(RISCV_GCC_DIR)'
 
 OSS_CAD_TOOLS   := yosys nextpnr-ice40 nextpnr-ecp5 icetime sby
 OSS_CAD_STAMP   := $(OSS_CAD_DIR)/.oss-cad-pin
