@@ -182,3 +182,32 @@ could move the netlist still owes the sixteen paired seeds. This amendment recor
 means: a classifier that does not forgive buffer-cell numbering, not an unforgiven mapping change.
 Forgiving it is a change to the canonical form, which that amendment's argument applies to as it
 applied to moving the file, and is left as separate work.
+
+## Amendment 2026-11-21: bufNormalize cells are named by content, and the gate is live on 0.70
+
+The 2026-11-21 amendment above left the 0.70 red as a naming effect and put forgiving it down as
+separate work. This is that work. `soc/netlist_digest.py` renames each cell matching
+`$auto$rtlil_bufnorm.cc:N:bufNormalize$M` to `$auto$bufNormalize$<sha256 of the cell's whole
+content>#<rank>` before it hashes, where the rank counts cells of identical content. Nothing else is
+renamed: every other cell name and every net name is kept as before.
+
+**Why it is sound.** The hash covers type, parameters, attributes and connections, and the cell keeps
+all of them in the digested value, so a buffer wired to another net, widened, or given another
+attribute differs in its value and in its name. The rank makes the renamed cells the same multiset
+as the originals, so a buffer that disappeared, or one more identical to an existing buffer, still
+changes the dictionary. What is forgiven is only the counter's value, which `M` is: the pass assigns
+it from `$autoidx`, so a comment upstream shifts it with no change to the mapped logic. Connections
+hold net ids and no cell names, so nothing else refers to a name that was dropped. What the form
+cannot tell apart is which buffer held which counter value, which no input to the placer records.
+
+**What the control reads on 0.70.** On yosys 0.70+360 the `rtl/csrs.v` comment class is now
+DIGEST-EQUAL, and `make netlist-determinism` passes end to end: two placements of the base agree,
+the mutant's canonical digest equals the base's, and the mutant places to the base's bitstream
+byte for byte. A real mapping change still reads different: `make probe-gates`'s `a one-bit constant is a different digest` stays red.
+
+**Decision: the gate is live on the pinned release.** An equal digest again skips the sixteen-seed
+sweep on 0.70, on the same one-directional claim as before: equal is sound, different implies
+nothing. It stays void on any release where `make netlist-determinism` is red, as on 0.68. The
+forced-red probes in `make probe-gates` (`bufNormalize cells renumbered...` and the four that follow
+it) hold both sides: a renumbering is forgiven, and a rewired, deleted, duplicated or non-bufNormalize
+auto-named cell is not. `test/netlist_digest_test.py` grades the canonicalizer directly.

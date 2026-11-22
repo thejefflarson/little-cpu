@@ -169,6 +169,8 @@ a board suite that sudo-runs a path the check did not resolve is red
 a board_report that does not reach the driver's verdict path is red
 a branch already on this repository stops the bump
 a budget under the phases' worst case that is not refused is red
+a bufNormalize cell that disappeared is not forgiven
+a bufNormalize cell wired to a different net is not forgiven
 a build artifact missing is exit 2, not a probe against nothing
 a build file pinned to a different Hazard3 than the Makefile is red
 a build-file line this cannot read stops rather than being skipped
@@ -306,6 +308,7 @@ a driver with no unclaimed-file rule skips past a file no row claims
 a dual directory that is not there is the failure this exists to see
 a dual grader that accepts a capture holding only debugger chatter is red
 a dual grader that accepts any DUAL line whatever its c1 is red
+a duplicate bufNormalize cell is counted, not collapsed
 a duplicated manifest line would make comm non-symmetric
 a failed extraction of the base ref stops the sweep
 a failing assembler is ASSEMBLE-ERROR
@@ -1105,6 +1108,7 @@ board.lds putting .data back at ram's origin is red
 board.lds putting the stack back at the top of ram is red
 boot.lds putting .data back at ram's origin is red
 boot.lds putting the stack back at the top of ram is red
+bufNormalize cells renumbered by a shifted counter are forgiven
 buffering words during the start-up window is red
 build_batch.sh not passing the ROM size to the linker is red
 check is run only when the shards and the baseline collector are both there
@@ -1431,6 +1435,7 @@ one recipe name with two bodies is red, naming both lines
 one red tool leaves no partial stamp on stdout
 one side alone is not a cross-core figure
 one source present and a second missing is refused, not read as nothing landed
+only bufNormalize names are renumbered, any other auto name is kept
 opening a pull request with the workflow's own token instead of an issue is red
 output this script does not recognize is exit 3, not guessed at
 over budget names the count and the budget
