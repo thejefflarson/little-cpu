@@ -140,3 +140,45 @@ rules give anyway when the digest is not available. That is the sound direction.
 usable again only when the comment class passes on `rtl/csrs.v`, for example if the shipping flow
 stops embedding source line numbers in the cell names `abc9_ops` sorts by. That change would move
 every shipping netlist and is separate work, priced on its own sweep.
+
+## Amendment 2026-11-21: on yosys 0.70 the dead net never survives mapping, and the comment class is red for a different reason
+
+**Why the dead-net precondition failed.** On yosys 0.70+360 (OSS CAD Suite 2026-11-09, the pinned
+release) the injected `netlist_control_dead` wire is in the design when `synth_ice40` reaches its
+`map_luts` stage and gone when that stage ends: the `abc9` pass drops a public wire nothing reads.
+Measured by running `synth_ice40 -run :map_luts` and then `abc9 -W 250` by hand with a `select`
+count of the wire between them (1 before, 0 after). Every shape of dead net tried vanished the same
+way (a 32-bit swizzle, a full-width alias, a one-bit XOR, a reduction, an alias of a live signal);
+only `(* keep *)` kept one, and a kept wire also survives `opt_clean -purge`, so it would not be
+purged from the canonical form and cannot stand in for the class. The shipping netlist's surviving
+extra net names (153 of them on this tree) are all wires some cell reads, such as `flash.mosi`, and
+`opt_clean -purge` is what removes those. On 0.68 the same wire survived `abc9` as an
+`unused_bits` entry, which is why the old check looked for it in the shipping JSON.
+
+**What the precondition tests now.** `soc/netlist_determinism.sh` looks for the wire in the design
+the mapper reads (`$NETLIST_SYNTH -run :map_luts`, then `select -list`), which keeps what the check
+was written to catch: a tie-off injected into a submodule is flattened to a different name and not
+found, and a frontend that dropped the assign is not found either. It no longer requires the wire to
+be in the shipping JSON, because the flow itself deletes it there; it still requires the wire to be
+absent from the canonical JSON. The forced-red direction is the same probe in `make probe-gates`
+(`a dead tie-off that never reached the netlist exercises no class`), now with a stub whose
+pre-mapping `select` finds nothing.
+
+**What the comment class reads on 0.70.** Run on the pinned release with the fixed control: the
+two-line comment at the top of `rtl/csrs.v` leaves the canonical netlist at 6,625 cells and 4,599
+`SB_LUT4` on both sides, so the +68 `SB_LUT4` of the 0.68 reading does not reproduce here. The digest
+is still DIGEST-DIFFERENT, and everything that moved is the numbering of `$auto$rtlil_bufnorm.cc:460:bufNormalize$N`
+buffer cells and the net ids beside them inside the two `SB_MAC16` wrapper modules, which
+`soc/netlist_digest.py` keeps because it drops only `src` and `module_src`. Placing the mutant
+with `nextpnr-ice40 --up5k --package sg48 --pcf soc/littlesoc.pcf` (the default seed) writes a
+bitstream byte-identical to the base tree's, both at 14.33 MHz. So the control stays red by the
+digest's own rule, the placer is unmoved, and the red is a naming effect and not a mapping one.
+The earlier stages pass: two placements of the base netlist agree byte for byte, the mutant's
+shipping netlist differs from the base's, and the dead net reaches the mapper.
+
+**Decision: unchanged.** `NETLIST_COMMENT_FILE` stays `rtl/csrs.v` and the control stays red, as the
+2026-11-13 amendment decided; the digest gate remains void on this release and every change that
+could move the netlist still owes the sixteen paired seeds. This amendment records what the red now
+means: a classifier that does not forgive buffer-cell numbering, not an unforgiven mapping change.
+Forgiving it is a change to the canonical form, which that amendment's argument applies to as it
+applied to moving the file, and is left as separate work.

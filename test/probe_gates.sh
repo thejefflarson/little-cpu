@@ -7262,6 +7262,11 @@ case \$(pwd) in
   *)        tree=this ;;
 esac
 case \$script in
+  *"-run :map_luts"*)
+    if [ "\$tree" = mutant ] && [ -z "\${STUB_YOSYS_NO_DEAD:-}" ]; then
+      echo "littlesoc/netlist_control_dead"
+    fi
+    exit \${STUB_YOSYS_EXIT:-0} ;;
   *"opt_clean -purge"*)
     if [ "\$tree" = mutant ] && [ -n "\${STUB_YOSYS_CANON_MOVED:-}" ]; then
       cp "$2/canon.moved.json" "\$out"
@@ -7273,10 +7278,8 @@ case \$script in
   *)
     if [ "\$tree" != mutant ] || [ -n "\${STUB_YOSYS_NO_TRACE:-}" ]; then
       printf 'shipping netlist\n' > "\$out"
-    elif [ -n "\${STUB_YOSYS_NO_DEAD:-}" ]; then
-      printf 'shipping netlist, mutated\n' > "\$out"
     else
-      printf 'shipping netlist, mutated, netlist_control_dead\n' > "\$out"
+      printf 'shipping netlist, mutated\n' > "\$out"
     fi ;;
 esac
 exit \${STUB_YOSYS_EXIT:-0}
@@ -7374,7 +7377,7 @@ probe "a bitstream the placer never finished writing is not a placement" 1 \
 
 d=$(nl_fixture)
 probe "a dead tie-off that never reached the netlist exercises no class" 1 \
-  "left no trace in the mapped netlist" "STUB_YOSYS_NO_DEAD=1 $(nl_run "$d")"
+  "not in the design the mapper reads" "STUB_YOSYS_NO_DEAD=1 $(nl_run "$d")"
 
 d=$(nl_fixture)
 probe "...and one the purge did not remove means the digest is equal by luck" 1 \
