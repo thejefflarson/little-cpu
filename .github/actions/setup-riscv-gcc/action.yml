@@ -1,10 +1,11 @@
 name: Set up the pinned RISC-V gcc
 description: >-
-  Fetches and SHA-256-verifies the pinned xPack riscv-none-elf-gcc release (`make
-  riscv-gcc-setup`), caching the ~400 MB tarball by the pin -- version, asset name and
-  digest -- so a matching pin reuses the cache instead of downloading it again. Every
-  consumer resolves the compiler through `make`, which puts it on PATH itself
-  (mk/toolchain.mk), so this action does not touch GITHUB_PATH.
+  Puts the pinned xPack riscv-none-elf-gcc where `make` looks for it (mk/toolchain.mk), so
+  this action does not touch GITHUB_PATH. The runner image bakes that release at
+  /opt/riscv-gcc-<version> with the stamp `make riscv-gcc-setup` writes; when the stamp
+  names the pin and the compiler's digest matches it, the copy is linked in. Otherwise the
+  tarball is restored from the cache by the pin, or fetched. `make riscv-gcc-setup` runs
+  either way and re-verifies the binary, so a stale image costs time, never the compiler.
 runs:
   using: composite
   steps:
@@ -15,9 +16,34 @@ runs:
         set -euo pipefail
         make --no-print-directory riscv-gcc-pin > "$RUNNER_TEMP/riscv-gcc-pin.txt"
         cat "$RUNNER_TEMP/riscv-gcc-pin.txt"
-        grep -E '^(key|path)=' "$RUNNER_TEMP/riscv-gcc-pin.txt" >> "$GITHUB_OUTPUT"
+        grep -E '^(key|path|version|pin|dir)=' "$RUNNER_TEMP/riscv-gcc-pin.txt" >> "$GITHUB_OUTPUT"
+
+    - name: Link the runner image's copy when it is the pinned release
+      id: image
+      shell: bash
+      env:
+        GCC_VERSION: ${{ steps.pin.outputs.version }}
+        GCC_PIN: ${{ steps.pin.outputs.pin }}
+        GCC_DIR: ${{ steps.pin.outputs.dir }}
+      run: |
+        set -euo pipefail
+        img="/opt/riscv-gcc-$GCC_VERSION"
+        stamp_pin=$(sed -n 1p "$img/.riscv-gcc-pin" 2> /dev/null || true)
+        stamp_bin=$(sed -n 2p "$img/.riscv-gcc-pin" 2> /dev/null || true)
+        have_bin=$(sha256sum "$img/bin/riscv-none-elf-gcc" 2> /dev/null | cut -d ' ' -f 1 || true)
+        if [ "$stamp_pin" = "$GCC_PIN" ] && [ -n "$have_bin" ] && [ "$have_bin" = "$stamp_bin" ]; then
+          mkdir -p "$(dirname "$GCC_DIR")"
+          rm -rf "$GCC_DIR"
+          ln -s "$img" "$GCC_DIR"
+          echo "linked the image's pinned riscv-gcc at $img"
+          echo "hit=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "image has no pinned riscv-gcc at $img (stamp '${stamp_pin:-none}'); fetching it"
+          echo "hit=false" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Restore the pinned riscv-gcc tarball
+      if: steps.image.outputs.hit != 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.pin.outputs.path }}
