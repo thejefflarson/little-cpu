@@ -4,9 +4,8 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-# Spelled out rather than left to `${VAR:?}`, whose exit status is the shell's to choose:
-# this one is probed, and a status that moves with /bin/sh is a probe that passes on one
-# machine and not the next.
+# Spelled out rather than left to `${VAR:?}`, whose exit status is the shell's to choose
+# and so would make this probed status vary with /bin/sh.
 for required in "NETLIST_SYNTH=${NETLIST_SYNTH:-}" "NETLIST_PNR=${NETLIST_PNR:-}" \
                 "NETLIST_MUTANT=${NETLIST_MUTANT:-}" \
                 "NETLIST_COMMENT_FILE=${NETLIST_COMMENT_FILE:-}"; do
@@ -25,7 +24,6 @@ case $out in
              echo "*** directory this may delete and rebuild." >&2; exit 2 ;;
 esac
 
-# The file the mutation goes into and the signal the dead wire reads.
 MUTANT_FILE=${NETLIST_MUTANT%% *}
 MUTANT_SIGNAL=${NETLIST_MUTANT##* }
 DEAD_NET=netlist_control_dead
@@ -170,19 +168,22 @@ if cmp -s "$out/this.json" "$out/mutant.json"; then
 fi
 echo "   the mutant's shipping netlist differs from this tree's, as it must"
 
-if ! grep -q "$DEAD_NET" "$out/mutant.json"; then
-  fail "the injected dead tie-off left no trace in the mapped netlist, so the" \
+# ABC9 drops a net nothing reads, so the dead tie-off is looked for in the design the mapper
+# reads: the shipping netlist never holds it, and a submodule's copy is renamed by flatten.
+if ! ( cd "$mutant" && yosys -p "$NETLIST_SYNTH -run :map_luts; select -list w:$DEAD_NET" ) \
+     2>&1 | grep -q "/$DEAD_NET\$"; then
+  fail "the injected dead tie-off is not in the design the mapper reads, so the" \
        "dead-net class is not exercised and only the comment class is." \
        "$MUTANT_FILE has to be the TOP module: injected into a submodule this" \
-       "wire is optimised away before the netlist is written, and the two" \
-       "netlists then differ in source attributes alone."
+       "wire is optimised away before mapping, and the two netlists then" \
+       "differ in source attributes alone."
 fi
 if grep -q "$DEAD_NET" "$out/mutant.canon.json"; then
   fail "the dead tie-off survives \`opt_clean -purge\` into the canonical form," \
        "so the canonicalisation is no longer what forgives a dead net and the" \
        "digest below is equal for some other reason."
 fi
-echo "   the dead net reaches the shipping netlist and is purged from the canonical one"
+echo "   the dead net reaches the mapper and is absent from the canonical netlist"
 
 if ! python3 soc/netlist_digest.py compare "$out/this.canon.json" "$out/mutant.canon.json" \
      --base-label "this tree" --new-label "this tree, mutated" > "$out/mutant.digest.log" 2>&1; then
